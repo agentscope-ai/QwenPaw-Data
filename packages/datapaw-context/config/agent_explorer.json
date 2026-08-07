@@ -1,0 +1,140 @@
+{
+  "agent": {
+    "decision_temperature": 0.0,
+    "decision_max_retries": 2,
+    "sql_temperature": 0.0,
+    "semantic_split_temperature": 0.0,
+    "semantic_split_max_retries": 2,
+    "retrieval_rewrite_temperature": 0.0,
+    "retrieval_rewrite_max_retries": 2,
+    "retrieval_entity_expand_temperature": 0.0,
+    "retrieval_entity_expand_max_retries": 2,
+    "followup_intent_temperature": 0.0,
+    "followup_intent_max_retries": 2,
+    "strategy_semantics_temperature": 0.2,
+    "strategy_semantics_max_retries": 1
+  },
+  "llm": {
+    "retrieval_rewrite": true,
+    "retrieval_entity_expand": true,
+    "semantic_split": false,
+    "decision": true,
+    "sql_generation": true,
+    "strategy_semantics_distill": true,
+    "sql_explanation": true,
+    "followup_intent": true
+  },
+  "thinking": {
+    "agent": {
+      "retrieval_rewrite": false,
+      "retrieval_entity_expand": false,
+      "semantic_split": false,
+      "decision": false,
+      "sql_generation": true,
+      "strategy_semantics_distill": true
+    },
+    "explorer": {}
+  },
+  "recall": {
+    "anchor_k_fulltext": 25,
+    "anchor_k_vector": 25,
+    "anchor_knowledge_score_scale": 0.4,
+    "anchor_knowledge_merge_cap": null,
+    "strategy_card_top_k": 5,
+    "strategy_card_auto_accept_threshold": 0.85,
+    "strategy_card_auto_accept_gap": 0.1,
+    "semantic_split_max_facets": 8,
+    "candidate_edges_max_anchors": 16,
+    "candidate_edges_per_node_limit": 80,
+    "candidate_edges_max_total_edges": 400,
+    "decision_candidate_edge_hops": 2,
+    "decision_max_path_edges": 36,
+    "decision_react_max_rounds": 3,
+    "decision_react_expand_new_edges_cap": 240,
+    "traversal_edge_direction": "out",
+    "relevance_text_weight": 0.4,
+    "relevance_vec_weight": 0.6,
+    "relevance_threshold": 0.40,
+    "relevance_floor": 0.20,
+    "rerank_enabled": true,
+    "rerank_provider": "llm",
+    "rerank_model": null,
+    "rerank_top_n": 12,
+    "rerank_score_weight": 0.5,
+    "rerank_timeout_sec": 8.0,
+    "l1_primary_metrics": 1,
+    "l1_max_alternatives": 5,
+    "l1_knowledge_max": 2,
+    "pack_max_source_columns": 8,
+    "pack_max_drill_dimensions": 8,
+    "pack_max_common_filters": 5,
+    "pack_max_related_metrics": 5,
+    "pack_max_knowledge": 3,
+    "pack_max_events": 5,
+    "pack_event_desc_chars": 400,
+    "pack_knowledge_summary_chars": 200
+  },
+  "explore": {
+    "global_graph_max_edges": 800,
+    "global_graph_max_nodes": 600,
+    "search_nodes_limit": 25,
+    "expand_max_edges": 80,
+    "domain_graph_max_nodes": 200
+  },
+  "explore_synthesis": {
+    "enabled": true,
+    "fields": {
+      "summary": true,
+      "usage_guidance": true,
+      "related_metrics_nl": true,
+      "experience_hints": true
+    },
+    "hop2": {
+      "enabled": true,
+      "max_targets": 4,
+      "candidate_sources": [
+        "related_metrics",
+        "source_columns",
+        "related_cards"
+      ]
+    },
+    "llm": {
+      "model": null,
+      "synthesis_max_tokens": 1200,
+      "picker_max_tokens": 200,
+      "temperature": 0.2,
+      "picker_timeout_sec": 8.0,
+      "synthesis_timeout_sec": 15.0
+    },
+    "context": {
+      "include_original_query": true,
+      "max_neighbors_per_node": 3
+    }
+  },
+  "synthesis": {
+    "path_hint": {
+      "enabled": true, "model": null, "max_tokens": 500,
+      "temperature": 0.2, "timeout_sec": 12.0
+    },
+    "explore_entity": {
+      "enabled": true,
+      "fields": {
+        "summary": true, "usage_guidance": true,
+        "related_metrics_nl": true, "experience_hints": true
+      },
+      "hop2": {
+        "enabled": true, "max_targets": 4,
+        "candidate_sources": ["related_metrics", "source_columns", "related_cards"]
+      },
+      "llm": {
+        "model": null, "synthesis_max_tokens": 1200, "picker_max_tokens": 200,
+        "temperature": 0.2, "picker_timeout_sec": 8.0, "synthesis_timeout_sec": 15.0
+      },
+      "context": {"include_original_query": true, "max_neighbors_per_node": 3}
+    },
+    "compare_entities": {
+      "enabled": true, "model": null, "max_tokens": 900,
+      "temperature": 0.2, "timeout_sec": 15.0
+    }
+  }
+}

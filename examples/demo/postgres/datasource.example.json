@@ -1,0 +1,11 @@
+{
+  "datasource_name": "Demo PG - GAAP use case",
+  "datasource_type": "postgresql",
+  "config": {
+    "host": "127.0.0.1",
+    "port": 55432,
+    "dbname": "datapaw_demo",
+    "user": "datapaw",
+    "password": "datapaw-demo"
+  }
+}

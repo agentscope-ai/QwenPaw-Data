@@ -1,0 +1,12 @@
+{
+    "datasources": [
+        {
+            "datasource_id": "example",
+            "display_name": "Example Datasource",
+            "db_type": "postgres",
+            "default_sql_backend": "direct",
+            "db_ids": ["example_db"],
+            "neo4j_database": "neo4j"
+        }
+    ]
+}

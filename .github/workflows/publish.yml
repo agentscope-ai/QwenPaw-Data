@@ -1,0 +1,61 @@
+name: Publish Python packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build release distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Verify release versions
+        if: github.event_name == 'release'
+        run: uv run python scripts/check_release_versions.py "${{ github.event.release.tag_name }}"
+
+      - name: Build all publishable packages
+        run: uv build --all-packages --out-dir dist
+
+      - name: Check package metadata
+        run: uvx --from twine==6.2.0 twine check dist/*
+
+      - name: Verify distribution set
+        run: uv run python scripts/check_release_versions.py --dist-dir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI with OIDC
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/search/?q=datapaw
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+
+      - name: Publish package distributions
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          print-hash: true

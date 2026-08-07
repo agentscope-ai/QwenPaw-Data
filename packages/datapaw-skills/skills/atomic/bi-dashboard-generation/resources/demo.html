@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>百炼用户增长分析看板</title>
+<link rel="stylesheet" href="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/tailwind.min.css">
+<script src="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/02f0288/static/echarts.min.js"></script>
+<link rel="stylesheet" href="https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/e86f985/static/bootstrap-icons/bootstrap-icons.css">
+<style>
+.fade-in { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div class="max-w-7xl mx-auto px-4 py-6">
+
+<!-- 标题栏 -->
+<div class="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl p-6 mb-6 shadow-lg fade-in">
+  <h1 class="text-3xl font-bold text-white">百炼用户增长分析看板</h1>
+  <p class="text-blue-200 text-sm mt-2"><i class="bi bi-clock-history mr-1"></i>数据周期：2025-06-01 ~ 2025-06-30</p>
+</div>
+
+<!-- 全局筛选器 -->
+<div class="flex flex-wrap items-center gap-3 p-4 bg-white rounded-lg shadow-sm mb-6 fade-in">
+  <span class="text-sm text-gray-500 font-medium"><i class="bi bi-funnel mr-1"></i>筛选</span>
+  <div class="flex items-center gap-1">
+    <label class="text-sm text-gray-600">渠道</label>
+    <select data-filter="channel" class="text-sm border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" onchange="applyFilters()">
+      <option value="__all__">全部</option>
+      <option value="自然流量">自然流量</option>
+      <option value="付费推广">付费推广</option>
+      <option value="合作伙伴">合作伙伴</option>
+    </select>
+  </div>
+  <div class="flex items-center gap-1">
+    <label class="text-sm text-gray-600">用户类型</label>
+    <select data-filter="user_type" class="text-sm border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" onchange="applyFilters()">
+      <option value="__all__">全部</option>
+      <option value="新用户">新用户</option>
+      <option value="老用户">老用户</option>
+    </select>
+  </div>
+</div>
+
+<!-- KPI 区域 -->
+<div class="flex flex-wrap gap-3 mb-6 fade-in">
+  <div class="flex-1 min-w-[140px] bg-white rounded-lg p-4 text-center shadow-sm">
+    <p class="text-2xl font-bold text-gray-800">68,432</p>
+    <p class="text-xs text-gray-500 mt-1">月均 DAU</p>
+    <p class="text-xs text-green-600 mt-1">↑ 8.2% 环比</p>
+  </div>
+  <div class="flex-1 min-w-[140px] bg-white rounded-lg p-4 text-center shadow-sm">
+    <p class="text-2xl font-bold text-gray-800">12,890</p>
+    <p class="text-xs text-gray-500 mt-1">新注册用户</p>
+    <p class="text-xs text-red-500 mt-1">↓ 3.1% 环比</p>
+  </div>
+  <div class="flex-1 min-w-[140px] bg-white rounded-lg p-4 text-center shadow-sm">
+    <p class="text-2xl font-bold text-gray-800">14.7%</p>
+    <p class="text-xs text-gray-500 mt-1">注册→激活率</p>
+    <p class="text-xs text-green-600 mt-1">↑ 1.3pp</p>
+  </div>
+  <div class="flex-1 min-w-[140px] bg-white rounded-lg p-4 text-center shadow-sm">
+    <p class="text-2xl font-bold text-gray-800">42.3%</p>
+    <p class="text-xs text-gray-500 mt-1">次日留存率</p>
+    <p class="text-xs text-gray-600 mt-1">— 持平</p>
+  </div>
+</div>
+
+<!-- 两列布局：趋势 + 漏斗 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <!-- DAU 趋势 -->
+  <div class="bg-white rounded-xl shadow-sm p-4 fade-in">
+    <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+      <i class="bi bi-graph-up-arrow text-blue-500"></i>DAU 趋势
+    </h3>
+    <div id="chart-trend" style="width:100%; height:280px;"></div>
+    <p class="text-xs text-gray-400 mt-2">数据来源：<a href="./dau_daily.csv" class="hover:underline text-blue-400" target="_blank">dau_daily.csv</a></p>
+  </div>
+
+  <!-- 注册漏斗 -->
+  <div class="bg-white rounded-xl shadow-sm p-4 fade-in">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+        <i class="bi bi-filter-circle text-indigo-500"></i>注册转化漏斗
+      </h3>
+      <select class="text-xs border border-gray-200 rounded px-2 py-1 bg-white" onchange="updateFunnel(this.value)">
+        <option value="all">全渠道</option>
+        <option value="自然流量">自然流量</option>
+        <option value="付费推广">付费推广</option>
+      </select>
+    </div>
+    <div id="chart-funnel" style="width:100%; height:280px;"></div>
+    <p class="text-xs text-gray-400 mt-2">数据来源：<a href="./funnel_data.csv" class="hover:underline text-blue-400" target="_blank">funnel_data.csv</a></p>
+  </div>
+</div>
+
+<!-- 渠道拆解 -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-6 fade-in">
+  <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+    <i class="bi bi-pie-chart text-green-500"></i>渠道构成与环比变动
+  </h3>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div id="chart-channel-pie" style="width:100%; height:240px;"></div>
+    <div id="chart-channel-bar" style="width:100%; height:240px;"></div>
+  </div>
+  <p class="text-xs text-gray-400 mt-2">数据来源：<a href="./channel_breakdown.csv" class="hover:underline text-blue-400" target="_blank">channel_breakdown.csv</a></p>
+</div>
+
+<!-- 明细表格 -->
+<div class="bg-white rounded-xl shadow-sm p-4 mb-6 fade-in">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+      <i class="bi bi-table text-gray-500"></i>渠道明细
+    </h3>
+    <span class="text-xs text-gray-400">点击列头排序</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-xs" id="detail-table">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-3 py-2 text-left font-medium text-gray-600 cursor-pointer hover:text-blue-600" onclick="sortTable(0)">渠道 <i class="bi bi-arrow-down-up"></i></th>
+          <th class="px-3 py-2 text-right font-medium text-gray-600 cursor-pointer hover:text-blue-600" onclick="sortTable(1)">新注册 <i class="bi bi-arrow-down-up"></i></th>
+          <th class="px-3 py-2 text-right font-medium text-gray-600 cursor-pointer hover:text-blue-600" onclick="sortTable(2)">激活率 <i class="bi bi-arrow-down-up"></i></th>
+          <th class="px-3 py-2 text-right font-medium text-gray-600 cursor-pointer hover:text-blue-600" onclick="sortTable(3)">次留率 <i class="bi bi-arrow-down-up"></i></th>
+          <th class="px-3 py-2 text-right font-medium text-gray-600">环比</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="border-t border-gray-50 hover:bg-gray-50">
+          <td class="px-3 py-2">自然流量</td><td class="px-3 py-2 text-right">5,680</td>
+          <td class="px-3 py-2 text-right">16.2%</td><td class="px-3 py-2 text-right">48.1%</td>
+          <td class="px-3 py-2 text-right text-red-500">↓ 11.2%</td>
+        </tr>
+        <tr class="border-t border-gray-50 hover:bg-gray-50">
+          <td class="px-3 py-2">付费推广</td><td class="px-3 py-2 text-right">4,120</td>
+          <td class="px-3 py-2 text-right">12.8%</td><td class="px-3 py-2 text-right">35.6%</td>
+          <td class="px-3 py-2 text-right text-green-600">↑ 18.5%</td>
+        </tr>
+        <tr class="border-t border-gray-50 hover:bg-gray-50">
+          <td class="px-3 py-2">合作伙伴</td><td class="px-3 py-2 text-right">2,190</td>
+          <td class="px-3 py-2 text-right">13.5%</td><td class="px-3 py-2 text-right">41.2%</td>
+          <td class="px-3 py-2 text-right text-green-600">↑ 5.3%</td>
+        </tr>
+        <tr class="border-t border-gray-50 hover:bg-gray-50">
+          <td class="px-3 py-2">站内邀请</td><td class="px-3 py-2 text-right">900</td>
+          <td class="px-3 py-2 text-right">22.1%</td><td class="px-3 py-2 text-right">55.8%</td>
+          <td class="px-3 py-2 text-right text-gray-500">— 0%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-gray-400 mt-3">数据来源：<a href="./channel_breakdown.csv" class="hover:underline text-blue-400" target="_blank">channel_breakdown.csv</a></p>
+</div>
+
+</div>
+
+<script>
+window.__data = {
+  "trend": [
+    {"date":"6/1","dau":62000,"channel":"自然流量","user_type":"新用户"},
+    {"date":"6/3","dau":63500,"channel":"自然流量","user_type":"新用户"},
+    {"date":"6/5","dau":64200,"channel":"付费推广","user_type":"老用户"},
+    {"date":"6/8","dau":65800,"channel":"自然流量","user_type":"老用户"},
+    {"date":"6/10","dau":67100,"channel":"合作伙伴","user_type":"新用户"},
+    {"date":"6/12","dau":69500,"channel":"付费推广","user_type":"新用户"},
+    {"date":"6/15","dau":78200,"channel":"自然流量","user_type":"老用户"},
+    {"date":"6/18","dau":74100,"channel":"合作伙伴","user_type":"老用户"},
+    {"date":"6/20","dau":71800,"channel":"自然流量","user_type":"新用户"},
+    {"date":"6/22","dau":69200,"channel":"付费推广","user_type":"新用户"},
+    {"date":"6/25","dau":68900,"channel":"自然流量","user_type":"老用户"},
+    {"date":"6/28","dau":69100,"channel":"合作伙伴","user_type":"新用户"},
+    {"date":"6/30","dau":68432,"channel":"自然流量","user_type":"老用户"}
+  ],
+  "funnel": {
+    "all":[{"step":"访问落地页","count":89000},{"step":"进入注册页","count":41200},{"step":"提交注册","count":18900},{"step":"完成激活","count":12890}],
+    "自然流量":[{"step":"访问落地页","count":52000},{"step":"进入注册页","count":21300},{"step":"提交注册","count":8200},{"step":"完成激活","count":5680}],
+    "付费推广":[{"step":"访问落地页","count":28000},{"step":"进入注册页","count":15200},{"step":"提交注册","count":7800},{"step":"完成激活","count":4120}]
+  }
+};
+window.__echartsInstances = [];
+
+// DAU 趋势
+(function(){
+  var c = echarts.init(document.getElementById('chart-trend'));
+  window.__echartsInstances.push(c);
+  c.setOption({
+    tooltip:{trigger:'axis'},grid:{left:50,right:20,top:20,bottom:30},
+    xAxis:{type:'category',data:window.__data.trend.map(d=>d.date),axisLabel:{fontSize:11}},
+    yAxis:{type:'value',axisLabel:{fontSize:11,formatter:v=>(v/1000)+'k'}},
+    series:[{type:'line',smooth:true,data:window.__data.trend.map(d=>d.dau),
+      areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(59,130,246,0.15)'},{offset:1,color:'rgba(59,130,246,0.01)'}]}},
+      lineStyle:{color:'#3b82f6',width:2},itemStyle:{color:'#3b82f6'},
+      markPoint:{data:[{type:'max',name:'峰值',symbolSize:40,label:{fontSize:10}}]}
+    }]
+  });
+})();
+
+// 漏斗
+function renderFunnel(ch){
+  var el=document.getElementById('chart-funnel');
+  var c=echarts.getInstanceByDom(el);
+  if(!c){c=echarts.init(el);window.__echartsInstances.push(c);}
+  var d=window.__data.funnel[ch]||window.__data.funnel["all"];
+  var mx=d[0].count;
+  c.setOption({
+    tooltip:{trigger:'item',formatter:p=>p.name+': '+p.value.toLocaleString()+' ('+((p.value/mx)*100).toFixed(1)+'%)'},
+    series:[{type:'funnel',left:'10%',right:'10%',top:10,bottom:10,width:'80%',sort:'descending',gap:2,
+      label:{show:true,position:'inside',fontSize:11,formatter:p=>p.name+'\n'+((p.value/mx)*100).toFixed(1)+'%'},
+      data:d.map(r=>({name:r.step,value:r.count})),itemStyle:{borderWidth:0},
+      color:['#3b82f6','#6366f1','#8b5cf6','#a855f7']}]
+  });
+}
+renderFunnel('all');
+function updateFunnel(v){renderFunnel(v);}
+
+// 渠道饼图
+(function(){
+  var c=echarts.init(document.getElementById('chart-channel-pie'));
+  window.__echartsInstances.push(c);
+  c.setOption({tooltip:{trigger:'item'},series:[{type:'pie',radius:['40%','70%'],center:['50%','50%'],label:{fontSize:11},
+    data:[{name:'自然流量',value:5680,itemStyle:{color:'#3b82f6'}},{name:'付费推广',value:4120,itemStyle:{color:'#f59e0b'}},
+          {name:'合作伙伴',value:2190,itemStyle:{color:'#10b981'}},{name:'站内邀请',value:900,itemStyle:{color:'#8b5cf6'}}]}]});
+})();
+
+// 渠道环比条形图
+(function(){
+  var c=echarts.init(document.getElementById('chart-channel-bar'));
+  window.__echartsInstances.push(c);
+  c.setOption({tooltip:{trigger:'axis'},grid:{left:80,right:30,top:10,bottom:30},
+    xAxis:{type:'value',axisLabel:{fontSize:11,formatter:v=>v+'%'}},
+    yAxis:{type:'category',data:['站内邀请','合作伙伴','付费推广','自然流量'],axisLabel:{fontSize:11}},
+    series:[{type:'bar',barWidth:20,
+      data:[{value:0,itemStyle:{color:'#9ca3af'}},{value:5.3,itemStyle:{color:'#10b981'}},{value:18.5,itemStyle:{color:'#10b981'}},{value:-11.2,itemStyle:{color:'#ef4444'}}],
+      label:{show:true,position:'right',fontSize:11,formatter:p=>(p.value>0?'+':'')+p.value+'%'}}]});
+})();
+
+// 筛选联动
+function applyFilters(){
+  var f={};
+  document.querySelectorAll('[data-filter]').forEach(el=>{f[el.dataset.filter]=el.value;});
+  var filtered=window.__data.trend.filter(row=>Object.keys(f).every(k=>f[k]==='__all__'||String(row[k])===f[k]));
+  window.__echartsInstances[0].setOption({xAxis:{data:filtered.map(d=>d.date)},series:[{data:filtered.map(d=>d.dau)}]});
+}
+
+// 表格排序
+function sortTable(col){
+  var t=document.getElementById('detail-table'),tb=t.querySelector('tbody'),rows=Array.from(tb.querySelectorAll('tr'));
+  var asc=t.dataset.sortCol==col&&t.dataset.sortDir=='asc'?false:true;
+  t.dataset.sortCol=col;t.dataset.sortDir=asc?'asc':'desc';
+  rows.sort((a,b)=>{var av=a.cells[col].textContent.replace(/[↑↓—%,\s]/g,''),bv=b.cells[col].textContent.replace(/[↑↓—%,\s]/g,'');
+    var an=parseFloat(av),bn=parseFloat(bv);if(!isNaN(an)&&!isNaN(bn))return asc?an-bn:bn-an;return asc?av.localeCompare(bv):bv.localeCompare(av);});
+  rows.forEach(r=>tb.appendChild(r));
+}
+
+window.addEventListener('resize',function(){(window.__echartsInstances||[]).forEach(c=>{c&&c.resize();});});
+</script>
+</body>
+</html>

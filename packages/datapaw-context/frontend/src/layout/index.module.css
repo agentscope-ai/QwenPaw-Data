@@ -1,0 +1,46 @@
+.layout :global {
+  .ant-pro-global-header {
+    width: 100%;
+    justify-content: space-between;
+    padding: 0 24px;
+  }
+
+  /* 选中菜单项圆角 */
+  .ant-menu-item-selected {
+    border-radius: 6px;
+  }
+
+  .ant-menu-title-content {
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
+
+.brandHeader {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.brandHeader .logoWordmark {
+  display: block;
+  width: auto;
+  height: 30px;
+  object-fit: contain;
+}
+
+.pageTitle {
+  margin: 0 0 16px;
+  color: rgba(38, 36, 76, 0.88);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.pageLoading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  padding: 48px;
+}

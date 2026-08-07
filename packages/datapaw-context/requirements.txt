@@ -1,0 +1,39 @@
+# 合并 semantic-config（编辑层）后，在 CM 现有环境之上需要补充的依赖。
+# CM 自身依赖（fastapi / httpx / neo4j / psycopg / openai / openpyxl 等）仍由 CM 现有方式管理。
+# 安装：pip install -r requirements-semantic-config.txt
+aiosqlite>=0.20
+pydantic-settings>=2.3
+python-multipart>=0.0.30
+neo4j>=5.18,<6.0
+openai>=1.40
+tqdm>=4.66
+python-dotenv>=1.2.2,<2.0
+requests>=2.34.2,<3.0
+certifi>=2023.0
+func-timeout>=4.3
+psycopg[binary]>=3.2
+pyyaml>=6.0
+python-docx>=1.1
+pypdf>=6.12.1
+fastapi>=0.110
+uvicorn[standard]>=0.27
+mcp>=1.28.1,<2.0  # Semantic Layer + Context MCP (streamable HTTP / stdio)
+httpx>=0.27
+duckdb>=0.10
+# --- 启动期必需（导入链）---
+sqlglot>=23.0          # graph/adapters/ddl_adapter.py 顶层导入
+openpyxl>=3.1          # semantic_config Excel 导入 + graph/*excel*
+# --- 运行期按需（多为惰性导入，装上更稳）---
+jsonschema>=4.0        # openai_client 结构化校验
+pymysql>=1.1           # mysql adapter
+jaydebeapi>=1.2        # JDBC executor
+pyodps>=0.11           # ODPS adapter（credential/extension 为阿里内部包，本地不装）
+dbt-core>=1.7,<2.0
+dbt-duckdb>=1.7,<2.0
+# Python 3.14: default mashumaro from dbt crashes at import (UnserializableField on
+# JSONObjectSchema). Pip cannot resolve mashumaro>=3.17 together with dbt-core's
+# mashumaro<3.15 pin in one shot — install deps first, then override mashumaro:
+#   pip install -r requirements.txt
+#   pip install 'mashumaro[msgpack]>=3.17,<4'
+# Pip will warn about the conflict; dbt 1.11.x runs with mashumaro 3.17+ in practice.
+# Alternative: use a Python 3.12 or 3.13 venv for dbt workloads.

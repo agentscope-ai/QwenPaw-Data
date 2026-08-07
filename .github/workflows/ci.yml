@@ -1,0 +1,415 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Compile check
+        run: >
+          uv run python -m compileall -q
+          -x '(\.venv|node_modules|__pycache__)'
+          packages scripts examples
+
+      - name: Static correctness check
+        run: >
+          uvx --from ruff==0.12.12 ruff check packages scripts examples tests
+          --select E9,F63,F7,F811,F82,F841
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: API smoke test
+        run: |
+          uv run python packages/datapaw-context/scripts/serve.py \
+            --port 8799 --log-level warning &
+          SERVE_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8799/api/health >/dev/null 2>&1; then
+              echo "smoke test OK"
+              kill "$SERVE_PID"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "smoke test FAILED" >&2
+          kill "$SERVE_PID" || true
+          exit 1
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/datapaw-context/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: packages/datapaw-context/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  windows:
+    name: Native Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: packages/datapaw-context/frontend/package-lock.json
+
+      - name: Initialize native Windows environment
+        shell: pwsh
+        run: |
+          .\scripts\init_local.ps1
+          $cliBin = Join-Path $env:LOCALAPPDATA "DataPaw\bin"
+          $env:Path = "$cliBin;$env:Path"
+          datapaw --help
+          $mcpConfig = Join-Path $HOME ".datapaw\host\workspace\.mcp"
+          if (-not (Test-Path -LiteralPath $mcpConfig -PathType Leaf)) {
+            throw "Initializer did not create the DataBridge MCP config: $mcpConfig"
+          }
+          "DATAPAW_CLI_BIN=$cliBin" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Compile and test Python workspace
+        shell: pwsh
+        run: |
+          uv run python -m compileall -q packages scripts examples
+          uvx --from ruff==0.12.12 ruff check packages scripts examples tests --select E9,F63,F7,F811,F82,F841
+          uv run pytest -q
+
+      - name: Lint initialized frontend
+        working-directory: packages/datapaw-context/frontend
+        run: npm run lint
+
+      - name: Validate native lifecycle and demo entry points
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts, examples -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$tokens, [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | Format-List
+              throw "PowerShell parse failed: $($_.FullName)"
+            }
+          }
+          py -3 scripts/init_local.py --help
+          py -3 scripts/start_local.py --help
+          pwsh -NoProfile -File scripts/init_local.ps1 --help
+          pwsh -NoProfile -File scripts/start_local.ps1 --help
+          .\examples\init_demo.ps1 -SqliteOnly
+          $env:Path = "$env:DATAPAW_CLI_BIN;$env:Path"
+          datapaw --help
+
+      - name: Native lifecycle smoke test
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP "datapaw-start.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "datapaw-start.stderr.log"
+          $server = Start-Process -FilePath "pwsh" -ArgumentList @(
+            "-NoProfile", "-File", (Resolve-Path "scripts/start_local.ps1"),
+            "--skip-neo4j"
+          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $apiHealthy = $false
+            $uiHealthy = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              if ($server.HasExited) {
+                throw "start_local.ps1 exited early with code $($server.ExitCode)"
+              }
+              try {
+                $response = Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/health" -TimeoutSec 2
+                if ($response.ok -eq $true -or $response.status -eq "ok") {
+                  $apiHealthy = $true
+                }
+              } catch {}
+              try {
+                $ui = Invoke-WebRequest -Uri "http://127.0.0.1:3000" -TimeoutSec 2
+                $uiHealthy = $ui.StatusCode -eq 200
+              } catch {}
+              if ($apiHealthy -and $uiHealthy) { break }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $apiHealthy) { throw "DataBridge health endpoint did not become ready" }
+            if (-not $uiHealthy) { throw "DataBridge UI did not become ready" }
+
+            $env:Path = "$env:DATAPAW_CLI_BIN;$env:Path"
+            datapaw datasource list
+          } finally {
+            if (-not $server.HasExited) {
+              taskkill /PID $server.Id /T /F | Out-Null
+            }
+            if (Test-Path $stdout) { Get-Content $stdout }
+            if (Test-Path $stderr) { Get-Content $stderr }
+          }
+
+      - name: Verify initialization kept the checkout clean
+        shell: pwsh
+        run: |
+          $changes = git status --porcelain
+          if ($changes) {
+            $changes
+            throw "Native initialization modified tracked files"
+          }
+
+  package:
+    name: Build and install distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install locked runtime dependencies
+        run: uv sync --all-packages
+
+      - name: Build all workspace packages
+        run: uv build --all-packages --out-dir dist
+
+      - name: Replace editable packages with built wheels
+        run: >
+          uv pip install --python .venv/bin/python
+          --reinstall --no-deps dist/*.whl
+
+      - name: Verify installed CLI and package imports
+        run: |
+          .venv/bin/datapaw --help
+          .venv/bin/python -c \
+            'import context_manager, datapaw.cli, datapaw.host.core'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+
+  databases:
+    name: Database integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: datapaw
+          POSTGRES_PASSWORD: datapaw-test
+          POSTGRES_DB: datapaw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U datapaw -d datapaw"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: datapaw-test
+          MYSQL_DATABASE: datapaw
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -pdatapaw-test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: neo4j/datapaw-test
+        ports:
+          - 7687:7687
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Exercise real database drivers
+        env:
+          DATAPAW_INTEGRATION_DATABASES: "1"
+          DATAPAW_TEST_POSTGRES_DSN: postgresql://datapaw:datapaw-test@127.0.0.1:5432/datapaw
+          DATAPAW_TEST_MYSQL_HOST: 127.0.0.1
+          DATAPAW_TEST_MYSQL_PASSWORD: datapaw-test
+          DATAPAW_TEST_NEO4J_URI: bolt://127.0.0.1:7687
+          DATAPAW_TEST_NEO4J_PASSWORD: datapaw-test
+        run: uv run pytest -q tests/integration/test_database_services.py
+
+  cli-demo-smoke:
+    name: Deterministic CLI demo smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: datapaw
+          POSTGRES_PASSWORD: datapaw-demo
+          POSTGRES_DB: datapaw_demo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U datapaw -d datapaw_demo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: neo4j/datapaw-demo
+        ports:
+          - 7687:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p datapaw-demo 'RETURN 1'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Run real datasource and agent flow
+        run: >
+          uv run python examples/smoke_test.py
+          --postgres-dsn
+          postgresql://datapaw:datapaw-demo@127.0.0.1:5432/datapaw_demo
+
+  docker:
+    name: Docker sandbox integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync workspace
+        run: uv sync --all-packages
+
+      - name: Pull test image
+        run: docker pull python:3.11-slim
+
+      - name: Verify timeout and cancellation cleanup
+        env:
+          DATAPAW_DOCKER_E2E: "1"
+        run: uv run pytest -q tests/integration/test_docker_process_cleanup.py
+
+  audit:
+    name: Supply-chain gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Export locked Python dependencies
+        run: |
+          uv export --all-packages --all-groups --format requirements.txt \
+            --no-emit-workspace -q -o /tmp/requirements.txt
+
+      - name: Audit Python dependencies
+        run: >
+          uvx --from pip-audit==2.10.1 pip-audit
+          -r /tmp/requirements.txt --disable-pip
+
+      - name: Install locked Python dependencies
+        run: uv sync --all-packages --all-groups
+
+      - name: Generate Python SBOM
+        run: |
+          uvx --from pip-audit==2.10.1 pip-audit \
+            -r /tmp/requirements.txt --disable-pip \
+            --format cyclonedx-json --output python.cdx.json
+          .venv/bin/python scripts/qualify_python_sbom.py \
+            --from-environment python.cdx.json
+
+      - name: Scan all Python licenses
+        run: |
+          uvx --from pip-licenses==5.5.0 pip-licenses \
+            --python .venv/bin/python --from mixed --format json \
+            --output-file python-licenses.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+
+      - name: Audit all frontend dependencies
+        working-directory: packages/datapaw-context/frontend
+        run: |
+          npm ci --ignore-scripts
+          npm run audit:all
+
+      - name: Generate frontend SBOM and license inventory
+        working-directory: packages/datapaw-context/frontend
+        run: npm run sbom
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cyclonedx-sboms
+          path: |
+            python.cdx.json
+            python-licenses.json
+            packages/datapaw-context/frontend/frontend.cdx.json

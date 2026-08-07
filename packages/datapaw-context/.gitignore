@@ -1,0 +1,20 @@
+# 本地 uv 虚拟环境（隔离于 workspace 根，不提交）
+.venv/
+
+# 本地环境变量与密钥
+.env
+
+# 编辑层 SQLite（含数据源连接信息，不提交）
+*.db
+*.db-shm
+*.db-wal
+
+# Python 缓存 / 构建产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 运行期 / 实验产物
+log/
+runs/
+data/

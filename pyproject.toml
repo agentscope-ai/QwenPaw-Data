@@ -1,0 +1,63 @@
+[project]
+name = "datapaw-workspace"
+version = "0.1.0"
+description = "DataPaw monorepo workspace."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "QwenPaw-Data Contributors" }]
+keywords = ["data-analysis", "ai-agents", "semantic-layer", "graph-memory"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.11"
+
+[project.urls]
+Homepage = "https://github.com/QwenLM/QwenPaw-Data"
+Documentation = "https://github.com/QwenLM/QwenPaw-Data#readme"
+Repository = "https://github.com/QwenLM/QwenPaw-Data"
+Issues = "https://github.com/QwenLM/QwenPaw-Data/issues"
+Changelog = "https://github.com/QwenLM/QwenPaw-Data/blob/main/CHANGELOG.md"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "packages/datapaw-context",
+  "packages/datapaw-host-core",
+  "packages/datapaw-cli",
+  "packages/datapaw-skills",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0.3,<10.0",
+  "pytest-asyncio>=0.24,<2.0",
+  "httpx>=0.28,<0.29",
+  "datapaw-context>=0.1,<0.2",
+  "datapaw-host-core>=0.1,<0.2",
+  "datapaw-cli>=0.1,<0.2",
+  "datapaw-skills>=0.1,<0.2",
+]
+
+[tool.uv.sources]
+datapaw-context = { workspace = true }
+datapaw-host-core = { workspace = true }
+datapaw-cli = { workspace = true }
+datapaw-skills = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = [
+  "packages",
+  "tests",
+]

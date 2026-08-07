@@ -1,0 +1,47 @@
+/* QwenPaw-Data brand tokens used by Ant Design and local CSS modules. */
+:root {
+  --colorPrimary: #0D76FD;
+  --color-primary: #0D76FD;
+  --ant-color-primary: #0D76FD;
+  --colorPrimaryBg: #ECF4FF;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f5f7fa;
+  color: rgba(0, 0, 0, 0.88);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    "Noto Sans",
+    sans-serif,
+    "Apple Color Emoji",
+    "Segoe UI Emoji";
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ant-pro-query-filter-actions .ant-btn {
+  min-width: 72px;
+}
+
+.ant-pro-query-filter-actions .ant-btn > span {
+  white-space: nowrap;
+}

@@ -1,0 +1,68 @@
+.dataConnectionPage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.contentPanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 6px;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 16px;
+  flex-shrink: 0;
+}
+
+.tablePanel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+}
+
+.typeCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.typeLabel {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.deleteAction {
+  padding: 0;
+  color: #ff4d4f;
+}
+
+:global(html.dark-mode) {
+  .typeLabel {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}

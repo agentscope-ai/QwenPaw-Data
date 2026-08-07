@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: datapaw_demo
+      POSTGRES_USER: datapaw
+      POSTGRES_PASSWORD: datapaw-demo
+    ports:
+      - "127.0.0.1:${DATAPAW_DEMO_POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datapaw -d datapaw_demo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - datapaw-demo-postgres:/var/lib/postgresql/data
+
+volumes:
+  datapaw-demo-postgres:
