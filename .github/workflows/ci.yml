@@ -123,7 +123,7 @@ jobs:
         run: |
           uv run python -m compileall -q -x '(\.venv|node_modules|__pycache__)' packages scripts examples
           uvx --from ruff==0.12.12 ruff check packages scripts examples tests --select E9,F63,F7,F811,F82,F841
-          uv run pytest -q
+          uv run pytest -q --full-trace -p no:cacheprovider
 
       - name: Lint initialized frontend
         working-directory: packages/datapaw-context/frontend

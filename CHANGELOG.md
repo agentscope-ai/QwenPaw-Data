@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Raised the pypdf minimum to 6.15.0 to address CVE-2026-71852 and
+  CVE-2026-71870.
+
 ### Added
 
 - Persistent SQLite job storage with idempotency keys, leases, retries, expiry,

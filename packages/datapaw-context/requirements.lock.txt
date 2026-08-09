@@ -201,7 +201,7 @@ pymysql==1.2.0
     # via -r requirements.txt
 pyodps==0.13.0
     # via -r requirements.txt
-pypdf==6.14.2
+pypdf==6.15.0
     # via -r requirements.txt
 python-dateutil==2.9.0.post0
     # via
