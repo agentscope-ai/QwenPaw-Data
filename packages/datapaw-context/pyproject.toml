@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-context"
-version = "0.1.0"
+version = "0.1.1"
 description = "Context management and graph memory foundation for DataPaw."
 readme = "README.md"
 license = "Apache-2.0"
@@ -60,11 +60,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/QwenLM/QwenPaw-Data"
-Documentation = "https://github.com/QwenLM/QwenPaw-Data/tree/main/packages/datapaw-context"
-Repository = "https://github.com/QwenLM/QwenPaw-Data"
-Issues = "https://github.com/QwenLM/QwenPaw-Data/issues"
-Changelog = "https://github.com/QwenLM/QwenPaw-Data/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
+Documentation = "https://github.com/agentscope-ai/QwenPaw-Data/tree/main/packages/datapaw-context"
+Repository = "https://github.com/agentscope-ai/QwenPaw-Data"
+Issues = "https://github.com/agentscope-ai/QwenPaw-Data/issues"
+Changelog = "https://github.com/agentscope-ai/QwenPaw-Data/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]

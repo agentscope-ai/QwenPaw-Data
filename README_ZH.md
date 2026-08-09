@@ -120,13 +120,13 @@ containers。Native Windows 流程已纳入 CI；如果本机 Docker 或网络�
 ### 1. Clone 仓库并创建本地配置
 
 ```bash
-git clone https://github.com/QwenLM/QwenPaw-Data.git
+git clone https://github.com/agentscope-ai/QwenPaw-Data.git
 cd QwenPaw-Data
 cp .env.example .env
 ```
 
 ```powershell
-git clone https://github.com/QwenLM/QwenPaw-Data.git
+git clone https://github.com/agentscope-ai/QwenPaw-Data.git
 Set-Location QwenPaw-Data
 Copy-Item .env.example .env
 ```

@@ -121,13 +121,13 @@ fallback when a local Docker or networking setup is incompatible. See
 ### 1. Clone the repository and create local configuration
 
 ```bash
-git clone https://github.com/QwenLM/QwenPaw-Data.git
+git clone https://github.com/agentscope-ai/QwenPaw-Data.git
 cd QwenPaw-Data
 cp .env.example .env
 ```
 
 ```powershell
-git clone https://github.com/QwenLM/QwenPaw-Data.git
+git clone https://github.com/agentscope-ai/QwenPaw-Data.git
 Set-Location QwenPaw-Data
 Copy-Item .env.example .env
 ```

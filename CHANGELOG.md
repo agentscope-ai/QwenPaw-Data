@@ -49,11 +49,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Upgraded to React Router 8.3.0, the patched release for
   GHSA-qwww-vcr4-c8h2, and removed the temporary SPA-only audit exception.
 
+## [0.1.1] - 2026-08-09
+
+### Changed
+
+- Rewrote the `datapaw-context` package README in English for PyPI.
+- Corrected repository URLs in package metadata and documentation to the
+  `agentscope-ai/QwenPaw-Data` GitHub organization.
+
 ## [0.1.0] - 2026-08-05
 
 ### Added
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/QwenLM/QwenPaw-Data/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/QwenLM/QwenPaw-Data/releases/tag/v0.1.0
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-workspace"
-version = "0.1.0"
+version = "0.1.1"
 description = "DataPaw monorepo workspace."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,11 +20,11 @@ classifiers = [
 requires-python = ">=3.11"
 
 [project.urls]
-Homepage = "https://github.com/QwenLM/QwenPaw-Data"
-Documentation = "https://github.com/QwenLM/QwenPaw-Data#readme"
-Repository = "https://github.com/QwenLM/QwenPaw-Data"
-Issues = "https://github.com/QwenLM/QwenPaw-Data/issues"
-Changelog = "https://github.com/QwenLM/QwenPaw-Data/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
+Documentation = "https://github.com/agentscope-ai/QwenPaw-Data#readme"
+Repository = "https://github.com/agentscope-ai/QwenPaw-Data"
+Issues = "https://github.com/agentscope-ai/QwenPaw-Data/issues"
+Changelog = "https://github.com/agentscope-ai/QwenPaw-Data/blob/main/CHANGELOG.md"
 
 [tool.uv]
 package = false

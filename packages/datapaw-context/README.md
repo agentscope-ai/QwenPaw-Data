@@ -1,46 +1,59 @@
 # datapaw-context
 
-DataPaw 的**上下文管理 + 图记忆（graph memory）基础模块**。它把数据元数据、拓扑与知识组织成可连接、可检索、可演化的图状记忆，对外只暴露语义信息需求，不暴露内部图遍历 / 向量检索拓扑。类比 Mem0 / Zep / MemOS 之于 LLM 应用，差异在于本包同时管理 fact / episode 与 table / column / metric / formula 等结构化节点。
+The **context management + graph memory foundation** of DataPaw. It organizes
+data metadata, topology, and business knowledge into a connected, retrievable,
+and evolvable graph memory, exposing only semantic information needs — never
+internal graph traversal or vector retrieval topology. Think Mem0 / Zep /
+MemOS for LLM applications, with one key difference: this package manages both
+fact / episode records and structured nodes such as tables, columns, metrics,
+and formulas.
 
-核心架构：**三图**（Metadata Graph / Topology Graph / Knowledge Graph）+ **五阶段**（Build → Store → Retrieve → Learn → Govern）。
+Core architecture: **three graphs** (Metadata Graph / Topology Graph /
+Knowledge Graph) + **five stages** (Build → Store → Retrieve → Learn → Govern).
 
-本包由原独立项目 `context-management` 合并而来，作为 CLI host、qwenpaw plugin、skills 等共享的 host 无关记忆能力底座。
+This package was merged from the formerly standalone `context-management`
+project and serves as the host-agnostic memory foundation shared by the CLI
+host, plugins, and skills.
 
-## 目录结构
+## Directory layout
 
 ```text
 packages/datapaw-context/
 ├── src/
-│   ├── datapaw/context/         ← DataPaw 命名空间占位（对外 API 预留）
-│   ├── context_manager/          ← CM 核心：图构建 / 检索 / 管线 / FastAPI(api/server.py)
-│   └── semantic_config/          ← 语义配置编辑层（SQLite CRUD + Excel 导入 + 编织）
-├── frontend/                     ← DataBridge 前端（Vite，固定端口 3000）
+│   ├── datapaw/context/          ← DataPaw namespace placeholder (public API reserved)
+│   ├── context_manager/          ← CM core: graph build / retrieval / pipelines / FastAPI (api/server.py)
+│   └── semantic_config/          ← semantic-config editing layer (SQLite CRUD + Excel import + weave)
+├── frontend/                     ← DataBridge frontend (Vite, fixed port 3000)
 ├── scripts/
-│   ├── serve.py                  ← Web / API 服务入口
-│   └── setup/                    ← 构图、下载数据集、向量索引
+│   ├── serve.py                  ← Web / API service entry point
+│   └── setup/                    ← graph building, dataset download, vector indexing
 ├── config/
-│   ├── agent_explorer.json       ← Explorer / Agent 超参
-│   └── datasources.json          ← 数据源登记
-├── Makefile                      ← 快捷命令（serve / setup）
-├── pyproject.toml                ← 包定义 + 依赖声明（hatchling）
-├── requirements.txt              ← 依赖说明（含注释）
-├── requirements.lock.txt         ← 已验证可用的精确版本快照（用于复现安装）
-├── semantic_config.db            ← 编辑层 SQLite（本地，含连接信息，默认不提交）
-└── .venv/                        ← 本包**独立** uv 虚拟环境（隔离，不提交）
+│   ├── agent_explorer.json       ← Explorer / Agent hyperparameters
+│   └── datasources.json          ← datasource registry
+├── Makefile                      ← shortcuts (serve / setup)
+├── pyproject.toml                ← package definition + dependencies (hatchling)
+├── requirements.txt              ← annotated dependency notes
+├── requirements.lock.txt         ← verified exact-version snapshot (reproducible installs)
+├── semantic_config.db            ← editing-layer SQLite (local, holds connection info, not committed)
+└── .venv/                        ← package-scoped uv virtual environment (isolated, not committed)
 ```
 
-> `frontend/` 与 API 同属 DataBridge 本地运行时，由仓库脚本统一初始化和启动。
+> `frontend/` and the API belong to the same DataBridge local runtime and are
+> initialized and started together by the repository scripts.
 
-## 前置依赖
+## Prerequisites
 
-- **Python 3.12**（见 `.python-version`）
-- **[uv](https://docs.astral.sh/uv/)**（用于虚拟环境与依赖管理）
-- **Node.js + npm**（用于 DataBridge 前端）
-- **Neo4j 5.20+ Community**（图库；可选，仅图相关能力需要）
+- **Python 3.12** (see `.python-version`)
+- **[uv](https://docs.astral.sh/uv/)** (virtual environments and dependency management)
+- **Node.js + npm** (DataBridge frontend)
+- **Neo4j 5.20+ Community** (graph store; optional, only needed for graph capabilities)
 
-> 服务本身在图库 / PG 未启动时也能启动：`GET /api/health` 仅返回最小存活状态，而基于 **SQLite** 的语义配置编辑层（`/api/semantic-config/*`）无需图库即可 CRUD。
+> The service starts even when the graph store / PG is down: `GET /api/health`
+> returns a minimal liveness status, and the **SQLite**-based semantic-config
+> editing layer (`/api/semantic-config/*`) supports CRUD without the graph
+> store.
 
-### 启动数据库（可选，Docker）
+### Start the database (optional, Docker)
 
 ```bash
 # Neo4j
@@ -53,39 +66,41 @@ docker run -d --name neo4j \
   neo4j:5.20-community
 ```
 
-## 安装
+## Installation
 
-推荐从仓库根目录初始化 DataBridge 的 Python 和前端依赖：
+The recommended way is to initialize DataBridge Python and frontend
+dependencies from the repository root:
 
 ```bash
 scripts/init_databridge.sh
 ```
 
-如需手工安装本包独立 uv 虚拟环境，可执行：
-
-在 `packages/datapaw-context/` 目录下执行：
+To install the package-scoped uv virtual environment manually, run the
+following inside `packages/datapaw-context/`:
 
 ```bash
-# 1) 创建隔离虚拟环境（Python 3.12）
+# 1) Create an isolated virtual environment (Python 3.12)
 uv venv --python 3.12 .venv
 
-# 2) 安装依赖
+# 2) Install dependencies
 VIRTUAL_ENV="$(pwd)/.venv" uv pip install -r requirements.lock.txt
 
-# 3) 以可编辑方式注册本包（context_manager / semantic_config / datapaw.context）
+# 3) Register this package in editable mode (context_manager / semantic_config / datapaw.context)
 VIRTUAL_ENV="$(pwd)/.venv" uv pip install -e . --no-deps
 ```
 
-> 若需按声明式约束重新解析依赖（而非锁定快照），可用 `uv pip install -e .` 走 `pyproject.toml` 的 `dependencies`。
+> To re-resolve dependencies from declared constraints (instead of the locked
+> snapshot), use `uv pip install -e .`, which follows `dependencies` in
+> `pyproject.toml`.
 
-### 配置环境变量
+### Configure environment variables
 
 ```bash
 cd ../..
 cp .env.example .env
 ```
 
-编辑仓库根目录 `.env`，填写模型配置：
+Edit `.env` at the repository root and fill in the model configuration:
 
 ```bash
 OPENAI_API_KEY=sk-xxx
@@ -95,23 +110,25 @@ EMBED_MODEL=text-embedding-v3
 EMBED_DIM=1024
 ```
 
-将 `.env` 中的 `NEO4J_PASSWORD=YOUR_PASSWORD` 替换为本地 Neo4j 密码。
-本地 Neo4j 的地址和用户名已有默认值；只有连接外部实例时，才需要额外配置
-`NEO4J_URI` 和 `NEO4J_USER`。
+Replace `NEO4J_PASSWORD=YOUR_PASSWORD` in `.env` with your local Neo4j
+password. The local Neo4j URI and username have working defaults; set
+`NEO4J_URI` and `NEO4J_USER` only when connecting to an external instance.
 
-> 数据源（PostgreSQL / MySQL / ODPS / Hologres 等）的连接信息请在语义配置层中配置（`/api/semantic-config/datasource`），无需在 `.env` 中单独设置。
+> Datasource connection details (PostgreSQL / MySQL / ODPS / Hologres, etc.)
+> are managed in the semantic-config layer (`/api/semantic-config/datasource`)
+> and do not need to be set in `.env`.
 
-## 启动服务
+## Start the service
 
 ```bash
-# 推荐：同时启动 DataBridge 前端和 API
+# Recommended: start the DataBridge frontend and API together
 scripts/start_databridge.sh
 
-# 仅启动数据库和 API
+# Start only the databases and the API
 scripts/start_databridge.sh --skip-frontend
 ```
 
-启动成功后可见：
+On a successful start you will see:
 
 ```text
 INFO api.server: Neo4j driver opened: bolt://localhost:7687
@@ -119,7 +136,7 @@ INFO api.server: semantic-config SQLite initialized
 INFO:     Uvicorn running on http://127.0.0.1:8765
 ```
 
-默认服务地址：
+Default service addresses:
 
 ```text
 DataBridge UI:      http://localhost:3000
@@ -127,44 +144,74 @@ DataBridge API:     http://localhost:8765
 OpenAPI:            http://localhost:8765/docs
 ```
 
-前端由 Vite 提供并启用热更新，端口固定为 3000；若端口被占用，启动会明确失败，
-不会自动切换到其他端口。
+The frontend is served by Vite with hot reload on the fixed port 3000; if the
+port is occupied, startup fails explicitly instead of silently switching to
+another port.
 
-常用开关：`--reload`（后端源码热重载）、`--host`、`--log-level`、
-`--skip-frontend`。前端源码更新始终由 Vite HMR 处理。
+Common flags: `--reload` (backend source hot reload), `--host`, `--log-level`,
+`--skip-frontend`. Frontend source updates are always handled by Vite HMR.
 
-## API 概览
+## API overview
 
-服务在单进程、单端口（默认 8765）内共存三套路由。
+The service hosts three route families in a single process on one port
+(default 8765).
 
-### CM 语义能力（REST 前缀 `/api/v1/cm`，MCP 前缀 `/mcp/v1/cm`）
+### CM semantic capabilities (REST prefix `/api/v1/cm`, MCP prefix `/mcp/v1/cm`)
 
-L1 — 意图理解：
+L1 — intent understanding:
 
-| 接口 | 方法 | 说明 |
+| Endpoint | Method | Description |
 |------|------|------|
-| `/search_context` | POST | 自然语言 → 结构化语义上下文（SSE 流式） |
+| `/search_context` | POST | Natural language → structured semantic context (SSE streaming) |
 
-L2 — 上下文操作：`/explore_entity`、`/compare_entities`、`/search_event`、`/execute_sql`（均 POST）。
+L2 — context operations: `/explore_entity`, `/compare_entities`,
+`/search_event`, `/execute_sql` (all POST).
 
-L3 — 实体查询（GET）：`/domains`、`/domain-overview`、`/metrics`、`/search-metrics`、`/north-star-metrics`、`/dimensions`、`/dimension-hierarchy`、`/dimension-values`、`/datasets`、`/dataset-relations`。
+L3 — entity queries (GET): `/domains`, `/domain-overview`, `/metrics`,
+`/search-metrics`, `/north-star-metrics`, `/dimensions`,
+`/dimension-hierarchy`, `/dimension-values`, `/datasets`,
+`/dataset-relations`.
 
-### 语义配置编辑层（前缀 `/api/semantic-config`）
+### Semantic-config editing layer (prefix `/api/semantic-config`)
 
-用本地 **SQLite** 管理数据源 / 业务域 / 数据集 / 维度 / 指标等实体（CRUD + Excel 导入），再通过“编织(weave)”把配置推成 CM 的图。与 CM 同进程、同端口。
+Manages datasources, business domains, datasets, dimensions, metrics, and
+related entities in local **SQLite** (CRUD + Excel import), then pushes the
+configuration into the CM graph through "weave". Runs in the same process and
+port as CM.
 
-- 主要路由：`/datasource`、`/biz-domain`、`/dataset-meta`、`/dataset-column-meta`、`/dataset-dimension`、`/dimension`、`/metric-lib`、`/metric-formula-lib`、`/import/excel`、`/weave-task/*`。
-- **编织(weave)**：`POST /weave-task/submit` 按 datasource 整库组装语义载荷，进程内直接调用 CM 的语义导入逻辑（`context_manager.graph.semantic_import_service.run_semantic_import_async`）写入图库；回调地址见 `.env` 的 `WEAVE_CALLBACK_URL`。
-- 存储不依赖 Neo4j/PG：即便未起图库，CRUD / Excel 入库仍可用（仅“编织”需图库在线）。
-- 错误协议：`/api/semantic-config/*` 返回 `{timestamp,status,error,message}`；CM `/api/v1/*` 保持原协议。
-- 定位：**仅供本地 / 内网使用，不含鉴权**。
+- Main routes: `/datasource`, `/biz-domain`, `/dataset-meta`,
+  `/dataset-column-meta`, `/dataset-dimension`, `/dimension`, `/metric-lib`,
+  `/metric-formula-lib`, `/import/excel`, `/weave-task/*`.
+- **Weave**: `POST /weave-task/submit` assembles the semantic payload for a
+  whole datasource and calls CM's semantic import logic in-process
+  (`context_manager.graph.semantic_import_service.run_semantic_import_async`)
+  to write into the graph store; the callback address is configured via
+  `WEAVE_CALLBACK_URL` in `.env`.
+- Storage does not depend on Neo4j/PG: CRUD and Excel import work even without
+  the graph store online (only "weave" requires it).
+- Error protocol: `/api/semantic-config/*` returns
+  `{timestamp,status,error,message}`; CM `/api/v1/*` keeps its own protocol.
+- Positioning: designed for **local-first, single-user deployments**. All API
+  routes require Bearer token authentication (`DATAPAW_API_TOKEN` or scoped
+  `DATAPAW_API_KEYS`); only liveness endpoints are exempt. Review the security
+  model in the repository root README before exposing anything beyond
+  `127.0.0.1`.
 
-### 图浏览 / 运维 / 探索（前缀 `/api`）
+### Graph browsing / operations / exploration (prefix `/api`)
 
-`/api/health`、`/api/agent_query`、`/api/chat_stream`、`/api/execute_sql`、`/api/global_graph`、`/api/domain_graph`、`/api/search_nodes` 等（供前端页面与脚本使用）。完整列表见 `/docs`。
+`/api/health`, `/api/agent_query`, `/api/chat_stream`, `/api/execute_sql`,
+`/api/global_graph`, `/api/domain_graph`, `/api/search_nodes`, and more (used
+by the frontend pages and scripts). See `/docs` for the full list.
 
-## 路径与配置说明（合并后）
+## Paths and configuration notes (post-merge)
 
-- 后端可导入包位于 `src/`（`context_manager`、`semantic_config`），运维目录与资源（`scripts/`、`config/`、`semantic_config.db`）位于包根；环境变量统一使用仓库根目录 `.env`。
-- `context_manager` 与 `semantic_config` 的路径推导已锚定到**包根**（基于 `__file__` 的绝对路径），不依赖启动目录（CWD），可在任意目录启动。
-- `.venv/`、仓库根目录 `.env`、`*.db` 已在 `.gitignore` 中忽略（`semantic_config.db` 含数据源连接信息，勿提交）。
+- Importable backend packages live in `src/` (`context_manager`,
+  `semantic_config`); operational directories and assets (`scripts/`,
+  `config/`, `semantic_config.db`) live at the package root; environment
+  variables are read from the repository root `.env`.
+- Path derivation in `context_manager` and `semantic_config` is anchored to
+  the **package root** (absolute paths based on `__file__`), independent of
+  the startup directory (CWD), so the service can be started from anywhere.
+- `.venv/`, the repository root `.env`, and `*.db` files are ignored via
+  `.gitignore` (`semantic_config.db` holds datasource connection info — do
+  not commit it).

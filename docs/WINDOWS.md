@@ -34,7 +34,7 @@ DataPaw does not install or elevate privileges to start Docker Desktop.
 ## 2. Clone and configure
 
 ```powershell
-git clone https://github.com/QwenLM/QwenPaw-Data.git
+git clone https://github.com/agentscope-ai/QwenPaw-Data.git
 Set-Location QwenPaw-Data
 Copy-Item .env.example .env
 notepad .env

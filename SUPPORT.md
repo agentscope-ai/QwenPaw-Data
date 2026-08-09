@@ -5,9 +5,9 @@ single-user deployments.
 
 ## Where to ask
 
-- Use [GitHub Discussions](https://github.com/QwenLM/QwenPaw-Data/discussions)
+- Use [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw-Data/discussions)
   for setup questions, usage help, and design discussions.
-- Use [GitHub Issues](https://github.com/QwenLM/QwenPaw-Data/issues) for
+- Use [GitHub Issues](https://github.com/agentscope-ai/QwenPaw-Data/issues) for
   reproducible bugs and scoped feature requests.
 - Follow [`SECURITY.md`](SECURITY.md) for vulnerabilities. Never disclose a
   security issue or credential in a public issue or discussion.

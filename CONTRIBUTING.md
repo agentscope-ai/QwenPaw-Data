@@ -9,7 +9,7 @@ Requirements: Windows 11, macOS, or Linux; Python >= 3.11; [uv](https://docs.ast
 Node.js >= 22.22 (for the DataBridge frontend), Docker (for local Neo4j).
 
 ```bash
-git clone https://github.com/QwenLM/QwenPaw-Data.git
+git clone https://github.com/agentscope-ai/QwenPaw-Data.git
 cd QwenPaw-Data
 cp .env.example .env          # then fill in NEO4J_PASSWORD etc.
 uv sync --all-packages        # installs all workspace packages + dev deps
