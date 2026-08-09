@@ -91,6 +91,11 @@ jobs:
     name: Native Windows
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      # The runner console defaults to cp1252, which cannot encode the
+      # Chinese log/output strings emitted by the lifecycle scripts.
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
 
