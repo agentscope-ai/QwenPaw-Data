@@ -148,8 +148,8 @@ class IngestStatusStoreTest(unittest.TestCase):
     def test_marks_interrupted_build_as_failed_after_restart(self) -> None:
         self.store.begin("kg-docs/report.md")
         with patch(
-            "context_manager.kg_docs.ingest_status.os.kill",
-            side_effect=ProcessLookupError,
+            "context_manager.kg_docs.ingest_status._is_process_alive",
+            return_value=False,
         ):
             status, error = self.store.resolve("kg-docs/report.md")
         self.assertEqual(status, "failed")
