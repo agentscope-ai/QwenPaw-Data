@@ -1,0 +1,3 @@
+# Fake API key fixture used to test masking in
+# packages/datapaw-context/tests/test_model_config_store.py (not a credential).
+52c8447a486eea00898f60a2b12b422f26a32c24:packages/datapaw-context/tests/test_model_config_store.py:generic-api-key:52

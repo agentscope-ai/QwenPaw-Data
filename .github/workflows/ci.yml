@@ -13,6 +13,10 @@ jobs:
   python:
     name: Python (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      # Keep CI on the validated interpreter line (see docs/COMPATIBILITY.md);
+      # macos-latest otherwise provisions Python 3.14.
+      UV_PYTHON: "3.12"
     strategy:
       fail-fast: false
       matrix:
@@ -117,7 +121,7 @@ jobs:
       - name: Compile and test Python workspace
         shell: pwsh
         run: |
-          uv run python -m compileall -q packages scripts examples
+          uv run python -m compileall -q -x '(\.venv|node_modules|__pycache__)' packages scripts examples
           uvx --from ruff==0.12.12 ruff check packages scripts examples tests --select E9,F63,F7,F811,F82,F841
           uv run pytest -q
 
