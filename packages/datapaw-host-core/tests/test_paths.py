@@ -40,6 +40,7 @@ def test_resolve_datapaw_home_uses_default_for_blank_environment(
     expected = fake_user_home / ".datapaw"
     monkeypatch.setenv("DATAPAW_HOME", "   ")
     monkeypatch.setenv("HOME", str(fake_user_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_user_home))
 
     assert resolve_datapaw_home() == expected.resolve()
 
@@ -50,6 +51,7 @@ def test_resolve_datapaw_home_expands_user_without_creating_directories(
 ) -> None:
     fake_user_home = tmp_path / "user"
     monkeypatch.setenv("HOME", str(fake_user_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_user_home))
 
     resolved = resolve_datapaw_home("~/custom-datapaw")
 

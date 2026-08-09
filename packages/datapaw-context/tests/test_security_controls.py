@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from types import SimpleNamespace
 
@@ -205,4 +206,5 @@ def test_privileged_audit_is_structured_and_contains_no_token(
     audit_text = audit_path.read_text(encoding="utf-8")
     assert "security-test-token" not in audit_text
     assert "request-body-secret" not in audit_text
-    assert stat.S_IMODE(audit_path.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows has no POSIX permission bits
+        assert stat.S_IMODE(audit_path.stat().st_mode) == 0o600

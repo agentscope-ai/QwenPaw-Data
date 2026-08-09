@@ -169,7 +169,10 @@ async def test_local_workspace_bash_uses_workspace_cwd(
         else:
             command = f"mkdir -p artifacts && printf workspace > {marker}"
 
-        chunks = [chunk async for chunk in shell(command=command)]
+        stream = shell(command=command)
+        if inspect.iscoroutine(stream):
+            stream = await stream
+        chunks = [chunk async for chunk in stream]
 
         assert chunks[-1].state == "running"
         assert workspace_marker.read_text(encoding="utf-8") == "workspace"

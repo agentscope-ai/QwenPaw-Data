@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import os
 import shlex
@@ -88,13 +89,11 @@ async def test_native_windows_shell_enforces_timeout(paths):
     tools = await create_local_workspace(paths).list_tools()
     shell = tools[0]
 
-    chunks = [
-        chunk
-        async for chunk in shell(
-            command="Start-Sleep -Seconds 30",
-            timeout=500,
-        )
-    ]
+    stream = shell(command="Start-Sleep -Seconds 30", timeout=500)
+    if inspect.iscoroutine(stream):
+        # AgentScope's PowerShell tool is a coroutine yielding the stream.
+        stream = await stream
+    chunks = [chunk async for chunk in stream]
 
     assert chunks[-1].state == ToolResultState.ERROR
     assert "timed out" in chunks[-1].content[0].text.lower()

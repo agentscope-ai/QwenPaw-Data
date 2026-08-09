@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tomllib
@@ -58,9 +59,9 @@ def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
 
 def test_xlsx_notice_matches_locked_registry_package() -> None:
     package_json = json.loads(
-        (ROOT / "packages/datapaw-context/frontend/package.json").read_text()
+        (ROOT / "packages/datapaw-context/frontend/package.json").read_text(encoding="utf-8")
     )
-    notice = (ROOT / "NOTICE").read_text()
+    notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
     assert package_json["dependencies"]["xlsx"] == "npm:@e965/xlsx@0.20.3"
     assert '"@e965/xlsx" version 0.20.3' in notice
     assert "cdn.sheetjs.com" not in notice
@@ -80,12 +81,12 @@ def test_formal_api_has_no_declared_501_stub_routes() -> None:
 def test_all_python_projects_declare_apache_license() -> None:
     projects = [ROOT / "pyproject.toml", *sorted((ROOT / "packages").glob("*/pyproject.toml"))]
     for project in projects:
-        metadata = tomllib.loads(project.read_text())["project"]
+        metadata = tomllib.loads(project.read_text(encoding="utf-8"))["project"]
         assert metadata["license"] == "Apache-2.0", project
 
 
 def test_notice_covers_repository_assets_and_examples() -> None:
-    notice = (ROOT / "NOTICE").read_text()
+    notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
     assert "Repository assets and examples" in notice
     assert "ASSET_LICENSES.md" in notice
 
@@ -94,15 +95,16 @@ def test_release_baseline_is_documented() -> None:
     assert (ROOT / "CHANGELOG.md").is_file()
     assert (ROOT / "docs/COMPATIBILITY.md").is_file()
     assert (ROOT / "docs/RELEASING.md").is_file()
-    assert (ROOT / "scripts/export_public_snapshot.sh").stat().st_mode & 0o111
-    assert (ROOT / "scripts/audit_git_history.py").stat().st_mode & 0o111
+    if os.name != "nt":  # Windows checkouts do not track POSIX exec bits
+        assert (ROOT / "scripts/export_public_snapshot.sh").stat().st_mode & 0o111
+        assert (ROOT / "scripts/audit_git_history.py").stat().st_mode & 0o111
 
 
 def test_all_python_projects_have_public_package_metadata() -> None:
     projects = [ROOT / "pyproject.toml", *sorted((ROOT / "packages").glob("*/pyproject.toml"))]
     required_urls = {"Homepage", "Documentation", "Repository", "Issues", "Changelog"}
     for project in projects:
-        metadata = tomllib.loads(project.read_text())["project"]
+        metadata = tomllib.loads(project.read_text(encoding="utf-8"))["project"]
         assert metadata.get("authors"), project
         assert metadata.get("keywords"), project
         assert "License :: OSI Approved :: Apache Software License" in metadata.get("classifiers", []), project
@@ -111,7 +113,7 @@ def test_all_python_projects_have_public_package_metadata() -> None:
 
 def test_publishable_packages_ship_root_license_and_notice() -> None:
     for project in sorted((ROOT / "packages").glob("*/pyproject.toml")):
-        config = tomllib.loads(project.read_text())
+        config = tomllib.loads(project.read_text(encoding="utf-8"))
         forced = config["tool"]["hatch"]["build"]["targets"]["sdist"]["force-include"]
         assert forced == {"../../LICENSE": "LICENSE", "../../NOTICE": "NOTICE"}, project
 
@@ -128,7 +130,7 @@ def test_community_health_files_are_present() -> None:
 
 
 def test_publish_workflow_uses_trusted_publishing() -> None:
-    workflow = (ROOT / ".github/workflows/publish.yml").read_text()
+    workflow = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
     assert "id-token: write" in workflow
     assert "pypa/gh-action-pypi-publish@release/v1" in workflow
     assert "PYPI_API_TOKEN" not in workflow

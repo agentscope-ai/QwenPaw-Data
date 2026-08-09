@@ -173,7 +173,14 @@ class PersistentJobStore:
                 if existing is None:
                     raise
                 return existing
-        record = self.get(namespace, job_id)
+        # Read back without TTL filtering: a short-lived job may already be
+        # past its expiry by the time the verification read runs.
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM jobs WHERE namespace = ? AND job_id = ?",
+                (namespace, job_id),
+            ).fetchone()
+        record = self._record(row)
         if record is None:  # pragma: no cover - defensive database invariant
             raise RuntimeError(f"failed to persist job {namespace}/{job_id}")
         return record
