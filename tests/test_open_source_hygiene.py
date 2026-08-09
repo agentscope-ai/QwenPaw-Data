@@ -137,8 +137,15 @@ def test_publish_workflow_uses_trusted_publishing() -> None:
 
 
 def test_release_versions_are_aligned() -> None:
+    workspace_version = tomllib.loads(
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
     completed = subprocess.run(
-        [sys.executable, "scripts/check_release_versions.py", "v0.1.0"],
+        [
+            sys.executable,
+            "scripts/check_release_versions.py",
+            f"v{workspace_version}",
+        ],
         cwd=ROOT,
         check=False,
         capture_output=True,

@@ -302,7 +302,7 @@ uvicorn==0.49.0
     # via
     #   -r requirements.txt
     #   mcp
-uvloop==0.22.1
+uvloop==0.22.1 ; sys_platform != 'win32'
     # via uvicorn
 watchfiles==1.2.0
     # via uvicorn

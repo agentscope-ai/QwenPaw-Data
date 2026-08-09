@@ -212,8 +212,10 @@ def _check_docker_daemon() -> CheckResult:
                 text=True,
                 timeout=5,
             )
-            if result.returncode == 0:
-                version = result.stdout.strip() or "available"
+            version = result.stdout.strip()
+            # Some docker CLI builds exit 0 with an empty template result
+            # when the daemon is unreachable, so require real output.
+            if result.returncode == 0 and version:
                 return CheckResult(
                     "Docker daemon", _OK, f"reachable (server {version})"
                 )
