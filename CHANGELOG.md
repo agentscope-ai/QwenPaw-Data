@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Locked development and CI validation to AgentScope 2.0.6, which the
+  published `>=2.0.5,<2.1` range already resolves for end users.
+
 ### Security
 
 - Raised the pypdf minimum to 6.15.0 to address CVE-2026-71852 and

@@ -35,6 +35,12 @@ async def _yield_items(items: list):
         yield item
 
 
+class _FakeFormatter:
+    # AgentScope 2.0.6 consults the model formatter for media-type support
+    # during agent input validation.
+    supported_input_media_types: list[str] = []
+
+
 class FakePlanModel(ChatModelBase):
     def __init__(self) -> None:
         self.model = "fake-plan-model"
@@ -42,6 +48,7 @@ class FakePlanModel(ChatModelBase):
         self.max_retries = 0
         self.context_size = 32768
         self.calls = 0
+        self.formatter = _FakeFormatter()
 
     async def _call_api(
         self,

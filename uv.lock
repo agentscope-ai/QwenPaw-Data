@@ -41,7 +41,7 @@ wheels = [
 
 [[package]]
 name = "agentscope"
-version = "2.0.5"
+version = "2.0.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -71,9 +71,9 @@ dependencies = [
     { name = "tree-sitter-bash" },
     { name = "tzdata" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d3/38/d34788ef9192cf670b7b4cf6c7e4d58b6a853eb7c7f22a87337deebc4282/agentscope-2.0.5.tar.gz", hash = "sha256:3127803993074ec34062056080f619ab6b883d3d926768afeeddb4172cd1fc9a", size = 672122, upload-time = "2026-07-23T13:29:37.912Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/81/90446a6fa1031b5b54e79f8abb172629897b511320723d4e6f63abb6ffa8/agentscope-2.0.6.tar.gz", hash = "sha256:5fcf2be7b56dabc2ebb616c8999f8ba299355ba4cbae9ac0d4f777ad04e7e3f6", size = 794346, upload-time = "2026-08-07T10:40:17.364Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/1e/b27656bf3903fcd4ae5017c7b01bca16b6a3ca6cdf75c7b5e4ac92480fbe/agentscope-2.0.5-py3-none-any.whl", hash = "sha256:ae440075c8d72b21a0e6b54458b9c6b9d1d9594f1e3f885611df1ed93950d444", size = 894264, upload-time = "2026-07-23T13:29:36.378Z" },
+    { url = "https://files.pythonhosted.org/packages/96/f9/354cdf98e3f6e5835b2eb0214e6c6a5b0e402dfbade92769d280b683fd44/agentscope-2.0.6-py3-none-any.whl", hash = "sha256:091e7f214eff7fd6f4934d98a7d7c4bb8707a5d4b33d335def7fc31255e7ccb8", size = 1057146, upload-time = "2026-08-07T10:40:15.21Z" },
 ]
 
 [[package]]
