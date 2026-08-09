@@ -3,6 +3,8 @@
 [英文 README](./README.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/datapaw-cli?label=PyPI)](https://pypi.org/project/datapaw-cli/)
+[![CI](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml/badge.svg)](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml)
 
 <p align="center">
   <img src="assets/brand.png" alt="QwenPaw-Data" width="480" />
@@ -102,6 +104,18 @@ assets/                    # 品牌与文档资源
 ```
 
 ## 快速开始：从 clone 到第一个数据任务
+
+### 通过 PyPI 安装
+
+Python 包已发布到 PyPI：
+
+```bash
+pip install datapaw-cli        # `datapaw` 命令 + 宿主运行时
+pip install datapaw-context    # 以库形式使用 DataBridge 后端
+```
+
+`pip install datapaw-cli` 适合已运行 DataBridge 服务的平台集成场景。完整的
+本地体验（DataBridge UI、演示数据与本地服务）请使用下面的源码方式。
 
 ### 0. 准备本地依赖
 

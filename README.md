@@ -3,6 +3,8 @@
 [中文 README](./README_ZH.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/datapaw-cli?label=PyPI)](https://pypi.org/project/datapaw-cli/)
+[![CI](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml/badge.svg)](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml)
 
 <p align="center">
   <img src="assets/brand.png" alt="QwenPaw-Data" width="480" />
@@ -102,6 +104,19 @@ assets/                    # branding and documentation assets
 ```
 
 ## Quick Start: Clone to the First Data Task
+
+### Installing from PyPI
+
+The Python packages are published on PyPI:
+
+```bash
+pip install datapaw-cli        # `datapaw` command + host runtime
+pip install datapaw-context    # DataBridge backend as a library
+```
+
+`pip install datapaw-cli` suits platform integrations that already run a
+DataBridge service. The full local experience — DataBridge UI, demo data,
+and managed services — uses the source checkout below.
 
 ### 0. Install local prerequisites
 
