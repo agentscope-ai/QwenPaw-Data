@@ -712,7 +712,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.109,<2.0" },
     { name = "openpyxl", specifier = ">=3.1.5,<4.0" },
     { name = "oss2", specifier = ">=2.19,<3.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3,<4.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4,<4.0" },
     { name = "pydantic-settings", specifier = ">=2.14,<3.0" },
     { name = "pymysql", specifier = ">=1.1,<2.0" },
     { name = "pyodps", specifier = ">=0.13,<1.0" },
