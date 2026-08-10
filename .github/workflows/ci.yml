@@ -192,7 +192,15 @@ jobs:
             datapaw datasource list
           } finally {
             if (-not $server.HasExited) {
-              taskkill /PID $server.Id /T /F | Out-Null
+              # taskkill races child processes that exit on their own while the
+              # tree is being killed and then returns a non-zero exit code that
+              # would fail the step. Tolerate that race and verify termination
+              # of the root process instead.
+              taskkill /PID $server.Id /T /F 2>&1 | Out-Null
+              $global:LASTEXITCODE = 0
+              if (-not $server.WaitForExit(30000)) {
+                throw "start_local.ps1 (PID $($server.Id)) is still running after taskkill"
+              }
             }
             if (Test-Path $stdout) { Get-Content $stdout }
             if (Test-Path $stderr) { Get-Content $stderr }
