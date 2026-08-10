@@ -34,7 +34,7 @@ dependencies = [
   "pydantic-settings>=2.14,<3.0",
   "pyyaml>=6.0,<7.0",
   "aiosqlite>=0.22,<1.0",
-  "neo4j>=5.28,<6.0",
+  "neo4j>=6.2.0,<7.0",
   "psycopg[binary]>=3.3.4,<4.0",
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
