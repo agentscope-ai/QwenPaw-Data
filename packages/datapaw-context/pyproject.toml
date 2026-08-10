@@ -38,7 +38,7 @@ dependencies = [
   "psycopg[binary]>=3.3.4,<4.0",
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
-  "openai>=1.109,<2.0",
+  "openai>=2.53.0,<3.0",
   "jsonschema>=4.26,<5.0",
   # --- SQL / 元数据 ---
   "sqlglot>=30.0,<31.0",
