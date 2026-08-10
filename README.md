@@ -16,7 +16,7 @@ Enterprise data analysis is becoming a distinct frontier for autonomous agents. 
 
 QwenPaw-Data organizes its system design around three core dimensions: **facts**, **methodology**, and **execution**. It consolidates heterogeneous enterprise assets from warehouses, dashboards, business documents, interaction logs, and historical tasks into governed and evolvable analytical context, then turns natural-language requests into end-to-end workflows spanning data understanding, retrieval, analysis, report generation, and decision support.
 
-For a complete system-level overview, see the [Technical Report](docs/Technical_Report.pdf).
+For a complete system-level overview, see the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
 ## Core Idea
 

@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -72,7 +72,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.22.0
           cache: npm
@@ -100,11 +100,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.22.0
           cache: npm
@@ -192,7 +192,15 @@ jobs:
             datapaw datasource list
           } finally {
             if (-not $server.HasExited) {
-              taskkill /PID $server.Id /T /F | Out-Null
+              # taskkill races child processes that exit on their own while the
+              # tree is being killed and then returns a non-zero exit code that
+              # would fail the step. Tolerate that race and verify termination
+              # of the root process instead.
+              taskkill /PID $server.Id /T /F 2>&1 | Out-Null
+              $global:LASTEXITCODE = 0
+              if (-not $server.WaitForExit(30000)) {
+                throw "start_local.ps1 (PID $($server.Id)) is still running after taskkill"
+              }
             }
             if (Test-Path $stdout) { Get-Content $stdout }
             if (Test-Path $stderr) { Get-Content $stderr }
@@ -214,7 +222,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Install locked runtime dependencies
         run: uv sync --all-packages
@@ -277,7 +285,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Sync workspace
         run: uv sync --all-packages
@@ -325,7 +333,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Sync workspace
         run: uv sync --all-packages
@@ -344,7 +352,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Sync workspace
         run: uv sync --all-packages
@@ -378,7 +386,7 @@ jobs:
           /tmp/gitleaks git --no-banner --redact --exit-code 1 .
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Export locked Python dependencies
         run: |
@@ -407,7 +415,7 @@ jobs:
             --python .venv/bin/python --from mixed --format json \
             --output-file python-licenses.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.22.0
 
