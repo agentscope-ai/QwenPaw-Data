@@ -18,6 +18,7 @@ least 10 USD.
 | `demo_kg_doc.docx` | Knowledge Graph document containing the valid-user definition and business events associated with the spike |
 | `init_demo.sh` / `init_demo.ps1` / `init_demo.py` | Repeatable SQLite and PostgreSQL initialization, verification, and DataBridge registration |
 | `smoke_test.py` | Deterministic real-CLI/DataBridge/SQL test using a local model stub |
+| `semantic_smoke_test.py` | Deterministic datasource + semantic CLI test (CRUD, import, weave); no model key |
 
 ## Fast deterministic test (no model API key)
 

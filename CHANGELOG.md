@@ -18,6 +18,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `SemanticConfigClient` in `datapaw-host-core` for the authenticated
   `/api/semantic-config` REST surface with pagination validation and the
   unified error protocol.
+- Deterministic semantic-CLI smoke test (`examples/semantic_smoke_test.py`)
+  covering datasource lifecycle, workbook import, semantic CRUD with partial
+  updates, batch deletion, and a real weave publish, wired into the CI smoke
+  job.
 
 ### Fixed
 

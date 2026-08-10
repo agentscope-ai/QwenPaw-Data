@@ -344,6 +344,12 @@ jobs:
           --postgres-dsn
           postgresql://datapaw:datapaw-demo@127.0.0.1:5432/datapaw_demo
 
+      - name: Run real datasource and semantic CLI flow
+        run: >
+          uv run python examples/semantic_smoke_test.py
+          --postgres-dsn
+          postgresql://datapaw:datapaw-demo@127.0.0.1:5432/datapaw_demo
+
   docker:
     name: Docker sandbox integration
     runs-on: ubuntu-latest
