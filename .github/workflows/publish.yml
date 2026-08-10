@@ -31,7 +31,7 @@ jobs:
       - name: Verify distribution set
         run: uv run python scripts/check_release_versions.py --dist-dir dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: python-distributions
           path: dist/
