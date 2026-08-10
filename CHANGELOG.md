@@ -6,6 +6,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `datapaw datasource` now covers the full lifecycle: `get`, `create`
+  (with optional pre-save connection test), `update`, `delete`, and `test`,
+  all with masked credential output.
+- New `datapaw semantic` command group: table-driven CRUD for business
+  domains, datasets, columns, dimensions, dataset-dimension bindings,
+  metrics, and metric formulas; Excel workbook import; and weave-task
+  management (`submit` with `--wait`, `list`, `kill`).
+- `SemanticConfigClient` in `datapaw-host-core` for the authenticated
+  `/api/semantic-config` REST surface with pagination validation and the
+  unified error protocol.
+
 ## [0.1.2] - 2026-08-10
 
 ### Added

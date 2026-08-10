@@ -1,11 +1,56 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
 from datapaw.cli.main import build_parser, main
 from datapaw.host.core.cm_client import CMDatasource, CMDatasourceList, CMClientError
+
+
+class RecordingClient:
+    """Fake SemanticConfigClient capturing calls and replaying responses."""
+
+    calls: list[tuple[str, str, dict[str, Any]]] = []
+    responses: dict[str, Any] = {}
+
+    def __init__(self, **_: Any) -> None:
+        pass
+
+    @classmethod
+    def reset(cls, responses: dict[str, Any] | None = None) -> None:
+        cls.calls = []
+        cls.responses = responses or {}
+
+    def _record(self, method: str, path: str, **kwargs: Any) -> Any:
+        type(self).calls.append((method, path, kwargs))
+        for key in (f"{method} {path}", method, path):
+            if key in type(self).responses:
+                value = type(self).responses[key]
+                return value.pop(0) if isinstance(value, list) else value
+        return {}
+
+    def get(self, path: str, *, params: Any = None) -> Any:
+        return self._record("GET", path, params=params)
+
+    def post(self, path: str, *, json: Any = None, files: Any = None) -> Any:
+        return self._record("POST", path, json=json, files=files)
+
+    def put(self, path: str, *, json: Any = None) -> Any:
+        return self._record("PUT", path, json=json)
+
+    def delete(self, path: str) -> Any:
+        return self._record("DELETE", path)
+
+
+@pytest.fixture()
+def fake_client(monkeypatch: pytest.MonkeyPatch) -> type[RecordingClient]:
+    from datapaw.cli.commands import datasource
+
+    RecordingClient.reset()
+    monkeypatch.setattr(datasource, "SemanticConfigClient", RecordingClient)
+    return RecordingClient
 
 
 def test_datasource_command_is_registered_without_base_url_option() -> None:
@@ -137,3 +182,158 @@ def test_datasource_list_reports_safe_client_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "invalid datasource_id" in captured.err
+
+
+def test_datasource_get_hides_config_by_default(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_client.reset(
+        {
+            "GET": {
+                "datasource_id": "pg-1",
+                "datasource_name": "demo",
+                "datasource_type": "postgresql",
+                "config": {"host": "db", "password": "secret"},
+            },
+        },
+    )
+
+    assert main(["datasource", "get", "pg-1"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert "config" not in payload
+    assert fake_client.calls[0][:2] == ("GET", "/api/semantic-config/datasource/pg-1")
+
+
+def test_datasource_get_show_config_masks_secrets(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_client.reset(
+        {
+            "GET": {
+                "datasource_id": "pg-1",
+                "config": {"host": "db", "password": "secret"},
+            },
+        },
+    )
+
+    assert main(["datasource", "get", "pg-1", "--show-config"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["config"] == {"host": "db", "password": "******"}
+    assert "secret" not in captured.out
+
+
+def test_datasource_create_with_test_aborts_on_failed_connection(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_client.reset(
+        {"POST": {"success": False, "message": "connection refused", "elapsed_ms": 3}},
+    )
+
+    assert main([
+        "datasource", "create",
+        "--name", "demo", "--type", "postgresql",
+        "--config", '{"host": "db", "password": "secret"}',
+        "--test",
+    ]) == 1
+
+    captured = capsys.readouterr()
+    assert "connection test failed" in captured.err
+    # only the test-connection call happened; nothing was created
+    assert len(fake_client.calls) == 1
+    assert fake_client.calls[0][1].endswith("/datasource/test-connection")
+
+
+def test_datasource_create_posts_config_and_masks_output(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_client.reset(
+        {
+            "POST": {
+                "datasource_id": "postgresql-x",
+                "datasource_name": "demo",
+                "datasource_type": "postgresql",
+                "config": {"host": "db", "password": "secret"},
+            },
+        },
+    )
+
+    assert main([
+        "datasource", "create",
+        "--name", "demo", "--type", "postgresql",
+        "--config", '{"host": "db", "password": "secret"}',
+    ]) == 0
+
+    method, path, kwargs = fake_client.calls[0]
+    assert (method, path) == ("POST", "/api/semantic-config/datasource")
+    assert kwargs["json"]["config"] == {"host": "db", "password": "secret"}
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["config"]["password"] == "******"
+    assert "secret" not in captured.out
+
+
+def test_datasource_update_requires_a_change(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["datasource", "update", "pg-1"]) == 1
+    assert "nothing to update" in capsys.readouterr().err
+    assert fake_client.calls == []
+
+
+def test_datasource_update_puts_partial_payload(
+    fake_client: type[RecordingClient],
+) -> None:
+    assert main(["datasource", "update", "pg-1", "--name", "renamed"]) == 0
+    method, path, kwargs = fake_client.calls[0]
+    assert (method, path) == ("PUT", "/api/semantic-config/datasource/pg-1")
+    assert kwargs["json"] == {"datasource_name": "renamed"}
+
+
+def test_datasource_delete_requires_yes_in_non_tty(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["datasource", "delete", "pg-1"]) == 1
+    assert "--yes" in capsys.readouterr().err
+    assert fake_client.calls == []
+
+
+def test_datasource_delete_with_yes(fake_client: type[RecordingClient]) -> None:
+    assert main(["datasource", "delete", "pg-1", "--yes"]) == 0
+    assert fake_client.calls[0][:2] == ("DELETE", "/api/semantic-config/datasource/pg-1")
+
+
+def test_datasource_test_saved_id_exit_code_follows_success(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake_client.reset({"POST": {"success": True, "message": "ok", "elapsed_ms": 5}})
+    assert main(["datasource", "test", "pg-1"]) == 0
+    assert fake_client.calls[0][:2] == (
+        "POST",
+        "/api/semantic-config/datasource/pg-1/test-connection",
+    )
+
+    fake_client.reset({"POST": {"success": False, "message": "nope", "elapsed_ms": 5}})
+    assert main(["datasource", "test", "pg-1"]) == 1
+    capsys.readouterr()
+
+
+def test_datasource_test_rejects_id_and_adhoc_config_together(
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([
+        "datasource", "test", "pg-1",
+        "--type", "postgresql", "--config", "{}",
+    ]) == 1
+    assert "not both" in capsys.readouterr().err
+    assert fake_client.calls == []
