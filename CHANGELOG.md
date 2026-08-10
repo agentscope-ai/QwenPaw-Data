@@ -6,18 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- Locked development and CI validation to AgentScope 2.0.6, which the
-  published `>=2.0.5,<2.1` range already resolves for end users.
-
-### Security
-
-- Raised the pypdf minimum to 6.15.0 to address CVE-2026-71852 and
-  CVE-2026-71870.
+## [0.1.2] - 2026-08-10
 
 ### Added
 
+- Dependabot configuration covering the Python (uv) workspace, the frontend
+  npm workspace, and GitHub Actions.
 - Persistent SQLite job storage with idempotency keys, leases, retries, expiry,
   and restart recovery.
 - Request-level resource budgets and stable machine-readable API error codes.
@@ -33,6 +27,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Locked development and CI validation to AgentScope 2.0.6, which the
+  published `>=2.0.5,<2.1` range already resolves for end users.
 - Services bind to loopback by default and use real scoped bearer-key checks.
 - CORS and outbound callbacks require explicit allowlists.
 - Import contracts now live in a transport-neutral application layer.
@@ -40,8 +36,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The frontend baseline is now Node.js 22.22+, React 19, React Router 8, and
   Vite 7.
 
+### Fixed
+
+- Windows console-safe liveness probes, forced UTF-8 I/O on the native
+  Windows CI job, and the ten test failures unmasked by the console fix.
+- Synced the `datapaw-context` requirements lockfile with its `pyproject.toml`
+  and made it universal.
+
 ### Security
 
+- Raised the pypdf minimum to 6.15.0 to address CVE-2026-71852 and
+  CVE-2026-71870.
 - Removed unsafe development forwarding/process endpoints and internal assets.
 - Added upload, query, response, callback, authentication, and rate limits.
 - Added dependency, secret, license, CodeQL, and SBOM CI gates.
@@ -73,6 +78,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-workspace"
-version = "0.1.1"
+version = "0.1.2"
 description = "DataPaw monorepo workspace."
 readme = "README.md"
 license = "Apache-2.0"

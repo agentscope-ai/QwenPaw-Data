@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-skills"
-version = "0.1.1"
+version = "0.1.2"
 description = "Reusable data analysis skills for DataPaw."
 readme = "README.md"
 license = "Apache-2.0"

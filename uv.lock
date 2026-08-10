@@ -642,7 +642,7 @@ wheels = [
 
 [[package]]
 name = "datapaw-cli"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/datapaw-cli" }
 dependencies = [
     { name = "datapaw-host-core" },
@@ -657,7 +657,7 @@ requires-dist = [
 
 [[package]]
 name = "datapaw-context"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/datapaw-context" }
 dependencies = [
     { name = "aiohttp" },
@@ -730,7 +730,7 @@ requires-dist = [
 
 [[package]]
 name = "datapaw-host-core"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/datapaw-host-core" }
 dependencies = [
     { name = "agentscope" },
@@ -755,12 +755,12 @@ requires-dist = [
 
 [[package]]
 name = "datapaw-skills"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/datapaw-skills" }
 
 [[package]]
 name = "datapaw-workspace"
-version = "0.1.1"
+version = "0.1.2"
 source = { virtual = "." }
 
 [package.dev-dependencies]
