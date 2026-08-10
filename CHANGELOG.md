@@ -19,6 +19,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/api/semantic-config` REST surface with pagination validation and the
   unified error protocol.
 
+### Fixed
+
+- Semantic-config partial updates no longer erase omitted fields: the
+  repository UPDATE statements previously overwrote every column, so a
+  partial payload hit NOT NULL constraints (HTTP 500) or silently nulled
+  stored values. All seven resource repositories now preserve fields that
+  are not part of the request.
+- `datapaw semantic weave submit --wait` now recognizes the upper-case
+  terminal states reported by DataBridge (`SUCCESS`/`FAILED`/`KILLED`)
+  instead of polling until timeout.
+
 ## [0.1.2] - 2026-08-10
 
 ### Added

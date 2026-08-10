@@ -36,8 +36,9 @@ async def insert(db: aiosqlite.Connection, m) -> int:
 async def update(db: aiosqlite.Connection, fid: int, m) -> int:
     sql = """
         UPDATE metric_formula_lib SET
-            formula = ?, date_range = ?, formula_evidence = ?, derived_from = ?, evidence_ext = ?,
-            updated_at = ?
+            formula = COALESCE(?, formula), date_range = COALESCE(?, date_range),
+            formula_evidence = COALESCE(?, formula_evidence), derived_from = COALESCE(?, derived_from),
+            evidence_ext = COALESCE(?, evidence_ext), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (

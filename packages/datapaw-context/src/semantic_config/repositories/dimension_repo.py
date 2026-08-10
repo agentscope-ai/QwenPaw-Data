@@ -39,8 +39,10 @@ async def insert(db: aiosqlite.Connection, m) -> int:
 async def update(db: aiosqlite.Connection, dim_id: int, m) -> int:
     sql = """
         UPDATE dimension SET
-            dimension_name = ?, description = ?, parent_name = ?, depth = ?, synonyms = ?,
-            is_visible = ?, is_attribution = ?, enums = ?, updated_at = ?
+            dimension_name = COALESCE(?, dimension_name), description = COALESCE(?, description),
+            parent_name = COALESCE(?, parent_name), depth = COALESCE(?, depth),
+            synonyms = COALESCE(?, synonyms), is_visible = COALESCE(?, is_visible),
+            is_attribution = COALESCE(?, is_attribution), enums = COALESCE(?, enums), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (

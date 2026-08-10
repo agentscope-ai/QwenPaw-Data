@@ -248,10 +248,10 @@ def test_weave_submit_wait_polls_to_terminal_state(
     monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 0.0)
     fake_client.reset(
         {
-            "POST": {"task_id": "t-2", "status": "pending"},
+            "POST": {"task_id": "t-2", "status": "PENDING"},
             "LIST": [
-                {"records": [{"task_id": "t-2", "status": "running"}], "total": 1, "page": 1},
-                {"records": [{"task_id": "t-2", "status": "success"}], "total": 1, "page": 1},
+                {"records": [{"task_id": "t-2", "status": "RUNNING"}], "total": 1, "page": 1},
+                {"records": [{"task_id": "t-2", "status": "SUCCESS"}], "total": 1, "page": 1},
             ],
         },
     )
@@ -261,7 +261,7 @@ def test_weave_submit_wait_polls_to_terminal_state(
     ]) == 0
 
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["status"] == "success"
+    assert json.loads(captured.out)["status"] == "SUCCESS"
     assert "running" in captured.err
     assert "." in captured.err
 
@@ -276,9 +276,9 @@ def test_weave_submit_wait_fails_on_failed_task(
     monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 0.0)
     fake_client.reset(
         {
-            "POST": {"task_id": "t-3", "status": "pending"},
+            "POST": {"task_id": "t-3", "status": "PENDING"},
             "LIST": {
-                "records": [{"task_id": "t-3", "status": "failed", "error_msg": "boom"}],
+                "records": [{"task_id": "t-3", "status": "FAILED", "error_msg": "boom"}],
                 "total": 1,
                 "page": 1,
             },
@@ -301,9 +301,9 @@ def test_weave_submit_wait_times_out_with_kill_hint(
     monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 0.0)
     fake_client.reset(
         {
-            "POST": {"task_id": "t-4", "status": "pending"},
+            "POST": {"task_id": "t-4", "status": "PENDING"},
             "LIST": {
-                "records": [{"task_id": "t-4", "status": "running"}],
+                "records": [{"task_id": "t-4", "status": "RUNNING"}],
                 "total": 1,
                 "page": 1,
             },

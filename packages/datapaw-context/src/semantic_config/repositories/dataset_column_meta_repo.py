@@ -39,9 +39,13 @@ async def insert(db: aiosqlite.Connection, m) -> int:
 async def update(db: aiosqlite.Connection, col_id: int, m) -> int:
     sql = """
         UPDATE dataset_column_meta SET
-            column_name = ?, column_name_cn = ?, data_type = ?, column_type = ?, dimension_type = ?,
-            column_comment = ?, column_enums = ?, column_enums_description = ?, samples = ?,
-            is_primary = ?, is_nullable = ?, updated_at = ?
+            column_name = COALESCE(?, column_name), column_name_cn = COALESCE(?, column_name_cn),
+            data_type = COALESCE(?, data_type), column_type = COALESCE(?, column_type),
+            dimension_type = COALESCE(?, dimension_type), column_comment = COALESCE(?, column_comment),
+            column_enums = COALESCE(?, column_enums),
+            column_enums_description = COALESCE(?, column_enums_description),
+            samples = COALESCE(?, samples), is_primary = COALESCE(?, is_primary),
+            is_nullable = COALESCE(?, is_nullable), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (

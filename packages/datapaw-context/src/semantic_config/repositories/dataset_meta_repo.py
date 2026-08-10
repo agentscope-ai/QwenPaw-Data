@@ -34,8 +34,9 @@ async def insert(db: aiosqlite.Connection, m) -> int:
 async def update(db: aiosqlite.Connection, dataset_id: int, m) -> int:
     sql = """
         UPDATE dataset_meta SET
-            dataset_name = ?, dataset_comment = ?, dataset_type = ?, sql_content = ?, parents = ?,
-            updated_at = ?
+            dataset_name = COALESCE(?, dataset_name), dataset_comment = COALESCE(?, dataset_comment),
+            dataset_type = COALESCE(?, dataset_type), sql_content = COALESCE(?, sql_content),
+            parents = COALESCE(?, parents), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (

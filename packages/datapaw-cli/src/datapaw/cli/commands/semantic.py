@@ -21,8 +21,14 @@ from datapaw.cli.util import (
 )
 
 _WEAVE_PATH = f"{SEMANTIC_CONFIG_PREFIX}/weave-task"
+# DataBridge reports weave states in upper case (SUCCESS/FAILED/KILLED);
+# compare case-insensitively to stay tolerant of both spellings.
 _WEAVE_TERMINAL_STATES = frozenset({"success", "failed", "killed"})
 _WEAVE_POLL_SECONDS = 2.0
+
+
+def _weave_status(record: dict[str, Any]) -> str:
+    return str(record.get("status") or "").lower()
 
 
 @dataclass(frozen=True)
@@ -520,12 +526,12 @@ def _wait_for_weave_task(
 ) -> tuple[dict[str, Any], bool]:
     """Poll until the task is terminal. Returns (last_record, finished)."""
     task_id = str(task.get("task_id") or "")
-    last_status = str(task.get("status") or "")
+    last_status = _weave_status(task)
     print(f"weave task {task_id}: {last_status or 'submitted'}", file=sys.stderr)
     deadline = time.monotonic() + timeout
     current = task
     while time.monotonic() < deadline:
-        status = str(current.get("status") or "")
+        status = _weave_status(current)
         if status != last_status:
             print(f"\nweave task {task_id}: {status}", file=sys.stderr)
             last_status = status
@@ -562,7 +568,7 @@ def handle_weave_submit(args: argparse.Namespace) -> int:
             f"inspect it with 'datapaw semantic weave list' or stop it with "
             f"'datapaw semantic weave kill {task_id}'",
         )
-    return 0 if task.get("status") == "success" else 1
+    return 0 if _weave_status(task) == "success" else 1
 
 
 def handle_weave_list(args: argparse.Namespace) -> int:
