@@ -15,9 +15,9 @@ description: 语义层工具使用规范。在发现语义层工具可用、需�
 语义层暴露三类工具：
 
 - **全局**：`list_domains()`
-- **指标查询**：`list_metrics(domain)`、`search_metrics(query, domain)`、`get_metric_info(metric_name, domain)`、`get_north_star_metrics(domain)`
-- **维度查询**：`list_dimensions(domain)`、`get_dimension_info(dim_name, domain)`、`get_dimensions_for_metric(metric_name, domain)`、`get_dimension_hierarchy(dim_name, domain)`、`get_dimension_values(dim_name, domain)`
-- **数据集查询**：`list_datasets(domain)`、`get_dataset_columns(name, domain)`、`get_dataset_schema(name, domain)`
+- **指标查询**：`list_metrics(domain)`、`search_metrics(query, domain)`、`get_metric(name, domain)`、`get_north_star_metrics(domain)`
+- **维度查询**：`list_dimensions(domain)`、`get_dimension(name, domain)`、`list_dimensions_of_metric(name, domain)`、`get_dimension_hierarchy(name, domain)`、`get_dimension_values(name, domain)`
+- **数据集查询**：`list_datasets(domain)`、`get_dataset_columns(name, domain)`、`get_dataset(name, domain)`
 
 具体参数和返回格式参见工具自身描述。
 
@@ -35,7 +35,7 @@ description: 语义层工具使用规范。在发现语义层工具可用、需�
 
 ### 指标属性确认
 
-通过 `get_metric_info` 获取指标属性，重点属性：
+通过 `get_metric` 获取指标属性，重点属性：
 
 - **是否是北极星指标**（`is_north_star`）：用于角色分配
 - **是否展示指标**（`is_display`）：该指标是否应出现在展示面板中
@@ -44,7 +44,7 @@ description: 语义层工具使用规范。在发现语义层工具可用、需�
 
 ### 维度信息获取
 
-通过 `get_dimensions_for_metric` 获取指标可拆解的维度列表（`is_contribution_dimension=true` 的维度才可用于贡献度拆解），通过 `get_dimension_hierarchy` 获取维度间的父子层级关系。
+通过 `list_dimensions_of_metric` 获取指标可拆解的维度列表（`is_contribution_dimension=true` 的维度才可用于贡献度拆解），通过 `get_dimension_hierarchy` 获取维度间的父子层级关系。
 
 ---
 
