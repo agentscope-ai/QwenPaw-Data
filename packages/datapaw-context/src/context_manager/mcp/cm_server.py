@@ -25,6 +25,7 @@ import json
 import logging
 import os
 from typing import Any, Awaitable, Callable, Optional, TypeVar
+from urllib.parse import quote
 
 import httpx
 
@@ -657,6 +658,28 @@ async def get_dataset(name: str, domain: str, session_ref: str = "", metadata: s
     if ds_id:
         params["datasource_id"] = ds_id
     return _json(await _get("datasets", params))
+
+
+@mcp.tool()
+async def get_dataset_columns(name: str, domain: str, session_ref: str = "", metadata: str = "{}") -> str:
+    """查询数据集的列定义列表。
+
+    返回指定数据集的列元数据（列名、类型、描述等），比 get_dataset 更轻量，
+    适用于只需要列信息的场景。
+
+    Args:
+        name: 数据集名称（必填）
+        domain: 业务域名称（必填），如 "ChatApp"
+        session_ref: 会话引用；通常由 harness 经 metadata.session_ref 注入（LLM 无需填写）
+    """
+    ref = _meta_session_ref(metadata, session_ref)
+    ds_id = _meta_datasource_id(metadata)
+    params: dict[str, Any] = {"domain": domain}
+    if ref:
+        params["session_ref"] = ref
+    if ds_id:
+        params["datasource_id"] = ds_id
+    return _json(await _get(f"datasets/{quote(name, safe='')}/columns", params))
 
 
 
