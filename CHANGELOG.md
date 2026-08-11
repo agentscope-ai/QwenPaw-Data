@@ -6,6 +6,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Added the missing `get_dataset_columns` MCP tool and corrected the tool
+  names advertised by the `bi-semantic-layer-guide` skill
+  (`get_metric`, `get_dimension`, `list_dimensions_of_metric`,
+  `get_dataset`), which previously led agents to call non-existent tools;
+  a new alignment test keeps the skill guide and the MCP registry in sync
+  (#19).
+
 ## [0.1.2] - 2026-08-10
 
 ### Added
