@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-cli"
-version = "0.1.2"
+version = "0.2.0"
 description = "Standalone command-line interface for DataPaw."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-  "datapaw-host-core>=0.1,<0.2",
+  "datapaw-host-core>=0.2,<0.3",
   "python-dotenv>=1.2.2,<2.0",
 ]
 

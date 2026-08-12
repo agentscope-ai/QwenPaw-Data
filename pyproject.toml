@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-workspace"
-version = "0.1.2"
+version = "0.2.0"
 description = "DataPaw monorepo workspace."
 readme = "README.md"
 license = "Apache-2.0"
@@ -42,10 +42,10 @@ dev = [
   "pytest>=9.0.3,<10.0",
   "pytest-asyncio>=0.24,<2.0",
   "httpx>=0.28,<0.29",
-  "datapaw-context>=0.1,<0.2",
-  "datapaw-host-core>=0.1,<0.2",
-  "datapaw-cli>=0.1,<0.2",
-  "datapaw-skills>=0.1,<0.2",
+  "datapaw-context>=0.2,<0.3",
+  "datapaw-host-core>=0.2,<0.3",
+  "datapaw-cli>=0.2,<0.3",
+  "datapaw-skills>=0.2,<0.3",
 ]
 
 [tool.uv.sources]
