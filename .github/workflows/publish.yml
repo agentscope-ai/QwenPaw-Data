@@ -26,7 +26,7 @@ jobs:
         run: uv build --all-packages --out-dir dist
 
       - name: Check package metadata
-        run: uvx --from twine==6.2.0 twine check dist/*
+        run: uvx --from twine==7.0.0 twine check dist/*
 
       - name: Verify distribution set
         run: uv run python scripts/check_release_versions.py --dist-dir dist
