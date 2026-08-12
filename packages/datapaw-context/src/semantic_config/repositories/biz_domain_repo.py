@@ -45,7 +45,8 @@ async def update(
 ) -> int:
     sql = """
         UPDATE biz_domain SET
-            domain_name = ?, display_name = ?, description = ?, aliases = ?, updated_at = ?
+            domain_name = COALESCE(?, domain_name), display_name = COALESCE(?, display_name),
+            description = COALESCE(?, description), aliases = COALESCE(?, aliases), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (domain_name, display_name, description, aliases, now_iso(), domain_id))

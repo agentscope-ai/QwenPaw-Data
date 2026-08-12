@@ -6,8 +6,33 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `datapaw datasource` now covers the full lifecycle: `get`, `create`
+  (with optional pre-save connection test), `update`, `delete`, and `test`,
+  all with masked credential output.
+- New `datapaw semantic` command group: table-driven CRUD for business
+  domains, datasets, columns, dimensions, dataset-dimension bindings,
+  metrics, and metric formulas; Excel workbook import; and weave-task
+  management (`submit` with `--wait`, `list`, `kill`).
+- `SemanticConfigClient` in `datapaw-host-core` for the authenticated
+  `/api/semantic-config` REST surface with pagination validation and the
+  unified error protocol.
+- Deterministic semantic-CLI smoke test (`examples/semantic_smoke_test.py`)
+  covering datasource lifecycle, workbook import, semantic CRUD with partial
+  updates, batch deletion, and a real weave publish, wired into the CI smoke
+  job.
+
 ### Fixed
 
+- Semantic-config partial updates no longer erase omitted fields: the
+  repository UPDATE statements previously overwrote every column, so a
+  partial payload hit NOT NULL constraints (HTTP 500) or silently nulled
+  stored values. All seven resource repositories now preserve fields that
+  are not part of the request.
+- `datapaw semantic weave submit --wait` now recognizes the upper-case
+  terminal states reported by DataBridge (`SUCCESS`/`FAILED`/`KILLED`)
+  instead of polling until timeout.
 - Added the missing `get_dataset_columns` MCP tool and corrected the tool
   names advertised by the `bi-semantic-layer-guide` skill
   (`get_metric`, `get_dimension`, `list_dimensions_of_metric`,

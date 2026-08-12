@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -23,6 +24,52 @@ _PERMISSION_MODES = (
 def add_prompt_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("prompt", nargs="*", help="Prompt text")
     parser.add_argument("--file", "-f", type=Path, help="Read prompt text from a file")
+
+
+def print_json(payload: Any) -> None:
+    """Print an API payload with the CLI's canonical JSON formatting."""
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def load_json_object(path: Path) -> dict[str, Any]:
+    """Read a JSON object from a file, rejecting non-object documents."""
+    try:
+        payload = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"unable to read {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
+
+
+def parse_json_object(text: str, *, flag: str) -> dict[str, Any]:
+    """Parse an inline JSON object argument."""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{flag} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{flag} must be a JSON object")
+    return payload
+
+
+def confirm_deletion(subject: str, *, assume_yes: bool) -> bool:
+    """Terminal confirmation for destructive commands.
+
+    Returns True when the deletion may proceed. Non-TTY callers must pass
+    --yes explicitly so unattended scripts never block or delete by accident.
+    """
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        raise ValueError(f"refusing to delete {subject} without --yes in a non-interactive session")
+    try:
+        answer = input(f"Delete {subject}? [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
 
 
 def add_stream_arg(parser: argparse.ArgumentParser) -> None:

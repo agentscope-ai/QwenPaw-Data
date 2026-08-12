@@ -39,8 +39,11 @@ async def insert(db: aiosqlite.Connection, m) -> int:
 async def update(db: aiosqlite.Connection, metric_id: int, m) -> int:
     sql = """
         UPDATE metric_lib SET
-            metric_name = ?, description = ?, unit = ?, is_polaris = ?, show_distribution = ?,
-            is_visible = ?, synonyms = ?, tags = ?, updated_at = ?
+            metric_name = COALESCE(?, metric_name), description = COALESCE(?, description),
+            unit = COALESCE(?, unit), is_polaris = COALESCE(?, is_polaris),
+            show_distribution = COALESCE(?, show_distribution),
+            is_visible = COALESCE(?, is_visible), synonyms = COALESCE(?, synonyms),
+            tags = COALESCE(?, tags), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (

@@ -37,7 +37,8 @@ async def insert(db: aiosqlite.Connection, m) -> int:
 async def update(db: aiosqlite.Connection, dd_id: int, m) -> int:
     sql = """
         UPDATE dataset_dimension SET
-            calculate_expr = ?, dimension_type = ?, data_type = ?, updated_at = ?
+            calculate_expr = COALESCE(?, calculate_expr), dimension_type = COALESCE(?, dimension_type),
+            data_type = COALESCE(?, data_type), updated_at = ?
         WHERE id = ? AND is_deleted = 0
     """
     cur = await db.execute(sql, (m.calculate_expr, m.dimension_type, m.data_type, now_iso(), dd_id))
