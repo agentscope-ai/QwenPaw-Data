@@ -309,7 +309,7 @@ def _convert_dimensions(
             "name": name,
             "type": "enum",
             "description": str(dim.get("description") or ""),
-            "synonyms": _str_list(dim.get("synonyms")),
+            "synonyms": _str_list(dim.get("aliases") or dim.get("synonyms")),
             "hierarchy_level": int(dim.get("hierarchy_level") or 0),
             "is_display_dimension": bool(dim.get("is_display_dimension", True)),
             "is_contribution_dimension": bool(dim.get("is_contribution_dimension", True)),
@@ -413,7 +413,7 @@ def _convert_metrics(
             "is_north_star": bool(met.get("is_north_star", False)),
             "is_display": bool(met.get("is_display", True)),
             "is_display_distribution": bool(met.get("is_display_distribution", True)),
-            "synonyms": _str_list(met.get("synonyms")),
+            "synonyms": _str_list(met.get("aliases") or met.get("synonyms")),
             "tags": _str_list(met.get("tags")),
             "status": "stable",
         }
