@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-host-core"
-version = "0.2.0"
+version = "0.2.4"
 description = "Shared host foundation for DataPaw."
 readme = "README.md"
 license = "Apache-2.0"

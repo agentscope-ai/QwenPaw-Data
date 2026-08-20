@@ -215,3 +215,23 @@ by the frontend pages and scripts). See `/docs` for the full list.
 - `.venv/`, the repository root `.env`, and `*.db` files are ignored via
   `.gitignore` (`semantic_config.db` holds datasource connection info — do
   not commit it).
+
+## Bundled demo assets
+
+`datapaw-context` ships a self-contained GAAP demo for the docker-compose
+one-shot setup in the main QwenPaw repository:
+
+- `context_manager/demo/assets/demo_semantic_config.xlsx` — semantic-layer workbook
+- `context_manager/demo/assets/seed-postgres.sql` — idempotent PostgreSQL seed script
+
+These assets are accessible from a PyPI install via `importlib.resources`:
+
+```python
+from context_manager.demo.loader import seed_postgres_sql, semantic_workbook_bytes
+
+sql = seed_postgres_sql()
+workbook_bytes = semantic_workbook_bytes()
+```
+
+See [docs/demo.md](docs/demo.md) for the asset lifecycle and regeneration
+instructions.

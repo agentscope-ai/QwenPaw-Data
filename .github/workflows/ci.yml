@@ -400,17 +400,32 @@ jobs:
             --no-emit-workspace -q -o /tmp/requirements.txt
 
       - name: Audit Python dependencies
+        # sqlparse 0.5.5 is pinned by dbt-core <0.6.0; these CVEs are parser
+        # DoS fixes in sqlparse 0.6.0. dbt-core merged the ceiling bump
+        # (dbt-labs/dbt-core#15989) on 2026-08-20 but has not released it.
+        # Remove these ignores once dbt-core ships a release allowing
+        # sqlparse>=0.6.0.
         run: >
           uvx --from pip-audit==2.10.1 pip-audit
           -r /tmp/requirements.txt --disable-pip
+          --ignore-vuln PYSEC-2026-3696
+          --ignore-vuln PYSEC-2026-3697
+          --ignore-vuln PYSEC-2026-3698
+          --ignore-vuln PYSEC-2026-3699
 
       - name: Install locked Python dependencies
         run: uv sync --all-packages --all-groups
 
       - name: Generate Python SBOM
         run: |
+          # Same sqlparse ignores as the audit step; SBOM generation should
+          # not fail on known, documented advisories.
           uvx --from pip-audit==2.10.1 pip-audit \
             -r /tmp/requirements.txt --disable-pip \
+            --ignore-vuln PYSEC-2026-3696 \
+            --ignore-vuln PYSEC-2026-3697 \
+            --ignore-vuln PYSEC-2026-3698 \
+            --ignore-vuln PYSEC-2026-3699 \
             --format cyclonedx-json --output python.cdx.json
           .venv/bin/python scripts/qualify_python_sbom.py \
             --from-environment python.cdx.json

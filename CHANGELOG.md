@@ -6,6 +6,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-20
+
+### Added
+
+- `datapaw-context` now ships bundled GAAP demo assets (`demo_semantic_config.xlsx`
+  and `seed-postgres.sql`) so the docker-compose one-shot demo works without a
+  local source checkout.
+
+### Changed
+
+- Relaxed `anyio` lower bound to `>=4.0` and raised `openai` upper bound to
+  `<2.34` for compatibility with the QwenPaw main application, which pins
+  `anyio<4.13.0` (QwenPaw#2632) and requires `openai>=2.0.0,<=2.33.0`.
+
+### Fixed
+
+- Aligned workspace package versions; `0.2.1`–`0.2.3` were published without
+  matching workspace bumps and have been yanked on PyPI.
+
 ## [0.2.0] - 2026-08-12
 
 ### Added
@@ -116,7 +135,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...v0.2.4
 [0.2.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.0...v0.1.1
