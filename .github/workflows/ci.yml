@@ -418,8 +418,14 @@ jobs:
 
       - name: Generate Python SBOM
         run: |
+          # Same sqlparse ignores as the audit step; SBOM generation should
+          # not fail on known, documented advisories.
           uvx --from pip-audit==2.10.1 pip-audit \
             -r /tmp/requirements.txt --disable-pip \
+            --ignore-vuln PYSEC-2026-3696 \
+            --ignore-vuln PYSEC-2026-3697 \
+            --ignore-vuln PYSEC-2026-3698 \
+            --ignore-vuln PYSEC-2026-3699 \
             --format cyclonedx-json --output python.cdx.json
           .venv/bin/python scripts/qualify_python_sbom.py \
             --from-environment python.cdx.json
