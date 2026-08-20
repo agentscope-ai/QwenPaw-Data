@@ -642,7 +642,7 @@ wheels = [
 
 [[package]]
 name = "datapaw-cli"
-version = "0.2.0"
+version = "0.2.4"
 source = { editable = "packages/datapaw-cli" }
 dependencies = [
     { name = "datapaw-host-core" },
@@ -657,7 +657,7 @@ requires-dist = [
 
 [[package]]
 name = "datapaw-context"
-version = "0.2.0"
+version = "0.2.4"
 source = { editable = "packages/datapaw-context" }
 dependencies = [
     { name = "aiohttp" },
@@ -697,7 +697,7 @@ dependencies = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3,<4.0" },
     { name = "aiosqlite", specifier = ">=0.22,<1.0" },
-    { name = "anyio", specifier = ">=4.13,<5.0" },
+    { name = "anyio", specifier = ">=4.0,<5.0" },
     { name = "certifi", specifier = ">=2023.0,<2027.0" },
     { name = "dbt-core", specifier = ">=1.11,<2.0" },
     { name = "dbt-duckdb", specifier = ">=1.10,<2.0" },
@@ -709,7 +709,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.26,<5.0" },
     { name = "mcp", specifier = ">=1.28.1,<2.0" },
     { name = "neo4j", specifier = ">=5.28,<6.0" },
-    { name = "openai", specifier = ">=1.109,<2.0" },
+    { name = "openai", specifier = ">=1.109,<2.34" },
     { name = "openpyxl", specifier = ">=3.1.5,<4.0" },
     { name = "oss2", specifier = ">=2.19,<3.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4,<4.0" },
@@ -730,7 +730,7 @@ requires-dist = [
 
 [[package]]
 name = "datapaw-host-core"
-version = "0.2.0"
+version = "0.2.4"
 source = { editable = "packages/datapaw-host-core" }
 dependencies = [
     { name = "agentscope" },
@@ -755,12 +755,12 @@ requires-dist = [
 
 [[package]]
 name = "datapaw-skills"
-version = "0.2.0"
+version = "0.2.4"
 source = { editable = "packages/datapaw-skills" }
 
 [[package]]
 name = "datapaw-workspace"
-version = "0.2.0"
+version = "0.2.4"
 source = { virtual = "." }
 
 [package.dev-dependencies]

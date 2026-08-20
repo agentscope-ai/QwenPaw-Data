@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-context"
-version = "0.2.1"
+version = "0.2.4"
 description = "Context management and graph memory foundation for DataPaw."
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,7 +22,8 @@ requires-python = ">=3.11"
 dependencies = [
   # --- Web / 服务 ---
   "fastapi>=0.141.1,<1.0",
-  "anyio>=4.13,<5.0",
+  # anyio 上限放宽以兼容 QwenPaw 主应用（QwenPaw 为规避 #2632 busy-loop 而 pin anyio<4.13.0）
+  "anyio>=4.0,<5.0",
   "uvicorn[standard]>=0.52.1,<1.0",
   "httpx>=0.28,<0.29",
   "aiohttp>=3.14.3,<4.0",
@@ -38,7 +39,8 @@ dependencies = [
   "psycopg[binary]>=3.3.4,<4.0",
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
-  "openai>=1.109,<2.0",
+  # openai 上限放宽以兼容 QwenPaw 主应用（QwenPaw 要求 openai>=2.0.0,<=2.33.0）
+  "openai>=1.109,<2.34",
   "jsonschema>=4.26,<5.0",
   # --- SQL / 元数据 ---
   "sqlglot>=30.0,<31.0",
