@@ -1,6 +1,6 @@
 [project]
 name = "datapaw-context"
-version = "0.2.0"
+version = "0.2.1"
 description = "Context management and graph memory foundation for DataPaw."
 readme = "README.md"
 license = "Apache-2.0"
