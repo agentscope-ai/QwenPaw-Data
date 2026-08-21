@@ -29,7 +29,7 @@ docker version
 docker compose version
 ```
 
-DataPaw does not install or elevate privileges to start Docker Desktop.
+QwenPaw Data does not install or elevate privileges to start Docker Desktop.
 
 ## 2. Clone and configure
 
@@ -59,15 +59,15 @@ packages, builds the frontend, imports the DataBridge MCP definition, and
 creates:
 
 ```text
-%LOCALAPPDATA%\DataPaw\bin\datapaw.cmd
+%LOCALAPPDATA%\QwenPaw Data\bin\qwenpaw_data.cmd
 ```
 
 Make the launcher available in the current terminal:
 
 ```powershell
-$DataPawBin = Join-Path $env:LOCALAPPDATA "DataPaw\bin"
-$env:Path = "$DataPawBin;$env:Path"
-Get-Command datapaw
+$QwenPawDataBin = Join-Path $env:LOCALAPPDATA "QwenPaw Data\bin"
+$env:Path = "$QwenPawDataBin;$env:Path"
+Get-Command qwenpaw-data
 ```
 
 To persist it for future terminals, add that directory to the user `Path`
@@ -90,9 +90,9 @@ using ports 3000 or 8765.
 In terminal B:
 
 ```powershell
-$DataPawBin = Join-Path $env:LOCALAPPDATA "DataPaw\bin"
-$env:Path = "$DataPawBin;$env:Path"
-datapaw doctor
+$QwenPawDataBin = Join-Path $env:LOCALAPPDATA "QwenPaw Data\bin"
+$env:Path = "$QwenPawDataBin;$env:Path"
+qwenpaw-data doctor
 ```
 
 Do not continue until Docker, Neo4j, and DataBridge are reported healthy.
@@ -110,7 +110,7 @@ uv run python .\examples\smoke_test.py
 The test must finish with:
 
 ```text
-DataPaw deterministic demo smoke passed.
+QwenPaw Data deterministic demo smoke passed.
 ```
 
 For an interactive task using the models configured in `.env`, register the
@@ -118,8 +118,8 @@ fixed demo datasource:
 
 ```powershell
 .\examples\init_demo.ps1 -Register
-datapaw datasource list
-datapaw run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
+qwenpaw-data datasource list
+qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
@@ -127,7 +127,7 @@ The expected peak is 2026-03-10, with an average GAAP value of approximately
 to run a `FULL` semantic weave and upload `examples\demo_kg_doc.docx`.
 
 Generated host artifacts are stored below
-`$HOME\.datapaw\host\workspace\artifacts` unless `DATAPAW_HOME` overrides
+`$HOME\.qwenpaw-data\host\workspace\artifacts` unless `QWENPAW_DATA_HOME` overrides
 the root.
 
 ## 6. Stop or reset

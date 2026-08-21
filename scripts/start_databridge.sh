@@ -17,17 +17,17 @@ Options:
   -h, --help                  Show this help
 
 Environment:
-  DATAPAW_ENV_FILE           Optional dotenv file. Default: repository root .env
+  QWENPAW_DATA_ENV_FILE           Optional dotenv file. Default: repository root .env
   CONTEXT_HOST                Bind host when --host is omitted
   CONTEXT_PORT                Bind port when --port is omitted
   CONTEXT_LOG_LEVEL           Log level when --log-level is omitted
   FRONTEND_HOST               Bind host for the DataBridge frontend. Default: 127.0.0.1
   DOCKER_START_TIMEOUT        Seconds to wait after opening Docker Desktop on macOS. Default: 120
-  CONTEXT_PYTHON              Python executable. Default: packages/datapaw-context/.venv/bin/python
+  CONTEXT_PYTHON              Python executable. Default: packages/qwenpaw-data-context/.venv/bin/python
 
 By default all services bind to loopback only. Set --host/CONTEXT_HOST and
 FRONTEND_HOST to 0.0.0.0 explicitly to expose them on the network, and make
-sure DATAPAW_API_TOKEN or DATAPAW_API_KEYS is configured first.
+sure QWENPAW_DATA_API_TOKEN or QWENPAW_DATA_API_KEYS is configured first.
 The DataBridge frontend uses port 3000 with Vite strictPort enabled.
 EOF
 }
@@ -41,13 +41,13 @@ run() {
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
-context_root="${repo_root}/packages/datapaw-context"
+context_root="${repo_root}/packages/qwenpaw-data-context"
 frontend_root="${context_root}/frontend"
 frontend_port="3000"
 
 # shellcheck source=scripts/env.sh
 source "${script_dir}/env.sh"
-load_datapaw_env
+load_qwenpaw_data_env
 
 host="${CONTEXT_HOST:-127.0.0.1}"
 frontend_host="${FRONTEND_HOST:-127.0.0.1}"
@@ -115,7 +115,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -d "${context_root}" ]]; then
-  echo "datapaw-context package not found: ${context_root}" >&2
+  echo "qwenpaw-data-context package not found: ${context_root}" >&2
   exit 1
 fi
 if [[ ! -x "${python_cmd}" ]]; then
@@ -233,8 +233,8 @@ neo4j_reachable() {
 
 start_databases() {
   local env_args=()
-  if [[ -f "${DATAPAW_ENV_FILE:-}" ]]; then
-    env_args=(--env-file "${DATAPAW_ENV_FILE}")
+  if [[ -f "${QWENPAW_DATA_ENV_FILE:-}" ]]; then
+    env_args=(--env-file "${QWENPAW_DATA_ENV_FILE}")
   fi
   if neo4j_reachable; then
     echo "Reusing already-running Neo4j at 127.0.0.1:${NEO4J_BOLT_PORT:-7687} (skipping Docker Compose)."

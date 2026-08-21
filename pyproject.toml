@@ -1,7 +1,7 @@
 [project]
-name = "datapaw-workspace"
-version = "0.2.4"
-description = "DataPaw monorepo workspace."
+name = "qwenpaw-data-workspace"
+version = "0.1.0"
+description = "QwenPaw-Data monorepo workspace."
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "QwenPaw-Data Contributors" }]
@@ -31,10 +31,10 @@ package = false
 
 [tool.uv.workspace]
 members = [
-  "packages/datapaw-context",
-  "packages/datapaw-host-core",
-  "packages/datapaw-cli",
-  "packages/datapaw-skills",
+  "packages/qwenpaw-data-context",
+  "packages/qwenpaw-data-host-core",
+  "packages/qwenpaw-data-cli",
+  "packages/qwenpaw-data-skills",
 ]
 
 [dependency-groups]
@@ -42,17 +42,17 @@ dev = [
   "pytest>=9.0.3,<10.0",
   "pytest-asyncio>=0.24,<2.0",
   "httpx>=0.28,<0.29",
-  "datapaw-context>=0.2,<0.3",
-  "datapaw-host-core>=0.2,<0.3",
-  "datapaw-cli>=0.2,<0.3",
-  "datapaw-skills>=0.2,<0.3",
+  "qwenpaw-data-context>=0.1,<0.2",
+  "qwenpaw-data-host-core>=0.1,<0.2",
+  "qwenpaw-data-cli>=0.1,<0.2",
+  "qwenpaw-data-skills>=0.1,<0.2",
 ]
 
 [tool.uv.sources]
-datapaw-context = { workspace = true }
-datapaw-host-core = { workspace = true }
-datapaw-cli = { workspace = true }
-datapaw-skills = { workspace = true }
+qwenpaw-data-context = { workspace = true }
+qwenpaw-data-host-core = { workspace = true }
+qwenpaw-data-cli = { workspace = true }
+qwenpaw-data-skills = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

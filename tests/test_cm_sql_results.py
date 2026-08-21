@@ -6,7 +6,7 @@ import pytest
 
 from context_manager.api import cm_sql_results
 from context_manager.api.executor import ExecResult
-from datapaw.context.errors import ResourceBudgetExceeded
+from qwenpaw_data.context.errors import ResourceBudgetExceeded
 
 
 def test_sql_cache_expires_when_backing_file_disappears(tmp_path: Path) -> None:
@@ -27,7 +27,7 @@ def test_csv_budget_failure_removes_partial_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cm_sql_results, "sql_downloads_dir", lambda: tmp_path)
-    monkeypatch.setenv("DATAPAW_MAX_RESPONSE_MB", "1")
+    monkeypatch.setenv("QWENPAW_DATA_MAX_RESPONSE_MB", "1")
 
     with pytest.raises(ResourceBudgetExceeded):
         cm_sql_results.save_sql_results_to_csv(["value"], [["x" * (2 * 1024 * 1024)]])

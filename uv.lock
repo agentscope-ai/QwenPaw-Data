@@ -14,11 +14,11 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "datapaw-cli",
-    "datapaw-context",
-    "datapaw-host-core",
-    "datapaw-skills",
-    "datapaw-workspace",
+    "qwenpaw-data-cli",
+    "qwenpaw-data-context",
+    "qwenpaw-data-host-core",
+    "qwenpaw-data-skills",
+    "qwenpaw-data-workspace",
 ]
 
 [[package]]
@@ -638,153 +638,6 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/d6/0cae033252426b8ba8d778ff1f68a503302c20a288f49ee01ae543229808/dashscope-1.26.1-py3-none-any.whl", hash = "sha256:bbc5aa72bbe5cabb4150b70b95152d0973def0080f57546da223d8131dae50d0", size = 1484343, upload-time = "2026-07-02T03:28:59.981Z" },
-]
-
-[[package]]
-name = "datapaw-cli"
-version = "0.2.4"
-source = { editable = "packages/datapaw-cli" }
-dependencies = [
-    { name = "datapaw-host-core" },
-    { name = "python-dotenv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "datapaw-host-core", editable = "packages/datapaw-host-core" },
-    { name = "python-dotenv", specifier = ">=1.2.2,<2.0" },
-]
-
-[[package]]
-name = "datapaw-context"
-version = "0.2.4"
-source = { editable = "packages/datapaw-context" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "aiosqlite" },
-    { name = "anyio" },
-    { name = "certifi" },
-    { name = "dbt-core" },
-    { name = "dbt-duckdb" },
-    { name = "duckdb" },
-    { name = "fastapi" },
-    { name = "func-timeout" },
-    { name = "httpx" },
-    { name = "jaydebeapi" },
-    { name = "jsonschema" },
-    { name = "mcp" },
-    { name = "neo4j" },
-    { name = "openai" },
-    { name = "openpyxl" },
-    { name = "oss2" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic-settings" },
-    { name = "pymysql" },
-    { name = "pyodps" },
-    { name = "pypdf" },
-    { name = "python-docx" },
-    { name = "python-dotenv" },
-    { name = "python-multipart" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "sqlglot" },
-    { name = "sse-starlette" },
-    { name = "tqdm" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.14.3,<4.0" },
-    { name = "aiosqlite", specifier = ">=0.22,<1.0" },
-    { name = "anyio", specifier = ">=4.0,<5.0" },
-    { name = "certifi", specifier = ">=2023.0,<2027.0" },
-    { name = "dbt-core", specifier = ">=1.11,<2.0" },
-    { name = "dbt-duckdb", specifier = ">=1.10,<2.0" },
-    { name = "duckdb", specifier = ">=1.5,<2.0" },
-    { name = "fastapi", specifier = ">=0.141.1,<1.0" },
-    { name = "func-timeout", specifier = ">=4.3,<5.0" },
-    { name = "httpx", specifier = ">=0.28,<0.29" },
-    { name = "jaydebeapi", specifier = ">=1.2,<2.0" },
-    { name = "jsonschema", specifier = ">=4.26,<5.0" },
-    { name = "mcp", specifier = ">=1.28.1,<2.0" },
-    { name = "neo4j", specifier = ">=5.28,<6.0" },
-    { name = "openai", specifier = ">=1.109,<2.34" },
-    { name = "openpyxl", specifier = ">=3.1.5,<4.0" },
-    { name = "oss2", specifier = ">=2.19,<3.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4,<4.0" },
-    { name = "pydantic-settings", specifier = ">=2.14,<3.0" },
-    { name = "pymysql", specifier = ">=1.1,<2.0" },
-    { name = "pyodps", specifier = ">=0.13,<1.0" },
-    { name = "pypdf", specifier = ">=6.15,<7.0" },
-    { name = "python-docx", specifier = ">=1.2,<2.0" },
-    { name = "python-dotenv", specifier = ">=1.2.2,<2.0" },
-    { name = "python-multipart", specifier = ">=0.0.32,<1.0" },
-    { name = "pyyaml", specifier = ">=6.0,<7.0" },
-    { name = "requests", specifier = ">=2.34.2,<3.0" },
-    { name = "sqlglot", specifier = ">=30.0,<31.0" },
-    { name = "sse-starlette", specifier = ">=3.4,<4.0" },
-    { name = "tqdm", specifier = ">=4.68,<5.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1,<1.0" },
-]
-
-[[package]]
-name = "datapaw-host-core"
-version = "0.2.4"
-source = { editable = "packages/datapaw-host-core" }
-dependencies = [
-    { name = "agentscope" },
-    { name = "aiodocker" },
-    { name = "datapaw-skills" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "shortuuid" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agentscope", specifier = ">=2.0.5,<2.1" },
-    { name = "aiodocker", specifier = ">=0.27,<0.28" },
-    { name = "datapaw-skills", editable = "packages/datapaw-skills" },
-    { name = "httpx", specifier = ">=0.28,<0.29" },
-    { name = "pydantic", specifier = ">=2.13,<3.0" },
-    { name = "pyyaml", specifier = ">=6.0,<7.0" },
-    { name = "shortuuid", specifier = ">=1.0,<2.0" },
-]
-
-[[package]]
-name = "datapaw-skills"
-version = "0.2.4"
-source = { editable = "packages/datapaw-skills" }
-
-[[package]]
-name = "datapaw-workspace"
-version = "0.2.4"
-source = { virtual = "." }
-
-[package.dev-dependencies]
-dev = [
-    { name = "datapaw-cli" },
-    { name = "datapaw-context" },
-    { name = "datapaw-host-core" },
-    { name = "datapaw-skills" },
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "datapaw-cli", editable = "packages/datapaw-cli" },
-    { name = "datapaw-context", editable = "packages/datapaw-context" },
-    { name = "datapaw-host-core", editable = "packages/datapaw-host-core" },
-    { name = "datapaw-skills", editable = "packages/datapaw-skills" },
-    { name = "httpx", specifier = ">=0.28,<0.29" },
-    { name = "pytest", specifier = ">=9.0.3,<10.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24,<2.0" },
 ]
 
 [[package]]
@@ -3066,6 +2919,153 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/92/1446574745d74df0c92e6aa4a7b0b3130706a4142b2d1a5869f2eaa423c6/pyyaml-6.0.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:16249ee61e95f858e83976573de0f5b2893b3677ba71c9dd36b9cf8be9ac6d65", size = 829923, upload-time = "2025-09-25T21:32:54.537Z" },
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
+]
+
+[[package]]
+name = "qwenpaw-data-cli"
+version = "0.1.0"
+source = { editable = "packages/qwenpaw-data-cli" }
+dependencies = [
+    { name = "python-dotenv" },
+    { name = "qwenpaw-data-host-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "python-dotenv", specifier = ">=1.2.2,<2.0" },
+    { name = "qwenpaw-data-host-core", editable = "packages/qwenpaw-data-host-core" },
+]
+
+[[package]]
+name = "qwenpaw-data-context"
+version = "0.1.0"
+source = { editable = "packages/qwenpaw-data-context" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiosqlite" },
+    { name = "anyio" },
+    { name = "certifi" },
+    { name = "dbt-core" },
+    { name = "dbt-duckdb" },
+    { name = "duckdb" },
+    { name = "fastapi" },
+    { name = "func-timeout" },
+    { name = "httpx" },
+    { name = "jaydebeapi" },
+    { name = "jsonschema" },
+    { name = "mcp" },
+    { name = "neo4j" },
+    { name = "openai" },
+    { name = "openpyxl" },
+    { name = "oss2" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic-settings" },
+    { name = "pymysql" },
+    { name = "pyodps" },
+    { name = "pypdf" },
+    { name = "python-docx" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "sqlglot" },
+    { name = "sse-starlette" },
+    { name = "tqdm" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.14.3,<4.0" },
+    { name = "aiosqlite", specifier = ">=0.22,<1.0" },
+    { name = "anyio", specifier = ">=4.0,<5.0" },
+    { name = "certifi", specifier = ">=2023.0,<2027.0" },
+    { name = "dbt-core", specifier = ">=1.11,<2.0" },
+    { name = "dbt-duckdb", specifier = ">=1.10,<2.0" },
+    { name = "duckdb", specifier = ">=1.5,<2.0" },
+    { name = "fastapi", specifier = ">=0.141.1,<1.0" },
+    { name = "func-timeout", specifier = ">=4.3,<5.0" },
+    { name = "httpx", specifier = ">=0.28,<0.29" },
+    { name = "jaydebeapi", specifier = ">=1.2,<2.0" },
+    { name = "jsonschema", specifier = ">=4.26,<5.0" },
+    { name = "mcp", specifier = ">=1.28.1,<2.0" },
+    { name = "neo4j", specifier = ">=5.28,<6.0" },
+    { name = "openai", specifier = ">=1.109,<2.34" },
+    { name = "openpyxl", specifier = ">=3.1.5,<4.0" },
+    { name = "oss2", specifier = ">=2.19,<3.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4,<4.0" },
+    { name = "pydantic-settings", specifier = ">=2.14,<3.0" },
+    { name = "pymysql", specifier = ">=1.1,<2.0" },
+    { name = "pyodps", specifier = ">=0.13,<1.0" },
+    { name = "pypdf", specifier = ">=6.15,<7.0" },
+    { name = "python-docx", specifier = ">=1.2,<2.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2,<2.0" },
+    { name = "python-multipart", specifier = ">=0.0.32,<1.0" },
+    { name = "pyyaml", specifier = ">=6.0,<7.0" },
+    { name = "requests", specifier = ">=2.34.2,<3.0" },
+    { name = "sqlglot", specifier = ">=30.0,<31.0" },
+    { name = "sse-starlette", specifier = ">=3.4,<4.0" },
+    { name = "tqdm", specifier = ">=4.68,<5.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1,<1.0" },
+]
+
+[[package]]
+name = "qwenpaw-data-host-core"
+version = "0.1.0"
+source = { editable = "packages/qwenpaw-data-host-core" }
+dependencies = [
+    { name = "agentscope" },
+    { name = "aiodocker" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "qwenpaw-data-skills" },
+    { name = "shortuuid" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agentscope", specifier = ">=2.0.5,<2.1" },
+    { name = "aiodocker", specifier = ">=0.27,<0.28" },
+    { name = "httpx", specifier = ">=0.28,<0.29" },
+    { name = "pydantic", specifier = ">=2.13,<3.0" },
+    { name = "pyyaml", specifier = ">=6.0,<7.0" },
+    { name = "qwenpaw-data-skills", editable = "packages/qwenpaw-data-skills" },
+    { name = "shortuuid", specifier = ">=1.0,<2.0" },
+]
+
+[[package]]
+name = "qwenpaw-data-skills"
+version = "0.1.0"
+source = { editable = "packages/qwenpaw-data-skills" }
+
+[[package]]
+name = "qwenpaw-data-workspace"
+version = "0.1.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "qwenpaw-data-cli" },
+    { name = "qwenpaw-data-context" },
+    { name = "qwenpaw-data-host-core" },
+    { name = "qwenpaw-data-skills" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.28,<0.29" },
+    { name = "pytest", specifier = ">=9.0.3,<10.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24,<2.0" },
+    { name = "qwenpaw-data-cli", editable = "packages/qwenpaw-data-cli" },
+    { name = "qwenpaw-data-context", editable = "packages/qwenpaw-data-context" },
+    { name = "qwenpaw-data-host-core", editable = "packages/qwenpaw-data-host-core" },
+    { name = "qwenpaw-data-skills", editable = "packages/qwenpaw-data-skills" },
 ]
 
 [[package]]

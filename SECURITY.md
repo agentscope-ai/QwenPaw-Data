@@ -10,8 +10,8 @@ branch receives security fixes.
 QwenPaw-Data is designed for **local-first, single-user deployments**. All
 services bind to `127.0.0.1` by default. Before exposing any service beyond
 loopback, read the "Security Model and Known Limitations" section in
-`README.md` and configure `DATAPAW_API_TOKEN` or scoped `DATAPAW_API_KEYS`,
-plus an exact `DATAPAW_CORS_ORIGINS` origin allowlist.
+`README.md` and configure `QWENPAW_DATA_API_TOKEN` or scoped `QWENPAW_DATA_API_KEYS`,
+plus an exact `QWENPAW_DATA_CORS_ORIGINS` origin allowlist.
 
 Known, intentionally documented limitations:
 
@@ -25,7 +25,7 @@ Known, intentionally documented limitations:
 - Authentication-failure and request-rate limiter state is process-local;
   multi-worker or horizontally scaled deployments require a shared limiter.
 - Outbound import callbacks are disabled unless their exact origin is listed
-  in `DATAPAW_CALLBACK_ALLOWLIST`; DNS answers are pinned per request and
+  in `QWENPAW_DATA_CALLBACK_ALLOWLIST`; DNS answers are pinned per request and
   request/response sizes and total duration are bounded.
 ## Reporting a Vulnerability
 

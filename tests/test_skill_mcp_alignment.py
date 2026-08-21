@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SEMANTIC_GUIDE = (
     ROOT
     / "packages"
-    / "datapaw-skills"
+    / "qwenpaw-data-skills"
     / "skills"
     / "runtime"
     / "bi-semantic-layer-guide"

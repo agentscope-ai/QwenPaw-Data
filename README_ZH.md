@@ -3,7 +3,7 @@
 [英文 README](./README.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/datapaw-cli?label=PyPI)](https://pypi.org/project/datapaw-cli/)
+[![PyPI](https://img.shields.io/pypi/v/qwenpaw-data-cli?label=PyPI)](https://pypi.org/project/qwenpaw-data-cli/)
 [![CI](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml/badge.svg)](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml)
 
 <p align="center">
@@ -83,7 +83,7 @@ QwenPaw-Data 当前以 DataBridge 作为本地管理面；独立 CLI Host 已在
 | 模式 | 用途 | 典型用户 | 运行形态 |
 | --- | --- | --- | --- |
 | **DataBridge UI** | 管理图记忆、语义配置及相关 DataBridge 资产 | 分析师、平台运营 | 本地管理界面，后端对接 DataBridge API。 |
-| **CLI** | 平台集成、二次开发和本地自动化 | 开发者、平台团队 | 通过 `datapaw-cli` 提供意图理解、任务规划和工作流执行等能力。 |
+| **CLI** | 平台集成、二次开发和本地自动化 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 提供意图理解、任务规划和工作流执行等能力。 |
 
 ## 项目结构
 
@@ -110,11 +110,11 @@ assets/                    # 品牌与文档资源
 Python 包已发布到 PyPI：
 
 ```bash
-pip install datapaw-cli        # `datapaw` 命令 + 宿主运行时
-pip install datapaw-context    # 以库形式使用 DataBridge 后端
+pip install qwenpaw-data-cli        # `qwenpaw-data` 命令 + 宿主运行时
+pip install qwenpaw-data-context    # 以库形式使用 DataBridge 后端
 ```
 
-`pip install datapaw-cli` 适合已运行 DataBridge 服务的平台集成场景。完整的
+`pip install qwenpaw-data-cli` 适合已运行 DataBridge 服务的平台集成场景。完整的
 本地体验（DataBridge UI、演示数据与本地服务）请使用下面的源码方式。
 
 ### 0. 准备本地依赖
@@ -162,9 +162,9 @@ UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/
 UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-然后填写 DataBridge 与 DataPaw CLI 共用的模型配置。CLI 默认复用这组
+然后填写 DataBridge 与 QwenPaw Data CLI 共用的模型配置。CLI 默认复用这组
 OpenAI-compatible 配置；只有需要为 CLI 指定不同模型时，才配置
-`DATAPAW_MODEL_*`：
+`QWENPAW_DATA_MODEL_*`：
 
 ```bash
 OPENAI_API_KEY=replace-with-your-api-key
@@ -174,10 +174,10 @@ EMBED_MODEL=text-embedding-v3
 EMBED_DIM=1024
 
 # 可选的 CLI 专用覆盖配置：
-# DATAPAW_MODEL_PROVIDER=openai
-# DATAPAW_MODEL_NAME=qwen3.7-max
-# DATAPAW_MODEL_API_KEY=replace-with-your-api-key
-# DATAPAW_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# QWENPAW_DATA_MODEL_PROVIDER=openai
+# QWENPAW_DATA_MODEL_NAME=qwen3.7-max
+# QWENPAW_DATA_MODEL_API_KEY=replace-with-your-api-key
+# QWENPAW_DATA_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 ### 3. 初始化本地环境
@@ -193,12 +193,12 @@ python3 scripts/init_local.py
 
 初始化脚本会：
 
-1. 创建 `packages/datapaw-context/.venv`，安装 DataBridge 后端依赖并构建管理界面。
+1. 创建 `packages/qwenpaw-data-context/.venv`，安装 DataBridge 后端依赖并构建管理界面。
 2. 从仓库提交的 `uv.lock` 导出固定版本及 hash，通过 `UV_DEFAULT_INDEX` 指定的镜像安装到根目录 `.venv`，再以 editable 模式安装所有 workspace 包。
-3. 使用临时源文件，将名为 `databridge` 的 MCP 客户端导入 `${DATAPAW_HOME:-~/.datapaw}/host/workspace/.mcp`。
-4. 在不覆盖已有命令的前提下发布 `datapaw`：macOS/Linux 默认写入
-   `${DATAPAW_CLI_BIN_DIR:-~/.local/bin}`，Windows 默认生成
-   `%LOCALAPPDATA%\DataPaw\bin\datapaw.cmd`。
+3. 使用临时源文件，将名为 `databridge` 的 MCP 客户端导入 `${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/host/workspace/.mcp`。
+4. 在不覆盖已有命令的前提下发布 `qwenpaw-data`：macOS/Linux 默认写入
+   `${QWENPAW_DATA_CLI_BIN_DIR:-~/.local/bin}`，Windows 默认生成
+   `%LOCALAPPDATA%\QwenPaw Data\bin\qwenpaw_data.cmd`。
 
 镜像只影响下载地址，不会重写或删除 `uv.lock`，初始化后仓库也不会因此产生锁文件变更。首次初始化不要使用 `--skip-build`；只有已经存在前端构建产物时才向初始化命令传入 `--skip-build`。
 
@@ -207,9 +207,9 @@ python3 scripts/init_local.py
 Windows 用户需要在当前 PowerShell 终端中启用初始化程序生成的命令：
 
 ```powershell
-$DataPawBin = Join-Path $env:LOCALAPPDATA "DataPaw\bin"
-$env:Path = "$DataPawBin;$env:Path"
-Get-Command datapaw
+$QwenPawDataBin = Join-Path $env:LOCALAPPDATA "QwenPaw Data\bin"
+$env:Path = "$QwenPawDataBin;$env:Path"
+Get-Command qwenpaw-data
 ```
 
 如何永久加入用户 `Path` 以及干净机器验收步骤见
@@ -269,39 +269,39 @@ examples/init_demo.sh --register
 ### 7. 验证 CLI
 
 ```bash
-command -v datapaw
-datapaw datasource list
+command -v qwenpaw-data
+qwenpaw-data datasource list
 ```
 
 ```powershell
-Get-Command datapaw
-datapaw datasource list
+Get-Command qwenpaw-data
+qwenpaw-data datasource list
 ```
 
 命令应解析到初始化程序发布的 launcher，`datasource list` 应包含
 `postgresql-demo-gaap`。CLI
 会自动加载仓库根目录 `.env`；只有需要使用其他 dotenv 文件时才设置
-`DATAPAW_ENV_FILE`。
+`QWENPAW_DATA_ENV_FILE`。
 
 ### 8. 执行真实数据任务
 
 建议第一次使用非流式模式，便于查看完整执行摘要：
 
 ```bash
-datapaw run \
+qwenpaw-data run \
   --no-stream \
   --datasource-id postgresql-demo-gaap \
   "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
 ```
 
 ```powershell
-datapaw run --no-stream --datasource-id postgresql-demo-gaap "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
+qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
 ```
 
 预期峰值出现在 2026-03-10，有效用户平均 GAAP 值约为 `45.89`。默认产物
 目录在 macOS/Linux 上是
-`${DATAPAW_HOME:-~/.datapaw}/host/workspace`，在 Windows 上是
-`$HOME\.datapaw\host\workspace`；`DATAPAW_HOME` 可覆盖该位置。
+`${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/host/workspace`，在 Windows 上是
+`$HOME\.qwenpaw-data\host\workspace`；`QWENPAW_DATA_HOME` 可覆盖该位置。
 
 如需在不使用真实模型 API key 的情况下做确定性端到端走查：
 
@@ -325,7 +325,7 @@ uv run python .\examples\smoke_test.py
 # 复用已有前端构建产物
 python3 scripts/init_local.py --skip-build
 
-# 初始化但不发布 datapaw 命令软链接
+# 初始化但不发布 qwenpaw-data 命令软链接
 python3 scripts/init_local.py --skip-cli-link
 
 # 启动 DataBridge 服务（默认包含 3000 管理界面和 8765 API）
@@ -342,7 +342,7 @@ DataBridge-only `.sh` 脚本仅作为 macOS/Linux 便捷入口。
 ## 工作区隔离
 
 智能体工具在工作区内执行，后端按次选择（`--workspace` 参数或
-`DATAPAW_WORKSPACE` 环境变量，默认 `docker`）：
+`QWENPAW_DATA_WORKSPACE` 环境变量，默认 `docker`）：
 
 | 后端 | 隔离级别 | 依赖 | 适用场景 |
 |------|---------|------|---------|
@@ -351,17 +351,17 @@ DataBridge-only `.sh` 脚本仅作为 macOS/Linux 便捷入口。
 
 ```bash
 # 先自检环境（Docker daemon、Neo4j、DataBridge API）
-datapaw doctor
+qwenpaw-data doctor
 
 # Docker 是默认 workspace
-datapaw run --datasource-id postgresql-demo-gaap "..."
+qwenpaw-data run --datasource-id postgresql-demo-gaap "..."
 
 # 显式使用不安全的宿主机执行
-datapaw run --workspace local "..."
+qwenpaw-data run --workspace local "..."
 ```
 
 权限策略默认值为 `auto`（可通过 `--permission-mode` 或
-`DATAPAW_PERMISSION_MODE` 覆盖）。Docker 后端使用 `bypass`，因为每次运行的
+`QWENPAW_DATA_PERMISSION_MODE` 覆盖）。Docker 后端使用 `bypass`，因为每次运行的
 容器本身就是执行边界。交互式本地 CLI 使用 `accept_edits`：任务工作区内的
 文件编辑被允许，更高风险调用需要终端确认。无人值守本地执行使用
 `dont_ask`，会拒绝原本需要确认的调用。子智能体无法独立请求确认，因此
@@ -370,12 +370,12 @@ datapaw run --workspace local "..."
 `docker` 后端说明：
 
 - 首次使用时构建镜像（`python:3.11-slim` + 分析栈：pandas、numpy、
-  matplotlib、openpyxl），可用 `DATAPAW_DOCKER_BASE_IMAGE` /
-  `DATAPAW_DOCKER_EXTRA_PIP` 定制。
+  matplotlib、openpyxl），可用 `QWENPAW_DATA_DOCKER_BASE_IMAGE` /
+  `QWENPAW_DATA_DOCKER_EXTRA_PIP` 定制。
 - 容器通过 `host.docker.internal` 访问宿主机服务（DataBridge），可用
-  `DATAPAW_DOCKER_HOST_ALIAS` 覆盖；任务结束后容器自动停止并移除。
+  `QWENPAW_DATA_DOCKER_HOST_ALIAS` 覆盖；任务结束后容器自动停止并移除。
 - Docker 命令运行在独立进程组中；超时或取消会触发 TERM/KILL 清理；若
-  清理本身失败，DataPaw 会关闭工作区容器，而不是留下未知进程。
+  清理本身失败，QwenPaw Data 会关闭工作区容器，而不是留下未知进程。
 - macOS 推荐用 [colima](https://github.com/abiosoft/colima) 提供免授权、
   无人值守的 Docker daemon：`brew install colima docker && colima start`。
 - 当前边界即容器本身：资源限制（CPU/内存/进程数）、出网策略、
@@ -388,9 +388,9 @@ QwenPaw-Data 面向**本地优先、单用户部署**设计。将任何服务暴
 `127.0.0.1` 之外前，请先阅读本节。
 
 - **网络**：所有服务默认仅绑定 `127.0.0.1`。对外暴露（`--host 0.0.0.0`、
-  `FRONTEND_HOST`、`DATAPAW_MCP_HOST`）需显式指定；暴露前请先设置
-  `DATAPAW_API_TOKEN` 或带 scope 的 `DATAPAW_API_KEYS`，使 DataBridge REST
-  与 HTTP MCP 强制 Bearer token 认证，并用 `DATAPAW_CORS_ORIGINS` 限制
+  `FRONTEND_HOST`、`QWENPAW_DATA_MCP_HOST`）需显式指定；暴露前请先设置
+  `QWENPAW_DATA_API_TOKEN` 或带 scope 的 `QWENPAW_DATA_API_KEYS`，使 DataBridge REST
+  与 HTTP MCP 强制 Bearer token 认证，并用 `QWENPAW_DATA_CORS_ORIGINS` 限制
   精确可信来源。
 - **执行**：Host 默认在每次运行独立的 **Docker** 工作区中执行智能体工具。
   显式 `--workspace local` 本地执行入口会在你的机器上以当前用户权限执行
@@ -401,15 +401,15 @@ QwenPaw-Data 面向**本地优先、单用户部署**设计。将任何服务暴
   终端确认；无人值守本地运行使用 `dont_ask` 并默认拒绝确认类调用。这
   并不意味着 Docker 后端是加固沙箱；其资源和网络限制仍如上文所述。
 - **授权**：API key 可分别授予 `query`、`write`、`manage`、
-  `credentials:manage`；旧 `DATAPAW_API_TOKEN` 作为全权限兼容键保留。
-  使用 scoped key 的客户端应设置 `DATAPAW_CLIENT_API_TOKEN`；所有 API 路由
+  `credentials:manage`；旧 `QWENPAW_DATA_API_TOKEN` 作为全权限兼容键保留。
+  使用 scoped key 的客户端应设置 `QWENPAW_DATA_CLIENT_API_TOKEN`；所有 API 路由
   默认拒绝，必须显式归类后才能访问。这是 API key 授权，并非多用户
   身份/RBAC 系统。
 - **浏览器与滥用防护**：不安全的浏览器请求会根据精确 CORS/Origin
   白名单和 Fetch Metadata 进行检查；认证失败按客户端进入惩罚窗口，
   认证后的请求按 principal/scope 做令牌桶限流。
   高权限操作，以及 Host、认证、授权、CSRF 和限流拒绝，以不含请求体的
-  JSON 写入 `security_audit.jsonl`；只有 `DATAPAW_TRUSTED_PROXIES`
+  JSON 写入 `security_audit.jsonl`；只有 `QWENPAW_DATA_TRUSTED_PROXIES`
   显式配置的代理才信任转发客户端 IP。
   standalone HTTP MCP 同样复用这些入口防护。
   限流状态只在当前进程内共享；多 worker 或水平扩容部署需在网关或应用层
@@ -420,7 +420,7 @@ QwenPaw-Data 面向**本地优先、单用户部署**设计。将任何服务暴
   支持自动续跑。Native Windows 的支持范围与验证边界见
   `docs/WINDOWS.md`；漏洞披露方式见 `SECURITY.md`。
 
-如需在 `DATAPAW_API_KEYS` 中只保存 token 摘要，可执行：
+如需在 `QWENPAW_DATA_API_KEYS` 中只保存 token 摘要，可执行：
 
 ```bash
 printf %s 'your-long-random-token' | shasum -a 256

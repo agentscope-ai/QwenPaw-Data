@@ -20,7 +20,7 @@ EOF
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
-context_root="${repo_root}/packages/datapaw-context"
+context_root="${repo_root}/packages/qwenpaw-data-context"
 frontend_root="${context_root}/frontend"
 
 run_frontend=0
@@ -74,7 +74,7 @@ uv run pytest -q || fail "pytest"
 
 if [[ "${skip_smoke}" != "1" ]]; then
   step "API smoke test on 127.0.0.1:${smoke_port}"
-  smoke_log="$(mktemp -t datapaw-verify-smoke)"
+  smoke_log="$(mktemp -t qwenpaw-data-verify-smoke)"
   uv run python "${context_root}/scripts/serve.py" \
     --host 127.0.0.1 --port "${smoke_port}" --log-level warning \
     >"${smoke_log}" 2>&1 &

@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/search/?q=datapaw
+      url: https://pypi.org/search/?q=qwenpaw-data
     permissions:
       id-token: write
     steps:

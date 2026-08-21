@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_common() -> ModuleType:
     path = ROOT / "scripts" / "_local_common.py"
-    spec = importlib.util.spec_from_file_location("datapaw_local_common_test", path)
+    spec = importlib.util.spec_from_file_location("qwenpaw_data_local_common_test", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

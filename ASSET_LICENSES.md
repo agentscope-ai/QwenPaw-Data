@@ -8,10 +8,10 @@ License 2.0:
 | Asset group | Paths | Intended use |
 | --- | --- | --- |
 | Project identity and diagrams | `assets/*.png` | README identity, architecture, and walkthrough illustrations |
-| Frontend identity | `packages/datapaw-context/frontend/public/*.png` | DataBridge favicon and wordmark |
+| Frontend identity | `packages/qwenpaw-data-context/frontend/public/*.png` | DataBridge favicon and wordmark |
 | Technical report | `docs/Technical_Report.pdf` | Project architecture and design documentation |
 | Public examples | `examples/demo_kg_doc.docx`, `examples/demo_semantic_config.xlsx` | Synthetic documentation and semantic-configuration examples |
-| Data-analysis Skill Pack | `packages/datapaw-skills/skills/**`, `skills/datapaw-cli/**` | Skill specifications, references, scripts, prompts, and HTML templates |
+| Data-analysis Skill Pack | `packages/qwenpaw-data-skills/skills/**`, `skills/qwenpaw-data-cli/**` | Skill specifications, references, scripts, prompts, and HTML templates |
 
 The examples are intended to contain synthetic data only. A release must not
 include internal exports, customer data, credentials, employee identifiers,

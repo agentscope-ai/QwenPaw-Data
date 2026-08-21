@@ -11,8 +11,8 @@ import pytest
 
 
 pytestmark = pytest.mark.skipif(
-    os.getenv("DATAPAW_INTEGRATION_DATABASES") != "1",
-    reason="set DATAPAW_INTEGRATION_DATABASES=1 to run database integration tests",
+    os.getenv("QWENPAW_DATA_INTEGRATION_DATABASES") != "1",
+    reason="set QWENPAW_DATA_INTEGRATION_DATABASES=1 to run database integration tests",
 )
 
 T = TypeVar("T")
@@ -35,7 +35,7 @@ def test_postgres_service() -> None:
 
     connection = _eventually(
         lambda: psycopg.connect(
-            os.environ["DATAPAW_TEST_POSTGRES_DSN"],
+            os.environ["QWENPAW_DATA_TEST_POSTGRES_DSN"],
             connect_timeout=5,
         ),
     )
@@ -50,10 +50,10 @@ def test_mysql_service() -> None:
 
     connection = _eventually(
         lambda: pymysql.connect(
-            host=os.environ["DATAPAW_TEST_MYSQL_HOST"],
+            host=os.environ["QWENPAW_DATA_TEST_MYSQL_HOST"],
             user="root",
-            password=os.environ["DATAPAW_TEST_MYSQL_PASSWORD"],
-            database="datapaw",
+            password=os.environ["QWENPAW_DATA_TEST_MYSQL_PASSWORD"],
+            database="qwenpaw_data",
             connect_timeout=5,
         ),
     )
@@ -67,8 +67,8 @@ def test_neo4j_service() -> None:
     from neo4j import GraphDatabase
 
     driver = GraphDatabase.driver(
-        os.environ["DATAPAW_TEST_NEO4J_URI"],
-        auth=("neo4j", os.environ["DATAPAW_TEST_NEO4J_PASSWORD"]),
+        os.environ["QWENPAW_DATA_TEST_NEO4J_URI"],
+        auth=("neo4j", os.environ["QWENPAW_DATA_TEST_NEO4J_PASSWORD"]),
     )
     try:
         _eventually(driver.verify_connectivity)

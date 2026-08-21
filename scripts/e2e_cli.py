@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""End-to-end tests for the DataPaw CLI.
+"""End-to-end tests for the QwenPaw Data CLI.
 
 The script invokes the real CLI entrypoint in subprocesses with an isolated
-DATAPAW_HOME. The CLI loads its model configuration from dotenv. The script
+QWENPAW_DATA_HOME. The CLI loads its model configuration from dotenv. The script
 requires MCP configuration and a pre-provisioned CM datasource id.
 
 Usage:
@@ -26,8 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-MCP_CONFIG_ENV = "DATAPAW_E2E_MCP_CONFIG"
-DATASOURCE_ID_ENV = "DATAPAW_E2E_DATASOURCE_ID"
+MCP_CONFIG_ENV = "QWENPAW_DATA_E2E_MCP_CONFIG"
+DATASOURCE_ID_ENV = "QWENPAW_DATA_E2E_DATASOURCE_ID"
 MASKED_SECRET = "******"
 SENSITIVE_CONFIG_FIELDS = frozenset(
     {"password", "access_key_id", "access_key_secret", "sts_token"},
@@ -64,9 +64,9 @@ def repo_root() -> Path:
 
 def src_paths(root: Path) -> list[Path]:
     return [
-        root / "packages" / "datapaw-host-core" / "src",
-        root / "packages" / "datapaw-cli" / "src",
-        root / "packages" / "datapaw-context" / "src",
+        root / "packages" / "qwenpaw-data-host-core" / "src",
+        root / "packages" / "qwenpaw-data-cli" / "src",
+        root / "packages" / "qwenpaw-data-context" / "src",
     ]
 
 
@@ -120,7 +120,7 @@ class CliE2ERunner:
         self.output_dir = output_dir
         self.verbose = verbose
         if output_dir is None:
-            self.temp_dir = Path(tempfile.mkdtemp(prefix="datapaw-cli-e2e-"))
+            self.temp_dir = Path(tempfile.mkdtemp(prefix="qwenpaw-data-cli-e2e-"))
         else:
             self.temp_dir = output_dir.expanduser().resolve()
             self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +145,7 @@ class CliE2ERunner:
             if not existing_pythonpath
             else f"{package_path}{os.pathsep}{existing_pythonpath}"
         )
-        env["DATAPAW_HOME"] = str(self.home)
+        env["QWENPAW_DATA_HOME"] = str(self.home)
         return env
 
     def run_cli(
@@ -160,13 +160,13 @@ class CliE2ERunner:
             "-c",
             (
                 "import sys; "
-                "from datapaw.cli import main; "
+                "from qwenpaw_data.cli import main; "
                 "raise SystemExit(main(sys.argv[1:]))"
             ),
             *args,
         ]
         if self.verbose:
-            info("running: datapaw " + " ".join(args))
+            info("running: qwenpaw-data " + " ".join(args))
         completed = subprocess.run(
             command,
             cwd=self.root,
@@ -185,7 +185,7 @@ class CliE2ERunner:
         if result.returncode != expected:
             self._print_result(result)
             raise AssertionError(
-                f"datapaw {' '.join(args)} returned "
+                f"qwenpaw-data {' '.join(args)} returned "
                 f"{result.returncode}, expected {expected}",
             )
         if self.verbose:
@@ -194,7 +194,7 @@ class CliE2ERunner:
 
     @staticmethod
     def _print_result(result: CommandResult) -> None:
-        print(f"$ datapaw {' '.join(result.args)}")
+        print(f"$ qwenpaw-data {' '.join(result.args)}")
         print(f"exit: {result.returncode}")
         if result.stdout:
             print("--- stdout ---")
@@ -342,7 +342,7 @@ class CliE2ERunner:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run DataPaw CLI end-to-end tests.",
+        description="Run QwenPaw Data CLI end-to-end tests.",
     )
     parser.add_argument(
         "--python",
@@ -353,17 +353,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--query",
         required=True,
-        help="Real user query passed to `datapaw plan`.",
+        help="Real user query passed to `qwenpaw-data plan`.",
     )
     parser.add_argument(
         "--keep-temp",
         action="store_true",
-        help="Keep the isolated DATAPAW_HOME temp directory after the run.",
+        help="Keep the isolated QWENPAW_DATA_HOME temp directory after the run.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        help="Write DATAPAW_HOME and work outputs under this directory; implies --keep-temp.",
+        help="Write QWENPAW_DATA_HOME and work outputs under this directory; implies --keep-temp.",
     )
     parser.add_argument(
         "--verbose",
@@ -422,10 +422,10 @@ def main() -> int:
         verbose=args.verbose,
     )
 
-    info("DataPaw CLI E2E")
+    info("QwenPaw Data CLI E2E")
     info(f"repo: {root}")
     info(f"python: {args.python}")
-    info(f"DATAPAW_HOME: {runner.home}")
+    info(f"QWENPAW_DATA_HOME: {runner.home}")
 
     results: list[StepResult] = []
 

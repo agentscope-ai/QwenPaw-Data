@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-_datapaw_env_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "${DATAPAW_REPO_ROOT:-}" ]]; then
-  DATAPAW_REPO_ROOT="$(cd "${_datapaw_env_script_dir}/.." && pwd)"
+_qwenpaw_data_env_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${QWENPAW_DATA_REPO_ROOT:-}" ]]; then
+  QWENPAW_DATA_REPO_ROOT="$(cd "${_qwenpaw_data_env_script_dir}/.." && pwd)"
 fi
-export DATAPAW_REPO_ROOT
+export QWENPAW_DATA_REPO_ROOT
 
-datapaw_abs_path() {
+qwenpaw_data_abs_path() {
   local path="$1"
   case "${path}" in
     "~")
@@ -24,15 +24,15 @@ datapaw_abs_path() {
   esac
 }
 
-datapaw_env_file() {
-  if [[ -n "${DATAPAW_ENV_FILE:-}" ]]; then
-    datapaw_abs_path "${DATAPAW_ENV_FILE}"
+qwenpaw_data_env_file() {
+  if [[ -n "${QWENPAW_DATA_ENV_FILE:-}" ]]; then
+    qwenpaw_data_abs_path "${QWENPAW_DATA_ENV_FILE}"
     return
   fi
-  printf '%s/.env\n' "${DATAPAW_REPO_ROOT}"
+  printf '%s/.env\n' "${QWENPAW_DATA_REPO_ROOT}"
 }
 
-datapaw_truthy() {
+qwenpaw_data_truthy() {
   case "${1:-}" in
     1|true|TRUE|True|yes|YES|Yes|on|ON|On)
       return 0
@@ -43,22 +43,22 @@ datapaw_truthy() {
   esac
 }
 
-ensure_datapaw_env_file() {
+ensure_qwenpaw_data_env_file() {
   local env_file
-  env_file="$(datapaw_env_file)"
-  local default_env_file="${DATAPAW_REPO_ROOT}/.env"
+  env_file="$(qwenpaw_data_env_file)"
+  local default_env_file="${QWENPAW_DATA_REPO_ROOT}/.env"
   if [[ "${env_file}" != "${default_env_file}" ]]; then
     return 0
   fi
 
-  local env_example="${DATAPAW_REPO_ROOT}/.env.example"
+  local env_example="${QWENPAW_DATA_REPO_ROOT}/.env.example"
   if [[ ! -f "${env_file}" && -f "${env_example}" ]]; then
     cp "${env_example}" "${env_file}"
     chmod 600 "${env_file}"
   fi
 }
 
-generate_datapaw_secret() {
+generate_qwenpaw_data_secret() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 32
     return
@@ -71,9 +71,9 @@ generate_datapaw_secret() {
   return 1
 }
 
-ensure_datapaw_neo4j_password() {
+ensure_qwenpaw_data_neo4j_password() {
   local env_file
-  env_file="$(datapaw_env_file)"
+  env_file="$(qwenpaw_data_env_file)"
   if [[ ! -f "${env_file}" ]]; then
     return 0
   fi
@@ -82,8 +82,8 @@ ensure_datapaw_neo4j_password() {
   fi
 
   local generated tmp_file line
-  generated="$(generate_datapaw_secret)"
-  tmp_file="$(mktemp "${TMPDIR:-/tmp}/datapaw-env.XXXXXX")"
+  generated="$(generate_qwenpaw_data_secret)"
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/qwenpaw-data-env.XXXXXX")"
   (
     umask 077
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -99,10 +99,10 @@ ensure_datapaw_neo4j_password() {
   echo "Generated a random local Neo4j password in ${env_file}."
 }
 
-load_datapaw_env() {
+load_qwenpaw_data_env() {
   local env_file
-  env_file="$(datapaw_env_file)"
-  export DATAPAW_ENV_FILE="${env_file}"
+  env_file="$(qwenpaw_data_env_file)"
+  export QWENPAW_DATA_ENV_FILE="${env_file}"
 
   if [[ ! -f "${env_file}" ]]; then
     return 0
@@ -129,6 +129,6 @@ load_datapaw_env() {
   if [[ "${had_errexit}" == "1" ]]; then
     set -e
   fi
-  export DATAPAW_ENV_FILE="${env_file}"
+  export QWENPAW_DATA_ENV_FILE="${env_file}"
   return "${rc}"
 }

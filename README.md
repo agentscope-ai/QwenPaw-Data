@@ -3,7 +3,7 @@
 [中文 README](./README_ZH.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/datapaw-cli?label=PyPI)](https://pypi.org/project/datapaw-cli/)
+[![PyPI](https://img.shields.io/pypi/v/qwenpaw-data-cli?label=PyPI)](https://pypi.org/project/qwenpaw-data-cli/)
 [![CI](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml/badge.svg)](https://github.com/agentscope-ai/QwenPaw-Data/actions/workflows/ci.yml)
 
 <p align="center">
@@ -83,7 +83,7 @@ QwenPaw-Data currently provides DataBridge as the local management surface. A st
 | Mode | Purpose | Typical Users | Runtime Form |
 | --- | --- | --- | --- |
 | **DataBridge UI** | Manage graph memory, semantic config, and related DataBridge assets | Analysts and platform operators | Local management UI backed by the DataBridge API. |
-| **CLI** | Platform integration, secondary development, and local automation | Developers and platform teams | Lightweight command-line entry point for intent understanding, task planning, and workflow execution via `datapaw-cli`. |
+| **CLI** | Platform integration, secondary development, and local automation | Developers and platform teams | Lightweight command-line entry point for intent understanding, task planning, and workflow execution via `qwenpaw-data-cli`. |
 
 ## Repository Structure
 
@@ -110,11 +110,11 @@ assets/                    # branding and documentation assets
 The Python packages are published on PyPI:
 
 ```bash
-pip install datapaw-cli        # `datapaw` command + host runtime
-pip install datapaw-context    # DataBridge backend as a library
+pip install qwenpaw-data-cli        # `qwenpaw-data` command + host runtime
+pip install qwenpaw-data-context    # DataBridge backend as a library
 ```
 
-`pip install datapaw-cli` suits platform integrations that already run a
+`pip install qwenpaw-data-cli` suits platform integrations that already run a
 DataBridge service. The full local experience — DataBridge UI, demo data,
 and managed services — uses the source checkout below.
 
@@ -164,8 +164,8 @@ The Tsinghua mirror is also supported:
 UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-Then configure the shared DataBridge and DataPaw CLI model. The CLI uses these
-OpenAI-compatible settings by default; the `DATAPAW_MODEL_*` variables are only
+Then configure the shared DataBridge and QwenPaw Data CLI model. The CLI uses these
+OpenAI-compatible settings by default; the `QWENPAW_DATA_MODEL_*` variables are only
 needed when the CLI should use a different model:
 
 ```bash
@@ -176,10 +176,10 @@ EMBED_MODEL=text-embedding-v3
 EMBED_DIM=1024
 
 # Optional CLI-specific overrides:
-# DATAPAW_MODEL_PROVIDER=openai
-# DATAPAW_MODEL_NAME=qwen3.7-max
-# DATAPAW_MODEL_API_KEY=replace-with-your-api-key
-# DATAPAW_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# QWENPAW_DATA_MODEL_PROVIDER=openai
+# QWENPAW_DATA_MODEL_NAME=qwen3.7-max
+# QWENPAW_DATA_MODEL_API_KEY=replace-with-your-api-key
+# QWENPAW_DATA_MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 ### 3. Initialize the local environment
@@ -195,12 +195,12 @@ python3 scripts/init_local.py
 
 The initializer:
 
-1. Creates `packages/datapaw-context/.venv`, installs the DataBridge backend, and builds the management UI.
+1. Creates `packages/qwenpaw-data-context/.venv`, installs the DataBridge backend, and builds the management UI.
 2. Exports pinned versions and hashes from the committed `uv.lock`, installs them into the root `.venv` through the configured `UV_DEFAULT_INDEX`, and installs every workspace package in editable mode.
-3. Imports the `databridge` MCP client into `${DATAPAW_HOME:-~/.datapaw}/host/workspace/.mcp` using a temporary source file.
-4. Publishes the `datapaw` command without replacing an existing command:
-   `${DATAPAW_CLI_BIN_DIR:-~/.local/bin}` on macOS/Linux, or
-   `%LOCALAPPDATA%\DataPaw\bin\datapaw.cmd` on Windows.
+3. Imports the `databridge` MCP client into `${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/host/workspace/.mcp` using a temporary source file.
+4. Publishes the `qwenpaw-data` command without replacing an existing command:
+   `${QWENPAW_DATA_CLI_BIN_DIR:-~/.local/bin}` on macOS/Linux, or
+   `%LOCALAPPDATA%\QwenPaw Data\bin\qwenpaw_data.cmd` on Windows.
 
 The mirror only controls downloads: initialization neither rewrites nor deletes `uv.lock`, and it does not leave a lockfile diff. Do not pass `--skip-build` on the first run; use `scripts/init_local.py --skip-build` (or the same option with the PowerShell wrapper) only when frontend build artifacts already exist.
 
@@ -210,9 +210,9 @@ On Windows, make the generated launcher available in the current PowerShell
 terminal:
 
 ```powershell
-$DataPawBin = Join-Path $env:LOCALAPPDATA "DataPaw\bin"
-$env:Path = "$DataPawBin;$env:Path"
-Get-Command datapaw
+$QwenPawDataBin = Join-Path $env:LOCALAPPDATA "QwenPaw Data\bin"
+$env:Path = "$QwenPawDataBin;$env:Path"
+Get-Command qwenpaw-data
 ```
 
 See [the native Windows walkthrough](docs/WINDOWS.md) for the persistent user
@@ -274,18 +274,18 @@ run the deterministic smoke test described below.
 ### 7. Verify the CLI
 
 ```bash
-command -v datapaw
-datapaw datasource list
+command -v qwenpaw-data
+qwenpaw-data datasource list
 ```
 
 ```powershell
-Get-Command datapaw
-datapaw datasource list
+Get-Command qwenpaw-data
+qwenpaw-data datasource list
 ```
 
 The command should resolve to the launcher published by the initializer, and
 `datasource list` should include `postgresql-demo-gaap`. The CLI loads the repository root `.env`
-automatically; set `DATAPAW_ENV_FILE` only when a different dotenv file is
+automatically; set `QWENPAW_DATA_ENV_FILE` only when a different dotenv file is
 required.
 
 ### 8. Run a real data task
@@ -293,20 +293,20 @@ required.
 Use non-streaming mode for the first run so the complete execution summary is easy to inspect:
 
 ```bash
-datapaw run \
+qwenpaw-data run \
   --no-stream \
   --datasource-id postgresql-demo-gaap \
   "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
 
 ```powershell
-datapaw run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
+qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
 `45.89`. Generated artifacts are stored under
-`${DATAPAW_HOME:-~/.datapaw}/host/workspace` on macOS/Linux or
-`$HOME\.datapaw\host\workspace` on Windows unless `DATAPAW_HOME` is set.
+`${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/host/workspace` on macOS/Linux or
+`$HOME\.qwenpaw-data\host\workspace` on Windows unless `QWENPAW_DATA_HOME` is set.
 
 For a deterministic end-to-end test without a model API key:
 
@@ -331,7 +331,7 @@ troubleshooting commands.
 # Reuse existing frontend build artifacts
 python3 scripts/init_local.py --skip-build
 
-# Initialize without publishing a datapaw command link
+# Initialize without publishing a qwenpaw-data command link
 python3 scripts/init_local.py --skip-cli-link
 
 # Start DataBridge services, including the 3000 UI and 8765 API by default
@@ -348,7 +348,7 @@ The DataBridge-only `.sh` helpers in this block are macOS/Linux conveniences.
 ## Workspace Isolation
 
 Agent tools run inside a workspace whose backend is selected per run
-(`--workspace` flag or `DATAPAW_WORKSPACE` env, default `docker`):
+(`--workspace` flag or `QWENPAW_DATA_WORKSPACE` env, default `docker`):
 
 | Backend | Isolation | Requirements | When to use |
 |---------|-----------|--------------|-------------|
@@ -357,20 +357,20 @@ Agent tools run inside a workspace whose backend is selected per run
 
 ```bash
 # Check the environment first (Docker daemon, Neo4j, DataBridge API)
-datapaw doctor
+qwenpaw-data doctor
 
 # Docker is the default
-datapaw run --datasource-id "postgresql-xxxxxxxx" "..."
+qwenpaw-data run --datasource-id "postgresql-xxxxxxxx" "..."
 
 # Explicit unsandboxed host execution (trusted development only)
-datapaw run --workspace local "..."
+qwenpaw-data run --workspace local "..."
 
 # Second explicit opt-in: disable prompts/denials even for local execution
-datapaw run --workspace local --permission-mode bypass "..."
+qwenpaw-data run --workspace local --permission-mode bypass "..."
 ```
 
 The permission policy defaults to `auto` (override with `--permission-mode` or
-`DATAPAW_PERMISSION_MODE`). Docker uses `bypass` because the per-session
+`QWENPAW_DATA_PERMISSION_MODE`). Docker uses `bypass` because the per-session
 container is the execution boundary. An interactive local CLI uses
 `accept_edits`: file edits inside the task workspace are allowed and riskier
 calls require terminal confirmation. Unattended local execution uses
@@ -381,12 +381,12 @@ Notes for the `docker` backend:
 
 - The container image is built on first use (`python:3.11-slim` + the
   analysis stack: pandas, numpy, matplotlib, openpyxl). Customize via
-  `DATAPAW_DOCKER_BASE_IMAGE` / `DATAPAW_DOCKER_EXTRA_PIP`.
+  `QWENPAW_DATA_DOCKER_BASE_IMAGE` / `QWENPAW_DATA_DOCKER_EXTRA_PIP`.
 - Containers reach host services (DataBridge) through
-  `host.docker.internal` (override with `DATAPAW_DOCKER_HOST_ALIAS`).
+  `host.docker.internal` (override with `QWENPAW_DATA_DOCKER_HOST_ALIAS`).
   Containers are stopped and removed when the run finishes.
 - Docker commands run in dedicated process groups. Timeout and cancellation
-  trigger TERM/KILL cleanup; if cleanup itself fails, DataPaw closes the
+  trigger TERM/KILL cleanup; if cleanup itself fails, QwenPaw Data closes the
   workspace container rather than leaving an unknown process running.
 - On macOS, [colima](https://github.com/abiosoft/colima) provides an
   unattended, license-free Docker daemon:
@@ -402,10 +402,10 @@ QwenPaw-Data is designed for **local-first, single-user deployments**. Read this
 section before exposing any service beyond `127.0.0.1`.
 
 - **Network**: all services bind to `127.0.0.1` by default. Exposing them
-  (`--host 0.0.0.0`, `FRONTEND_HOST`, `DATAPAW_MCP_HOST`) is an explicit
-  opt-in; configure `DATAPAW_API_TOKEN` or scoped `DATAPAW_API_KEYS` first so
+  (`--host 0.0.0.0`, `FRONTEND_HOST`, `QWENPAW_DATA_MCP_HOST`) is an explicit
+  opt-in; configure `QWENPAW_DATA_API_TOKEN` or scoped `QWENPAW_DATA_API_KEYS` first so
   the DataBridge REST and HTTP MCP endpoints require a `Bearer` token, and
-  restrict `DATAPAW_CORS_ORIGINS` to trusted origins.
+  restrict `QWENPAW_DATA_CORS_ORIGINS` to trusted origins.
 - **Execution**: the Host runs agent tools in a per-run **Docker** workspace
   by default. The explicit `--workspace local` escape hatch executes shell
   commands on your machine with your user's privileges and is *not*
@@ -418,8 +418,8 @@ section before exposing any service beyond `127.0.0.1`.
   runs fail closed with `dont_ask`. This does not make the Docker backend a
   hardened sandbox; its resource and network limits remain as stated above.
 - **Authorization**: scoped API keys separate `query`, `write`, `manage`, and
-  `credentials:manage`. `DATAPAW_API_TOKEN` remains a full-scope compatibility
-  key. For scoped clients, set `DATAPAW_CLIENT_API_TOKEN`; every API route is
+  `credentials:manage`. `QWENPAW_DATA_API_TOKEN` remains a full-scope compatibility
+  key. For scoped clients, set `QWENPAW_DATA_CLIENT_API_TOKEN`; every API route is
   fail-closed until explicitly classified. This is API-key authorization, not
   a multi-user identity/RBAC system.
 - **Browser and abuse controls**: unsafe browser requests are checked against
@@ -428,7 +428,7 @@ section before exposing any service beyond `127.0.0.1`.
   per-scope token buckets. Privileged operations and Host, authentication,
   authorization, CSRF, and rate-limit denials are written as body-free JSON
   records to `security_audit.jsonl`. Forwarded client IPs are trusted only when
-  `DATAPAW_TRUSTED_PROXIES` is explicitly configured.
+  `QWENPAW_DATA_TRUSTED_PROXIES` is explicitly configured.
   The same edge controls apply to standalone HTTP MCP mode.
   Throttle state is process-local; multi-worker or horizontally scaled
   deployments need a shared limiter at the gateway or application layer.
@@ -440,7 +440,7 @@ section before exposing any service beyond `127.0.0.1`.
   are documented in `docs/WINDOWS.md`. See `SECURITY.md` for how to report
   vulnerabilities.
 
-To store only a token digest in `DATAPAW_API_KEYS`, generate it with:
+To store only a token digest in `QWENPAW_DATA_API_KEYS`, generate it with:
 
 ```bash
 printf %s 'your-long-random-token' | shasum -a 256
