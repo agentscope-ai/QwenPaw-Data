@@ -1,4 +1,4 @@
-"""Cross-platform helpers for DataPaw local lifecycle scripts."""
+"""Cross-platform helpers for QwenPaw Data local lifecycle scripts."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def repository_root() -> Path:
 
 
 def environment_file(root: Path) -> Path:
-    configured = os.getenv("DATAPAW_ENV_FILE", "").strip()
+    configured = os.getenv("QWENPAW_DATA_ENV_FILE", "").strip()
     return Path(configured).expanduser().resolve() if configured else root / ".env"
 
 
@@ -50,7 +50,7 @@ def ensure_environment(root: Path) -> Path:
             print(f"Generated a random local Neo4j password in {env_path}.")
 
     load_environment(env_path)
-    os.environ["DATAPAW_ENV_FILE"] = str(env_path)
+    os.environ["QWENPAW_DATA_ENV_FILE"] = str(env_path)
     return env_path
 
 
@@ -91,7 +91,7 @@ def resolve_command(command: str) -> str:
 
 def venv_executable(venv: Path, name: str) -> Path:
     if os.name == "nt":
-        suffix = ".exe" if name in {"python", "datapaw"} else ".cmd"
+        suffix = ".exe" if name in {"python", "qwenpaw-data"} else ".cmd"
         return venv / "Scripts" / f"{name}{suffix}"
     return venv / "bin" / name
 

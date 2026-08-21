@@ -21,11 +21,11 @@ pytestmark = pytest.mark.skipif(
     [
         ("~", "{home}"),
         ("~/.local/bin", "{home}/.local/bin"),
-        ("/opt/datapaw", "/opt/datapaw"),
+        ("/opt/qwenpaw-data", "/opt/qwenpaw-data"),
         ("relative/path", "{cwd}/relative/path"),
     ],
 )
-def test_datapaw_abs_path(
+def test_qwenpaw_data_abs_path(
     tmp_path: Path,
     value: str,
     expected: str,
@@ -41,7 +41,7 @@ def test_datapaw_abs_path(
         [
             "bash",
             "-c",
-            'source "$1"; datapaw_abs_path "$2"',
+            'source "$1"; qwenpaw_data_abs_path "$2"',
             "bash",
             str(ENV_SCRIPT),
             value,
@@ -63,4 +63,4 @@ def test_init_local_uses_temporary_mcp_import_file() -> None:
     script = INIT_LOCAL_SCRIPT.read_text(encoding="utf-8")
 
     assert 'mcp_import_file="$(mktemp ' in script
-    assert 'mcp_import_file="${datapaw_home}/databridge.mcp.json"' not in script
+    assert 'mcp_import_file="${qwenpaw_data_home}/databridge.mcp.json"' not in script

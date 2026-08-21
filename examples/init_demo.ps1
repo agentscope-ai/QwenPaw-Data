@@ -12,7 +12,7 @@ $InitDemo = Join-Path $ScriptDir "init_demo.py"
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
-    throw "DataPaw's root Python environment was not found at $Python. Run .\scripts\init_local.ps1 first."
+    throw "QwenPaw Data's root Python environment was not found at $Python. Run .\scripts\init_local.ps1 first."
 }
 
 function Invoke-NativeCommand {
@@ -44,12 +44,12 @@ Invoke-NativeCommand -FilePath $Docker -ArgumentList @(
     "compose", "-f", $ComposeFile, "up", "-d", "--wait"
 )
 
-$PostgresPort = if ($env:DATAPAW_DEMO_POSTGRES_PORT) {
-    [int]$env:DATAPAW_DEMO_POSTGRES_PORT
+$PostgresPort = if ($env:QWENPAW_DATA_DEMO_POSTGRES_PORT) {
+    [int]$env:QWENPAW_DATA_DEMO_POSTGRES_PORT
 } else {
     55432
 }
-$PostgresDsn = "postgresql://datapaw:datapaw-demo@127.0.0.1:${PostgresPort}/datapaw_demo"
+$PostgresDsn = "postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:${PostgresPort}/qwenpaw_data_demo"
 Invoke-NativeCommand -FilePath $Python -ArgumentList @(
     $InitDemo, "--postgres-dsn", $PostgresDsn
 )

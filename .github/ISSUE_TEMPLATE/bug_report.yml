@@ -28,7 +28,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include commit/version, OS, Python, Node.js, workspace backend, and sanitized datapaw doctor output.
+      description: Include commit/version, OS, Python, Node.js, workspace backend, and sanitized qwenpaw-data doctor output.
     validations:
       required: true
   - type: textarea

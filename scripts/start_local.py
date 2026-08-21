@@ -58,7 +58,7 @@ def start_neo4j(root: Path, env_file: Path) -> None:
         raise RuntimeError(
             "Docker daemon is not running. Start Docker Desktop/Engine, then retry."
         )
-    compose = root / "packages" / "datapaw-context" / "docker-compose.yml"
+    compose = root / "packages" / "qwenpaw-data-context" / "docker-compose.yml"
     run(
         [docker, "compose", "--env-file", env_file, "-f", compose, "up", "-d"], cwd=root
     )
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     root = repository_root()
     env_file = ensure_environment(root)
-    context = root / "packages" / "datapaw-context"
+    context = root / "packages" / "qwenpaw-data-context"
     frontend = context / "frontend"
     configured_python = os.getenv("CONTEXT_PYTHON", "").strip()
     try:

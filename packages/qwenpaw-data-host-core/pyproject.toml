@@ -1,0 +1,53 @@
+[project]
+name = "qwenpaw-data-host-core"
+version = "0.1.0"
+description = "Shared host foundation for QwenPaw-Data."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "QwenPaw-Data Contributors" }]
+keywords = ["data-analysis", "ai-agents", "orchestration", "sandbox"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.11"
+dependencies = [
+  "agentscope>=2.0.5,<2.1",
+  "aiodocker>=0.27,<0.28",
+  "qwenpaw-data-skills>=0.1,<0.2",
+  "httpx>=0.28,<0.29",
+  "pydantic>=2.13,<3.0",
+  "pyyaml>=6.0,<7.0",
+  "shortuuid>=1.0,<2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
+Documentation = "https://github.com/agentscope-ai/QwenPaw-Data/tree/main/packages/qwenpaw-data-host-core"
+Repository = "https://github.com/agentscope-ai/QwenPaw-Data"
+Issues = "https://github.com/agentscope-ai/QwenPaw-Data/issues"
+Changelog = "https://github.com/agentscope-ai/QwenPaw-Data/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qwenpaw_data"]
+artifacts = [
+  "src/qwenpaw_data/host/core/prompts/*.md",
+]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../../LICENSE" = "LICENSE"
+"../../NOTICE" = "NOTICE"
+
+[tool.uv.sources]
+qwenpaw-data-skills = { workspace = true }

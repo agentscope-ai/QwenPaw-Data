@@ -1,21 +1,21 @@
 # Runtime Resource Governance
 
-DataPaw applies request-level limits across uploads, SQL, Cypher, graph
+QwenPaw Data applies request-level limits across uploads, SQL, Cypher, graph
 traversal, LLM work, response materialization, and request lifetime. Defaults
 are safe for a local, single-user deployment and can be lowered for constrained
 machines.
 
 | Resource | Environment variable | Default |
 | --- | --- | --- |
-| Whole-request deadline | `DATAPAW_REQUEST_TIMEOUT_SECONDS` | 120 seconds |
-| Upload/request body | `DATAPAW_MAX_UPLOAD_MB` | 50 MiB |
-| Materialized response target | `DATAPAW_MAX_RESPONSE_MB` | 50 MiB |
-| SQL result rows | `DATAPAW_MAX_SQL_ROWS` | 10,000 |
-| Cypher result rows | `DATAPAW_MAX_CYPHER_ROWS` | 1,000 |
-| Graph nodes | `DATAPAW_MAX_GRAPH_NODES` | 5,000 |
-| Graph edges | `DATAPAW_MAX_GRAPH_EDGES` | 20,000 |
-| LLM tokens per request | `DATAPAW_MAX_LLM_TOKENS` | 32,768 |
-| LLM retries per request | `DATAPAW_MAX_LLM_RETRIES` | 4 |
+| Whole-request deadline | `QWENPAW_DATA_REQUEST_TIMEOUT_SECONDS` | 120 seconds |
+| Upload/request body | `QWENPAW_DATA_MAX_UPLOAD_MB` | 50 MiB |
+| Materialized response target | `QWENPAW_DATA_MAX_RESPONSE_MB` | 50 MiB |
+| SQL result rows | `QWENPAW_DATA_MAX_SQL_ROWS` | 10,000 |
+| Cypher result rows | `QWENPAW_DATA_MAX_CYPHER_ROWS` | 1,000 |
+| Graph nodes | `QWENPAW_DATA_MAX_GRAPH_NODES` | 5,000 |
+| Graph edges | `QWENPAW_DATA_MAX_GRAPH_EDGES` | 20,000 |
+| LLM tokens per request | `QWENPAW_DATA_MAX_LLM_TOKENS` | 32,768 |
+| LLM retries per request | `QWENPAW_DATA_MAX_LLM_RETRIES` | 4 |
 
 The ASGI middleware enforces the deadline without consuming and rebuilding a
 business response. Upload limits validate both `Content-Length` and actual
@@ -35,13 +35,13 @@ are sent and never rewrites `Content-Length`.
 
 ## Blocking I/O and event-loop safety
 
-DataPaw uses two explicit boundaries for synchronous libraries:
+QwenPaw Data uses two explicit boundaries for synchronous libraries:
 
 1. A FastAPI `def` endpoint is appropriate when the complete handler is
    synchronous. FastAPI runs it through AnyIO's worker pool, whose process-wide
-   capacity is configured by `DATAPAW_SYNC_ROUTE_WORKERS`. The standard
+   capacity is configured by `QWENPAW_DATA_SYNC_ROUTE_WORKERS`. The standard
    launcher bounds the outer request queue with
-   `DATAPAW_HTTP_MAX_CONCURRENCY`; other ASGI deployments must configure an
+   `QWENPAW_DATA_HTTP_MAX_CONCURRENCY`; other ASGI deployments must configure an
    equivalent ingress/concurrency limit.
 2. An `async def` endpoint must call synchronous code through
    `request.app.state.blocking_io`. The governor provides isolated `graph`,
@@ -75,13 +75,13 @@ Each pool supports the following variables, where `<POOL>` is `GRAPH`, `FILE`,
 `NETWORK`, or `SQL`:
 
 ```text
-DATAPAW_BLOCKING_<POOL>_WORKERS
-DATAPAW_BLOCKING_<POOL>_MAX_QUEUE
-DATAPAW_BLOCKING_<POOL>_QUEUE_TIMEOUT_SECONDS
-DATAPAW_BLOCKING_<POOL>_TIMEOUT_SECONDS
+QWENPAW_DATA_BLOCKING_<POOL>_WORKERS
+QWENPAW_DATA_BLOCKING_<POOL>_MAX_QUEUE
+QWENPAW_DATA_BLOCKING_<POOL>_QUEUE_TIMEOUT_SECONDS
+QWENPAW_DATA_BLOCKING_<POOL>_TIMEOUT_SECONDS
 ```
 
-`DATAPAW_BLOCKING_SHUTDOWN_TIMEOUT_SECONDS` controls graceful drain during ASGI
+`QWENPAW_DATA_BLOCKING_SHUTDOWN_TIMEOUT_SECONDS` controls graceful drain during ASGI
 shutdown. The `/api/health` response exposes active, queued, rejected, timed
 out, failed, and cumulative wait/run values for each pool, along with
 event-loop lag and access-log queue metrics.
@@ -100,7 +100,7 @@ event-loop lag and access-log queue metrics.
 ## Durable jobs and plans
 
 Import task status and semantic preview/confirm plans are stored in
-`${DATAPAW_HOME:-~/.datapaw}/data-bridge/state/jobs.db`. The SQLite store uses
+`${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/data-bridge/state/jobs.db`. The SQLite store uses
 WAL and full synchronous commits, and supports:
 
 - queued/running/succeeded/failed/cancelled state;

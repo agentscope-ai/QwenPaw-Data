@@ -48,7 +48,7 @@ fi
 
 docker compose -f "${compose_file}" up -d --wait
 uv run python "${script_dir}/init_demo.py" \
-  --postgres-dsn "postgresql://datapaw:datapaw-demo@127.0.0.1:${DATAPAW_DEMO_POSTGRES_PORT:-55432}/datapaw_demo"
+  --postgres-dsn "postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:${QWENPAW_DATA_DEMO_POSTGRES_PORT:-55432}/qwenpaw_data_demo"
 
 if [[ "${register}" == "1" ]]; then
   uv run python "${script_dir}/init_demo.py" \

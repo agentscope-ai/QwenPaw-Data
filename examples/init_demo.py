@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and verify the portable DataPaw GAAP demo dataset."""
+"""Create and verify the portable QwenPaw Data GAAP demo dataset."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ EXPECTED_DAILY_AVERAGES = {
 
 def load_repo_environment(path: Path | None = None) -> None:
     """Load the root dotenv without overriding the invoking terminal."""
-    configured = os.getenv("DATAPAW_ENV_FILE", "").strip()
+    configured = os.getenv("QWENPAW_DATA_ENV_FILE", "").strip()
     env_path = (
         path
         if path is not None
@@ -199,9 +199,9 @@ def configure_demo_bundle(
     port: int,
     *,
     host: str = "127.0.0.1",
-    dbname: str = "datapaw_demo",
-    user: str = "datapaw",
-    password: str = "datapaw-demo",
+    dbname: str = "qwenpaw_data_demo",
+    user: str = "qwenpaw_data",
+    password: str = "qwenpaw-data-demo",
 ) -> str:
     """Import the bundled semantic workbook and attach local PG credentials."""
     base_url = base_url.rstrip("/")
@@ -246,13 +246,13 @@ def configure_demo_bundle(
 
 def _auth_headers() -> dict[str, str]:
     token = (
-        os.getenv("DATAPAW_CLIENT_API_TOKEN") or os.getenv("DATAPAW_API_TOKEN") or ""
+        os.getenv("QWENPAW_DATA_CLIENT_API_TOKEN") or os.getenv("QWENPAW_DATA_API_TOKEN") or ""
     ).strip()
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _request_file(url: str, path: Path, *, headers: dict[str, str]) -> object:
-    boundary = f"----DataPawDemo{uuid.uuid4().hex}"
+    boundary = f"----QwenPawDataDemo{uuid.uuid4().hex}"
     content = path.read_bytes()
     body = b"".join(
         [
@@ -308,14 +308,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sqlite-path",
         type=Path,
-        default=EXAMPLES / "demo" / "data" / "datapaw-demo.sqlite",
+        default=EXAMPLES / "demo" / "data" / "qwenpaw-data-demo.sqlite",
     )
     parser.add_argument("--postgres-dsn", help="Also seed and verify PostgreSQL")
     registration = parser.add_mutually_exclusive_group()
     registration.add_argument(
         "--register",
         action="store_true",
-        help="Register with DATAPAW_CM_BASE_URL or the local default",
+        help="Register with QWENPAW_DATA_CM_BASE_URL or the local default",
     )
     registration.add_argument(
         "--register-url",
@@ -324,7 +324,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--postgres-port",
         type=int,
-        default=int(os.getenv("DATAPAW_DEMO_POSTGRES_PORT", "55432")),
+        default=int(os.getenv("QWENPAW_DATA_DEMO_POSTGRES_PORT", "55432")),
     )
     return parser.parse_args(argv)
 
@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         register_url = args.register_url
         if args.register:
             register_url = os.getenv(
-                "DATAPAW_CM_BASE_URL",
+                "QWENPAW_DATA_CM_BASE_URL",
                 "http://127.0.0.1:8765",
             )
         if register_url:

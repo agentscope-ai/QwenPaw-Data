@@ -7,8 +7,8 @@ Usage: scripts/init_databridge.sh [options]
 
 Initialize the DataBridge local environment.
 
-This creates or reuses packages/datapaw-context/.venv, installs the locked
-DataBridge dependencies, installs datapaw-context itself in editable mode without
+This creates or reuses packages/qwenpaw-data-context/.venv, installs the locked
+DataBridge dependencies, installs qwenpaw-data-context itself in editable mode without
 re-resolving dependencies, installs the DataBridge frontend dependencies, builds
 the frontend, and creates the root .env from .env.example if needed.
 
@@ -16,13 +16,13 @@ Options:
   --skip-build                Do not build the DataBridge frontend
   --skip-npm-install          Reuse existing DataBridge frontend node_modules
   --python PYTHON             Python version or executable for uv venv.
-                              Default: packages/datapaw-context/.python-version or 3.12
+                              Default: packages/qwenpaw-data-context/.python-version or 3.12
   --uv CMD                    uv command. Default: ${UV:-uv}, with common user paths fallback
   --npm CMD                   npm-compatible command. Default: ${NPM:-npm}
   -h, --help                  Show this help
 
 Environment:
-  DATAPAW_ENV_FILE           Optional dotenv file. Default: repository root .env
+  QWENPAW_DATA_ENV_FILE           Optional dotenv file. Default: repository root .env
   UV                          uv command when --uv is omitted
   NPM                         npm-compatible command when --npm is omitted
   UV_DEFAULT_INDEX            Optional Python package index mirror used by uv
@@ -38,13 +38,13 @@ run() {
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
-context_root="${repo_root}/packages/datapaw-context"
+context_root="${repo_root}/packages/qwenpaw-data-context"
 frontend_root="${context_root}/frontend"
 requirements_file="${context_root}/requirements.lock.txt"
 
 # shellcheck source=scripts/env.sh
 source "${script_dir}/env.sh"
-load_datapaw_env
+load_qwenpaw_data_env
 
 python_spec="3.12"
 if [[ -f "${context_root}/.python-version" ]]; then
@@ -92,9 +92,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_datapaw_env_file
-ensure_datapaw_neo4j_password
-load_datapaw_env
+ensure_qwenpaw_data_env_file
+ensure_qwenpaw_data_neo4j_password
+load_qwenpaw_data_env
 
 resolve_uv() {
   if command -v "${uv_cmd}" >/dev/null 2>&1; then
@@ -112,7 +112,7 @@ resolve_uv() {
 }
 
 if [[ ! -d "${context_root}" ]]; then
-  echo "datapaw-context package not found: ${context_root}" >&2
+  echo "qwenpaw-data-context package not found: ${context_root}" >&2
   exit 1
 fi
 if [[ ! -f "${requirements_file}" ]]; then

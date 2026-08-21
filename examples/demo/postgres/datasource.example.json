@@ -4,8 +4,8 @@
   "config": {
     "host": "127.0.0.1",
     "port": 55432,
-    "dbname": "datapaw_demo",
-    "user": "datapaw",
-    "password": "datapaw-demo"
+    "dbname": "qwenpaw_data_demo",
+    "user": "qwenpaw_data",
+    "password": "qwenpaw-data-demo"
   }
 }

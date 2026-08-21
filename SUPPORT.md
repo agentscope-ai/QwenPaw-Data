@@ -12,8 +12,8 @@ single-user deployments.
 - Follow [`SECURITY.md`](SECURITY.md) for vulnerabilities. Never disclose a
   security issue or credential in a public issue or discussion.
 
-Please include the DataPaw version or commit, operating system, Python and
-Node.js versions, workspace backend, sanitized `datapaw doctor` output, and the
+Please include the QwenPaw Data version or commit, operating system, Python and
+Node.js versions, workspace backend, sanitized `qwenpaw-data doctor` output, and the
 smallest reproducible example. Remove API keys, passwords, private URLs, and
 business data from logs before posting.
 

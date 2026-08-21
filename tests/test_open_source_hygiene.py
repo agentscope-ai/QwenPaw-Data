@@ -59,7 +59,7 @@ def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
 
 def test_xlsx_notice_matches_locked_registry_package() -> None:
     package_json = json.loads(
-        (ROOT / "packages/datapaw-context/frontend/package.json").read_text(encoding="utf-8")
+        (ROOT / "packages/qwenpaw-data-context/frontend/package.json").read_text(encoding="utf-8")
     )
     notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
     assert package_json["dependencies"]["xlsx"] == "npm:@e965/xlsx@0.20.3"

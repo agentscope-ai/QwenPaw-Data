@@ -20,7 +20,7 @@ Options:
   -h, --help                  Show this help
 
 Environment:
-  DATAPAW_ENV_FILE           Optional dotenv file. Default: repository root .env
+  QWENPAW_DATA_ENV_FILE           Optional dotenv file. Default: repository root .env
   CONTEXT_HOST                DataBridge bind host when --context-host is omitted
   CONTEXT_PORT                DataBridge bind port when --context-port is omitted
   CONTEXT_LOG_LEVEL           DataBridge log level when --context-log-level is omitted
@@ -40,7 +40,7 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 
 # shellcheck source=scripts/env.sh
 source "${script_dir}/env.sh"
-load_datapaw_env
+load_qwenpaw_data_env
 
 context_host="${CONTEXT_HOST:-127.0.0.1}"
 context_port="${CONTEXT_PORT:-8765}"
