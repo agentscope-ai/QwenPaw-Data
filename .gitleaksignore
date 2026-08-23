@@ -1,3 +1,5 @@
-# Fake API key fixture used to test masking in
-# packages/qwenpaw-data-context/tests/test_model_config_store.py (not a credential).
-52c8447a486eea00898f60a2b12b422f26a32c24:packages/qwenpaw-data-context/tests/test_model_config_store.py:generic-api-key:52
+# Fake API key fixture used to test masking in the historical commit below
+# (not a credential). The entry keeps the pre-rename datapaw-context path
+# because gitleaks fingerprints embed the path at the flagged commit; the
+# fixture string itself has since been replaced with a low-entropy value.
+52c8447a486eea00898f60a2b12b422f26a32c24:packages/datapaw-context/tests/test_model_config_store.py:generic-api-key:52

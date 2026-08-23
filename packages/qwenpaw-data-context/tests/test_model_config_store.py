@@ -49,7 +49,7 @@ class ModelConfigStoreTest(unittest.TestCase):
         self.path.write_text(
             json.dumps(
                 {
-                    "llm": {"api_key": "abcd12345678wxyz"},
+                    "llm": {"api_key": "aaaabbbbccccdddd"},
                     "embedding": {"api_key": "short"},
                 }
             ),
@@ -59,7 +59,7 @@ class ModelConfigStoreTest(unittest.TestCase):
 
         masked = store.get_masked()
 
-        self.assertEqual(masked["llm"]["api_key"], "abcd****wxyz")
+        self.assertEqual(masked["llm"]["api_key"], "aaaa****dddd")
         self.assertEqual(masked["embedding"]["api_key"], "****")
 
     def test_legacy_local_fields_are_filtered_and_not_persisted_on_update(self) -> None:
