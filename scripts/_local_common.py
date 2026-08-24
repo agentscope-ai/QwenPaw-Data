@@ -41,7 +41,9 @@ def ensure_environment(root: Path) -> Path:
             )
             text = text.replace("NEO4J_PASSWORD=\n", f"NEO4J_PASSWORD={password}\n")
             temporary = env_path.with_name(f".{env_path.name}.{os.getpid()}.tmp")
-            temporary.write_text(text, encoding="utf-8", newline="\n")
+            # Local dev bootstrap: a freshly generated random password is
+            # persisted to the user's .env (chmod 0600 before replace below).
+            temporary.write_text(text, encoding="utf-8", newline="\n")  # codeql[py/clear-text-storage-sensitive-data]
             try:
                 temporary.chmod(0o600)
             except OSError:

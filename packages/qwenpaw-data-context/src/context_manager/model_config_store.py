@@ -80,7 +80,9 @@ class ModelConfigStore:
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Local credential store: keys are written by design and the file is
+        # chmod 0600 immediately after the atomic replace below.
+        tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")  # codeql[py/clear-text-storage-sensitive-data]
         tmp.replace(self._path)
         try:
             os.chmod(self._path, stat.S_IRUSR | stat.S_IWUSR)  # 0600

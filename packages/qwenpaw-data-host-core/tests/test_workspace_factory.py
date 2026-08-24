@@ -8,6 +8,7 @@ import inspect
 import json
 import os
 import shlex
+from urllib.parse import urlparse
 
 import pytest
 from agentscope.message import TextBlock, ToolResultState
@@ -246,8 +247,11 @@ async def test_docker_initialize_uses_public_hook_and_restores_host_mcp(
     assert "_restore_or_seed_mcps" not in type(workspace).__dict__
     await workspace.initialize()
 
-    assert observed[0]["mcp_config"]["url"].startswith(
-        "http://host.docker.internal:8765/"
+    parsed_url = urlparse(observed[0]["mcp_config"]["url"])
+    assert (parsed_url.scheme, parsed_url.hostname, parsed_url.port) == (
+        "http",
+        "host.docker.internal",
+        8765,
     )
     assert observed[0]["mcp_config"]["headers"] == {
         "Authorization": "Bearer runtime-client-secret",
