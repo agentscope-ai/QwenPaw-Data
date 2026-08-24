@@ -43,7 +43,8 @@ def ensure_environment(root: Path) -> Path:
             temporary = env_path.with_name(f".{env_path.name}.{os.getpid()}.tmp")
             # Local dev bootstrap: a freshly generated random password is
             # persisted to the user's .env (chmod 0600 before replace below).
-            temporary.write_text(text, encoding="utf-8", newline="\n")  # codeql[py/clear-text-storage-sensitive-data]
+            # codeql[py/clear-text-storage-sensitive-data]
+            temporary.write_text(text, encoding="utf-8", newline="\n")
             try:
                 temporary.chmod(0o600)
             except OSError:

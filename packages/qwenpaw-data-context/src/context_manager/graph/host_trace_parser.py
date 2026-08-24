@@ -9,8 +9,8 @@ from typing import Any
 
 
 _GRAPH_ID_RE = re.compile(r"\bGraph ID:\s*([A-Za-z0-9_-]+)")
-_SESSION_ID_RE = re.compile(r"(?m)^- Session ID:\s*(.+)$")
-_USER_ID_RE = re.compile(r"(?m)^- User ID:\s*(.+)$")
+_SESSION_ID_RE = re.compile(r"(?m)^- Session ID:[ \t]*(\S.*)$")
+_USER_ID_RE = re.compile(r"(?m)^- User ID:[ \t]*(\S.*)$")
 _STATE_MAP = {
     "todo": "pending",
     "pending": "pending",
