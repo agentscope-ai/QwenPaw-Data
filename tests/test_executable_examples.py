@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_init_demo() -> ModuleType:
     path = ROOT / "examples" / "init_demo.py"
-    spec = importlib.util.spec_from_file_location("datapaw_example_init_demo", path)
+    spec = importlib.util.spec_from_file_location("qwenpaw_data_example_init_demo", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -43,9 +43,9 @@ def test_demo_datasource_example_matches_local_compose_contract() -> None:
         "config": {
             "host": "127.0.0.1",
             "port": 55432,
-            "dbname": "datapaw_demo",
-            "user": "datapaw",
-            "password": "datapaw-demo",
+            "dbname": "qwenpaw_data_demo",
+            "user": "qwenpaw_data",
+            "password": "qwenpaw-data-demo",
         },
     }
 

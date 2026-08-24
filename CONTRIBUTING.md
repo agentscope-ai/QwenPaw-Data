@@ -16,8 +16,8 @@ uv sync --all-packages        # installs all workspace packages + dev deps
 ```
 
 The repository is a uv workspace with four packages under `packages/`:
-`datapaw-context` (DataBridge), `datapaw-host-core`, `datapaw-cli`, and
-`datapaw-skills`.
+`qwenpaw-data-context` (DataBridge), `qwenpaw-data-host-core`, `qwenpaw-data-cli`, and
+`qwenpaw-data-skills`.
 
 ## Verifying Changes
 
@@ -33,8 +33,8 @@ On Windows, run the same constituent checks directly from PowerShell:
 ```powershell
 uv run python -m compileall -q packages scripts
 uv run pytest -q
-npm --prefix packages/datapaw-context/frontend run lint
-npm --prefix packages/datapaw-context/frontend run build
+npm --prefix packages/qwenpaw-data-context/frontend run lint
+npm --prefix packages/qwenpaw-data-context/frontend run build
 ```
 
 Please add or update tests alongside behavior changes. Package tests live in

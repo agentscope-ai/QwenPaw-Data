@@ -51,13 +51,13 @@ uv run python .\examples\smoke_test.py
 ```
 
 The smoke test starts an isolated DataBridge API and an OpenAI-compatible local
-stub, registers the real PostgreSQL datasource, runs a real `datapaw run`, and
+stub, registers the real PostgreSQL datasource, runs a real `qwenpaw-data run`, and
 checks that the SQL result contains the expected 2026-03-10 average of `45.89`.
 It makes no external model request and does not need a real API key.
 
 ## Full interactive demo
 
-### 1. Start DataPaw
+### 1. Start QwenPaw Data
 
 After configuring the root `.env` and running the platform initializer, start
 the full local stack in terminal A:
@@ -91,7 +91,7 @@ examples/init_demo.sh --register
 
 This one command:
 
-1. creates and verifies `examples/demo/data/datapaw-demo.sqlite`;
+1. creates and verifies `examples/demo/data/qwenpaw-data-demo.sqlite`;
 2. starts PostgreSQL with Docker Compose and loads all 475 `dws_gaap_di` rows;
 3. imports `demo_semantic_config.xlsx` into DataBridge; and
 4. attaches the local PostgreSQL credentials to datasource
@@ -100,13 +100,13 @@ This one command:
 The PostgreSQL service listens on `127.0.0.1:55432` by default:
 
 ```text
-database: datapaw_demo
-user:     datapaw
-password: datapaw-demo
+database: qwenpaw_data_demo
+user:     qwenpaw_data
+password: qwenpaw-data-demo
 ```
 
 These are loopback-only demo credentials, not production credentials. Override
-the host port with `DATAPAW_DEMO_POSTGRES_PORT`.
+the host port with `QWENPAW_DATA_DEMO_POSTGRES_PORT`.
 
 ### 3. Build the semantic and knowledge graphs
 
@@ -127,14 +127,14 @@ run the deterministic smoke test instead.
 Verify that the fixed demo datasource is visible:
 
 ```bash
-datapaw datasource list
+qwenpaw-data datasource list
 ```
 
 Then run:
 
 ```bash
 # macOS / Linux
-datapaw run \
+qwenpaw-data run \
   --no-stream \
   --datasource-id postgresql-demo-gaap \
   "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
@@ -142,7 +142,7 @@ datapaw run \
 
 ```powershell
 # Windows PowerShell
-datapaw run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
+qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
@@ -157,7 +157,7 @@ SQLite is available without Docker:
 ```bash
 # macOS / Linux
 examples/init_demo.sh --sqlite-only
-sqlite3 examples/demo/data/datapaw-demo.sqlite \
+sqlite3 examples/demo/data/qwenpaw-data-demo.sqlite \
   "SELECT ds, ROUND(AVG(gaap_val), 2) FROM dws_gaap_di WHERE product = 'X' AND ytd_gaap >= 10 GROUP BY ds ORDER BY ds;"
 ```
 
@@ -170,7 +170,7 @@ PostgreSQL can be queried after running either platform initializer:
 
 ```bash
 docker compose -f examples/docker-compose.yml exec -T postgres \
-  psql -U datapaw -d datapaw_demo -c \
+  psql -U qwenpaw_data -d qwenpaw_data_demo -c \
   "SELECT ds, ROUND(AVG(gaap_val), 2) FROM dws_gaap_di WHERE product = 'X' AND ytd_gaap >= 10 GROUP BY ds ORDER BY ds;"
 ```
 

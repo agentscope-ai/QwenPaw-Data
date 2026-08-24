@@ -48,7 +48,7 @@ jobs:
 
       - name: API smoke test
         run: |
-          uv run python packages/datapaw-context/scripts/serve.py \
+          uv run python packages/qwenpaw-data-context/scripts/serve.py \
             --port 8799 --log-level warning &
           SERVE_PID=$!
           for i in $(seq 1 30); do
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/datapaw-context/frontend
+        working-directory: packages/qwenpaw-data-context/frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -76,7 +76,7 @@ jobs:
         with:
           node-version: 22.22.0
           cache: npm
-          cache-dependency-path: packages/datapaw-context/frontend/package-lock.json
+          cache-dependency-path: packages/qwenpaw-data-context/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -108,20 +108,20 @@ jobs:
         with:
           node-version: 22.22.0
           cache: npm
-          cache-dependency-path: packages/datapaw-context/frontend/package-lock.json
+          cache-dependency-path: packages/qwenpaw-data-context/frontend/package-lock.json
 
       - name: Initialize native Windows environment
         shell: pwsh
         run: |
           .\scripts\init_local.ps1
-          $cliBin = Join-Path $env:LOCALAPPDATA "DataPaw\bin"
+          $cliBin = Join-Path $env:LOCALAPPDATA "QwenPaw Data\bin"
           $env:Path = "$cliBin;$env:Path"
-          datapaw --help
-          $mcpConfig = Join-Path $HOME ".datapaw\host\workspace\.mcp"
+          qwenpaw-data --help
+          $mcpConfig = Join-Path $HOME ".qwenpaw-data\host\workspace\.mcp"
           if (-not (Test-Path -LiteralPath $mcpConfig -PathType Leaf)) {
             throw "Initializer did not create the DataBridge MCP config: $mcpConfig"
           }
-          "DATAPAW_CLI_BIN=$cliBin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "QWENPAW_DATA_CLI_BIN=$cliBin" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Compile and test Python workspace
         shell: pwsh
@@ -131,7 +131,7 @@ jobs:
           uv run pytest -q --full-trace -p no:cacheprovider
 
       - name: Lint initialized frontend
-        working-directory: packages/datapaw-context/frontend
+        working-directory: packages/qwenpaw-data-context/frontend
         run: npm run lint
 
       - name: Validate native lifecycle and demo entry points
@@ -153,14 +153,14 @@ jobs:
           pwsh -NoProfile -File scripts/init_local.ps1 --help
           pwsh -NoProfile -File scripts/start_local.ps1 --help
           .\examples\init_demo.ps1 -SqliteOnly
-          $env:Path = "$env:DATAPAW_CLI_BIN;$env:Path"
-          datapaw --help
+          $env:Path = "$env:QWENPAW_DATA_CLI_BIN;$env:Path"
+          qwenpaw-data --help
 
       - name: Native lifecycle smoke test
         shell: pwsh
         run: |
-          $stdout = Join-Path $env:RUNNER_TEMP "datapaw-start.stdout.log"
-          $stderr = Join-Path $env:RUNNER_TEMP "datapaw-start.stderr.log"
+          $stdout = Join-Path $env:RUNNER_TEMP "qwenpaw-data-start.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "qwenpaw-data-start.stderr.log"
           $server = Start-Process -FilePath "pwsh" -ArgumentList @(
             "-NoProfile", "-File", (Resolve-Path "scripts/start_local.ps1"),
             "--skip-neo4j"
@@ -188,8 +188,8 @@ jobs:
             if (-not $apiHealthy) { throw "DataBridge health endpoint did not become ready" }
             if (-not $uiHealthy) { throw "DataBridge UI did not become ready" }
 
-            $env:Path = "$env:DATAPAW_CLI_BIN;$env:Path"
-            datapaw datasource list
+            $env:Path = "$env:QWENPAW_DATA_CLI_BIN;$env:Path"
+            qwenpaw-data datasource list
           } finally {
             if (-not $server.HasExited) {
               # taskkill races child processes that exit on their own while the
@@ -237,9 +237,9 @@ jobs:
 
       - name: Verify installed CLI and package imports
         run: |
-          .venv/bin/datapaw --help
+          .venv/bin/qwenpaw-data --help
           .venv/bin/python -c \
-            'import context_manager, datapaw.cli, datapaw.host.core'
+            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core'
 
       - uses: actions/upload-artifact@v7
         with:
@@ -253,32 +253,32 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: datapaw
-          POSTGRES_PASSWORD: datapaw-test
-          POSTGRES_DB: datapaw
+          POSTGRES_USER: qwenpaw_data
+          POSTGRES_PASSWORD: qwenpaw-data-test
+          POSTGRES_DB: qwenpaw_data
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U datapaw -d datapaw"
+          --health-cmd "pg_isready -U qwenpaw_data -d qwenpaw_data"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: datapaw-test
-          MYSQL_DATABASE: datapaw
+          MYSQL_ROOT_PASSWORD: qwenpaw-data-test
+          MYSQL_DATABASE: qwenpaw_data
         ports:
           - 3306:3306
         options: >-
-          --health-cmd "mysqladmin ping -h localhost -pdatapaw-test"
+          --health-cmd "mysqladmin ping -h localhost -pqwenpaw-data-test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
       neo4j:
         image: neo4j:5.26-community
         env:
-          NEO4J_AUTH: neo4j/datapaw-test
+          NEO4J_AUTH: neo4j/qwenpaw-data-test
         ports:
           - 7687:7687
     steps:
@@ -292,12 +292,12 @@ jobs:
 
       - name: Exercise real database drivers
         env:
-          DATAPAW_INTEGRATION_DATABASES: "1"
-          DATAPAW_TEST_POSTGRES_DSN: postgresql://datapaw:datapaw-test@127.0.0.1:5432/datapaw
-          DATAPAW_TEST_MYSQL_HOST: 127.0.0.1
-          DATAPAW_TEST_MYSQL_PASSWORD: datapaw-test
-          DATAPAW_TEST_NEO4J_URI: bolt://127.0.0.1:7687
-          DATAPAW_TEST_NEO4J_PASSWORD: datapaw-test
+          QWENPAW_DATA_INTEGRATION_DATABASES: "1"
+          QWENPAW_DATA_TEST_POSTGRES_DSN: postgresql://qwenpaw_data:qwenpaw-data-test@127.0.0.1:5432/qwenpaw_data
+          QWENPAW_DATA_TEST_MYSQL_HOST: 127.0.0.1
+          QWENPAW_DATA_TEST_MYSQL_PASSWORD: qwenpaw-data-test
+          QWENPAW_DATA_TEST_NEO4J_URI: bolt://127.0.0.1:7687
+          QWENPAW_DATA_TEST_NEO4J_PASSWORD: qwenpaw-data-test
         run: uv run pytest -q tests/integration/test_database_services.py
 
   cli-demo-smoke:
@@ -308,24 +308,24 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: datapaw
-          POSTGRES_PASSWORD: datapaw-demo
-          POSTGRES_DB: datapaw_demo
+          POSTGRES_USER: qwenpaw_data
+          POSTGRES_PASSWORD: qwenpaw-data-demo
+          POSTGRES_DB: qwenpaw_data_demo
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U datapaw -d datapaw_demo"
+          --health-cmd "pg_isready -U qwenpaw-data -d qwenpaw_data_demo"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
       neo4j:
         image: neo4j:5.26-community
         env:
-          NEO4J_AUTH: neo4j/datapaw-demo
+          NEO4J_AUTH: neo4j/qwenpaw-data-demo
         ports:
           - 7687:7687
         options: >-
-          --health-cmd "cypher-shell -u neo4j -p datapaw-demo 'RETURN 1'"
+          --health-cmd "cypher-shell -u neo4j -p qwenpaw-data-demo 'RETURN 1'"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
@@ -342,13 +342,13 @@ jobs:
         run: >
           uv run python examples/smoke_test.py
           --postgres-dsn
-          postgresql://datapaw:datapaw-demo@127.0.0.1:5432/datapaw_demo
+          postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:5432/qwenpaw_data_demo
 
       - name: Run real datasource and semantic CLI flow
         run: >
           uv run python examples/semantic_smoke_test.py
           --postgres-dsn
-          postgresql://datapaw:datapaw-demo@127.0.0.1:5432/datapaw_demo
+          postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:5432/qwenpaw_data_demo
 
   docker:
     name: Docker sandbox integration
@@ -368,7 +368,7 @@ jobs:
 
       - name: Verify timeout and cancellation cleanup
         env:
-          DATAPAW_DOCKER_E2E: "1"
+          QWENPAW_DATA_DOCKER_E2E: "1"
         run: uv run pytest -q tests/integration/test_docker_process_cleanup.py
 
   audit:
@@ -441,13 +441,13 @@ jobs:
           node-version: 22.22.0
 
       - name: Audit all frontend dependencies
-        working-directory: packages/datapaw-context/frontend
+        working-directory: packages/qwenpaw-data-context/frontend
         run: |
           npm ci --ignore-scripts
           npm run audit:all
 
       - name: Generate frontend SBOM and license inventory
-        working-directory: packages/datapaw-context/frontend
+        working-directory: packages/qwenpaw-data-context/frontend
         run: npm run sbom
 
       - name: Upload SBOMs
@@ -457,4 +457,4 @@ jobs:
           path: |
             python.cdx.json
             python-licenses.json
-            packages/datapaw-context/frontend/frontend.cdx.json
+            packages/qwenpaw-data-context/frontend/frontend.cdx.json

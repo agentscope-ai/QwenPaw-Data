@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_sbom_module() -> ModuleType:
     path = ROOT / "scripts" / "qualify_python_sbom.py"
-    spec = importlib.util.spec_from_file_location("datapaw_python_sbom_test", path)
+    spec = importlib.util.spec_from_file_location("qwenpaw_data_python_sbom_test", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

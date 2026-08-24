@@ -51,7 +51,7 @@ def _cli_json(env: dict[str, str], *args: str, timeout: float = 90) -> Any:
 def _run_cli_expect_failure(
     env: dict[str, str], *args: str, timeout: float = 90
 ) -> subprocess.CompletedProcess[str]:
-    command = [sys.executable, "-m", "datapaw.cli.main", *args]
+    command = [sys.executable, "-m", "qwenpaw_data.cli.main", *args]
     completed = subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -229,23 +229,23 @@ def run_smoke(args: argparse.Namespace) -> None:
     postgres = _postgres_config(args.postgres_dsn)
     cm_port = _free_port()
 
-    with tempfile.TemporaryDirectory(prefix="datapaw-semantic-smoke-") as temp_name:
+    with tempfile.TemporaryDirectory(prefix="qwenpaw-data-semantic-smoke-") as temp_name:
         temp_root = Path(temp_name)
         home = temp_root / "home"
         log_path = temp_root / "databridge.log"
         env = dict(os.environ)
         env.update(
             {
-                "DATAPAW_HOME": str(home),
-                "DATAPAW_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
+                "QWENPAW_DATA_HOME": str(home),
+                "QWENPAW_DATA_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
                 "NEO4J_URI": args.neo4j_uri,
                 "NEO4J_USER": args.neo4j_user,
                 "NEO4J_PASSWORD": args.neo4j_password,
                 "NO_PROXY": "127.0.0.1,localhost",
                 "no_proxy": "127.0.0.1,localhost",
-                "DATAPAW_API_TOKEN": "",
-                "DATAPAW_API_KEYS": "",
-                "DATAPAW_CLIENT_API_TOKEN": "",
+                "QWENPAW_DATA_API_TOKEN": "",
+                "QWENPAW_DATA_API_KEYS": "",
+                "QWENPAW_DATA_CLIENT_API_TOKEN": "",
                 "NEO4J_DATABASE": "",
             },
         )
@@ -257,7 +257,7 @@ def run_smoke(args: argparse.Namespace) -> None:
                     str(
                         REPO_ROOT
                         / "packages"
-                        / "datapaw-context"
+                        / "qwenpaw-data-context"
                         / "scripts"
                         / "serve.py"
                     ),
@@ -301,13 +301,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--postgres-dsn",
-        default=("postgresql://datapaw:datapaw-demo@127.0.0.1:55432/datapaw_demo"),
+        default=("postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:55432/qwenpaw_data_demo"),
     )
     parser.add_argument("--neo4j-uri", default="bolt://127.0.0.1:7687")
     parser.add_argument("--neo4j-user", default="neo4j")
     parser.add_argument(
         "--neo4j-password",
-        default=os.getenv("NEO4J_PASSWORD", "datapaw-demo"),
+        default=os.getenv("NEO4J_PASSWORD", "qwenpaw-data-demo"),
     )
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     parser.add_argument("--weave-timeout", type=float, default=240.0)
@@ -324,9 +324,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run_smoke(parse_args(argv))
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
-        print(f"DataPaw semantic CLI smoke failed: {exc}", file=sys.stderr)
+        print(f"QwenPaw Data semantic CLI smoke failed: {exc}", file=sys.stderr)
         return 1
-    print("DataPaw semantic CLI smoke passed.")
+    print("QwenPaw Data semantic CLI smoke passed.")
     return 0
 
 

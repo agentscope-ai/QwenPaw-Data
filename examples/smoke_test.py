@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a deterministic DataPaw CLI smoke test without an external model."""
+"""Run a deterministic QwenPaw Data CLI smoke test without an external model."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from init_demo import configure_demo_bundle, load_repo_environment, seed_postgre
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SUCCESS_MARKER = "DATAPAW_DEMO_SMOKE_OK"
+SUCCESS_MARKER = "QWENPAW_DATA_DEMO_SMOKE_OK"
 DEMO_SQL = (
     "SELECT ds, ROUND(AVG(gaap_val), 2) AS average_gaap "
     "FROM dws_gaap_di WHERE product = 'X' AND ytd_gaap >= 10 "
@@ -148,7 +148,7 @@ class _ModelHandler(BaseHTTPRequestHandler):
         if execute_tool is None:
             raise ValueError("DataBridge execute_sql tool was not exposed to the model")
 
-        call_id = "call_datapaw_demo_sql"
+        call_id = "call_qwenpaw_data_demo_sql"
         self._send_sse(
             [
                 self._chunk(
@@ -188,10 +188,10 @@ class _ModelHandler(BaseHTTPRequestHandler):
         delta: dict[str, Any], finish_reason: str | None = None
     ) -> dict[str, Any]:
         return {
-            "id": "chatcmpl-datapaw-demo",
+            "id": "chatcmpl-qwenpaw-data-demo",
             "object": "chat.completion.chunk",
             "created": 1785940800,
-            "model": "datapaw-demo-model",
+            "model": "qwenpaw-data-demo-model",
             "choices": [
                 {
                     "index": 0,
@@ -262,7 +262,7 @@ def _postgres_config(dsn: str) -> dict[str, Any]:
 def _run_cli(
     env: dict[str, str], *args: str, timeout: float = 90
 ) -> subprocess.CompletedProcess[str]:
-    command = [sys.executable, "-m", "datapaw.cli.main", *args]
+    command = [sys.executable, "-m", "qwenpaw_data.cli.main", *args]
     completed = subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -289,7 +289,7 @@ def run_smoke(args: argparse.Namespace) -> None:
     model_thread = threading.Thread(target=model_server.serve_forever, daemon=True)
     model_thread.start()
 
-    with tempfile.TemporaryDirectory(prefix="datapaw-demo-smoke-") as temp_name:
+    with tempfile.TemporaryDirectory(prefix="qwenpaw-data-demo-smoke-") as temp_name:
         temp_root = Path(temp_name)
         home = temp_root / "home"
         log_path = temp_root / "databridge.log"
@@ -297,27 +297,27 @@ def run_smoke(args: argparse.Namespace) -> None:
         env = dict(os.environ)
         env.update(
             {
-                "DATAPAW_HOME": str(home),
-                "DATAPAW_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
-                "DATAPAW_MODEL_PROVIDER": "openai",
-                "DATAPAW_MODEL_NAME": "datapaw-demo-model",
-                "DATAPAW_MODEL_API_KEY": "local-demo-key",
-                "DATAPAW_MODEL_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
-                "DATAPAW_WORKSPACE": "local",
+                "QWENPAW_DATA_HOME": str(home),
+                "QWENPAW_DATA_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
+                "QWENPAW_DATA_MODEL_PROVIDER": "openai",
+                "QWENPAW_DATA_MODEL_NAME": "qwenpaw-data-demo-model",
+                "QWENPAW_DATA_MODEL_API_KEY": "local-demo-key",
+                "QWENPAW_DATA_MODEL_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
+                "QWENPAW_DATA_WORKSPACE": "local",
                 # The deterministic local stub can request only the fixed SQL
                 # call below. Bypass is explicit because unattended dont_ask
                 # correctly denies executable MCP tools.
-                "DATAPAW_PERMISSION_MODE": "bypass",
-                "DATAPAW_SPAWN_SUBAGENT_ENABLED": "0",
+                "QWENPAW_DATA_PERMISSION_MODE": "bypass",
+                "QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED": "0",
                 "NEO4J_URI": args.neo4j_uri,
                 "NEO4J_USER": args.neo4j_user,
                 "NEO4J_PASSWORD": args.neo4j_password,
                 "SQL_EXEC_BACKEND": "direct",
                 "NO_PROXY": "127.0.0.1,localhost",
                 "no_proxy": "127.0.0.1,localhost",
-                "DATAPAW_API_TOKEN": "",
-                "DATAPAW_API_KEYS": "",
-                "DATAPAW_CLIENT_API_TOKEN": "",
+                "QWENPAW_DATA_API_TOKEN": "",
+                "QWENPAW_DATA_API_KEYS": "",
+                "QWENPAW_DATA_CLIENT_API_TOKEN": "",
                 "NEO4J_DATABASE": "",
             },
         )
@@ -329,7 +329,7 @@ def run_smoke(args: argparse.Namespace) -> None:
                     str(
                         REPO_ROOT
                         / "packages"
-                        / "datapaw-context"
+                        / "qwenpaw-data-context"
                         / "scripts"
                         / "serve.py"
                     ),
@@ -423,13 +423,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--postgres-dsn",
-        default=("postgresql://datapaw:datapaw-demo@127.0.0.1:55432/datapaw_demo"),
+        default=("postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:55432/qwenpaw_data_demo"),
     )
     parser.add_argument("--neo4j-uri", default="bolt://127.0.0.1:7687")
     parser.add_argument("--neo4j-user", default="neo4j")
     parser.add_argument(
         "--neo4j-password",
-        default=os.getenv("NEO4J_PASSWORD", "datapaw-demo"),
+        default=os.getenv("NEO4J_PASSWORD", "qwenpaw-data-demo"),
     )
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     return parser.parse_args(argv)
@@ -440,9 +440,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run_smoke(parse_args(argv))
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
-        print(f"DataPaw demo smoke failed: {exc}", file=sys.stderr)
+        print(f"QwenPaw Data demo smoke failed: {exc}", file=sys.stderr)
         return 1
-    print("DataPaw deterministic demo smoke passed.")
+    print("QwenPaw Data deterministic demo smoke passed.")
     return 0
 
 

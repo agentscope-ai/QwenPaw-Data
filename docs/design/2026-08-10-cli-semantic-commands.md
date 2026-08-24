@@ -1,4 +1,4 @@
-# Design Doc: DataPaw CLI 数据源与语义操作命令
+# Design Doc: QwenPaw Data CLI 数据源与语义操作命令
 
 - 状态:Reviewed(开放问题已决议,可开工)
 - 目标版本:0.2.0(新增命令,不破坏既有命令)
@@ -82,7 +82,7 @@ datapaw semantic
 - **错误显示**:服务端 `/api/semantic-config/*` 错误协议为
   `{timestamp, status, error, message}`;CLI 提取 `message` 输出为
   `datapaw: error: <message>`。`401/403` 时附加提示:
-  `hint: set DATAPAW_CLIENT_API_TOKEN (or DATAPAW_API_TOKEN) with the required scope`。
+  `hint: set QWENPAW_DATA_CLIENT_API_TOKEN (or QWENPAW_DATA_API_TOKEN) with the required scope`。
 
 ### 3.2 `datapaw datasource`(数据源及配置态)
 
@@ -211,10 +211,10 @@ datapaw run --datasource-id postgresql-xxxx "分析 3 月有效用户平均 GAAP
 
 | 变量 | 作用 | 默认 |
 | --- | --- | --- |
-| `DATAPAW_CM_BASE_URL` | DataBridge API 地址 | `http://127.0.0.1:8765` |
-| `DATAPAW_CLIENT_API_TOKEN` | CLI Bearer token(优先) | 空 |
-| `DATAPAW_API_TOKEN` | 全 scope 兼容 token(回退) | 空 |
-| `DATAPAW_ENV_FILE` | dotenv 文件位置 | 仓库根 `.env` |
+| `QWENPAW_DATA_CM_BASE_URL` | DataBridge API 地址 | `http://127.0.0.1:8765` |
+| `QWENPAW_DATA_CLIENT_API_TOKEN` | CLI Bearer token(优先) | 空 |
+| `QWENPAW_DATA_API_TOKEN` | 全 scope 兼容 token(回退) | 空 |
+| `QWENPAW_DATA_ENV_FILE` | dotenv 文件位置 | 仓库根 `.env` |
 
 所需 scope 汇总(fail-closed,见 `context_manager/api/authorization.py`):
 
@@ -234,10 +234,10 @@ datapaw run --datasource-id postgresql-xxxx "分析 3 月有效用户平均 GAAP
 ### 5.1 分层
 
 ```text
-datapaw-cli   commands/datasource.py   (扩展)
+qwenpaw-data-cli   commands/datasource.py   (扩展)
               commands/semantic.py     (新增, 资源表驱动)
                      │  仅做:参数解析 → 调 client → 掩码/格式化输出
-datapaw-host-core    semantic_config_client.py  (新增)
+qwenpaw-data-host-core    semantic_config_client.py  (新增)
                      │  SemanticConfigClient:HTTP、鉴权头、分页、错误协议解析
                      └  复用 cm_client 的 resolve_cm_base_url / token 解析 / loopback 免代理
 ```
@@ -269,17 +269,17 @@ class Resource:
 
 | 文件 | 动作 |
 | --- | --- |
-| `packages/datapaw-host-core/src/datapaw/host/core/semantic_config_client.py` | 新增 |
-| `packages/datapaw-host-core/tests/test_semantic_config_client.py` | 新增 |
-| `packages/datapaw-cli/src/datapaw/cli/commands/datasource.py` | 扩展 get/create/update/delete/test |
-| `packages/datapaw-cli/src/datapaw/cli/commands/semantic.py` | 新增 |
-| `packages/datapaw-cli/src/datapaw/cli/commands/__init__.py` | 注册 `semantic` |
-| `packages/datapaw-cli/tests/test_cli_datasource.py` | 扩展 |
-| `packages/datapaw-cli/tests/test_cli_semantic.py` | 新增 |
-| `README.md` / `README_ZH.md` / `packages/datapaw-cli/README.md` | 命令表更新 |
+| `packages/qwenpaw-data-host-core/src/datapaw/host/core/semantic_config_client.py` | 新增 |
+| `packages/qwenpaw-data-host-core/tests/test_semantic_config_client.py` | 新增 |
+| `packages/qwenpaw-data-cli/src/datapaw/cli/commands/datasource.py` | 扩展 get/create/update/delete/test |
+| `packages/qwenpaw-data-cli/src/datapaw/cli/commands/semantic.py` | 新增 |
+| `packages/qwenpaw-data-cli/src/datapaw/cli/commands/__init__.py` | 注册 `semantic` |
+| `packages/qwenpaw-data-cli/tests/test_cli_datasource.py` | 扩展 |
+| `packages/qwenpaw-data-cli/tests/test_cli_semantic.py` | 新增 |
+| `README.md` / `README_ZH.md` / `packages/qwenpaw-data-cli/README.md` | 命令表更新 |
 | `CHANGELOG.md` | Unreleased → Added |
 
-后端(`datapaw-context`)零改动。
+后端(`qwenpaw-data-context`)零改动。
 
 ## 6. 与 Cloud 的对齐说明
 

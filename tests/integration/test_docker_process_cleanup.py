@@ -9,12 +9,12 @@ import uuid
 
 import pytest
 
-from datapaw.host.core.utils.workspace import ManagedDockerBash
+from qwenpaw_data.host.core.utils.workspace import ManagedDockerBash
 
 
 pytestmark = pytest.mark.skipif(
-    os.getenv("DATAPAW_DOCKER_E2E") != "1",
-    reason="set DATAPAW_DOCKER_E2E=1 to run tests against a Docker daemon",
+    os.getenv("QWENPAW_DATA_DOCKER_E2E") != "1",
+    reason="set QWENPAW_DATA_DOCKER_E2E=1 to run tests against a Docker daemon",
 )
 
 
@@ -25,7 +25,7 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
     from agentscope.workspace import DockerBackend
 
     client = aiodocker.Docker()
-    name = f"datapaw-cleanup-test-{uuid.uuid4().hex[:10]}"
+    name = f"qwenpaw-data-cleanup-test-{uuid.uuid4().hex[:10]}"
     container = await client.containers.create(
         config={
             "Image": "python:3.11-slim",
@@ -41,7 +41,7 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
             Bash(cwd="/tmp", backend=delegate),
             grace_seconds=0.2,
         )
-        marker = f"datapaw-timeout-{uuid.uuid4().hex}"
+        marker = f"qwenpaw-data-timeout-{uuid.uuid4().hex}"
 
         chunks = await _collect_chunks(
             bash.call(
@@ -56,7 +56,7 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
         assert "Command timed out after 200ms" in chunks[-1].content[0].text
         await _assert_process_absent(delegate, marker)
 
-        cancel_marker = f"datapaw-cancel-{uuid.uuid4().hex}"
+        cancel_marker = f"qwenpaw-data-cancel-{uuid.uuid4().hex}"
         command = asyncio.create_task(
             _collect_chunks(
                 bash.call(
