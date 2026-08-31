@@ -147,7 +147,10 @@ async def test_atomic_write_fsyncs_file_and_directory(tmp_path, monkeypatch):
         calls.append(fd)
         real_fsync(fd)
 
-    monkeypatch.setattr("qwenpaw_data.host.core.session.store.os.fsync", recording_fsync)
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.session._locking.os.fsync",
+        recording_fsync,
+    )
     await JSONSessionStore(tmp_path).update_session_state(
         "durable",
         "metadata.key",
