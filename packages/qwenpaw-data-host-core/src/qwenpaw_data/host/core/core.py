@@ -47,6 +47,7 @@ class QwenPawDataHost:
         request_context: dict[str, Any] | None = None,
         permission_mode: PermissionMode | str | None = None,
         confirmation_handler: ConfirmationHandler | None = None,
+        extra_middlewares: list[Any] | None = None,
     ) -> None:
         self.home = resolve_qwenpaw_data_home(home)
         self.session_id = session_id or create_session_id()
@@ -54,6 +55,7 @@ class QwenPawDataHost:
         self.model = model or build_model_from_env()
         self.workspace = workspace
         self.workspace_type = workspace_type
+        self.extra_middlewares = list(extra_middlewares or [])
         self.permission_mode = resolve_permission_mode(
             workspace_type,
             permission_mode,
@@ -163,6 +165,15 @@ class QwenPawDataHost:
                 await result
         return self.workspace
 
+    async def get_agent(
+        self,
+        *,
+        mode: str,
+        request_context: dict[str, Any] | None = None,
+    ) -> Any:
+        """Public access to the session-scoped agent for external runtimes."""
+        return await self._get_agent(mode=mode, request_context=request_context)
+
     async def _get_agent(
         self,
         *,
@@ -214,6 +225,7 @@ class QwenPawDataHost:
             session_id=self.session_id,
             session_trace_writer=append_session_trace,
             confirmation_handler=self.confirmation_handler,
+            middlewares=list(self.extra_middlewares) or None,
         )
         agent_ref["agent"] = agent
         rs.configure_dag_store(

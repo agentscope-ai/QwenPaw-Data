@@ -279,6 +279,12 @@ class FinishPlan(QwenPawDataToolBase):
 
 
 PLAN_MODE_TOOL_NAMES = {"create_plan", "revise_current_plan"}
+PLAN_TOOL_NAMES = {
+    "create_plan",
+    "revise_current_plan",
+    "update_subtask",
+    "finish_plan",
+}
 
 ALL_QWENPAW_DATA_TOOLS = (
     CreatePlan,
