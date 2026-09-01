@@ -36,12 +36,14 @@ class CronManager:
         chats: ChatStore,
         events: ChatEventStore,
         hosts: QwenPawDataHostRegistry,
+        prefs: Any = None,
     ) -> None:
         self._cron = cron
         self._sessions = sessions
         self._chats = chats
         self._events = events
         self._hosts = hosts
+        self._prefs = prefs
         self._scheduler = AsyncIOScheduler(timezone="UTC")
 
     async def start(self) -> None:
@@ -131,4 +133,5 @@ class CronManager:
             chats=self._chats,
             events=self._events,
             hosts=self._hosts,
+            prefs=self._prefs,
         ).run(chat.id, identity=identity)

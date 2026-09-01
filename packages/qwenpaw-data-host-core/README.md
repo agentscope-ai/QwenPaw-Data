@@ -74,6 +74,7 @@ calls and outputs, media) · `task_status` (DAG plan snapshots) ·
 - `QWENPAW_DATA_PREFS_MASTER_SECRET` — hex secret (≥32 bytes) to encrypt stored provider API keys at rest
 - `QWENPAW_DATA_CORS_ALLOW_ORIGINS` — comma-separated origins (default loopback)
 - `QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS` — keepalive interval (default 15)
+- `QWENPAW_DATA_FOLLOWUP_ENABLED` — `0` disables follow-up question recommendation (default on)
 - `QWENPAW_DATA_MODEL_PROVIDER` / `_NAME` / `_API_KEY` / `_BASE_URL` — model config fallback when no active model is set via preferences
 
 Chat and event history persist in the selected backend, so SSE resume
