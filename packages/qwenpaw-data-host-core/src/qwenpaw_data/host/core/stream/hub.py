@@ -27,15 +27,33 @@ class EventHub:
         for q in list(self._subs.get(chat_id, ())):
             await q.put(self._close_signal)
 
-    async def subscribe_live(
+    def attach(self, chat_id: str) -> asyncio.Queue[StreamObject | object]:
+        """Register a subscriber queue synchronously.
+
+        Use before replaying history so events published meanwhile are
+        buffered instead of lost; consume with :meth:`iterate`.
+        """
+        q: asyncio.Queue[StreamObject | object] = asyncio.Queue()
+        self._subs[chat_id].add(q)
+        return q
+
+    def detach(
         self,
         chat_id: str,
+        q: asyncio.Queue[StreamObject | object],
+    ) -> None:
+        self._subs[chat_id].discard(q)
+        if not self._subs[chat_id]:
+            del self._subs[chat_id]
+
+    async def iterate(
+        self,
+        chat_id: str,
+        q: asyncio.Queue[StreamObject | object],
         *,
         heartbeat_interval: float | None = None,
     ) -> AsyncIterator[StreamObject | None]:
-        """Yield live events; ``None`` is an optional transport heartbeat."""
-        q: asyncio.Queue[StreamObject | object] = asyncio.Queue()
-        self._subs[chat_id].add(q)
+        """Drain an attached queue; ``None`` is an optional transport heartbeat."""
         try:
             while True:
                 try:
@@ -51,9 +69,22 @@ class EventHub:
                     return
                 yield cast(StreamObject, item)
         finally:
-            self._subs[chat_id].discard(q)
-            if not self._subs[chat_id]:
-                del self._subs[chat_id]
+            self.detach(chat_id, q)
+
+    async def subscribe_live(
+        self,
+        chat_id: str,
+        *,
+        heartbeat_interval: float | None = None,
+    ) -> AsyncIterator[StreamObject | None]:
+        """Yield live events; ``None`` is an optional transport heartbeat."""
+        q = self.attach(chat_id)
+        async for item in self.iterate(
+            chat_id,
+            q,
+            heartbeat_interval=heartbeat_interval,
+        ):
+            yield item
 
 
 _HUB: EventHub | None = None

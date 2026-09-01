@@ -55,40 +55,47 @@ async def chat_events(
         hub = get_hub()
         cursor = after
 
-        replay = await state.events.read_after(chat_id, cursor)
-        chat = await state.chats.get(chat_id)
-        status = chat.status
-        last = await state.events.last_sequence_number(chat_id)
+        # Attach before replaying so events published meanwhile are buffered.
+        queue = hub.attach(chat_id)
+        try:
+            replay = await state.events.read_after(chat_id, cursor)
+            chat = await state.chats.get(chat_id)
+            status = chat.status
+            last = await state.events.last_sequence_number(chat_id)
 
-        for obj in replay:
-            if await request.is_disconnected():
+            for obj in replay:
+                if await request.is_disconnected():
+                    return
+                yield format_sse(obj)
+                cursor = obj.sequence_number
+
+            if status in TERMINAL and cursor >= last:
                 return
-            yield format_sse(obj)
-            cursor = obj.sequence_number
 
-        if status in TERMINAL and cursor >= last:
-            return
-
-        async for obj in hub.subscribe_live(
-            chat_id,
-            heartbeat_interval=_heartbeat_seconds(),
-        ):
-            if await request.is_disconnected():
-                return
-            if obj is None:
-                # SSE comments keep idle-connection timers from expiring
-                # without becoming visible to the client-side event parser.
-                yield ": keepalive\n\n"
-                continue
-            if obj.sequence_number <= cursor:
-                continue
-            yield format_sse(obj)
-            cursor = obj.sequence_number
-            if obj.object == "response" and obj.status in (
-                "completed",
-                "failed",
-                "cancelled",
+            async for obj in hub.iterate(
+                chat_id,
+                queue,
+                heartbeat_interval=_heartbeat_seconds(),
             ):
-                return
+                if await request.is_disconnected():
+                    return
+                if obj is None:
+                    # SSE comments keep idle-connection timers from expiring
+                    # without becoming visible to the client-side event parser.
+                    yield ": keepalive\n\n"
+                    continue
+                if obj.sequence_number <= cursor:
+                    continue
+                yield format_sse(obj)
+                cursor = obj.sequence_number
+                if obj.object == "response" and obj.status in (
+                    "completed",
+                    "failed",
+                    "cancelled",
+                ):
+                    return
+        finally:
+            # Idempotent: iterate() also detaches when it is reached.
+            hub.detach(chat_id, queue)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
