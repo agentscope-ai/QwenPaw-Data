@@ -21,11 +21,238 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
     dump_stream_object,
     parse_stream_object,
 )
-from qwenpaw_data.host.core.db.tables import ChatEventRow, ChatRow, SessionRow
+from qwenpaw_data.host.core.db.tables import (
+    ChatEventRow,
+    ChatRow,
+    SessionRow,
+    UserActiveModelRow,
+    UserProviderModelRow,
+    UserProviderRow,
+)
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.preference import (
+    ModelOverride,
+    ProviderCredential,
+    UserPreferences,
+)
 from qwenpaw_data.host.core.domain.session import Session
+from qwenpaw_data.host.core.store._prefs_logic import (
+    clean_model_upsert,
+    merge_provider_patch,
+)
+from qwenpaw_data.host.core.utils.secrets import decrypt_api_key
 from qwenpaw_data.host.core.utils.time import utcnow
+
+
+class SQLPreferencesStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    async def load(self, user_id: str) -> UserPreferences:
+        async with self._sessions() as db:
+            providers = {
+                row.provider_id: ProviderCredential(
+                    api_key=decrypt_api_key(row.api_key_enc),
+                    base_url=row.base_url,
+                )
+                for row in (
+                    await db.scalars(
+                        select(UserProviderRow).where(
+                            UserProviderRow.user_id == user_id
+                        )
+                    )
+                )
+            }
+            models = {
+                (row.provider_id, row.model_id): ModelOverride(
+                    source=row.source,
+                    name=row.name,
+                    thinking_enabled=row.thinking_enabled,
+                    generate_kwargs=row.generate_kwargs_json,
+                )
+                for row in (
+                    await db.scalars(
+                        select(UserProviderModelRow).where(
+                            UserProviderModelRow.user_id == user_id
+                        )
+                    )
+                )
+            }
+            active = await db.get(UserActiveModelRow, user_id)
+            return UserPreferences(
+                user_id=user_id,
+                providers=providers,
+                models=models,
+                default_provider_id=(
+                    None if active is None else active.default_provider_id
+                ),
+                default_model_id=(
+                    None if active is None else active.default_model_id
+                ),
+                light_provider_id=(
+                    None if active is None else active.light_provider_id
+                ),
+                light_model_id=(
+                    None if active is None else active.light_model_id
+                ),
+            )
+
+    async def upsert_provider(
+        self,
+        user_id: str,
+        provider_id: str,
+        patch: dict[str, Any],
+    ) -> None:
+        async with self._sessions() as db:
+            row = await db.get(UserProviderRow, (user_id, provider_id))
+            api_key_enc, base_url = merge_provider_patch(
+                exists=row is not None,
+                current_api_key_enc=None if row is None else row.api_key_enc,
+                current_base_url=None if row is None else row.base_url,
+                patch=patch,
+                provider_id=provider_id,
+            )
+            now = utcnow()
+            if row is None:
+                db.add(
+                    UserProviderRow(
+                        user_id=user_id,
+                        provider_id=provider_id,
+                        api_key_enc=api_key_enc,
+                        base_url=base_url,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.api_key_enc = api_key_enc
+                row.base_url = base_url
+                row.updated_at = now
+            await db.commit()
+
+    async def delete_provider(self, user_id: str, provider_id: str) -> None:
+        async with self._sessions() as db:
+            row = await db.get(UserProviderRow, (user_id, provider_id))
+            if row is None:
+                raise LookupError(f"provider config not found: {provider_id}")
+            await db.delete(row)
+            await db.commit()
+
+    async def upsert_model(
+        self,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+        *,
+        source: str,
+        name: str | None = None,
+        thinking_enabled: bool | None = None,
+        generate_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        model_id, name = clean_model_upsert(
+            provider_id, model_id, source=source, name=name
+        )
+        async with self._sessions() as db:
+            row = await db.get(
+                UserProviderModelRow, (user_id, provider_id, model_id)
+            )
+            now = utcnow()
+            if row is None:
+                db.add(
+                    UserProviderModelRow(
+                        user_id=user_id,
+                        provider_id=provider_id,
+                        model_id=model_id,
+                        source=source,
+                        name=name,
+                        thinking_enabled=thinking_enabled,
+                        generate_kwargs_json=generate_kwargs,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.source = source
+                row.name = name
+                row.thinking_enabled = thinking_enabled
+                row.generate_kwargs_json = generate_kwargs
+                row.updated_at = now
+            await db.commit()
+
+    async def delete_model(
+        self,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+    ) -> None:
+        async with self._sessions() as db:
+            row = await db.get(
+                UserProviderModelRow, (user_id, provider_id, model_id)
+            )
+            if row is None:
+                raise LookupError(
+                    f"model config not found: {provider_id}/{model_id}"
+                )
+            await db.delete(row)
+            await db.commit()
+
+    async def get_active_models(self, user_id: str) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await db.get(UserActiveModelRow, user_id)
+            if row is None:
+                return {
+                    "default_provider_id": None,
+                    "default_model_id": None,
+                    "light_provider_id": None,
+                    "light_model_id": None,
+                }
+            return {
+                "default_provider_id": row.default_provider_id,
+                "default_model_id": row.default_model_id,
+                "light_provider_id": row.light_provider_id,
+                "light_model_id": row.light_model_id,
+            }
+
+    async def set_active_models(
+        self,
+        user_id: str,
+        *,
+        default_provider_id: str,
+        default_model_id: str,
+        light_provider_id: str | None = None,
+        light_model_id: str | None = None,
+    ) -> dict[str, Any]:
+        if (light_provider_id is None) != (light_model_id is None):
+            raise ValueError(
+                "light_provider_id and light_model_id must be set together"
+            )
+        prefs = await self.load(user_id)
+        prefs.default_provider_id = default_provider_id
+        prefs.default_model_id = default_model_id
+        prefs.light_provider_id = light_provider_id
+        prefs.light_model_id = light_model_id
+        prefs.validate_selection()
+        async with self._sessions() as db:
+            row = await db.get(UserActiveModelRow, user_id)
+            now = utcnow()
+            if row is None:
+                db.add(
+                    UserActiveModelRow(
+                        user_id=user_id,
+                        default_provider_id=default_provider_id,
+                        default_model_id=default_model_id,
+                        light_provider_id=light_provider_id,
+                        light_model_id=light_model_id,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.default_provider_id = default_provider_id
+                row.default_model_id = default_model_id
+                row.light_provider_id = light_provider_id
+                row.light_model_id = light_model_id
+                row.updated_at = now
+            await db.commit()
+        return await self.get_active_models(user_id)
 
 
 def _session_from_row(row: SessionRow) -> Session:

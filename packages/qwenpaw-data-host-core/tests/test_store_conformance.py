@@ -350,3 +350,92 @@ async def test_session_delete_blocked_by_active_chat(backend: Backend) -> None:
 
     with pytest.raises(RuntimeError, match="CONFLICT"):
         await backend.sessions.delete(session.id)
+
+
+# ---- PreferencesStore conformance ----
+
+
+@pytest.fixture
+def prefs_backend(backend: Backend, tmp_path: Path):
+    from qwenpaw_data.host.core.store.json_store import JSONPreferencesStore
+    from qwenpaw_data.host.core.store.sql_store import SQLPreferencesStore
+
+    if backend.name == "json":
+        return backend, JSONPreferencesStore(tmp_path)
+    return backend, SQLPreferencesStore(backend.factory)
+
+
+async def test_prefs_provider_roundtrip(prefs_backend, monkeypatch) -> None:
+    monkeypatch.delenv("QWENPAW_DATA_PREFS_MASTER_SECRET", raising=False)
+    _, prefs = prefs_backend
+
+    with pytest.raises(ValueError, match="api_key is required"):
+        await prefs.upsert_provider("u1", "dashscope", {"base_url": "x"})
+    with pytest.raises(ValueError, match="unknown provider_id"):
+        await prefs.upsert_provider("u1", "nope", {"api_key": "k"})
+
+    await prefs.upsert_provider("u1", "dashscope", {"api_key": "sk-secret"})
+    loaded = await prefs.load("u1")
+    assert loaded.providers["dashscope"].api_key == "sk-secret"
+    assert loaded.providers["dashscope"].base_url is None
+
+    # patch base_url only: api_key preserved
+    await prefs.upsert_provider("u1", "dashscope", {"base_url": "https://p/v1"})
+    loaded = await prefs.load("u1")
+    assert loaded.providers["dashscope"].api_key == "sk-secret"
+    assert loaded.providers["dashscope"].base_url == "https://p/v1"
+
+    # user isolation
+    assert (await prefs.load("u2")).providers == {}
+
+    await prefs.delete_provider("u1", "dashscope")
+    assert (await prefs.load("u1")).providers == {}
+    with pytest.raises(LookupError):
+        await prefs.delete_provider("u1", "dashscope")
+
+
+async def test_prefs_encryption_at_rest(prefs_backend, monkeypatch) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_PREFS_MASTER_SECRET", "ab" * 32)
+    _, prefs = prefs_backend
+    await prefs.upsert_provider("u1", "openai", {"api_key": "sk-plain"})
+    loaded = await prefs.load("u1")
+    assert loaded.providers["openai"].api_key == "sk-plain"
+
+
+async def test_prefs_models_and_active_selection(prefs_backend, monkeypatch) -> None:
+    monkeypatch.delenv("QWENPAW_DATA_PREFS_MASTER_SECRET", raising=False)
+    _, prefs = prefs_backend
+
+    with pytest.raises(ValueError, match="name is required"):
+        await prefs.upsert_model("u1", "dashscope", "my-model", source="extra")
+    await prefs.upsert_model(
+        "u1", "dashscope", "my-model", source="extra", name="My Model"
+    )
+    loaded = await prefs.load("u1")
+    assert loaded.models[("dashscope", "my-model")].name == "My Model"
+
+    # active selection requires configured credentials
+    with pytest.raises(ValueError, match="provider is not configured"):
+        await prefs.set_active_models(
+            "u1",
+            default_provider_id="dashscope",
+            default_model_id="qwen-max",
+        )
+    await prefs.upsert_provider("u1", "dashscope", {"api_key": "sk-k"})
+    active = await prefs.set_active_models(
+        "u1",
+        default_provider_id="dashscope",
+        default_model_id="my-model",
+    )
+    assert active["default_model_id"] == "my-model"
+
+    loaded = await prefs.load("u1")
+    resolved = loaded.active_default()
+    assert resolved is not None
+    assert resolved.model_id == "my-model"
+    assert resolved.name == "My Model"
+    assert resolved.chat_model == "DashScopeChatModel"
+
+    await prefs.delete_model("u1", "dashscope", "my-model")
+    with pytest.raises(LookupError):
+        await prefs.delete_model("u1", "dashscope", "my-model")
