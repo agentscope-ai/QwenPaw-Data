@@ -13,6 +13,7 @@ from agentscope.permission import PermissionMode
 from agentscope.state import AgentState
 
 from .agent import QwenPawDataAgent
+from .agent.middleware.sql_artifact import SqlArtifactMiddleware
 from .agent.toolkit import build_qwenpaw_data_toolkit
 from .model import build_model_from_env
 from .orchestration.dag_store import DAGStore
@@ -235,7 +236,10 @@ class QwenPawDataHost:
             session_id=self.session_id,
             session_trace_writer=append_session_trace,
             confirmation_handler=self.confirmation_handler,
-            middlewares=list(self.extra_middlewares) or None,
+            middlewares=[
+                SqlArtifactMiddleware(artifact_dir=paths.artifact_dir),
+                *self.extra_middlewares,
+            ],
         )
         agent_ref["agent"] = agent
         rs.configure_dag_store(
