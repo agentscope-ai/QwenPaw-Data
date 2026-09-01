@@ -48,11 +48,19 @@ class QwenPawDataHost:
         permission_mode: PermissionMode | str | None = None,
         confirmation_handler: ConfirmationHandler | None = None,
         extra_middlewares: list[Any] | None = None,
+        model_factory: Any = None,
     ) -> None:
         self.home = resolve_qwenpaw_data_home(home)
         self.session_id = session_id or create_session_id()
         self.request_context = dict(request_context or {})
-        self.model = model or build_model_from_env()
+        self._model_factory = model_factory
+        if model is not None:
+            self.model = model
+        elif model_factory is not None:
+            # Deferred: resolved on first agent build via the async factory.
+            self.model = None
+        else:
+            self.model = build_model_from_env()
         self.workspace = workspace
         self.workspace_type = workspace_type
         self.extra_middlewares = list(extra_middlewares or [])
@@ -180,6 +188,8 @@ class QwenPawDataHost:
         mode: str,
         request_context: dict[str, Any] | None = None,
     ) -> Any:
+        if self.model is None and self._model_factory is not None:
+            self.model = await self._model_factory()
         effective_context = self._request_context(request_context)
         if self._agent is not None:
             self._agent.set_mode(mode)

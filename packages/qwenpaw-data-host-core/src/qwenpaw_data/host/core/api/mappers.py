@@ -8,8 +8,89 @@ from qwenpaw_data.host.core.api.models.chat import (
     ChatSchema,
     SessionSchema,
 )
+from qwenpaw_data.host.core.api.models.preferences import (
+    ProviderModelSchema,
+    ProviderSchema,
+)
 from qwenpaw_data.host.core.domain.chat import Chat
+from qwenpaw_data.host.core.domain.preference import UserPreferences
 from qwenpaw_data.host.core.domain.session import Session
+from qwenpaw_data.host.core.providers.registry import ProviderRegistry
+from qwenpaw_data.host.core.utils.secrets import mask_api_key
+
+
+def providers_to_schema(
+    prefs: UserPreferences,
+    registry: ProviderRegistry,
+) -> list[ProviderSchema]:
+    return [
+        ProviderSchema(
+            id=spec.id,
+            name=spec.name,
+            chat_model=spec.chat_model,
+            api_key_prefix=spec.api_key_prefix,
+            catalog_base_url=spec.base_url,
+            base_url=(
+                spec.base_url
+                if spec.id not in prefs.providers
+                or prefs.providers[spec.id].base_url is None
+                else prefs.providers[spec.id].base_url
+            ),
+            configured=spec.id in prefs.providers,
+            api_key_masked=(
+                mask_api_key(
+                    prefs.providers[spec.id].api_key,
+                    prefix=spec.api_key_prefix,
+                )
+                if spec.id in prefs.providers
+                else ""
+            ),
+            models=models_to_schema(prefs, registry, spec.id),
+        )
+        for spec in registry.providers
+    ]
+
+
+def models_to_schema(
+    prefs: UserPreferences,
+    registry: ProviderRegistry,
+    provider_id: str,
+) -> list[ProviderModelSchema]:
+    spec = registry.require(provider_id)
+    saved = {
+        model_id: model
+        for (pid, model_id), model in prefs.models.items()
+        if pid == provider_id
+    }
+    items: list[ProviderModelSchema] = []
+    for model in spec.models:
+        row = saved.pop(model.id, None)
+        items.append(
+            ProviderModelSchema(
+                id=model.id,
+                name=row.name if row and row.name else model.name,
+                source="override" if row else "catalog",
+                thinking_enabled=None if row is None else row.thinking_enabled,
+                generate_kwargs=(
+                    {}
+                    if row is None or not row.generate_kwargs
+                    else row.generate_kwargs
+                ),
+                chat_model=spec.chat_model,
+            )
+        )
+    for model_id, row in saved.items():
+        items.append(
+            ProviderModelSchema(
+                id=model_id,
+                name=row.name or model_id,
+                source=row.source,  # type: ignore[arg-type]
+                thinking_enabled=row.thinking_enabled,
+                generate_kwargs={} if not row.generate_kwargs else row.generate_kwargs,
+                chat_model=spec.chat_model,
+            )
+        )
+    return items
 
 
 def session_to_schema(

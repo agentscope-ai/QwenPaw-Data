@@ -11,6 +11,7 @@ from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
 from qwenpaw_data.host.core.store.protocols import (
     ChatEventStore,
     ChatStore,
+    PreferencesStore,
     SessionStore,
 )
 
@@ -20,6 +21,7 @@ class ServiceState:
     sessions: SessionStore
     chats: ChatStore
     events: ChatEventStore
+    prefs: PreferencesStore
     hosts: QwenPawDataHostRegistry
     tasks: set[asyncio.Task] = field(default_factory=set)
 
