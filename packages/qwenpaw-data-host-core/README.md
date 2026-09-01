@@ -30,9 +30,29 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 
 | Route | Purpose |
 |---|---|
-| `POST /sessions/{session_id}/chats` | Start a turn: `{"text": ..., "datasource_id": ...}` → `{"chat": {...}}`; 409 while a turn is active |
-| `POST /sessions/{session_id}/chats/{chat_id}/stop` | Cancel a running turn |
-| `GET /sessions/{session_id}/chats/{chat_id}/events` | SSE stream: replays persisted history, then live events; supports `Last-Event-ID` (or `after_sequence_number`) resume |
+| `POST /sessions` · `GET /sessions` · `GET/PATCH/DELETE /sessions/{id}` | Session lifecycle: create, list (search/filter/sort/pagination), rename, soft-delete |
+| `POST /sessions/{sid}/chats` | Start a turn in an existing session: `{"text": ..., "datasource_id": ...}` → `{"chat": {...}}`; 404 without a session, 409 while a turn is active |
+| `GET /sessions/{sid}/chats` | List a session's chats |
+| `POST /sessions/{sid}/chats/{cid}/stop` | Cancel a running turn |
+| `GET /sessions/{sid}/chats/{cid}/events` | SSE stream: replays persisted history, then live events; supports `Last-Event-ID` (or `after_sequence_number`) resume |
+| `POST /sessions/{sid}/chats/{cid}/steer` | Inject steering text into the running turn (204; 409 when not active) |
+| `POST /sessions/{sid}/chats/{cid}/clarification/answer` | Deliver an `ask_user_question` result to the paused turn |
+| `GET/PUT/DELETE /preferences/providers[/{id}]` · `.../models/{id}` · `GET/PUT /preferences/active-models` | Model provider credentials (masked in responses), model overrides, active model selection |
+| `GET /datasources` | DataBridge datasource discovery proxied through the service |
+
+### Storage backends
+
+The service persists sessions/chats/events/preferences through a store
+protocol with two interchangeable backends:
+
+- **sqlite (default)**: `<home>/host/host.db` (WAL); point
+  `QWENPAW_DATA_DB_URL` at another SQLAlchemy async URL (e.g. postgres).
+- **JSON files**: set `QWENPAW_DATA_STORE=json` for the zero-dependency
+  file layout (`<home>/host/{chats,sessions,preferences}/`).
+
+A conformance test suite runs every store test against both backends.
+When no explicit model is passed, the service resolves the local user's
+configured active model from preferences and falls back to env vars.
 
 ### SSE stream objects
 
@@ -48,14 +68,16 @@ calls and outputs, media) · `task_status` (DAG plan snapshots) ·
 ### Environment variables
 
 - `QWENPAW_DATA_API_TOKEN` — bearer token; unset = loopback-only
+- `QWENPAW_DATA_STORE` — `json` to use file-backed stores (default: sqlite)
+- `QWENPAW_DATA_DB_URL` — SQLAlchemy async URL (default `sqlite+aiosqlite:///<home>/host/host.db`)
+- `QWENPAW_DATA_PREFS_MASTER_SECRET` — hex secret (≥32 bytes) to encrypt stored provider API keys at rest
 - `QWENPAW_DATA_CORS_ALLOW_ORIGINS` — comma-separated origins (default loopback)
 - `QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS` — keepalive interval (default 15)
-- `QWENPAW_DATA_MODEL_PROVIDER` / `_NAME` / `_API_KEY` / `_BASE_URL` — model config
+- `QWENPAW_DATA_MODEL_PROVIDER` / `_NAME` / `_API_KEY` / `_BASE_URL` — model config fallback when no active model is set via preferences
 
-Chat and event history persist under
-`${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/host/chats/` as JSON/JSONL, so SSE
-resume works across service restarts; orphaned running chats are cancelled
-on startup.
+Chat and event history persist in the selected backend, so SSE resume
+works across service restarts; orphaned running chats are cancelled on
+startup.
 
 ## Default local state
 

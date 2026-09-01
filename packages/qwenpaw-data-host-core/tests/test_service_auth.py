@@ -29,6 +29,8 @@ async def service_client(tmp_path: Path, *, client=LOOPBACK):
 
 async def test_no_token_allows_loopback(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     async with service_client(tmp_path) as http:
         response = await http.post(
             "/api/v1/sessions/s1/chats/chat_missing/stop",
@@ -38,6 +40,8 @@ async def test_no_token_allows_loopback(tmp_path, monkeypatch) -> None:
 
 async def test_no_token_rejects_remote_clients(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     async with service_client(tmp_path, client=REMOTE) as http:
         response = await http.post(
             "/api/v1/sessions/s1/chats/chat_missing/stop",

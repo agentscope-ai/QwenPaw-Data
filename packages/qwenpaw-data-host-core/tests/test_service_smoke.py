@@ -31,7 +31,6 @@ from agentscope.message import ToolResultState  # noqa: E402
 
 from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
 from qwenpaw_data.host.core.core import QwenPawDataHost  # noqa: E402
-from qwenpaw_data.host.core.store.json_store import JSONChatStore  # noqa: E402
 
 
 def _script() -> list[Any]:
@@ -97,6 +96,8 @@ async def service_client(tmp_path: Path, agent: ScriptedAgent, monkeypatch):
 
     monkeypatch.setattr(QwenPawDataHost, "get_agent", fake_get_agent)
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     app = create_app(home=tmp_path, model=object())
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
@@ -122,8 +123,8 @@ async def _collect_sse(http: httpx.AsyncClient, url: str, **kwargs: Any):
     return ids, payloads
 
 
-async def _wait_terminal(tmp_path: Path, chat_id: str) -> dict[str, Any]:
-    store = JSONChatStore(tmp_path / "host")
+async def _wait_terminal(app, chat_id: str) -> dict[str, Any]:
+    store = app.state.service.chats
     for _ in range(200):
         chat = await store.get(chat_id)
         if chat.status != "running":
@@ -209,7 +210,7 @@ async def test_full_turn_streams_expected_event_sequence(
         assert final_text == ["hello world"]
         assert "error" not in objects
 
-        final_chat = await _wait_terminal(tmp_path, chat_id)
+        final_chat = await _wait_terminal(_app, chat_id)
         assert final_chat["status"] == "completed"
 
 
@@ -225,7 +226,7 @@ async def test_resume_with_last_event_id_replays_tail_only(
             f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
         )
         chat_id = created.json()["chat"]["id"]
-        await _wait_terminal(tmp_path, chat_id)
+        await _wait_terminal(_app, chat_id)
 
         full_ids, _ = await _collect_sse(
             http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
@@ -285,7 +286,7 @@ async def test_failing_agent_yields_response_failed(tmp_path, monkeypatch) -> No
         )
         chat_id = created.json()["chat"]["id"]
 
-        final_chat = await _wait_terminal(tmp_path, chat_id)
+        final_chat = await _wait_terminal(_app, chat_id)
         assert final_chat["status"] == "failed"
         assert final_chat["error"]["message"] == "model exploded"
 
@@ -321,3 +322,35 @@ async def test_orphaned_running_chats_are_cancelled_on_startup(
         )
         assert payloads[-1]["object"] == "response"
         assert payloads[-1]["status"] == "cancelled"
+
+
+async def test_full_turn_on_json_store_backend(tmp_path, monkeypatch) -> None:
+    """Regression: QWENPAW_DATA_STORE=json keeps the file-backed stores working."""
+    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.setenv("QWENPAW_DATA_STORE", "json")
+
+    agent = ScriptedAgent(_script())
+
+    async def fake_get_agent(self, *, mode: str, request_context=None):
+        return agent
+
+    monkeypatch.setattr(QwenPawDataHost, "get_agent", fake_get_agent)
+    app = create_app(home=tmp_path, model=object())
+    async with app.router.lifespan_context(app):
+        from qwenpaw_data.host.core.store.json_store import JSONChatStore as _J
+
+        assert isinstance(app.state.service.chats, _J)
+        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as http:
+            session_id = await _new_session(http)
+            created = await http.post(
+                f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
+            )
+            chat_id = created.json()["chat"]["id"]
+            _ids, payloads = await _collect_sse(
+                http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
+            )
+            assert payloads[-1]["object"] == "response"
+            assert payloads[-1]["status"] == "completed"

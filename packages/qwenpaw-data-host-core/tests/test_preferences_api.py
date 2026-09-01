@@ -17,6 +17,8 @@ from qwenpaw_data.host.core.providers.registry import ActiveModel  # noqa: E402
 @asynccontextmanager
 async def service_client(tmp_path: Path, monkeypatch, **app_kwargs):
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     monkeypatch.delenv("QWENPAW_DATA_PREFS_MASTER_SECRET", raising=False)
     app = create_app(home=tmp_path, **app_kwargs)
     async with app.router.lifespan_context(app):
