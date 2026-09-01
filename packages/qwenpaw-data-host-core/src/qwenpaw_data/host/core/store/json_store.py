@@ -19,6 +19,7 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
     dump_stream_object,
     parse_stream_object,
 )
+from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.preference import (
@@ -562,3 +563,126 @@ class JSONChatEventStore:
             if data["sequence_number"] > after:
                 events.append(parse_stream_object(data))
         return events
+
+
+class JSONCronStore:
+    def __init__(self, root: Path) -> None:
+        self._cron_root = Path(root).expanduser().resolve() / "cron"
+
+    def _job_path(self, job_id: str) -> Path:
+        return self._cron_root / f"{job_id}.json"
+
+    @staticmethod
+    def _to_dict(doc: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": doc["id"],
+            "user_id": doc["user_id"],
+            "name": doc["name"],
+            "enabled": doc["enabled"],
+            "message": doc["message"],
+            "datasource_id": doc["datasource_id"],
+            "channel": doc.get("channel", "console"),
+            "session_id": doc.get("session_id"),
+            "schedule": ScheduleSpec.model_validate(doc["schedule"]).model_dump(
+                mode="json"
+            ),
+            "created_at": _dt_from_json(doc["created_at"]),
+            "updated_at": _dt_from_json(doc["updated_at"]),
+        }
+
+    @staticmethod
+    def _read(path: Path) -> dict[str, Any] | None:
+        with file_lock(path):
+            if not path.exists():
+                return None
+            return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _write(path: Path, doc: dict[str, Any]) -> None:
+        with file_lock(path):
+            write_atomic(path, doc)
+
+    def _scan(self) -> list[dict[str, Any]]:
+        if not self._cron_root.exists():
+            return []
+        docs = []
+        for path in self._cron_root.glob("*.json"):
+            doc = self._read(path)
+            if doc is not None:
+                docs.append(doc)
+        return docs
+
+    async def _get_doc(self, user_id: str, job_id: str) -> dict[str, Any]:
+        doc = await asyncio.to_thread(self._read, self._job_path(job_id))
+        if doc is None or doc["user_id"] != user_id:
+            raise LookupError("cron job not found")
+        return doc
+
+    async def list(self, user_id: str) -> list[dict[str, Any]]:
+        docs = await asyncio.to_thread(self._scan)
+        docs = [d for d in docs if d["user_id"] == user_id]
+        docs.sort(key=lambda d: d["created_at"], reverse=True)
+        return [self._to_dict(d) for d in docs]
+
+    async def get(self, user_id: str, job_id: str) -> dict[str, Any]:
+        return self._to_dict(await self._get_doc(user_id, job_id))
+
+    async def create(self, user_id: str, body: CronJobWrite) -> dict[str, Any]:
+        from qwenpaw_data.host.core.utils.ids import create_id
+
+        now = utcnow()
+        doc = {
+            "id": create_id("cron"),
+            "user_id": user_id,
+            "name": body.name,
+            "enabled": body.enabled,
+            "message": body.message,
+            "datasource_id": body.datasource_id,
+            "channel": "console",
+            "session_id": body.session_id,
+            "schedule": body.schedule.model_dump(mode="json"),
+            "created_at": _dt_to_json(now),
+            "updated_at": _dt_to_json(now),
+        }
+        await asyncio.to_thread(self._write, self._job_path(doc["id"]), doc)
+        return self._to_dict(doc)
+
+    async def replace(
+        self, user_id: str, job_id: str, body: CronJobWrite
+    ) -> dict[str, Any]:
+        doc = await self._get_doc(user_id, job_id)
+        doc.update(
+            name=body.name,
+            enabled=body.enabled,
+            message=body.message,
+            datasource_id=body.datasource_id,
+            session_id=body.session_id,
+            schedule=body.schedule.model_dump(mode="json"),
+            updated_at=_dt_to_json(utcnow()),
+        )
+        await asyncio.to_thread(self._write, self._job_path(job_id), doc)
+        return self._to_dict(doc)
+
+    async def set_enabled(
+        self, user_id: str, job_id: str, enabled: bool
+    ) -> dict[str, Any]:
+        doc = await self._get_doc(user_id, job_id)
+        doc["enabled"] = enabled
+        doc["updated_at"] = _dt_to_json(utcnow())
+        await asyncio.to_thread(self._write, self._job_path(job_id), doc)
+        return self._to_dict(doc)
+
+    async def delete(self, user_id: str, job_id: str) -> None:
+        await self._get_doc(user_id, job_id)
+        await asyncio.to_thread(self._job_path(job_id).unlink)
+
+    async def get_by_id(self, job_id: str) -> dict[str, Any]:
+        doc = await asyncio.to_thread(self._read, self._job_path(job_id))
+        if doc is None:
+            raise LookupError("cron job not found")
+        return self._to_dict(doc)
+
+    async def list_all(self) -> list[dict[str, Any]]:
+        docs = await asyncio.to_thread(self._scan)
+        docs.sort(key=lambda d: d["created_at"])
+        return [self._to_dict(d) for d in docs]

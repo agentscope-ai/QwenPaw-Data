@@ -24,11 +24,13 @@ from qwenpaw_data.host.core.api.deps import ServiceState
 from qwenpaw_data.host.core.api.errors import http_exception_handler
 from qwenpaw_data.host.core.api.routers import chats as chats_router
 from qwenpaw_data.host.core.api.routers import clarification as clarification_router
+from qwenpaw_data.host.core.api.routers import cron as cron_router
 from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
 from qwenpaw_data.host.core.api.routers import preferences as preferences_router
 from qwenpaw_data.host.core.api.routers import sessions as sessions_router
 from qwenpaw_data.host.core.api.routers import steer as steer_router
+from qwenpaw_data.host.core.cron import CronManager
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.model import build_model_from_env
 from qwenpaw_data.host.core.paths import resolve_qwenpaw_data_home
@@ -38,6 +40,7 @@ from qwenpaw_data.host.core.runtime.registry import reset_runtime_registry
 from qwenpaw_data.host.core.store.json_store import (
     JSONChatEventStore,
     JSONChatStore,
+    JSONCronStore,
     JSONPreferencesStore,
     JSONSessionStore,
 )
@@ -93,6 +96,7 @@ def create_app(
             chats_store: Any = JSONChatStore(store_root)
             events_store: Any = JSONChatEventStore(store_root)
             prefs_store: Any = JSONPreferencesStore(store_root)
+            cron_store: Any = JSONCronStore(store_root)
         else:
             from qwenpaw_data.host.core.db.engine import (
                 create_engine_and_factory,
@@ -102,6 +106,7 @@ def create_app(
             from qwenpaw_data.host.core.store.sql_store import (
                 SQLChatEventStore,
                 SQLChatStore,
+                SQLCronStore,
                 SQLPreferencesStore,
                 SQLSessionStore,
             )
@@ -114,6 +119,7 @@ def create_app(
             chats_store = SQLChatStore(factory)
             events_store = SQLChatEventStore(factory)
             prefs_store = SQLPreferencesStore(factory)
+            cron_store = SQLCronStore(factory)
 
         async def resolve_model() -> Any:
             """Prefer the local user's configured default model over env."""
@@ -133,6 +139,7 @@ def create_app(
             chats=chats_store,
             events=events_store,
             prefs=prefs_store,
+            cron=cron_store,
             hosts=QwenPawDataHostRegistry(
                 home=resolved_home,
                 model=model,
@@ -144,9 +151,18 @@ def create_app(
         )
         app.state.service = state
         await _cancel_orphaned_chats(state)
+        state.cron_manager = CronManager(
+            cron=state.cron,
+            sessions=state.sessions,
+            chats=state.chats,
+            events=state.events,
+            hosts=state.hosts,
+        )
+        await state.cron_manager.start()
         try:
             yield
         finally:
+            await state.cron_manager.shutdown()
             for task in list(state.tasks):
                 task.cancel()
             for host in list(state.hosts._items.values()):
@@ -171,6 +187,7 @@ def create_app(
     app.include_router(clarification_router.router, prefix="/api/v1")
     app.include_router(preferences_router.router, prefix="/api/v1")
     app.include_router(datasources_router.router, prefix="/api/v1")
+    app.include_router(cron_router.router, prefix="/api/v1")
 
     @app.get("/health")
     async def health() -> dict[str, str]:

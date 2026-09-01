@@ -21,9 +21,11 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
     dump_stream_object,
     parse_stream_object,
 )
+from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
 from qwenpaw_data.host.core.db.tables import (
     ChatEventRow,
     ChatRow,
+    CronJobRow,
     SessionRow,
     UserActiveModelRow,
     UserProviderModelRow,
@@ -41,6 +43,7 @@ from qwenpaw_data.host.core.store._prefs_logic import (
     clean_model_upsert,
     merge_provider_patch,
 )
+from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.secrets import decrypt_api_key
 from qwenpaw_data.host.core.utils.time import utcnow
 
@@ -610,3 +613,115 @@ class SQLChatEventStore:
             if chat is None:
                 return -1
             return chat.last_sequence_number
+
+
+def _cron_to_dict(row: CronJobRow) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "name": row.name,
+        "enabled": row.enabled,
+        "message": row.message,
+        "datasource_id": row.datasource_id,
+        "channel": row.channel,
+        "session_id": row.session_id,
+        "schedule": ScheduleSpec.model_validate(row.schedule_json).model_dump(
+            mode="json"
+        ),
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+class SQLCronStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    @staticmethod
+    async def _get_row(db: AsyncSession, user_id: str, job_id: str) -> CronJobRow:
+        row = await db.get(CronJobRow, job_id)
+        if row is None or row.user_id != user_id:
+            raise LookupError("cron job not found")
+        return row
+
+    async def list(self, user_id: str) -> list[dict[str, Any]]:
+        async with self._sessions() as db:
+            rows = (
+                await db.scalars(
+                    select(CronJobRow)
+                    .where(CronJobRow.user_id == user_id)
+                    .order_by(CronJobRow.created_at.desc())
+                )
+            ).all()
+            return [_cron_to_dict(r) for r in rows]
+
+    async def get(self, user_id: str, job_id: str) -> dict[str, Any]:
+        async with self._sessions() as db:
+            return _cron_to_dict(await self._get_row(db, user_id, job_id))
+
+    async def create(self, user_id: str, body: CronJobWrite) -> dict[str, Any]:
+        now = utcnow()
+        async with self._sessions() as db:
+            row = CronJobRow(
+                id=create_id("cron"),
+                user_id=user_id,
+                name=body.name,
+                enabled=body.enabled,
+                message=body.message,
+                datasource_id=body.datasource_id,
+                channel="console",
+                session_id=body.session_id,
+                schedule_json=body.schedule.model_dump(mode="json"),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+            await db.commit()
+            return _cron_to_dict(row)
+
+    async def replace(
+        self, user_id: str, job_id: str, body: CronJobWrite
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await self._get_row(db, user_id, job_id)
+            row.name = body.name
+            row.enabled = body.enabled
+            row.message = body.message
+            row.datasource_id = body.datasource_id
+            row.session_id = body.session_id
+            row.schedule_json = body.schedule.model_dump(mode="json")
+            row.updated_at = utcnow()
+            await db.commit()
+            return _cron_to_dict(row)
+
+    async def set_enabled(
+        self, user_id: str, job_id: str, enabled: bool
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await self._get_row(db, user_id, job_id)
+            row.enabled = enabled
+            row.updated_at = utcnow()
+            await db.commit()
+            return _cron_to_dict(row)
+
+    async def delete(self, user_id: str, job_id: str) -> None:
+        async with self._sessions() as db:
+            row = await self._get_row(db, user_id, job_id)
+            await db.delete(row)
+            await db.commit()
+
+    async def get_by_id(self, job_id: str) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await db.get(CronJobRow, job_id)
+            if row is None:
+                raise LookupError("cron job not found")
+            return _cron_to_dict(row)
+
+    async def list_all(self) -> list[dict[str, Any]]:
+        async with self._sessions() as db:
+            rows = (
+                await db.scalars(
+                    select(CronJobRow).order_by(CronJobRow.created_at.asc())
+                )
+            ).all()
+            return [_cron_to_dict(r) for r in rows]

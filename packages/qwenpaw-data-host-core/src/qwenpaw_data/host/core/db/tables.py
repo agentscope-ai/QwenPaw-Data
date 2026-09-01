@@ -91,6 +91,25 @@ class ChatEventRow(UserIdColumn, Base):
     )
 
 
+class CronJobRow(UserIdColumn, Base):
+    __tablename__ = "cron_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    datasource_id: Mapped[str] = mapped_column(String, nullable=False)
+    channel: Mapped[str] = mapped_column(String, nullable=False, default="console")
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    schedule_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class UserProviderRow(Base):
     __tablename__ = "user_providers"
 

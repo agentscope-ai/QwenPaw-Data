@@ -10,10 +10,47 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from qwenpaw_data.host.core.api.models.cron import CronJobWrite
 from qwenpaw_data.host.core.api.models.stream_objects import StreamObject
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.preference import UserPreferences
 from qwenpaw_data.host.core.domain.session import Session
+
+
+class CronStore(Protocol):
+    async def list(self, user_id: str) -> list[dict[str, Any]]: ...
+
+    async def get(self, user_id: str, job_id: str) -> dict[str, Any]: ...
+
+    async def create(
+        self,
+        user_id: str,
+        body: CronJobWrite,
+    ) -> dict[str, Any]: ...
+
+    async def replace(
+        self,
+        user_id: str,
+        job_id: str,
+        body: CronJobWrite,
+    ) -> dict[str, Any]: ...
+
+    async def set_enabled(
+        self,
+        user_id: str,
+        job_id: str,
+        enabled: bool,
+    ) -> dict[str, Any]: ...
+
+    async def delete(self, user_id: str, job_id: str) -> None: ...
+
+    async def get_by_id(self, job_id: str) -> dict[str, Any]:
+        """Load by id without identity filter (scheduler fire path)."""
+        ...
+
+    async def list_all(self) -> list[dict[str, Any]]:
+        """Load all jobs (scheduler startup)."""
+        ...
 
 
 class PreferencesStore(Protocol):
