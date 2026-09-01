@@ -48,6 +48,7 @@ class Envelope:
         self.stream = stream
         self._msg_seq = 0
         self._usage: dict[str, Any] | None = None
+        self._terminal = False
 
         # Open text blocks: block_id -> {msg_id, seq, text}
         self._text_blocks: dict[str, dict[str, Any]] = {}
@@ -71,6 +72,7 @@ class Envelope:
 
     async def complete(self) -> None:
         await self._finalize_open_messages()
+        self._terminal = True
         if self._usage is not None:
             await self.stream.response("completed", usage=self._usage)
         else:
@@ -78,10 +80,12 @@ class Envelope:
 
     async def fail(self, *, error: dict[str, Any]) -> None:
         await self._finalize_open_messages()
+        self._terminal = True
         await self.stream.response_failed(error=error)
 
     async def cancel(self) -> None:
         await self._finalize_open_messages()
+        self._terminal = True
         await self.stream.response_cancelled()
 
     # ---- algorithm-side send surface ----
@@ -89,7 +93,10 @@ class Envelope:
     async def send_biz_event(self, biz_event: dict[str, Any]) -> None:
         """Persist and broadcast one biz_event; re-sends overwrite by event_id."""
         # Algorithm workers run concurrently with the chat main flow:
-        # failures are logged, never raised back into the worker.
+        # failures are logged, never raised back into the worker. A flush
+        # that outlives the turn must not land behind the terminal frame.
+        if self._terminal:
+            return
         try:
             await self.stream.biz_event(**biz_event)
         except Exception:
@@ -100,6 +107,8 @@ class Envelope:
 
     async def send_segment(self, segment: dict[str, Any]) -> None:
         """Persist and broadcast one segment; each segment is sent once."""
+        if self._terminal:
+            return
         try:
             await self.stream.segment(**segment)
         except Exception:

@@ -4,11 +4,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import shlex
 import tempfile
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any
@@ -534,3 +536,36 @@ def QwenPawDataDockerWorkspace(**kwargs: Any) -> Any:  # noqa: N802
     """工厂函数形态的入口，保持调用侧类似构造器的用法。"""
     cls = _make_qwenpaw_data_docker_workspace_cls()
     return cls(**kwargs)
+
+
+_SKIPPED_DIRS = {"skills", "__pycache__"}
+
+
+def list_session_files(workspace_dir: str | Path) -> list[dict[str, Any]]:
+    """List workspace files for segment artifacts (rel_path relative to root)."""
+    root = Path(workspace_dir)
+    if not root.is_dir():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        parts = rel.parts
+        if any(p.startswith(".") for p in parts):
+            continue
+        if parts[0] in _SKIPPED_DIRS:
+            continue
+        stat = path.stat()
+        items.append(
+            {
+                "rel_path": rel.as_posix(),
+                "size_bytes": stat.st_size,
+                "mime_type": mimetypes.guess_type(path.name)[0]
+                or "application/octet-stream",
+                "modified_at": datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).isoformat(),
+            }
+        )
+    return items
