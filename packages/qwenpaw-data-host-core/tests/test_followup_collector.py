@@ -97,17 +97,17 @@ async def test_a_graph_key_is_stripped_to_the_surface_name() -> None:
     entries = [
         *_tool_call(
             "get_metric",
-            {"name": "met:postgresql-70569beb:QwenChat:DAU"},
+            {"name": "met:postgresql-70569beb:ShopDemo:DAU"},
             call_id="c1",
         ),
         *_tool_call(
             "get_dimension",
-            {"name": "dim:postgresql-70569beb:QwenChat:渠道类型"},
+            {"name": "dim:postgresql-70569beb:ShopDemo:渠道类型"},
             call_id="c2",
         ),
         *_tool_call(
             "get_dataset",
-            {"name": "ds:postgresql-70569beb:QwenChat:dau_daily"},
+            {"name": "ds:postgresql-70569beb:ShopDemo:dau_daily"},
             call_id="c3",
         ),
     ]
@@ -130,7 +130,7 @@ async def test_a_graph_key_merges_with_the_surface_name_from_context() -> None:
     context = json.dumps(
         {
             "schema_prompt": (
-                "指标: met:postgresql-70569beb:QwenChat:DAU\n"
+                "指标: met:postgresql-70569beb:ShopDemo:DAU\n"
                 "  可下钻维度: 渠道类型, 页面"
             )
         },
@@ -141,7 +141,7 @@ async def test_a_graph_key_merges_with_the_surface_name_from_context() -> None:
         *_tool_result(context, call_id="c1"),
         *_tool_call(
             "get_metric",
-            {"name": "met:postgresql-70569beb:QwenChat:DAU"},
+            {"name": "met:postgresql-70569beb:ShopDemo:DAU"},
             call_id="c2",
         ),
     ]
@@ -274,7 +274,7 @@ async def test_a_lookup_names_entities_and_only_analysis_marks_them() -> None:
     context = json.dumps(
         {
             "schema_prompt": (
-                "指标: met:holo_test:Bailian:GAAP用户数\n  可下钻维度: 渠道类型, 页面"
+                "指标: met:holo_test:DemoBiz:GAAP用户数\n  可下钻维度: 渠道类型, 页面"
             )
         },
         ensure_ascii=False,
@@ -299,8 +299,8 @@ async def test_a_dimension_is_bound_to_the_metric_it_was_listed_under() -> None:
     context = json.dumps(
         {
             "schema_prompt": (
-                "指标: met:holo_test:Bailian:人均GAAP\n  可下钻维度: 渠道类型\n"
-                "指标: met:holo_test:Bailian:漏斗有效付费用户数\n  可下钻维度: 落地页\n"
+                "指标: met:holo_test:DemoBiz:人均GAAP\n  可下钻维度: 渠道类型\n"
+                "指标: met:holo_test:DemoBiz:漏斗有效付费用户数\n  可下钻维度: 落地页\n"
             )
         },
         ensure_ascii=False,
@@ -322,7 +322,7 @@ def _listed_dimension(name: str, alias: str) -> list[dict[str, Any]]:
         [{"dimension_name": name, "aliases": [alias]}], ensure_ascii=False
     )
     return [
-        *_tool_call("list_dimensions", {"domain": "Bailian"}, call_id="dims"),
+        *_tool_call("list_dimensions", {"domain": "DemoBiz"}, call_id="dims"),
         *_tool_result(body, call_id="dims"),
     ]
 
@@ -401,7 +401,7 @@ async def test_a_dimension_from_a_domain_listing_is_pruned_but_still_real() -> N
     )
     entries = [
         *_tool_call("get_metric", {"name": "人均GAAP"}, call_id="c1"),
-        *_tool_call("list_dimensions", {"domain": "Bailian"}, call_id="c2"),
+        *_tool_call("list_dimensions", {"domain": "DemoBiz"}, call_id="c2"),
         *_tool_result(body, call_id="c2"),
     ]
 
@@ -416,7 +416,7 @@ async def test_the_pruning_budget_is_configurable() -> None:
     context = json.dumps(
         {
             "schema_prompt": (
-                "指标: met:holo_test:Bailian:人均GAAP\n"
+                "指标: met:holo_test:DemoBiz:人均GAAP\n"
                 "  可下钻维度: 渠道类型, 落地页, 地域, 产品"
             )
         },
@@ -540,7 +540,7 @@ async def test_get_priority_metrics_lists_are_domain_dumps() -> None:
         ensure_ascii=False,
     )
     entries = [
-        *_tool_call("get_priority_metrics", {"domain": "QwenChat"}, call_id="c1"),
+        *_tool_call("get_priority_metrics", {"domain": "ShopDemo"}, call_id="c1"),
         *_tool_result(body, call_id="c1"),
     ]
 
@@ -554,7 +554,7 @@ async def test_get_priority_metrics_lists_are_domain_dumps() -> None:
 async def test_get_north_star_metrics_is_the_same_listing() -> None:
     body = json.dumps([{"metric_name": "DAU"}], ensure_ascii=False)
     entries = [
-        *_tool_call("get_north_star_metrics", {"domain": "QwenChat"}, call_id="c1"),
+        *_tool_call("get_north_star_metrics", {"domain": "ShopDemo"}, call_id="c1"),
         *_tool_result(body, call_id="c1"),
     ]
 
@@ -566,7 +566,7 @@ async def test_get_north_star_metrics_is_the_same_listing() -> None:
 async def test_search_context_records_intent_feedback_and_golden_query() -> None:
     context = json.dumps(
         {
-            "schema_prompt": "指标: met:holo_test:Bailian:DAU\n  可下钻维度: 渠道",
+            "schema_prompt": "指标: met:holo_test:DemoBiz:DAU\n  可下钻维度: 渠道",
             "intent_feedback": {
                 "coverage": "insufficient",
                 "gaps": ["无指标命中", "时间不可解析"],
