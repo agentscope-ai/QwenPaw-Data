@@ -34,6 +34,8 @@ class FakeCMClient:
 @asynccontextmanager
 async def service_client(tmp_path: Path, monkeypatch, fake: FakeCMClient):
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     app = create_app(home=tmp_path, model=object())
     app.dependency_overrides[get_context_manager_client] = lambda: fake
     async with app.router.lifespan_context(app):

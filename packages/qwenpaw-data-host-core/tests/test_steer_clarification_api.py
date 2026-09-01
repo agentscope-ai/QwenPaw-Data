@@ -41,6 +41,8 @@ class FakeRuntime:
 @asynccontextmanager
 async def service_client(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     app = create_app(home=tmp_path, model=object())
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))

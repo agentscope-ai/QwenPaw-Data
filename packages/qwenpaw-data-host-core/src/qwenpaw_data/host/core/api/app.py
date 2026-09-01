@@ -47,6 +47,7 @@ from qwenpaw_data.host.core.stream.output_stream import OutputStream
 logger = logging.getLogger(__name__)
 
 _CORS_ORIGINS_ENV = "QWENPAW_DATA_CORS_ALLOW_ORIGINS"
+STORE_ENV = "QWENPAW_DATA_STORE"
 
 
 def _cors_origins() -> list[str]:
@@ -84,7 +85,35 @@ def create_app(
     async def lifespan(app: FastAPI):
         reset_hub()
         reset_runtime_registry()
-        prefs_store = JSONPreferencesStore(store_root)
+
+        engine = None
+        store_mode = (os.environ.get(STORE_ENV) or "").strip().lower()
+        if store_mode == "json":
+            sessions_store: Any = JSONSessionStore(store_root)
+            chats_store: Any = JSONChatStore(store_root)
+            events_store: Any = JSONChatEventStore(store_root)
+            prefs_store: Any = JSONPreferencesStore(store_root)
+        else:
+            from qwenpaw_data.host.core.db.engine import (
+                create_engine_and_factory,
+                init_db,
+                resolve_db_url,
+            )
+            from qwenpaw_data.host.core.store.sql_store import (
+                SQLChatEventStore,
+                SQLChatStore,
+                SQLPreferencesStore,
+                SQLSessionStore,
+            )
+
+            engine, factory = create_engine_and_factory(
+                resolve_db_url(resolved_home),
+            )
+            await init_db(engine)
+            sessions_store = SQLSessionStore(factory)
+            chats_store = SQLChatStore(factory)
+            events_store = SQLChatEventStore(factory)
+            prefs_store = SQLPreferencesStore(factory)
 
         async def resolve_model() -> Any:
             """Prefer the local user's configured default model over env."""
@@ -100,9 +129,9 @@ def create_app(
             return build_model_from_env()
 
         state = ServiceState(
-            sessions=JSONSessionStore(store_root),
-            chats=JSONChatStore(store_root),
-            events=JSONChatEventStore(store_root),
+            sessions=sessions_store,
+            chats=chats_store,
+            events=events_store,
             prefs=prefs_store,
             hosts=QwenPawDataHostRegistry(
                 home=resolved_home,
@@ -127,6 +156,8 @@ def create_app(
                     logger.exception("failed to close host workspace")
             reset_hub()
             reset_runtime_registry()
+            if engine is not None:
+                await engine.dispose()
 
     app = FastAPI(
         title="QwenPaw Data Host Service",
