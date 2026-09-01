@@ -21,8 +21,152 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
 )
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.session._locking import file_lock, write_atomic
 from qwenpaw_data.host.core.utils.time import utcnow
+
+
+def _session_to_dict(session: Session) -> dict[str, Any]:
+    return {
+        "id": session.id,
+        "identity": {
+            "user_id": session.identity.user_id,
+            "attrs": dict(session.identity.attrs),
+        },
+        "agent_id": session.agent_id,
+        "title": session.title,
+        "datasource_id": session.datasource_id,
+        "chat_count": session.chat_count,
+        "channel": session.channel,
+        "created_at": _dt_to_json(session.created_at),
+        "updated_at": _dt_to_json(session.updated_at),
+        "deleted_at": _dt_to_json(session.deleted_at),
+        "parent_session_id": session.parent_session_id,
+        "forked_from_chat_id": session.forked_from_chat_id,
+    }
+
+
+def _session_from_dict(data: dict[str, Any]) -> Session:
+    identity = data["identity"]
+    return Session(
+        id=data["id"],
+        identity=Identity(
+            user_id=identity["user_id"],
+            attrs=identity.get("attrs") or {},
+        ),
+        agent_id=data.get("agent_id", "default"),
+        title=data.get("title", ""),
+        datasource_id=data.get("datasource_id"),
+        chat_count=data.get("chat_count", 0),
+        channel=data.get("channel", "console"),
+        created_at=_dt_from_json(data["created_at"]),
+        updated_at=_dt_from_json(data["updated_at"]),
+        deleted_at=_dt_from_json(data.get("deleted_at")),
+        parent_session_id=data.get("parent_session_id"),
+        forked_from_chat_id=data.get("forked_from_chat_id"),
+    )
+
+
+class JSONSessionStore:
+    def __init__(self, root: Path) -> None:
+        self._sessions_root = Path(root).expanduser().resolve() / "sessions"
+        self._chats = JSONChatStore(root)
+
+    def _session_path(self, session_id: str) -> Path:
+        return self._sessions_root / f"{session_id}.json"
+
+    async def add(self, session: Session) -> None:
+        path = self._session_path(session.id)
+        if await asyncio.to_thread(path.exists):
+            raise RuntimeError(f"CONFLICT: session already exists: {session.id}")
+        await asyncio.to_thread(self._write_locked, path, session)
+
+    async def get(self, session_id: str) -> Session:
+        session = await asyncio.to_thread(
+            self._read_locked, self._session_path(session_id)
+        )
+        if session is None or session.deleted_at is not None:
+            raise LookupError(f"session not found: {session_id}")
+        return session
+
+    async def save(self, session: Session) -> None:
+        path = self._session_path(session.id)
+        if not await asyncio.to_thread(path.exists):
+            raise LookupError(f"session not found: {session.id}")
+        await asyncio.to_thread(self._write_locked, path, session)
+
+    async def has_active_chat(self, session_id: str) -> bool:
+        return await self._chats.get_active_for_session(session_id) is not None
+
+    async def list(
+        self,
+        *,
+        search_text: str | None = None,
+        status: str | None = None,
+        datasource_id: str | None = None,
+        channel: str | None = None,
+        sort: str = "updated_desc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[tuple[Session, bool]], int]:
+        if page < 1 or page_size < 1:
+            raise ValueError("page/page_size invalid")
+        sessions = await asyncio.to_thread(self._scan_sessions)
+        selected: list[tuple[Session, bool]] = []
+        for session in sessions:
+            if session.deleted_at is not None:
+                continue
+            if search_text and search_text not in session.title:
+                continue
+            if datasource_id and session.datasource_id != datasource_id:
+                continue
+            if channel and session.channel != channel:
+                continue
+            active = await self.has_active_chat(session.id)
+            if status == "running" and not active:
+                continue
+            if status == "idle" and active:
+                continue
+            selected.append((session, active))
+        if sort == "chat_count_desc":
+            selected.sort(key=lambda p: (p[0].chat_count, p[0].updated_at), reverse=True)
+        elif sort == "updated_asc":
+            selected.sort(key=lambda p: p[0].updated_at)
+        else:
+            selected.sort(key=lambda p: p[0].updated_at, reverse=True)
+        total = len(selected)
+        start = (page - 1) * page_size
+        return selected[start : start + page_size], total
+
+    async def delete(self, session_id: str) -> None:
+        path = self._session_path(session_id)
+        session = await asyncio.to_thread(self._read_locked, path)
+        if session is None or session.deleted_at is not None:
+            return
+        session.soft_delete(has_active_chat=await self.has_active_chat(session_id))
+        await asyncio.to_thread(self._write_locked, path, session)
+
+    def _scan_sessions(self) -> list[Session]:
+        if not self._sessions_root.exists():
+            return []
+        sessions: list[Session] = []
+        for path in self._sessions_root.glob("*.json"):
+            session = self._read_locked(path)
+            if session is not None:
+                sessions.append(session)
+        return sessions
+
+    @staticmethod
+    def _read_locked(path: Path) -> Session | None:
+        with file_lock(path):
+            if not path.exists():
+                return None
+            return _session_from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    @staticmethod
+    def _write_locked(path: Path, session: Session) -> None:
+        with file_lock(path):
+            write_atomic(path, _session_to_dict(session))
 
 
 def _dt_to_json(value: datetime | None) -> str | None:

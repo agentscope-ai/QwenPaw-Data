@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from qwenpaw_data.host.core.api.models.stream_objects import (
@@ -21,10 +21,155 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
     dump_stream_object,
     parse_stream_object,
 )
-from qwenpaw_data.host.core.db.tables import ChatEventRow, ChatRow
+from qwenpaw_data.host.core.db.tables import ChatEventRow, ChatRow, SessionRow
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.utils.time import utcnow
+
+
+def _session_from_row(row: SessionRow) -> Session:
+    return Session(
+        id=row.id,
+        identity=Identity(user_id=row.user_id),
+        agent_id=row.agent_id,
+        title=row.title,
+        datasource_id=row.datasource_id,
+        chat_count=row.chat_count,
+        channel=row.channel,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        deleted_at=row.deleted_at,
+        parent_session_id=row.parent_session_id,
+        forked_from_chat_id=row.forked_from_chat_id,
+    )
+
+
+def _apply_session(row: SessionRow, session: Session) -> None:
+    row.title = session.title
+    row.datasource_id = session.datasource_id
+    row.chat_count = session.chat_count
+    row.channel = session.channel
+    row.updated_at = session.updated_at
+    row.deleted_at = session.deleted_at
+
+
+class SQLSessionStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    async def add(self, session: Session) -> None:
+        async with self._sessions() as db:
+            existing = await db.get(SessionRow, session.id)
+            if existing is not None:
+                raise RuntimeError(
+                    f"CONFLICT: session already exists: {session.id}"
+                )
+            db.add(
+                SessionRow(
+                    id=session.id,
+                    user_id=session.identity.user_id,
+                    agent_id=session.agent_id,
+                    title=session.title,
+                    datasource_id=session.datasource_id,
+                    channel=session.channel,
+                    chat_count=session.chat_count,
+                    parent_session_id=session.parent_session_id,
+                    forked_from_chat_id=session.forked_from_chat_id,
+                    created_at=session.created_at,
+                    updated_at=session.updated_at,
+                    deleted_at=session.deleted_at,
+                )
+            )
+            await db.commit()
+
+    async def get(self, session_id: str) -> Session:
+        async with self._sessions() as db:
+            row = await db.get(SessionRow, session_id)
+            if row is None or row.deleted_at is not None:
+                raise LookupError(f"session not found: {session_id}")
+            return _session_from_row(row)
+
+    async def save(self, session: Session) -> None:
+        async with self._sessions() as db:
+            row = await db.get(SessionRow, session.id)
+            if row is None:
+                raise LookupError(f"session not found: {session.id}")
+            _apply_session(row, session)
+            await db.commit()
+
+    async def has_active_chat(self, session_id: str) -> bool:
+        async with self._sessions() as db:
+            n = await db.scalar(
+                select(func.count())
+                .select_from(ChatRow)
+                .where(
+                    ChatRow.session_id == session_id,
+                    ChatRow.status.in_(ACTIVE),
+                )
+            )
+            return bool(n)
+
+    async def list(
+        self,
+        *,
+        search_text: str | None = None,
+        status: str | None = None,
+        datasource_id: str | None = None,
+        channel: str | None = None,
+        sort: str = "updated_desc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[tuple[Session, bool]], int]:
+        if page < 1 or page_size < 1:
+            raise ValueError("page/page_size invalid")
+        async with self._sessions() as db:
+            has_active = exists().where(
+                ChatRow.session_id == SessionRow.id,
+                ChatRow.status.in_(ACTIVE),
+            )
+            q = select(SessionRow, has_active).where(
+                SessionRow.deleted_at.is_(None),
+            )
+            if search_text:
+                q = q.where(SessionRow.title.contains(search_text))
+            if datasource_id:
+                q = q.where(SessionRow.datasource_id == datasource_id)
+            if channel:
+                q = q.where(SessionRow.channel == channel)
+            if status == "running":
+                q = q.where(has_active)
+            elif status == "idle":
+                q = q.where(~has_active)
+            if sort == "chat_count_desc":
+                q = q.order_by(
+                    SessionRow.chat_count.desc(), SessionRow.updated_at.desc()
+                )
+            elif sort == "updated_asc":
+                q = q.order_by(SessionRow.updated_at.asc())
+            else:
+                q = q.order_by(SessionRow.updated_at.desc())
+            total = await db.scalar(
+                select(func.count()).select_from(q.order_by(None).subquery())
+            )
+            rows = (
+                await db.execute(q.offset((page - 1) * page_size).limit(page_size))
+            ).all()
+            return (
+                [(_session_from_row(row), bool(active)) for row, active in rows],
+                int(total or 0),
+            )
+
+    async def delete(self, session_id: str) -> None:
+        active = await self.has_active_chat(session_id)
+        async with self._sessions() as db:
+            row = await db.get(SessionRow, session_id)
+            if row is None or row.deleted_at is not None:
+                return
+            session = _session_from_row(row)
+            session.soft_delete(has_active_chat=active)
+            _apply_session(row, session)
+            await db.commit()
 
 
 def _chat_from_row(row: ChatRow) -> Chat:

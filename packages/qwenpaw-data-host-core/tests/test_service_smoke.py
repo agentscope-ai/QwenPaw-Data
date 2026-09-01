@@ -132,6 +132,13 @@ async def _wait_terminal(tmp_path: Path, chat_id: str) -> dict[str, Any]:
     raise AssertionError("chat never reached a terminal status")
 
 
+async def _new_session(http: httpx.AsyncClient) -> str:
+    response = await http.post("/api/v1/sessions", json={"title": "smoke"})
+    assert response.status_code == 200
+    return response.json()["session"]["id"]
+
+
+
 async def test_full_turn_streams_expected_event_sequence(
     tmp_path, monkeypatch
 ) -> None:
@@ -139,8 +146,9 @@ async def test_full_turn_streams_expected_event_sequence(
         http,
         _app,
     ):
+        session_id = await _new_session(http)
         created = await http.post(
-            "/api/v1/sessions/s1/chats",
+            f"/api/v1/sessions/{session_id}/chats",
             json={"text": "run the numbers", "datasource_id": "ds1"},
         )
         assert created.status_code == 200
@@ -151,13 +159,13 @@ async def test_full_turn_streams_expected_event_sequence(
 
         # A second turn while one is active conflicts.
         conflict = await http.post(
-            "/api/v1/sessions/s1/chats",
+            f"/api/v1/sessions/{session_id}/chats",
             json={"text": "another"},
         )
         assert conflict.status_code == 409
 
         ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/s1/chats/{chat_id}/events"
+            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
         )
         assert ids == list(range(len(ids)))  # dense monotonic SSE ids
 
@@ -212,21 +220,22 @@ async def test_resume_with_last_event_id_replays_tail_only(
         http,
         _app,
     ):
+        session_id = await _new_session(http)
         created = await http.post(
-            "/api/v1/sessions/s1/chats", json={"text": "hi"}
+            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
         )
         chat_id = created.json()["chat"]["id"]
         await _wait_terminal(tmp_path, chat_id)
 
         full_ids, _ = await _collect_sse(
-            http, f"/api/v1/sessions/s1/chats/{chat_id}/events"
+            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
         )
         assert full_ids, "expected a replayed event history"
 
         resume_from = full_ids[len(full_ids) // 2]
         tail_ids, _ = await _collect_sse(
             http,
-            f"/api/v1/sessions/s1/chats/{chat_id}/events",
+            f"/api/v1/sessions/{session_id}/chats/{chat_id}/events",
             headers={"Last-Event-ID": str(resume_from)},
         )
         assert tail_ids == full_ids[full_ids.index(resume_from) + 1 :]
@@ -245,8 +254,9 @@ async def test_live_subscription_receives_events_as_they_happen(
     gate = asyncio.Event()
     agent = ScriptedAgent(_script(), gate=gate)
     async with service_client(tmp_path, agent, monkeypatch) as (http, _app):
+        session_id = await _new_session(http)
         created = await http.post(
-            "/api/v1/sessions/s1/chats", json={"text": "hi"}
+            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
         )
         chat_id = created.json()["chat"]["id"]
 
@@ -256,7 +266,7 @@ async def test_live_subscription_receives_events_as_they_happen(
 
         opener = asyncio.create_task(_open_gate())
         ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/s1/chats/{chat_id}/events"
+            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
         )
         await opener
 
@@ -269,8 +279,9 @@ async def test_failing_agent_yields_response_failed(tmp_path, monkeypatch) -> No
     async with service_client(
         tmp_path, ScriptedAgent(boom=True), monkeypatch
     ) as (http, _app):
+        session_id = await _new_session(http)
         created = await http.post(
-            "/api/v1/sessions/s1/chats", json={"text": "hi"}
+            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
         )
         chat_id = created.json()["chat"]["id"]
 
@@ -279,7 +290,7 @@ async def test_failing_agent_yields_response_failed(tmp_path, monkeypatch) -> No
         assert final_chat["error"]["message"] == "model exploded"
 
         _ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/s1/chats/{chat_id}/events"
+            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
         )
         assert payloads[-1]["object"] == "response"
         assert payloads[-1]["status"] == "failed"
@@ -292,8 +303,9 @@ async def test_orphaned_running_chats_are_cancelled_on_startup(
     gate = asyncio.Event()  # never opened: chat stays running at shutdown
     agent = ScriptedAgent(_script(), gate=gate)
     async with service_client(tmp_path, agent, monkeypatch) as (http, _app):
+        session_id = await _new_session(http)
         created = await http.post(
-            "/api/v1/sessions/s1/chats", json={"text": "hi"}
+            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
         )
         chat_id = created.json()["chat"]["id"]
         assert created.json()["chat"]["status"] == "running"
@@ -302,10 +314,10 @@ async def test_orphaned_running_chats_are_cancelled_on_startup(
     async with service_client(
         tmp_path, ScriptedAgent(_script()), monkeypatch
     ) as (http, _app):
-        stopped = await http.post(f"/api/v1/sessions/s1/chats/{chat_id}/stop")
+        stopped = await http.post(f"/api/v1/sessions/{session_id}/chats/{chat_id}/stop")
         assert stopped.json()["chat"]["status"] == "canceled"
         _ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/s1/chats/{chat_id}/events"
+            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
         )
         assert payloads[-1]["object"] == "response"
         assert payloads[-1]["status"] == "cancelled"
