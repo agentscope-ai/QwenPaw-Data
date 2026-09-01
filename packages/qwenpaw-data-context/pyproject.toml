@@ -59,7 +59,11 @@ dependencies = [
   "certifi>=2023.0,<2027.0",
   "func-timeout>=4.3,<5.0",
   "oss2>=2.19,<3.0",
+  "sqlalchemy>=2.0,<3.0",
 ]
+
+[project.optional-dependencies]
+bigquery = ["google-cloud-bigquery>=3.25,<4.0"]
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
