@@ -10,9 +10,11 @@ import pytest
 
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.store.json_store import (
     JSONChatEventStore,
     JSONChatStore,
+    JSONSessionStore,
 )
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
@@ -24,12 +26,14 @@ from qwenpaw_data.host.core.db.engine import (  # noqa: E402
 from qwenpaw_data.host.core.store.sql_store import (  # noqa: E402
     SQLChatEventStore,
     SQLChatStore,
+    SQLSessionStore,
 )
 
 
 class Backend:
-    def __init__(self, name: str, chats, events, factory=None) -> None:
+    def __init__(self, name: str, sessions, chats, events, factory=None) -> None:
         self.name = name
+        self.sessions = sessions
         self.chats = chats
         self.events = events
         self.factory = factory
@@ -43,7 +47,12 @@ class Backend:
 @pytest.fixture(params=["json", "sql"])
 async def backend(request, tmp_path: Path):
     if request.param == "json":
-        b = Backend("json", JSONChatStore(tmp_path), JSONChatEventStore(tmp_path))
+        b = Backend(
+            "json",
+            JSONSessionStore(tmp_path),
+            JSONChatStore(tmp_path),
+            JSONChatEventStore(tmp_path),
+        )
         b._root = tmp_path
         yield b
         return
@@ -51,7 +60,13 @@ async def backend(request, tmp_path: Path):
         f"sqlite+aiosqlite:///{tmp_path / 'host.db'}",
     )
     await init_db(engine)
-    b = Backend("sql", SQLChatStore(factory), SQLChatEventStore(factory), factory)
+    b = Backend(
+        "sql",
+        SQLSessionStore(factory),
+        SQLChatStore(factory),
+        SQLChatEventStore(factory),
+        factory,
+    )
     yield b
     await engine.dispose()
 
@@ -239,3 +254,99 @@ async def test_concurrent_appends_across_chats_independent(backend: Backend) -> 
     assert sorted(results[10:]) == list(range(10))
     assert await backend.events.last_sequence_number(chat_a.id) == 9
     assert await backend.events.last_sequence_number(chat_b.id) == 9
+
+
+# ---- SessionStore conformance ----
+
+
+def _create_session(title: str = "Q3 分析", **kwargs) -> Session:
+    return Session.create(identity=Identity.anonymous(), title=title, **kwargs)
+
+
+async def test_session_roundtrip_and_rename(backend: Backend) -> None:
+    session = _create_session()
+    await backend.sessions.add(session)
+
+    loaded = await backend.sessions.get(session.id)
+    assert loaded.title == "Q3 分析"
+    assert loaded.chat_count == 0
+    assert loaded.identity.user_id == "local"
+
+    loaded.rename("改名了")
+    await backend.sessions.save(loaded)
+    assert (await backend.sessions.get(session.id)).title == "改名了"
+
+    with pytest.raises(RuntimeError, match="CONFLICT"):
+        await backend.sessions.add(session)
+    with pytest.raises(LookupError):
+        await backend.sessions.get("ses_missing")
+
+
+async def test_session_open_chat_and_active_tracking(backend: Backend) -> None:
+    session = _create_session()
+    await backend.sessions.add(session)
+    assert not await backend.sessions.has_active_chat(session.id)
+
+    chat = session.open_chat(
+        text="hi",
+        datasource_id="ds1",
+        has_active_chat=False,
+    )
+    await backend.sessions.save(session)
+    await backend.chats.add(chat)
+
+    assert chat.sequence == 1
+    assert (await backend.sessions.get(session.id)).chat_count == 1
+    assert (await backend.sessions.get(session.id)).datasource_id == "ds1"
+    assert await backend.sessions.has_active_chat(session.id)
+
+    with pytest.raises(RuntimeError, match="CONFLICT"):
+        session.open_chat(text="again", datasource_id=None, has_active_chat=True)
+
+
+async def test_session_list_filters_and_pagination(backend: Backend) -> None:
+    s1 = _create_session(title="销售分析")
+    s2 = _create_session(title="库存巡检")
+    s3 = _create_session(title="销售归因")
+    for s in (s1, s2, s3):
+        await backend.sessions.add(s)
+
+    # running filter: give s2 an active chat
+    chat = s2.open_chat(text="run", datasource_id=None, has_active_chat=False)
+    await backend.sessions.save(s2)
+    await backend.chats.add(chat)
+
+    items, total = await backend.sessions.list(search_text="销售")
+    assert total == 2
+    assert {s.id for s, _ in items} == {s1.id, s3.id}
+
+    running, total_running = await backend.sessions.list(status="running")
+    assert total_running == 1 and running[0][0].id == s2.id
+    assert running[0][1] is True
+
+    paged, total_all = await backend.sessions.list(page=1, page_size=2)
+    assert total_all == 3 and len(paged) == 2
+
+
+async def test_session_soft_delete(backend: Backend) -> None:
+    session = _create_session()
+    await backend.sessions.add(session)
+
+    await backend.sessions.delete(session.id)
+    with pytest.raises(LookupError):
+        await backend.sessions.get(session.id)
+    _, total = await backend.sessions.list()
+    assert total == 0
+    # idempotent
+    await backend.sessions.delete(session.id)
+
+
+async def test_session_delete_blocked_by_active_chat(backend: Backend) -> None:
+    session = _create_session()
+    await backend.sessions.add(session)
+    chat = session.open_chat(text="hi", datasource_id=None, has_active_chat=False)
+    await backend.sessions.save(session)
+    await backend.chats.add(chat)
+
+    with pytest.raises(RuntimeError, match="CONFLICT"):
+        await backend.sessions.delete(session.id)

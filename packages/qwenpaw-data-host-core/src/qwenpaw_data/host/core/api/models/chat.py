@@ -12,6 +12,36 @@ class ChatErrorSchema(ApiModel):
     message: str
 
 
+class AskUserQuestionAnswerSchema(ApiModel):
+    question: str
+    selected_options: list[str]
+    custom_text: str | None = None
+
+
+class AskUserQuestionAnsweredResultSchema(ApiModel):
+    status: Literal["answered"]
+    answers: list[AskUserQuestionAnswerSchema]
+
+
+class AskUserQuestionTimeoutResultSchema(ApiModel):
+    status: Literal["timeout"]
+    reason: str
+
+
+class SessionSchema(ApiModel):
+    id: str
+    agent_id: str
+    title: str
+    status: Literal["idle", "running"]
+    datasource_id: str | None = None
+    chat_count: int = 0
+    channel: str = "console"
+    parent_session_id: str | None = None
+    forked_from_chat_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class FollowUpSchema(ApiModel):
     chat_id: str | None = None
     questions: list[str]

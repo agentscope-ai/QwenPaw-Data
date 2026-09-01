@@ -12,6 +12,31 @@ from typing import Any, Protocol
 
 from qwenpaw_data.host.core.api.models.stream_objects import StreamObject
 from qwenpaw_data.host.core.domain.chat import Chat
+from qwenpaw_data.host.core.domain.session import Session
+
+
+class SessionStore(Protocol):
+    async def add(self, session: Session) -> None: ...
+
+    async def get(self, session_id: str) -> Session: ...
+
+    async def save(self, session: Session) -> None: ...
+
+    async def has_active_chat(self, session_id: str) -> bool: ...
+
+    async def list(
+        self,
+        *,
+        search_text: str | None = None,
+        status: str | None = None,
+        datasource_id: str | None = None,
+        channel: str | None = None,
+        sort: str = "updated_desc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[tuple[Session, bool]], int]: ...
+
+    async def delete(self, session_id: str) -> None: ...
 
 
 class ChatStore(Protocol):
