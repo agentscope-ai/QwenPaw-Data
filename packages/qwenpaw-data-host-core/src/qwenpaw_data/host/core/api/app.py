@@ -24,6 +24,7 @@ from qwenpaw_data.host.core.api.deps import ServiceState
 from qwenpaw_data.host.core.api.errors import http_exception_handler
 from qwenpaw_data.host.core.api.routers import chats as chats_router
 from qwenpaw_data.host.core.api.routers import clarification as clarification_router
+from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
 from qwenpaw_data.host.core.api.routers import preferences as preferences_router
 from qwenpaw_data.host.core.api.routers import sessions as sessions_router
@@ -138,6 +139,7 @@ def create_app(
     app.include_router(steer_router.router, prefix="/api/v1")
     app.include_router(clarification_router.router, prefix="/api/v1")
     app.include_router(preferences_router.router, prefix="/api/v1")
+    app.include_router(datasources_router.router, prefix="/api/v1")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
