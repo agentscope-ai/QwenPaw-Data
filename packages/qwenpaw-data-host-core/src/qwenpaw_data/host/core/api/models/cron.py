@@ -57,6 +57,8 @@ class CronJobWrite(ApiModel):
     enabled: bool = True
     message: str
     datasource_id: str
+    channel: str = "console"
+    target_external_key: str | None = None
     session_id: str | None = None
     schedule: ScheduleSpec
 
@@ -65,6 +67,9 @@ class CronJobWrite(ApiModel):
         self.name = self.name.strip()
         self.message = self.message.strip()
         self.datasource_id = self.datasource_id.strip()
+        self.channel = (self.channel or "console").strip() or "console"
+        tek = (self.target_external_key or "").strip()
+        self.target_external_key = tek or None
         sid = (self.session_id or "").strip()
         self.session_id = sid or None
         if not self.name:
@@ -73,4 +78,6 @@ class CronJobWrite(ApiModel):
             raise ValueError("message is required")
         if not self.datasource_id:
             raise ValueError("datasource_id is required")
+        if self.channel != "console" and not self.target_external_key:
+            raise ValueError("target_external_key is required for IM channel jobs")
         return self

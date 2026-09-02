@@ -25,6 +25,7 @@ from qwenpaw_data.host.core.agent.middleware import (
 from qwenpaw_data.host.core.api.auth import install_api_token_auth
 from qwenpaw_data.host.core.api.deps import ServiceState
 from qwenpaw_data.host.core.api.errors import http_exception_handler
+from qwenpaw_data.host.core.api.routers import channels as channels_router
 from qwenpaw_data.host.core.api.routers import chats as chats_router
 from qwenpaw_data.host.core.api.routers import clarification as clarification_router
 from qwenpaw_data.host.core.api.routers import cron as cron_router
@@ -41,7 +42,10 @@ from qwenpaw_data.host.core.paths import resolve_qwenpaw_data_home
 from qwenpaw_data.host.core.providers.factory import build_model
 from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
 from qwenpaw_data.host.core.runtime.registry import reset_runtime_registry
+from qwenpaw_data.host.core.channels import ChannelManager, ChannelServices
 from qwenpaw_data.host.core.store.json_store import (
+    JSONChannelBindingStore,
+    JSONChannelConfigStore,
     JSONChatEventStore,
     JSONChatStore,
     JSONCronStore,
@@ -103,6 +107,8 @@ def create_app(
             prefs_store: Any = JSONPreferencesStore(store_root)
             cron_store: Any = JSONCronStore(store_root)
             settlement_store: Any = JSONSettlementStore(store_root)
+            channel_config_store: Any = JSONChannelConfigStore(store_root)
+            channel_binding_store: Any = JSONChannelBindingStore(store_root)
         else:
             from qwenpaw_data.host.core.db.engine import (
                 create_engine_and_factory,
@@ -110,6 +116,8 @@ def create_app(
                 resolve_db_url,
             )
             from qwenpaw_data.host.core.store.sql_store import (
+                SQLChannelBindingStore,
+                SQLChannelConfigStore,
                 SQLChatEventStore,
                 SQLChatStore,
                 SQLCronStore,
@@ -128,6 +136,8 @@ def create_app(
             prefs_store = SQLPreferencesStore(factory)
             cron_store = SQLCronStore(factory)
             settlement_store = SQLSettlementStore(factory)
+            channel_config_store = SQLChannelConfigStore(factory)
+            channel_binding_store = SQLChannelBindingStore(factory)
 
         async def resolve_model() -> Any:
             """Prefer the local user's configured default model over env."""
@@ -157,6 +167,8 @@ def create_app(
             prefs=prefs_store,
             cron=cron_store,
             settlement=settlement_store,
+            channel_configs=channel_config_store,
+            channel_bindings=channel_binding_store,
             hosts=QwenPawDataHostRegistry(
                 home=resolved_home,
                 model=model,
@@ -184,8 +196,33 @@ def create_app(
         )
         await state.cron_manager.start()
         try:
+            state.channel_manager = await ChannelManager.from_services(
+                ChannelServices(
+                    sessions=state.sessions,
+                    chats=state.chats,
+                    events=state.events,
+                    bindings=state.channel_bindings,
+                    configs=state.channel_configs,
+                    hosts=state.hosts,
+                    prefs=state.prefs,
+                    settlement=state.settlement,
+                )
+            )
+            app.state.channel_manager = state.channel_manager
+            state.cron_manager.channel_manager = state.channel_manager
+            await state.channel_manager.start_all()
+        except Exception:
+            logger.exception("channel manager startup failed; IM channels disabled")
+            state.channel_manager = None
+            app.state.channel_manager = None
+        try:
             yield
         finally:
+            if state.channel_manager is not None:
+                try:
+                    await state.channel_manager.stop_all()
+                except Exception:
+                    logger.exception("channel manager shutdown failed")
             await state.cron_manager.shutdown()
             for task in list(state.tasks):
                 task.cancel()
@@ -213,6 +250,8 @@ def create_app(
     app.include_router(datasources_router.router, prefix="/api/v1")
     app.include_router(cron_router.router, prefix="/api/v1")
     app.include_router(settlement_router.router, prefix="/api/v1")
+    app.include_router(channels_router.router, prefix="/api/v1")
+    app.include_router(channels_router.config_router, prefix="/api/v1")
 
     @app.get("/health")
     async def health() -> dict[str, str]:

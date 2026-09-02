@@ -36,6 +36,12 @@ service = [
   "cryptography>=42,<47",
   "apscheduler>=3.10,<4.0",
 ]
+channels = [
+  "lark-oapi>=1.5.3",
+  "dingtalk-stream>=0.24.3",
+  "alibabacloud-dingtalk>=2.2.42",
+  "wecom-aibot-python-sdk>=0.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
