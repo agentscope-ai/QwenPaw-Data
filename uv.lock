@@ -1,14 +1,14 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform != 'win32'",
 ]
 
@@ -1941,8 +1941,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e7/05/3d27272d30698dc0ecb7fdfaa41ad70303b444f81722bb99bce1d818638a/numpy-2.5.0.tar.gz", hash = "sha256:5a129578019311b6e56bdd714250f19b518f7dceeeb8d1af5490f4942d3f891c", size = 20652461, upload-time = "2026-06-21T20:57:51.95Z" }
@@ -3023,16 +3023,23 @@ dependencies = [
     { name = "shortuuid" },
 ]
 
+[package.optional-dependencies]
+service = [
+    { name = "fastapi" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "agentscope", specifier = ">=2.0.5,<2.1" },
+    { name = "agentscope", specifier = ">=2.0.6,<2.1" },
     { name = "aiodocker", specifier = ">=0.27,<0.28" },
+    { name = "fastapi", marker = "extra == 'service'", specifier = ">=0.115,<1.0" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
     { name = "pydantic", specifier = ">=2.13,<3.0" },
     { name = "pyyaml", specifier = ">=6.0,<7.0" },
     { name = "qwenpaw-data-skills", editable = "packages/qwenpaw-data-skills" },
     { name = "shortuuid", specifier = ">=1.0,<2.0" },
 ]
+provides-extras = ["service"]
 
 [[package]]
 name = "qwenpaw-data-skills"
@@ -3051,7 +3058,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "qwenpaw-data-cli" },
     { name = "qwenpaw-data-context" },
-    { name = "qwenpaw-data-host-core" },
+    { name = "qwenpaw-data-host-core", extra = ["service"] },
     { name = "qwenpaw-data-skills" },
 ]
 
@@ -3064,7 +3071,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.24,<2.0" },
     { name = "qwenpaw-data-cli", editable = "packages/qwenpaw-data-cli" },
     { name = "qwenpaw-data-context", editable = "packages/qwenpaw-data-context" },
-    { name = "qwenpaw-data-host-core", editable = "packages/qwenpaw-data-host-core" },
+    { name = "qwenpaw-data-host-core", extras = ["service"], editable = "packages/qwenpaw-data-host-core" },
     { name = "qwenpaw-data-skills", editable = "packages/qwenpaw-data-skills" },
 ]
 

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +16,12 @@ class QwenPawDataHostRegistry:
         home: str | Path | None = None,
         model: Any = None,
         workspace: Any = None,
+        extra_middlewares_factory: Callable[[], list[Any]] | None = None,
     ) -> None:
         self.home = resolve_qwenpaw_data_home(home)
         self.model = model
         self.workspace = workspace
+        self.extra_middlewares_factory = extra_middlewares_factory
         self._items: dict[str, QwenPawDataHost] = {}
         self._running: set[str] = set()
 
@@ -29,11 +32,17 @@ class QwenPawDataHostRegistry:
     ) -> QwenPawDataHost:
         dp = self._items.get(session_id)
         if dp is None:
+            extra_middlewares = (
+                self.extra_middlewares_factory()
+                if self.extra_middlewares_factory is not None
+                else None
+            )
             dp = QwenPawDataHost(
                 home=self.home,
                 model=self.model,
                 workspace=self.workspace,
                 session_id=session_id,
+                extra_middlewares=extra_middlewares,
             )
             self._items[session_id] = dp
         return dp

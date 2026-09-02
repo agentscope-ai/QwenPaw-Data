@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from agentscope.credential import DashScopeCredential, OpenAICredential
-from agentscope.model import ChatModelBase, DashScopeChatModel, OpenAIChatModel
+from agentscope.model import ChatModelBase
+
+from qwenpaw_data.host.core.providers.factory import build_model
+from qwenpaw_data.host.core.providers.registry import ActiveModel
 
 _PROVIDER_ENV = "QWENPAW_DATA_MODEL_PROVIDER"
 _MODEL_ENV = "QWENPAW_DATA_MODEL_NAME"
@@ -14,6 +16,11 @@ _FALLBACK_MODEL_ENV = "LLM_MODEL"
 _FALLBACK_API_KEY_ENV = "OPENAI_API_KEY"
 _FALLBACK_BASE_URL_ENV = "OPENAI_BASE_URL"
 _DEFAULT_PROVIDER = "openai"
+_SUPPORTED_PROVIDERS = ("dashscope", "openai")
+_CHAT_MODEL_BY_PROVIDER = {
+    "dashscope": "DashScopeChatModel",
+    "openai": "OpenAIChatModel",
+}
 
 
 def build_model_from_env(
@@ -45,30 +52,20 @@ def build_model_from_env(
             + ".",
         )
 
-    if provider == "dashscope":
-        credential_kwargs = {"api_key": api_key}
-        if base_url:
-            credential_kwargs["base_url"] = base_url
-        return DashScopeChatModel(
-            credential=DashScopeCredential(**credential_kwargs),
-            model=model_name,
-            stream=True,
-            parameters=DashScopeChatModel.Parameters(parallel_tool_calls=False),
+    if provider not in _SUPPORTED_PROVIDERS:
+        raise RuntimeError(
+            f"Unsupported {_PROVIDER_ENV}={provider!r}; supported providers: dashscope, openai.",
         )
 
-    if provider == "openai":
-        credential_kwargs = {"api_key": api_key}
-        if base_url:
-            credential_kwargs["base_url"] = base_url
-        return OpenAIChatModel(
-            credential=OpenAICredential(**credential_kwargs),
-            model=model_name,
-            stream=True,
-            parameters=OpenAIChatModel.Parameters(parallel_tool_calls=False),
-        )
-
-    raise RuntimeError(
-        f"Unsupported {_PROVIDER_ENV}={provider!r}; supported providers: dashscope, openai.",
+    return build_model(
+        ActiveModel(
+            provider_id=provider,
+            model_id=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            chat_model=_CHAT_MODEL_BY_PROVIDER[provider],
+            name=model_name,
+        ),
     )
 
 

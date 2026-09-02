@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from qwenpaw_data.host.core import model as model_module
+from qwenpaw_data.host.core.providers import factory as factory_module
 
 
 class FakeCredential:
@@ -33,10 +34,10 @@ class FakeDashScopeModel:
 
 @pytest.fixture(autouse=True)
 def fake_model_classes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(model_module, "OpenAICredential", FakeCredential)
-    monkeypatch.setattr(model_module, "OpenAIChatModel", FakeOpenAIModel)
-    monkeypatch.setattr(model_module, "DashScopeCredential", FakeCredential)
-    monkeypatch.setattr(model_module, "DashScopeChatModel", FakeDashScopeModel)
+    monkeypatch.setattr(factory_module, "OpenAICredential", FakeCredential)
+    monkeypatch.setattr(factory_module, "OpenAIChatModel", FakeOpenAIModel)
+    monkeypatch.setattr(factory_module, "DashScopeCredential", FakeCredential)
+    monkeypatch.setattr(factory_module, "DashScopeChatModel", FakeDashScopeModel)
 
 
 def test_openai_compatible_env_is_used_as_default() -> None:
