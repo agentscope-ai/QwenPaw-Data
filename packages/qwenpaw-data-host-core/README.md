@@ -39,6 +39,7 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 | `POST /sessions/{sid}/chats/{cid}/clarification/answer` | Deliver an `ask_user_question` result to the paused turn |
 | `GET/PUT/DELETE /preferences/providers[/{id}]` · `.../models/{id}` · `GET/PUT /preferences/active-models` | Model provider credentials (masked in responses), model overrides, active model selection |
 | `GET /datasources` | DataBridge datasource discovery proxied through the service |
+| `GET/POST /cron/jobs` · `GET/PUT/DELETE /cron/jobs/{id}` · `POST .../pause|resume|run` | Scheduled agent runs: a cron expression or one-shot time opens a console chat with the configured message/datasource (single-process APScheduler) |
 
 ### Storage backends
 

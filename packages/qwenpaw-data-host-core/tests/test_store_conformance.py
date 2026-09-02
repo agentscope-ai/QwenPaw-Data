@@ -439,3 +439,63 @@ async def test_prefs_models_and_active_selection(prefs_backend, monkeypatch) -> 
     await prefs.delete_model("u1", "dashscope", "my-model")
     with pytest.raises(LookupError):
         await prefs.delete_model("u1", "dashscope", "my-model")
+
+
+# ---- CronStore conformance ----
+
+
+@pytest.fixture
+def cron_backend(backend: Backend, tmp_path: Path):
+    from qwenpaw_data.host.core.store.json_store import JSONCronStore
+    from qwenpaw_data.host.core.store.sql_store import SQLCronStore
+
+    if backend.name == "json":
+        return JSONCronStore(tmp_path)
+    return SQLCronStore(backend.factory)
+
+
+def _job_body(name: str = "每日晨报", **overrides):
+    from qwenpaw_data.host.core.api.models.cron import CronJobWrite
+
+    values = {
+        "name": name,
+        "message": "生成日报",
+        "datasource_id": "ds1",
+        "schedule": {"type": "cron", "cron": "0 8 * * 1"},
+    }
+    values.update(overrides)
+    return CronJobWrite.model_validate(values)
+
+
+async def test_cron_crud_roundtrip(cron_backend) -> None:
+    store = cron_backend
+    job = await store.create("u1", _job_body())
+    assert job["enabled"] is True
+    assert job["channel"] == "console"
+    assert job["schedule"]["cron"] == "0 8 * * mon"  # dow normalized
+
+    got = await store.get("u1", job["id"])
+    assert got["name"] == "每日晨报"
+
+    replaced = await store.replace(
+        "u1", job["id"], _job_body(name="改名", enabled=False)
+    )
+    assert replaced["name"] == "改名" and replaced["enabled"] is False
+
+    paused = await store.set_enabled("u1", job["id"], True)
+    assert paused["enabled"] is True
+
+    listing = await store.list("u1")
+    assert [j["id"] for j in listing] == [job["id"]]
+
+    # user isolation + unscoped scheduler paths
+    with pytest.raises(LookupError):
+        await store.get("u2", job["id"])
+    assert (await store.get_by_id(job["id"]))["id"] == job["id"]
+    assert [j["id"] for j in await store.list_all()] == [job["id"]]
+
+    await store.delete("u1", job["id"])
+    with pytest.raises(LookupError):
+        await store.get("u1", job["id"])
+    with pytest.raises(LookupError):
+        await store.get_by_id(job["id"])

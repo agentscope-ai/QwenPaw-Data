@@ -34,6 +34,7 @@ service = [
   "sqlalchemy[asyncio]>=2.0,<3.0",
   "aiosqlite>=0.20,<1.0",
   "cryptography>=42,<47",
+  "apscheduler>=3.10,<4.0",
 ]
 
 [project.urls]
