@@ -18,7 +18,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from qwenpaw_data.host.core.agent.middleware import SteerMiddleware
+from qwenpaw_data.host.core.agent.middleware import (
+    ConfirmedSettlementPromptMiddleware,
+    SteerMiddleware,
+)
 from qwenpaw_data.host.core.api.auth import install_api_token_auth
 from qwenpaw_data.host.core.api.deps import ServiceState
 from qwenpaw_data.host.core.api.errors import http_exception_handler
@@ -29,6 +32,7 @@ from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
 from qwenpaw_data.host.core.api.routers import preferences as preferences_router
 from qwenpaw_data.host.core.api.routers import sessions as sessions_router
+from qwenpaw_data.host.core.api.routers import settlement as settlement_router
 from qwenpaw_data.host.core.api.routers import steer as steer_router
 from qwenpaw_data.host.core.cron import CronManager
 from qwenpaw_data.host.core.domain.identity import Identity
@@ -43,6 +47,7 @@ from qwenpaw_data.host.core.store.json_store import (
     JSONCronStore,
     JSONPreferencesStore,
     JSONSessionStore,
+    JSONSettlementStore,
 )
 from qwenpaw_data.host.core.stream.hub import reset_hub
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
@@ -97,6 +102,7 @@ def create_app(
             events_store: Any = JSONChatEventStore(store_root)
             prefs_store: Any = JSONPreferencesStore(store_root)
             cron_store: Any = JSONCronStore(store_root)
+            settlement_store: Any = JSONSettlementStore(store_root)
         else:
             from qwenpaw_data.host.core.db.engine import (
                 create_engine_and_factory,
@@ -109,6 +115,7 @@ def create_app(
                 SQLCronStore,
                 SQLPreferencesStore,
                 SQLSessionStore,
+                SQLSettlementStore,
             )
 
             engine, factory = create_engine_and_factory(
@@ -120,6 +127,7 @@ def create_app(
             events_store = SQLChatEventStore(factory)
             prefs_store = SQLPreferencesStore(factory)
             cron_store = SQLCronStore(factory)
+            settlement_store = SQLSettlementStore(factory)
 
         async def resolve_model() -> Any:
             """Prefer the local user's configured default model over env."""
@@ -134,17 +142,31 @@ def create_app(
                 )
             return build_model_from_env()
 
+        async def confirmed_settlement_cards(session_id: str) -> list[dict[str, Any]]:
+            session = await sessions_store.get(session_id)
+            return await settlement_store.list_by_session(
+                session.identity.user_id,
+                session_id,
+                status="confirmed",
+            )
+
         state = ServiceState(
             sessions=sessions_store,
             chats=chats_store,
             events=events_store,
             prefs=prefs_store,
             cron=cron_store,
+            settlement=settlement_store,
             hosts=QwenPawDataHostRegistry(
                 home=resolved_home,
                 model=model,
                 workspace=workspace,
-                extra_middlewares_factory=lambda: [SteerMiddleware()],
+                extra_middlewares_factory=lambda: [
+                    SteerMiddleware(),
+                    ConfirmedSettlementPromptMiddleware(
+                        loader=confirmed_settlement_cards,
+                    ),
+                ],
                 model_factory=None if model is not None else resolve_model,
             ),
             tasks=set(),
@@ -158,6 +180,7 @@ def create_app(
             events=state.events,
             hosts=state.hosts,
             prefs=state.prefs,
+            settlement=state.settlement,
         )
         await state.cron_manager.start()
         try:
@@ -189,6 +212,7 @@ def create_app(
     app.include_router(preferences_router.router, prefix="/api/v1")
     app.include_router(datasources_router.router, prefix="/api/v1")
     app.include_router(cron_router.router, prefix="/api/v1")
+    app.include_router(settlement_router.router, prefix="/api/v1")
 
     @app.get("/health")
     async def health() -> dict[str, str]:

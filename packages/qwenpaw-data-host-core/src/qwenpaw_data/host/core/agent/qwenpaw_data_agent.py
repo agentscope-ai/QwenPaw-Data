@@ -108,6 +108,10 @@ class QwenPawDataAgent(Agent):
         self.set_mode(mode)
 
     @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
     def plan_notebook(self) -> RuntimeStateManager:
         """Backward-compatible alias for _runtime_state."""
         return self._runtime_state

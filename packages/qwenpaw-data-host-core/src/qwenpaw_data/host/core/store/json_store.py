@@ -686,3 +686,175 @@ class JSONCronStore:
         docs = await asyncio.to_thread(self._scan)
         docs.sort(key=lambda d: d["created_at"])
         return [self._to_dict(d) for d in docs]
+
+
+_SETTLEMENT_ACTIONABLE = frozenset({"pending", "queried"})
+
+
+class JSONSettlementStore:
+    def __init__(self, root: Path) -> None:
+        self._cards_root = Path(root).expanduser().resolve() / "settlement"
+
+    def _card_path(self, card_id: str) -> Path:
+        return self._cards_root / f"{card_id}.json"
+
+    @staticmethod
+    def _to_dict(doc: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": doc["id"],
+            "user_id": doc["user_id"],
+            "session_id": doc["session_id"],
+            "source_chat_id": doc["source_chat_id"],
+            "type": doc["type"],
+            "fields": dict(doc.get("fields") or {}),
+            "status": doc["status"],
+            "created_at": _dt_from_json(doc["created_at"]),
+            "updated_at": _dt_from_json(doc["updated_at"]),
+            "confirmed_at": _dt_from_json(doc.get("confirmed_at")),
+        }
+
+    @staticmethod
+    def _read(path: Path) -> dict[str, Any] | None:
+        with file_lock(path):
+            if not path.exists():
+                return None
+            return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _write(path: Path, doc: dict[str, Any]) -> None:
+        with file_lock(path):
+            write_atomic(path, doc)
+
+    def _scan(self) -> list[dict[str, Any]]:
+        if not self._cards_root.exists():
+            return []
+        docs = []
+        for path in self._cards_root.glob("*.json"):
+            doc = self._read(path)
+            if doc is not None:
+                docs.append(doc)
+        return docs
+
+    async def _get_doc(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> dict[str, Any]:
+        doc = await asyncio.to_thread(self._read, self._card_path(card_id))
+        if (
+            doc is None
+            or doc["user_id"] != user_id
+            or doc["session_id"] != session_id
+        ):
+            raise LookupError(f"settlement card not found: {card_id}")
+        return doc
+
+    async def add(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        source_chat_id: str,
+        type: str,
+        fields: dict[str, str],
+    ) -> dict[str, Any]:
+        from qwenpaw_data.host.core.utils.ids import create_id
+
+        now = _dt_to_json(utcnow())
+        doc = {
+            "id": create_id("card"),
+            "user_id": user_id,
+            "session_id": session_id,
+            "source_chat_id": source_chat_id,
+            "type": type,
+            "fields": dict(fields),
+            "status": "pending",
+            "created_at": now,
+            "updated_at": now,
+            "confirmed_at": None,
+        }
+        await asyncio.to_thread(self._write, self._card_path(doc["id"]), doc)
+        return self._to_dict(doc)
+
+    async def list_by_session(
+        self,
+        user_id: str,
+        session_id: str,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        docs = await asyncio.to_thread(self._scan)
+        docs = [
+            d
+            for d in docs
+            if d["user_id"] == user_id and d["session_id"] == session_id
+        ]
+        if status is not None:
+            docs = [d for d in docs if d["status"] == status]
+        docs.sort(key=lambda d: (d["created_at"], d["id"]), reverse=True)
+        return [self._to_dict(d) for d in docs]
+
+    async def get(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> dict[str, Any]:
+        return self._to_dict(
+            await self._get_doc(user_id, card_id, session_id=session_id)
+        )
+
+    async def mark_queried(
+        self, user_id: str, session_id: str, card_ids: list[str]
+    ) -> None:
+        now = _dt_to_json(utcnow())
+        for card_id in card_ids:
+            try:
+                doc = await self._get_doc(user_id, card_id, session_id=session_id)
+            except LookupError:
+                continue
+            if doc["status"] != "pending":
+                continue
+            doc["status"] = "queried"
+            doc["updated_at"] = now
+            await asyncio.to_thread(self._write, self._card_path(card_id), doc)
+
+    async def confirm(
+        self,
+        user_id: str,
+        card_id: str,
+        *,
+        session_id: str,
+        fields: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        doc = await self._get_doc(user_id, card_id, session_id=session_id)
+        if doc["status"] not in _SETTLEMENT_ACTIONABLE:
+            raise ValueError(f"settlement card is not actionable: {card_id}")
+        now = _dt_to_json(utcnow())
+        if fields is not None:
+            doc["fields"] = dict(fields)
+        doc["status"] = "confirmed"
+        doc["confirmed_at"] = now
+        doc["updated_at"] = now
+        await asyncio.to_thread(self._write, self._card_path(card_id), doc)
+        return self._to_dict(doc)
+
+    async def dismiss(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> dict[str, Any]:
+        doc = await self._get_doc(user_id, card_id, session_id=session_id)
+        if doc["status"] not in _SETTLEMENT_ACTIONABLE:
+            raise ValueError(f"settlement card is not actionable: {card_id}")
+        doc["status"] = "dismissed"
+        doc["updated_at"] = _dt_to_json(utcnow())
+        await asyncio.to_thread(self._write, self._card_path(card_id), doc)
+        return self._to_dict(doc)
+
+    async def delete_if_unconfirmed(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> bool:
+        """Delete a card not yet confirmed or dismissed; False when untouchable."""
+        doc = await asyncio.to_thread(self._read, self._card_path(card_id))
+        if (
+            doc is None
+            or doc["session_id"] != session_id
+            or doc["status"] not in _SETTLEMENT_ACTIONABLE
+            or doc["user_id"] != user_id
+        ):
+            return False
+        await asyncio.to_thread(self._card_path(card_id).unlink)
+        return True

@@ -156,3 +156,64 @@ class ChatEventStore(Protocol):
     async def read_after(self, chat_id: str, after: int) -> list[StreamObject]: ...
 
     async def last_sequence_number(self, chat_id: str) -> int: ...
+
+
+class SettlementStore(Protocol):
+    """Settlement cards; every list is ordered created_at descending."""
+
+    async def add(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        source_chat_id: str,
+        type: str,
+        fields: dict[str, str],
+    ) -> dict[str, Any]: ...
+
+    async def list_by_session(
+        self,
+        user_id: str,
+        session_id: str,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    async def get(
+        self,
+        user_id: str,
+        card_id: str,
+        *,
+        session_id: str,
+    ) -> dict[str, Any]: ...
+
+    async def mark_queried(
+        self,
+        user_id: str,
+        session_id: str,
+        card_ids: list[str],
+    ) -> None: ...
+
+    async def confirm(
+        self,
+        user_id: str,
+        card_id: str,
+        *,
+        session_id: str,
+        fields: dict[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def dismiss(
+        self,
+        user_id: str,
+        card_id: str,
+        *,
+        session_id: str,
+    ) -> dict[str, Any]: ...
+
+    async def delete_if_unconfirmed(
+        self,
+        user_id: str,
+        card_id: str,
+        *,
+        session_id: str,
+    ) -> bool: ...

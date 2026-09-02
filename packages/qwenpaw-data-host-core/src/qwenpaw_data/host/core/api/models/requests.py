@@ -30,3 +30,7 @@ class SteerRequest(ApiModel):
 class ClarificationAnswerRequest(ApiModel):
     clarification_id: str
     result: AskUserQuestionAnsweredResultSchema | AskUserQuestionTimeoutResultSchema
+
+
+class SettlementConfirmRequest(ApiModel):
+    fields: dict[str, str] | None = None

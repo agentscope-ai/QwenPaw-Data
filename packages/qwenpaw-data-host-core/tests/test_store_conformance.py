@@ -499,3 +499,141 @@ async def test_cron_crud_roundtrip(cron_backend) -> None:
         await store.get("u1", job["id"])
     with pytest.raises(LookupError):
         await store.get_by_id(job["id"])
+
+
+# --- settlement cards -------------------------------------------------------
+
+from qwenpaw_data.host.core.store.json_store import JSONSettlementStore  # noqa: E402
+from qwenpaw_data.host.core.store.sql_store import SQLSettlementStore  # noqa: E402
+
+
+@pytest.fixture(params=["json", "sql"])
+async def settlement_backend(request, tmp_path: Path):
+    if request.param == "json":
+        yield JSONSettlementStore(tmp_path)
+        return
+    engine, factory = create_engine_and_factory(
+        f"sqlite+aiosqlite:///{tmp_path / 'settlement.db'}",
+    )
+    await init_db(engine)
+    yield SQLSettlementStore(factory)
+    await engine.dispose()
+
+
+_CARD_FIELDS = {
+    "metric_name": "GMV",
+    "caliber": "支付金额",
+    "domain": "交易",
+    "table": "orders",
+    "formula_sql": "SELECT SUM(amount)",
+}
+
+
+async def _add_card(store, *, user_id="local", session_id="sess1", **overrides):
+    kwargs = {
+        "user_id": user_id,
+        "session_id": session_id,
+        "source_chat_id": "chat_1",
+        "type": "metric_caliber",
+        "fields": dict(_CARD_FIELDS),
+    }
+    kwargs.update(overrides)
+    return await store.add(**kwargs)
+
+
+async def test_settlement_add_and_list_desc(settlement_backend) -> None:
+    store = settlement_backend
+    first = await _add_card(store)
+    await asyncio.sleep(0.01)
+    second = await _add_card(store, type="dimension_def", fields={"dimension_name": "渠道"})
+
+    cards = await store.list_by_session("local", "sess1")
+    assert [c["id"] for c in cards] == [second["id"], first["id"]]
+    assert cards[0]["fields"] == {"dimension_name": "渠道"}
+    assert cards[1]["status"] == "pending"
+    assert cards[1]["created_at"] is not None
+
+    only_metric = await store.list_by_session("local", "sess1", status="pending")
+    assert len(only_metric) == 2
+    assert await store.list_by_session("local", "sess1", status="confirmed") == []
+    assert await store.list_by_session("other", "sess1") == []
+    assert await store.list_by_session("local", "sess2") == []
+
+
+async def test_settlement_get_scoping(settlement_backend) -> None:
+    store = settlement_backend
+    card = await _add_card(store)
+
+    loaded = await store.get("local", card["id"], session_id="sess1")
+    assert loaded["id"] == card["id"]
+
+    with pytest.raises(LookupError):
+        await store.get("other", card["id"], session_id="sess1")
+    with pytest.raises(LookupError):
+        await store.get("local", card["id"], session_id="sess2")
+    with pytest.raises(LookupError):
+        await store.get("local", "card_missing", session_id="sess1")
+
+
+async def test_settlement_mark_queried_only_pending(settlement_backend) -> None:
+    store = settlement_backend
+    pending = await _add_card(store)
+    confirmed = await _add_card(store)
+    await store.confirm("local", confirmed["id"], session_id="sess1")
+
+    await store.mark_queried(
+        "local", "sess1", [pending["id"], confirmed["id"], "card_missing"]
+    )
+    assert (await store.get("local", pending["id"], session_id="sess1"))[
+        "status"
+    ] == "queried"
+    assert (await store.get("local", confirmed["id"], session_id="sess1"))[
+        "status"
+    ] == "confirmed"
+
+
+async def test_settlement_confirm_and_dismiss(settlement_backend) -> None:
+    store = settlement_backend
+    card = await _add_card(store)
+
+    new_fields = {**_CARD_FIELDS, "caliber": "含退款"}
+    confirmed = await store.confirm(
+        "local", card["id"], session_id="sess1", fields=new_fields
+    )
+    assert confirmed["status"] == "confirmed"
+    assert confirmed["fields"] == new_fields
+    assert confirmed["confirmed_at"] is not None
+
+    with pytest.raises(ValueError):
+        await store.dismiss("local", card["id"], session_id="sess1")
+    with pytest.raises(ValueError):
+        await store.confirm("local", card["id"], session_id="sess1")
+
+    other = await _add_card(store)
+    await store.mark_queried("local", "sess1", [other["id"]])
+    dismissed = await store.dismiss("local", other["id"], session_id="sess1")
+    assert dismissed["status"] == "dismissed"
+
+
+async def test_settlement_delete_if_unconfirmed(settlement_backend) -> None:
+    store = settlement_backend
+    card = await _add_card(store)
+
+    assert await store.delete_if_unconfirmed(
+        "other", card["id"], session_id="sess1"
+    ) is False
+    assert await store.delete_if_unconfirmed(
+        "local", card["id"], session_id="sess2"
+    ) is False
+    assert await store.delete_if_unconfirmed(
+        "local", card["id"], session_id="sess1"
+    ) is True
+    assert await store.delete_if_unconfirmed(
+        "local", card["id"], session_id="sess1"
+    ) is False
+
+    confirmed = await _add_card(store)
+    await store.confirm("local", confirmed["id"], session_id="sess1")
+    assert await store.delete_if_unconfirmed(
+        "local", confirmed["id"], session_id="sess1"
+    ) is False

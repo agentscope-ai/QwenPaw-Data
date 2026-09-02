@@ -27,6 +27,7 @@ from qwenpaw_data.host.core.db.tables import (
     ChatRow,
     CronJobRow,
     SessionRow,
+    SettlementCardRow,
     UserActiveModelRow,
     UserProviderModelRow,
     UserProviderRow,
@@ -725,3 +726,165 @@ class SQLCronStore:
                 )
             ).all()
             return [_cron_to_dict(r) for r in rows]
+
+
+_SETTLEMENT_ACTIONABLE = frozenset({"pending", "queried"})
+
+
+def _settlement_to_dict(row: SettlementCardRow) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "session_id": row.session_id,
+        "source_chat_id": row.source_chat_id,
+        "type": row.type,
+        "fields": dict(row.fields_json or {}),
+        "status": row.status,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+        "confirmed_at": row.confirmed_at,
+    }
+
+
+class SQLSettlementStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    @staticmethod
+    async def _get_row(
+        db: AsyncSession, user_id: str, card_id: str, *, session_id: str
+    ) -> SettlementCardRow:
+        row = await db.get(SettlementCardRow, card_id)
+        if (
+            row is None
+            or row.session_id != session_id
+            or row.user_id != user_id
+        ):
+            raise LookupError(f"settlement card not found: {card_id}")
+        return row
+
+    async def add(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        source_chat_id: str,
+        type: str,
+        fields: dict[str, str],
+    ) -> dict[str, Any]:
+        now = utcnow()
+        async with self._sessions() as db:
+            row = SettlementCardRow(
+                id=create_id("card"),
+                user_id=user_id,
+                session_id=session_id,
+                source_chat_id=source_chat_id,
+                type=type,
+                fields_json=dict(fields),
+                status="pending",
+                created_at=now,
+                updated_at=now,
+                confirmed_at=None,
+            )
+            db.add(row)
+            await db.commit()
+            return _settlement_to_dict(row)
+
+    async def list_by_session(
+        self,
+        user_id: str,
+        session_id: str,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        async with self._sessions() as db:
+            stmt = select(SettlementCardRow).where(
+                SettlementCardRow.session_id == session_id,
+                SettlementCardRow.user_id == user_id,
+            )
+            if status is not None:
+                stmt = stmt.where(SettlementCardRow.status == status)
+            stmt = stmt.order_by(
+                SettlementCardRow.created_at.desc(),
+                SettlementCardRow.id.desc(),
+            )
+            rows = (await db.scalars(stmt)).all()
+            return [_settlement_to_dict(row) for row in rows]
+
+    async def get(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await self._get_row(db, user_id, card_id, session_id=session_id)
+            return _settlement_to_dict(row)
+
+    async def mark_queried(
+        self, user_id: str, session_id: str, card_ids: list[str]
+    ) -> None:
+        if not card_ids:
+            return
+        now = utcnow()
+        async with self._sessions() as db:
+            rows = (
+                await db.scalars(
+                    select(SettlementCardRow).where(
+                        SettlementCardRow.id.in_(card_ids),
+                        SettlementCardRow.session_id == session_id,
+                        SettlementCardRow.status == "pending",
+                        SettlementCardRow.user_id == user_id,
+                    )
+                )
+            ).all()
+            for row in rows:
+                row.status = "queried"
+                row.updated_at = now
+            await db.commit()
+
+    async def confirm(
+        self,
+        user_id: str,
+        card_id: str,
+        *,
+        session_id: str,
+        fields: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await self._get_row(db, user_id, card_id, session_id=session_id)
+            if row.status not in _SETTLEMENT_ACTIONABLE:
+                raise ValueError(f"settlement card is not actionable: {card_id}")
+            now = utcnow()
+            if fields is not None:
+                row.fields_json = dict(fields)
+            row.status = "confirmed"
+            row.confirmed_at = now
+            row.updated_at = now
+            await db.commit()
+            return _settlement_to_dict(row)
+
+    async def dismiss(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await self._get_row(db, user_id, card_id, session_id=session_id)
+            if row.status not in _SETTLEMENT_ACTIONABLE:
+                raise ValueError(f"settlement card is not actionable: {card_id}")
+            row.status = "dismissed"
+            row.updated_at = utcnow()
+            await db.commit()
+            return _settlement_to_dict(row)
+
+    async def delete_if_unconfirmed(
+        self, user_id: str, card_id: str, *, session_id: str
+    ) -> bool:
+        """Delete a card not yet confirmed or dismissed; False when untouchable."""
+        async with self._sessions() as db:
+            row = await db.get(SettlementCardRow, card_id)
+            if (
+                row is None
+                or row.session_id != session_id
+                or row.status not in _SETTLEMENT_ACTIONABLE
+                or row.user_id != user_id
+            ):
+                return False
+            await db.delete(row)
+            await db.commit()
+            return True
