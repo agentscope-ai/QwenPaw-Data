@@ -217,3 +217,59 @@ class SettlementStore(Protocol):
         *,
         session_id: str,
     ) -> bool: ...
+
+
+class ChannelConfigStore(Protocol):
+    """Per-user IM channel configuration (secrets included; mask at the edge)."""
+
+    async def load(self, user_id: str) -> dict[str, Any]:
+        """Full config for a user; defaults when the user has no row yet."""
+        ...
+
+    async def save(self, user_id: str, config: dict[str, Any]) -> None: ...
+
+    async def list_user_ids(self) -> list[str]:
+        """Users that have a stored channel configuration."""
+        ...
+
+
+class ChannelBindingStore(Protocol):
+    """``(user_id, channel, external_key)`` → active session pointer + send address."""
+
+    async def get_active_session_id(
+        self,
+        user_id: str,
+        channel: str,
+        external_key: str,
+    ) -> str | None: ...
+
+    async def point_to(
+        self,
+        user_id: str,
+        channel: str,
+        external_key: str,
+        session_id: str,
+        *,
+        target_meta: dict[str, Any] | None = None,
+        display_name: str = "",
+    ) -> None: ...
+
+    async def list_by_channel(
+        self,
+        user_id: str,
+        channel: str,
+    ) -> list[dict[str, Any]]: ...
+
+    async def get_target_meta(
+        self,
+        user_id: str,
+        channel: str,
+        external_key: str,
+    ) -> dict[str, Any] | None: ...
+
+    async def exists(
+        self,
+        user_id: str,
+        channel: str,
+        external_key: str,
+    ) -> bool: ...

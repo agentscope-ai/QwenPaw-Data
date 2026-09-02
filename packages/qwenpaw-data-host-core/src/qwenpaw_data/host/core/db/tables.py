@@ -100,6 +100,7 @@ class CronJobRow(UserIdColumn, Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     datasource_id: Mapped[str] = mapped_column(String, nullable=False)
     channel: Mapped[str] = mapped_column(String, nullable=False, default="console")
+    target_external_key: Mapped[str | None] = mapped_column(String, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     schedule_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -165,6 +166,34 @@ class UserActiveModelRow(Base):
     default_model_id: Mapped[str] = mapped_column(String, nullable=False)
     light_provider_id: Mapped[str | None] = mapped_column(String, nullable=True)
     light_model_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class ChannelConfigRow(Base):
+    __tablename__ = "channels"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class ChannelBindingRow(Base):
+    __tablename__ = "channel_bindings"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    channel: Mapped[str] = mapped_column(String, primary_key=True)
+    external_key: Mapped[str] = mapped_column(String, primary_key=True)
+    active_session_id: Mapped[str] = mapped_column(String, nullable=False)
+    target_type: Mapped[str] = mapped_column(String, nullable=False, default="")
+    display_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    send_meta_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

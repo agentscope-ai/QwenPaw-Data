@@ -582,6 +582,7 @@ class JSONCronStore:
             "message": doc["message"],
             "datasource_id": doc["datasource_id"],
             "channel": doc.get("channel", "console"),
+            "target_external_key": doc.get("target_external_key"),
             "session_id": doc.get("session_id"),
             "schedule": ScheduleSpec.model_validate(doc["schedule"]).model_dump(
                 mode="json"
@@ -638,7 +639,8 @@ class JSONCronStore:
             "enabled": body.enabled,
             "message": body.message,
             "datasource_id": body.datasource_id,
-            "channel": "console",
+            "channel": body.channel,
+            "target_external_key": body.target_external_key,
             "session_id": body.session_id,
             "schedule": body.schedule.model_dump(mode="json"),
             "created_at": _dt_to_json(now),
@@ -656,6 +658,8 @@ class JSONCronStore:
             enabled=body.enabled,
             message=body.message,
             datasource_id=body.datasource_id,
+            channel=body.channel,
+            target_external_key=body.target_external_key,
             session_id=body.session_id,
             schedule=body.schedule.model_dump(mode="json"),
             updated_at=_dt_to_json(utcnow()),
@@ -858,3 +862,145 @@ class JSONSettlementStore:
             return False
         await asyncio.to_thread(self._card_path(card_id).unlink)
         return True
+
+
+class JSONChannelConfigStore:
+    def __init__(self, root: Path) -> None:
+        self._config_root = Path(root).expanduser().resolve() / "channels" / "config"
+
+    def _path(self, user_id: str) -> Path:
+        return self._config_root / f"{user_id}.json"
+
+    async def load(self, user_id: str) -> dict[str, Any]:
+        from qwenpaw_data.host.core.channels.config import initial_config
+
+        def _read() -> dict[str, Any] | None:
+            path = self._path(user_id)
+            with file_lock(path):
+                if not path.exists():
+                    return None
+                return json.loads(path.read_text(encoding="utf-8"))
+
+        doc = await asyncio.to_thread(_read)
+        if doc:
+            return doc
+        return initial_config()
+
+    async def save(self, user_id: str, config: dict[str, Any]) -> None:
+        def _write() -> None:
+            path = self._path(user_id)
+            with file_lock(path):
+                write_atomic(path, config)
+
+        await asyncio.to_thread(_write)
+
+    async def list_user_ids(self) -> list[str]:
+        def _scan() -> list[str]:
+            if not self._config_root.exists():
+                return []
+            return sorted(p.stem for p in self._config_root.glob("*.json"))
+
+        return await asyncio.to_thread(_scan)
+
+
+class JSONChannelBindingStore:
+    """One JSON document per user: ``{channel: {external_key: record}}``."""
+
+    def __init__(self, root: Path) -> None:
+        self._binding_root = (
+            Path(root).expanduser().resolve() / "channels" / "bindings"
+        )
+
+    def _path(self, user_id: str) -> Path:
+        return self._binding_root / f"{user_id}.json"
+
+    def _read(self, user_id: str) -> dict[str, Any]:
+        path = self._path(user_id)
+        with file_lock(path):
+            if not path.exists():
+                return {}
+            return json.loads(path.read_text(encoding="utf-8"))
+
+    def _write(self, user_id: str, doc: dict[str, Any]) -> None:
+        path = self._path(user_id)
+        with file_lock(path):
+            write_atomic(path, doc)
+
+    async def get_active_session_id(
+        self, user_id: str, channel: str, external_key: str
+    ) -> str | None:
+        doc = await asyncio.to_thread(self._read, user_id)
+        record = (doc.get(channel) or {}).get(external_key)
+        return record.get("active_session_id") if record else None
+
+    async def point_to(
+        self,
+        user_id: str,
+        channel: str,
+        external_key: str,
+        session_id: str,
+        *,
+        target_meta: dict[str, Any] | None = None,
+        display_name: str = "",
+    ) -> None:
+        def _update() -> None:
+            doc = self._read(user_id)
+            by_key = doc.setdefault(channel, {})
+            now = _dt_to_json(utcnow())
+            record = by_key.get(external_key)
+            if record is None:
+                record = {
+                    "channel": channel,
+                    "external_key": external_key,
+                    "active_session_id": session_id,
+                    "target_type": str((target_meta or {}).get("target_type") or ""),
+                    "display_name": display_name,
+                    "send_meta": (target_meta or {}).get("send_meta") or {},
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                by_key[external_key] = record
+            else:
+                record["active_session_id"] = session_id
+                if target_meta:
+                    record["target_type"] = str(target_meta.get("target_type") or "")
+                    record["send_meta"] = target_meta.get("send_meta") or {}
+                if display_name:
+                    record["display_name"] = display_name
+                record["updated_at"] = now
+            self._write(user_id, doc)
+
+        await asyncio.to_thread(_update)
+
+    async def list_by_channel(
+        self, user_id: str, channel: str
+    ) -> list[dict[str, Any]]:
+        doc = await asyncio.to_thread(self._read, user_id)
+        records = list((doc.get(channel) or {}).values())
+        records.sort(key=lambda r: r.get("updated_at") or "", reverse=True)
+        return [
+            {
+                "external_key": r["external_key"],
+                "target_type": r.get("target_type", ""),
+                "display_name": r.get("display_name", ""),
+                "last_active_at": _dt_from_json(r.get("updated_at")),
+            }
+            for r in records
+        ]
+
+    async def get_target_meta(
+        self, user_id: str, channel: str, external_key: str
+    ) -> dict[str, Any] | None:
+        doc = await asyncio.to_thread(self._read, user_id)
+        record = (doc.get(channel) or {}).get(external_key)
+        if record is None:
+            return None
+        return {
+            "target_type": record.get("target_type", ""),
+            "display_name": record.get("display_name", ""),
+            "send_meta": record.get("send_meta") or {},
+        }
+
+    async def exists(self, user_id: str, channel: str, external_key: str) -> bool:
+        doc = await asyncio.to_thread(self._read, user_id)
+        return external_key in (doc.get(channel) or {})
