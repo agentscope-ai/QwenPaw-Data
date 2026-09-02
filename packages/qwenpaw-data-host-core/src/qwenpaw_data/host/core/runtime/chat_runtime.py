@@ -13,6 +13,7 @@ from agentscope.message import UserMsg
 
 from qwenpaw_data.host.core.algo.biztrace.transformer import BizTraceTransformer
 from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
+from qwenpaw_data.host.core.algo.settlement import SettlementManager, SettlementSettings
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.orchestration.tools import PLAN_TOOL_NAMES
@@ -36,6 +37,9 @@ BIZTRACE_JOIN_TIMEOUT_SECONDS = 90.0
 
 logger = logging.getLogger(__name__)
 
+# Keep strong references to fire-and-forget settlement runs until they finish.
+_SETTLEMENT_TASKS: set[asyncio.Task] = set()
+
 
 def _followup_enabled() -> bool:
     raw = (os.environ.get(FOLLOWUP_ENABLED_ENV) or "1").strip().lower()
@@ -57,11 +61,15 @@ class ChatRuntime:
         events: ChatEventStore,
         hosts: QwenPawDataHostRegistry,
         prefs: Any = None,
+        sessions: Any = None,
+        settlement: Any = None,
     ) -> None:
         self.chats = chats
         self.events = events
         self.hosts = hosts
         self.prefs = prefs
+        self.sessions = sessions
+        self.settlement = settlement
         self._executor = AgentExecutor()
         self._finished = asyncio.Event()
         self._cancel_requested = False
@@ -184,6 +192,8 @@ class ChatRuntime:
             if self._biztrace is not None:
                 await self._biztrace.append(None, last=True)
         await self._finish(chat, envelope, outcome, error=error)
+        if outcome == "completed":
+            self._schedule_settlement(chat, identity)
 
     async def _load_runtime_config(self, identity: Identity) -> None:
         """Attach the user's model preferences to the run context; never raises."""
@@ -194,6 +204,37 @@ class ChatRuntime:
             self._run_context.user_runtime_config = prefs.runtime_config()
         except Exception:
             logger.exception("failed to load preferences for chat runtime")
+
+    def _schedule_settlement(self, chat: Chat, identity: Identity) -> None:
+        """Fire-and-forget settlement detection after a completed turn."""
+        if self.sessions is None or self.settlement is None:
+            return
+        try:
+            settings = SettlementSettings()
+            if not settings.enabled:
+                return
+            ctx = self._run_context
+            manager = SettlementManager(
+                sessions=self.sessions,
+                chats=self.chats,
+                events=self.events,
+                cards=self.settlement,
+                identity=identity,
+                user_runtime_config=ctx.user_runtime_config if ctx else None,
+                settings=settings,
+            )
+            task = asyncio.create_task(
+                manager.on_chat_finish(
+                    chat_id=chat.id,
+                    session_id=chat.session_id,
+                )
+            )
+            _SETTLEMENT_TASKS.add(task)
+            task.add_done_callback(_SETTLEMENT_TASKS.discard)
+        except Exception:
+            logger.exception(
+                "settlement: failed to schedule detection for chat %s", chat.id
+            )
 
     async def _start_followup(
         self,

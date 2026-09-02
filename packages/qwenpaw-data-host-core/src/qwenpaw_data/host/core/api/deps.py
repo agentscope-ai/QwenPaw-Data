@@ -15,6 +15,7 @@ from qwenpaw_data.host.core.store.protocols import (
     CronStore,
     PreferencesStore,
     SessionStore,
+    SettlementStore,
 )
 
 
@@ -25,6 +26,7 @@ class ServiceState:
     events: ChatEventStore
     prefs: PreferencesStore
     cron: CronStore
+    settlement: SettlementStore
     hosts: QwenPawDataHostRegistry
     cron_manager: Any = None
     tasks: set[asyncio.Task] = field(default_factory=set)
