@@ -26,6 +26,7 @@ from qwenpaw_data.host.core.agent.middleware import (
 from qwenpaw_data.host.core.api.auth import install_api_token_auth
 from qwenpaw_data.host.core.api.deps import ServiceState
 from qwenpaw_data.host.core.api.errors import http_exception_handler
+from qwenpaw_data.host.core.api.routers import artifacts as artifacts_router
 from qwenpaw_data.host.core.api.routers import channels as channels_router
 from qwenpaw_data.host.core.api.routers import chats as chats_router
 from qwenpaw_data.host.core.api.routers import clarification as clarification_router
@@ -258,6 +259,7 @@ def create_app(
     app.include_router(cron_router.router, prefix="/api/v1")
     app.include_router(settlement_router.router, prefix="/api/v1")
     app.include_router(channels_router.router, prefix="/api/v1")
+    app.include_router(artifacts_router.router, prefix="/api/v1")
     app.include_router(channels_router.config_router, prefix="/api/v1")
 
     @app.get("/health")
