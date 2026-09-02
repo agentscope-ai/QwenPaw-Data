@@ -75,8 +75,60 @@ def neo4j_session(driver: Any, *, database: Optional[str] = None) -> Iterator[An
         sess.close()
 
 
-# 语义层导入等模块沿用 graph_session 旧名；与 neo4j_session 行为完全一致。
-graph_session = neo4j_session
+@contextmanager
+def graph_session(
+    backend: Any,
+    *,
+    database: Optional[str] = None,
+) -> Iterator[Any]:
+    """打开图数据库会话（后端可插拔）。
+
+    优先级链：
+    1. ``backend`` 是 ``GraphBackend`` 实例 → 走后端的 ``session()``；
+    2. ``backend`` 非 None（Neo4j driver）→ 向后兼容走 ``neo4j_session``；
+    3. ``backend`` 为 ``None`` → 从 ``BackendManager.active_or_none()`` 取
+       当前活跃后端（运行时切换的落点）；若 manager 也未初始化，
+       抛 ``RuntimeError`` 提示调用方。
+
+    逻辑库解析与 :func:`neo4j_session` 一致：显式 ``database`` > 请求上下文 >
+    ``CFG.neo4j_database``。
+
+    Args:
+        backend: GraphBackend 实例 / Neo4j driver / None（走 BackendManager）
+
+    Yields:
+        会话对象（GraphSession 或 neo4j.Session）
+    """
+    from .graph.backends.base import GraphBackend
+
+    if isinstance(backend, GraphBackend):
+        from .config import CFG
+
+        db = database
+        if db is None:
+            db = neo4j_database_ctx.get()
+        if db is None:
+            db = CFG.neo4j_database
+        with backend.session(database=db) as session:
+            yield session
+        return
+
+    if backend is not None:
+        # 向后兼容：裸 Neo4j driver
+        with neo4j_session(backend, database=database) as session:
+            yield session
+        return
+
+    from .graph.backends.registry import get_manager
+
+    active = get_manager().active_or_none()
+    if active is None:
+        raise RuntimeError(
+            "graph_session(None)：BackendManager 未初始化。"
+            " 请传入 driver/backend，或在启动时调用 init_backend(CFG)。"
+        )
+    with graph_session(active, database=database) as session:
+        yield session
 
 
 def strip_sql(sql: str) -> str:
