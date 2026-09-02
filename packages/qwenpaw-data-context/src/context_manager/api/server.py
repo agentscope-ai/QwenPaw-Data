@@ -422,6 +422,14 @@ def create_app() -> FastAPI:
                 notifications_min_severity="OFF",
             )
             app.state.driver = driver
+            # 图后端抽象：把 driver 包成 Neo4jBackend 注册为活跃后端
+            # （复用 driver、不拥有其生命周期），graph_session(None) 即可路由。
+            try:
+                from context_manager.graph.backends.registry import init_backend
+
+                init_backend(CFG, neo4j_driver=driver)
+            except Exception as backend_exc:  # noqa: BLE001
+                log.warning("graph backend registration failed: %s", backend_exc)
             app.state.session_store = SessionStore(
                 sqlite_path=CFG.sessions_db_path if CFG.sessions_persist else None,
             )
@@ -476,6 +484,14 @@ def create_app() -> FastAPI:
             try:
                 await governor.aclose()
             finally:
+                try:
+                    from context_manager.graph.backends.registry import (
+                        get_manager as _get_backend_manager,
+                    )
+
+                    _get_backend_manager().close_all()
+                except Exception as backend_exc:  # noqa: BLE001
+                    log.warning("graph backend shutdown failed: %s", backend_exc)
                 try:
                     if driver is not None:
                         await asyncio.to_thread(driver.close)

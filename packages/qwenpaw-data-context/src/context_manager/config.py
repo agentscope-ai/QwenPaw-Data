@@ -315,6 +315,8 @@ class Config:
     neo4j_password: str = os.getenv("NEO4J_PASSWORD", "")  # 数据库密码
     # Neo4j 5 逻辑库名；不设则默认库（仅手动调试）；数据集流水线应设 NEO4J_DATABASE
     neo4j_database: Optional[str] = field(default_factory=_neo4j_database)
+    # 图后端类型；社区版内置 'neo4j'，自定义后端经 graph.backends.registry 注册
+    graph_backend: str = os.getenv("GRAPH_BACKEND", "neo4j")
 
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")  # LLM API Key（空则部分客户端用占位）
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")  # 可指向兼容服务
