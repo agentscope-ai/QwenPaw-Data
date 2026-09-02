@@ -14,3 +14,11 @@ class ErrorBodySchema(ApiModel):
     code: Literal["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "VALIDATION"]
     message: str
     details: dict[str, Any] | None = None
+
+
+class DatasourceOptionSchema(ApiModel):
+    id: str
+    name: str
+    status: str
+    description: str = ""
+    recommended: bool = False

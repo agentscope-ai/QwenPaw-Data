@@ -21,8 +21,316 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
 )
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.preference import (
+    ModelOverride,
+    ProviderCredential,
+    UserPreferences,
+)
+from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.session._locking import file_lock, write_atomic
+from qwenpaw_data.host.core.store._prefs_logic import (
+    clean_model_upsert,
+    merge_provider_patch,
+)
+from qwenpaw_data.host.core.utils.secrets import decrypt_api_key
 from qwenpaw_data.host.core.utils.time import utcnow
+
+
+class JSONPreferencesStore:
+    def __init__(self, root: Path) -> None:
+        self._prefs_root = Path(root).expanduser().resolve() / "preferences"
+
+    def _path(self, user_id: str) -> Path:
+        return self._prefs_root / f"{user_id}.json"
+
+    def _read(self, user_id: str) -> dict[str, Any]:
+        path = self._path(user_id)
+        with file_lock(path):
+            if not path.exists():
+                return {"providers": {}, "models": {}, "active": None}
+            return json.loads(path.read_text(encoding="utf-8"))
+
+    def _write(self, user_id: str, doc: dict[str, Any]) -> None:
+        path = self._path(user_id)
+        with file_lock(path):
+            write_atomic(path, doc)
+
+    async def load(self, user_id: str) -> UserPreferences:
+        doc = await asyncio.to_thread(self._read, user_id)
+        providers = {
+            pid: ProviderCredential(
+                api_key=decrypt_api_key(rec["api_key_enc"]),
+                base_url=rec.get("base_url"),
+            )
+            for pid, rec in doc["providers"].items()
+        }
+        models = {}
+        for key, rec in doc["models"].items():
+            pid, model_id = key.split("/", 1)
+            models[(pid, model_id)] = ModelOverride(
+                source=rec["source"],
+                name=rec.get("name"),
+                thinking_enabled=rec.get("thinking_enabled"),
+                generate_kwargs=rec.get("generate_kwargs"),
+            )
+        active = doc.get("active") or {}
+        return UserPreferences(
+            user_id=user_id,
+            providers=providers,
+            models=models,
+            default_provider_id=active.get("default_provider_id"),
+            default_model_id=active.get("default_model_id"),
+            light_provider_id=active.get("light_provider_id"),
+            light_model_id=active.get("light_model_id"),
+        )
+
+    async def upsert_provider(
+        self,
+        user_id: str,
+        provider_id: str,
+        patch: dict[str, Any],
+    ) -> None:
+        doc = await asyncio.to_thread(self._read, user_id)
+        current = doc["providers"].get(provider_id)
+        api_key_enc, base_url = merge_provider_patch(
+            exists=current is not None,
+            current_api_key_enc=None if current is None else current["api_key_enc"],
+            current_base_url=None if current is None else current.get("base_url"),
+            patch=patch,
+            provider_id=provider_id,
+        )
+        doc["providers"][provider_id] = {
+            "api_key_enc": api_key_enc,
+            "base_url": base_url,
+        }
+        await asyncio.to_thread(self._write, user_id, doc)
+
+    async def delete_provider(self, user_id: str, provider_id: str) -> None:
+        doc = await asyncio.to_thread(self._read, user_id)
+        if provider_id not in doc["providers"]:
+            raise LookupError(f"provider config not found: {provider_id}")
+        del doc["providers"][provider_id]
+        await asyncio.to_thread(self._write, user_id, doc)
+
+    async def upsert_model(
+        self,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+        *,
+        source: str,
+        name: str | None = None,
+        thinking_enabled: bool | None = None,
+        generate_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        model_id, name = clean_model_upsert(
+            provider_id, model_id, source=source, name=name
+        )
+        doc = await asyncio.to_thread(self._read, user_id)
+        doc["models"][f"{provider_id}/{model_id}"] = {
+            "source": source,
+            "name": name,
+            "thinking_enabled": thinking_enabled,
+            "generate_kwargs": generate_kwargs,
+        }
+        await asyncio.to_thread(self._write, user_id, doc)
+
+    async def delete_model(
+        self,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+    ) -> None:
+        doc = await asyncio.to_thread(self._read, user_id)
+        key = f"{provider_id}/{model_id}"
+        if key not in doc["models"]:
+            raise LookupError(
+                f"model config not found: {provider_id}/{model_id}"
+            )
+        del doc["models"][key]
+        await asyncio.to_thread(self._write, user_id, doc)
+
+    async def get_active_models(self, user_id: str) -> dict[str, Any]:
+        doc = await asyncio.to_thread(self._read, user_id)
+        active = doc.get("active") or {}
+        return {
+            "default_provider_id": active.get("default_provider_id"),
+            "default_model_id": active.get("default_model_id"),
+            "light_provider_id": active.get("light_provider_id"),
+            "light_model_id": active.get("light_model_id"),
+        }
+
+    async def set_active_models(
+        self,
+        user_id: str,
+        *,
+        default_provider_id: str,
+        default_model_id: str,
+        light_provider_id: str | None = None,
+        light_model_id: str | None = None,
+    ) -> dict[str, Any]:
+        if (light_provider_id is None) != (light_model_id is None):
+            raise ValueError(
+                "light_provider_id and light_model_id must be set together"
+            )
+        prefs = await self.load(user_id)
+        prefs.default_provider_id = default_provider_id
+        prefs.default_model_id = default_model_id
+        prefs.light_provider_id = light_provider_id
+        prefs.light_model_id = light_model_id
+        prefs.validate_selection()
+        doc = await asyncio.to_thread(self._read, user_id)
+        doc["active"] = {
+            "default_provider_id": default_provider_id,
+            "default_model_id": default_model_id,
+            "light_provider_id": light_provider_id,
+            "light_model_id": light_model_id,
+        }
+        await asyncio.to_thread(self._write, user_id, doc)
+        return await self.get_active_models(user_id)
+
+
+def _session_to_dict(session: Session) -> dict[str, Any]:
+    return {
+        "id": session.id,
+        "identity": {
+            "user_id": session.identity.user_id,
+            "attrs": dict(session.identity.attrs),
+        },
+        "agent_id": session.agent_id,
+        "title": session.title,
+        "datasource_id": session.datasource_id,
+        "chat_count": session.chat_count,
+        "channel": session.channel,
+        "created_at": _dt_to_json(session.created_at),
+        "updated_at": _dt_to_json(session.updated_at),
+        "deleted_at": _dt_to_json(session.deleted_at),
+        "parent_session_id": session.parent_session_id,
+        "forked_from_chat_id": session.forked_from_chat_id,
+    }
+
+
+def _session_from_dict(data: dict[str, Any]) -> Session:
+    identity = data["identity"]
+    return Session(
+        id=data["id"],
+        identity=Identity(
+            user_id=identity["user_id"],
+            attrs=identity.get("attrs") or {},
+        ),
+        agent_id=data.get("agent_id", "default"),
+        title=data.get("title", ""),
+        datasource_id=data.get("datasource_id"),
+        chat_count=data.get("chat_count", 0),
+        channel=data.get("channel", "console"),
+        created_at=_dt_from_json(data["created_at"]),
+        updated_at=_dt_from_json(data["updated_at"]),
+        deleted_at=_dt_from_json(data.get("deleted_at")),
+        parent_session_id=data.get("parent_session_id"),
+        forked_from_chat_id=data.get("forked_from_chat_id"),
+    )
+
+
+class JSONSessionStore:
+    def __init__(self, root: Path) -> None:
+        self._sessions_root = Path(root).expanduser().resolve() / "sessions"
+        self._chats = JSONChatStore(root)
+
+    def _session_path(self, session_id: str) -> Path:
+        return self._sessions_root / f"{session_id}.json"
+
+    async def add(self, session: Session) -> None:
+        path = self._session_path(session.id)
+        if await asyncio.to_thread(path.exists):
+            raise RuntimeError(f"CONFLICT: session already exists: {session.id}")
+        await asyncio.to_thread(self._write_locked, path, session)
+
+    async def get(self, session_id: str) -> Session:
+        session = await asyncio.to_thread(
+            self._read_locked, self._session_path(session_id)
+        )
+        if session is None or session.deleted_at is not None:
+            raise LookupError(f"session not found: {session_id}")
+        return session
+
+    async def save(self, session: Session) -> None:
+        path = self._session_path(session.id)
+        if not await asyncio.to_thread(path.exists):
+            raise LookupError(f"session not found: {session.id}")
+        await asyncio.to_thread(self._write_locked, path, session)
+
+    async def has_active_chat(self, session_id: str) -> bool:
+        return await self._chats.get_active_for_session(session_id) is not None
+
+    async def list(
+        self,
+        *,
+        search_text: str | None = None,
+        status: str | None = None,
+        datasource_id: str | None = None,
+        channel: str | None = None,
+        sort: str = "updated_desc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[tuple[Session, bool]], int]:
+        if page < 1 or page_size < 1:
+            raise ValueError("page/page_size invalid")
+        sessions = await asyncio.to_thread(self._scan_sessions)
+        selected: list[tuple[Session, bool]] = []
+        for session in sessions:
+            if session.deleted_at is not None:
+                continue
+            if search_text and search_text not in session.title:
+                continue
+            if datasource_id and session.datasource_id != datasource_id:
+                continue
+            if channel and session.channel != channel:
+                continue
+            active = await self.has_active_chat(session.id)
+            if status == "running" and not active:
+                continue
+            if status == "idle" and active:
+                continue
+            selected.append((session, active))
+        if sort == "chat_count_desc":
+            selected.sort(key=lambda p: (p[0].chat_count, p[0].updated_at), reverse=True)
+        elif sort == "updated_asc":
+            selected.sort(key=lambda p: p[0].updated_at)
+        else:
+            selected.sort(key=lambda p: p[0].updated_at, reverse=True)
+        total = len(selected)
+        start = (page - 1) * page_size
+        return selected[start : start + page_size], total
+
+    async def delete(self, session_id: str) -> None:
+        path = self._session_path(session_id)
+        session = await asyncio.to_thread(self._read_locked, path)
+        if session is None or session.deleted_at is not None:
+            return
+        session.soft_delete(has_active_chat=await self.has_active_chat(session_id))
+        await asyncio.to_thread(self._write_locked, path, session)
+
+    def _scan_sessions(self) -> list[Session]:
+        if not self._sessions_root.exists():
+            return []
+        sessions: list[Session] = []
+        for path in self._sessions_root.glob("*.json"):
+            session = self._read_locked(path)
+            if session is not None:
+                sessions.append(session)
+        return sessions
+
+    @staticmethod
+    def _read_locked(path: Path) -> Session | None:
+        with file_lock(path):
+            if not path.exists():
+                return None
+            return _session_from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    @staticmethod
+    def _write_locked(path: Path, session: Session) -> None:
+        with file_lock(path):
+            write_atomic(path, _session_to_dict(session))
 
 
 def _dt_to_json(value: datetime | None) -> str | None:

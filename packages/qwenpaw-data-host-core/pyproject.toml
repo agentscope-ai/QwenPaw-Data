@@ -29,7 +29,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-service = ["fastapi>=0.115,<1.0"]
+service = [
+  "fastapi>=0.115,<1.0",
+  "sqlalchemy[asyncio]>=2.0,<3.0",
+  "aiosqlite>=0.20,<1.0",
+  "cryptography>=42,<47",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"

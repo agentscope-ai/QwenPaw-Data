@@ -8,13 +8,20 @@ from fastapi import Request
 
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
-from qwenpaw_data.host.core.store.protocols import ChatEventStore, ChatStore
+from qwenpaw_data.host.core.store.protocols import (
+    ChatEventStore,
+    ChatStore,
+    PreferencesStore,
+    SessionStore,
+)
 
 
 @dataclass
 class ServiceState:
+    sessions: SessionStore
     chats: ChatStore
     events: ChatEventStore
+    prefs: PreferencesStore
     hosts: QwenPawDataHostRegistry
     tasks: set[asyncio.Task] = field(default_factory=set)
 

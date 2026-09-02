@@ -12,6 +12,76 @@ from typing import Any, Protocol
 
 from qwenpaw_data.host.core.api.models.stream_objects import StreamObject
 from qwenpaw_data.host.core.domain.chat import Chat
+from qwenpaw_data.host.core.domain.preference import UserPreferences
+from qwenpaw_data.host.core.domain.session import Session
+
+
+class PreferencesStore(Protocol):
+    async def load(self, user_id: str) -> UserPreferences: ...
+
+    async def upsert_provider(
+        self,
+        user_id: str,
+        provider_id: str,
+        patch: dict[str, Any],
+    ) -> None: ...
+
+    async def delete_provider(self, user_id: str, provider_id: str) -> None: ...
+
+    async def upsert_model(
+        self,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+        *,
+        source: str,
+        name: str | None = None,
+        thinking_enabled: bool | None = None,
+        generate_kwargs: dict[str, Any] | None = None,
+    ) -> None: ...
+
+    async def delete_model(
+        self,
+        user_id: str,
+        provider_id: str,
+        model_id: str,
+    ) -> None: ...
+
+    async def get_active_models(self, user_id: str) -> dict[str, Any]: ...
+
+    async def set_active_models(
+        self,
+        user_id: str,
+        *,
+        default_provider_id: str,
+        default_model_id: str,
+        light_provider_id: str | None = None,
+        light_model_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
+
+class SessionStore(Protocol):
+    async def add(self, session: Session) -> None: ...
+
+    async def get(self, session_id: str) -> Session: ...
+
+    async def save(self, session: Session) -> None: ...
+
+    async def has_active_chat(self, session_id: str) -> bool: ...
+
+    async def list(
+        self,
+        *,
+        search_text: str | None = None,
+        status: str | None = None,
+        datasource_id: str | None = None,
+        channel: str | None = None,
+        sort: str = "updated_desc",
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[tuple[Session, bool]], int]: ...
+
+    async def delete(self, session_id: str) -> None: ...
 
 
 class ChatStore(Protocol):
