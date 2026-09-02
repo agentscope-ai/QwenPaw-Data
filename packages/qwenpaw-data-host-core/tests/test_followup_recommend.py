@@ -100,7 +100,7 @@ def _tool_call(
 def _turn() -> list[dict[str, Any]]:
     """A minimal analysis: one metric fetched, one dimension left untouched."""
     context = json.dumps(
-        {"schema_prompt": "指标: met:holo:Bailian:GAAP用户数\n  可下钻维度: 渠道类型, 页面"},
+        {"schema_prompt": "指标: met:holo:DemoBiz:GAAP用户数\n  可下钻维度: 渠道类型, 页面"},
         ensure_ascii=False,
     )
     question = {"content": [{"type": "text", "text": "看下 GAAP用户数"}]}

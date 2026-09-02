@@ -39,6 +39,8 @@ def _register_builtins() -> None:
     from .ddl_adapter import DDLAdapter
     from .csv_adapter import CSVAdapter
     from .odps_adapter import OdpsAdapter
+    from .sqlite_adapter import SQLiteConnector
+    from .bigquery_adapter import BigQueryConnector
 
     register_adapter("postgres", PostgresAdapter.from_config)
     register_adapter("hologres", PostgresAdapter.from_config)
@@ -46,6 +48,8 @@ def _register_builtins() -> None:
     register_adapter("odps", OdpsAdapter.from_config)
     register_adapter("ddl", DDLAdapter.from_config)
     register_adapter("csv", CSVAdapter.from_config)
+    register_adapter("sqlite", SQLiteConnector.from_config)
+    register_adapter("bigquery", BigQueryConnector.from_config)
 
 
 _register_builtins()

@@ -660,7 +660,7 @@ def _clean_name(name: str) -> str:
 def _surface_name(name: str) -> str:
     """Human-facing entity name: drop CM graph-key prefixes when present.
 
-    ``met:postgresql-…:QwenChat:DAU`` and ``met:QwenChat:DAU`` both become
+    ``met:postgresql-…:ShopDemo:DAU`` and ``met:ShopDemo:DAU`` both become
     ``DAU``. Plain display names pass through unchanged.
     """
     cleaned = _clean_name(name)

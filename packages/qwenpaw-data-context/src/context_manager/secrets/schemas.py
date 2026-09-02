@@ -44,6 +44,9 @@ class BigQueryConnection(BaseModel):
     project_id: str
     location: str = "US"
     service_account_json: SecretStr
+    maximum_bytes_billed: Optional[int] = Field(
+        default=None, ge=1, description="单条查询计费字节上限（费用护栏）"
+    )
 
 
 class SnowflakeConnection(BaseModel):
@@ -82,6 +85,9 @@ class CSVConnection(BaseModel):
 class SqliteConnection(BaseModel):
     type: Literal["sqlite"]
     path: str
+    read_only: bool = Field(
+        default=True, description="只读模式打开（mode=ro，防止误写）"
+    )
 
 
 TypedConnection = Annotated[
