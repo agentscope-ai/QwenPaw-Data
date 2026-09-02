@@ -70,7 +70,18 @@ async def test_download_rejects_traversal_and_missing(
     tmp_path, monkeypatch
 ) -> None:
     async with artifacts_client(tmp_path, monkeypatch) as (http, session_id):
-        for bad in ("../secret.txt", "../../secret.txt", "..%2Fsecret.txt", ""):
+        for bad in (
+            "../secret.txt",
+            "../../secret.txt",
+            "..%2Fsecret.txt",
+            "",
+            "/etc/hosts",
+            "~/secret.txt",
+            "sub/../../secret.txt",
+            "sub\\..\\secret.txt",
+            "./chart.png",
+            "sub//rows.csv",
+        ):
             response = await http.get(
                 f"/api/v1/sessions/{session_id}/artifacts/file",
                 params={"path": bad},

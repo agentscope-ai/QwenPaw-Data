@@ -53,6 +53,17 @@ async def download_artifact(
         if http:
             raise http from exc
         raise
+    # Defense in depth: reject escape characters and dot segments in the raw
+    # value before any filesystem resolution. Listings only emit plain
+    # forward-slash relative paths.
+    if (
+        not path
+        or path.startswith(("/", "~"))
+        or "\\" in path
+        or "\x00" in path
+        or any(segment in {"", ".", ".."} for segment in path.split("/"))
+    ):
+        raise_api("NOT_FOUND", "artifact not found", status=404)
     root = _artifact_dir(state, session_id).resolve()
     candidate = (root / path).resolve()
     # Containment check: the resolved file must stay inside the artifact dir.
