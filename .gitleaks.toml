@@ -1,0 +1,14 @@
+# gitleaks configuration: extends the default ruleset with an allowlist for
+# known false positives that live in immutable commit history.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "False positives"
+# wecom/channel.py carries a commented WeCom template-card payload example
+# whose literal placeholder "question_key1" matches the generic-api-key rule.
+regexTarget = "line"
+regexes = [
+  '''"question_key": "question_key1"''',
+]

@@ -26,7 +26,6 @@ def collect_text_parts(blocks: list[Any], parts: list[str]) -> None:
     """Recursively collect text from post/interactive blocks."""
     for block in blocks:
         if isinstance(block, dict):
-            tag = block.get("tag") or ""
             # Elements that carry a text/content field, e.g. text / unescape / lark_md
             for field in ("text", "content"):
                 val = block.get(field)
