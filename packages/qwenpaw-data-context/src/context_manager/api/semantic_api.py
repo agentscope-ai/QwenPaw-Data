@@ -390,6 +390,9 @@ async def semantic_import(request: SemanticImportRequest, req: Request):
 
     # 按 result.status 触发 HTTP 回调通知调用方
     if result.status == ImportStatus.success:
+        from .retrieval import invalidate_global_graph_snapshot_cache
+
+        invalidate_global_graph_snapshot_cache()
         _callback("SUCCESS")
     else:
         err_msg = "; ".join(e.message for e in result.errors) if result.errors else None
@@ -447,4 +450,7 @@ def delete_domain(
     if count == 0:
         ds_hint = f" @{datasource_id}" if datasource_id else ""
         raise HTTPException(status_code=404, detail=f"domain '{name}'{ds_hint} not found")
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
     return {"deleted": name, "datasource_id": datasource_id or ""}

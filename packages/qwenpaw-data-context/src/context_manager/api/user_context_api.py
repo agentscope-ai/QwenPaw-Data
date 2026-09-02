@@ -266,6 +266,10 @@ def create_user_context(
 ) -> dict[str, Any]:
     """Initialize a user's default context after their first login."""
     node = _create_user_node(request.app.state.driver, user_id)
+    if node["created"]:
+        from .retrieval import invalidate_global_graph_snapshot_cache
+
+        invalidate_global_graph_snapshot_cache()
     response.status_code = 201 if node["created"] else 200
     return success(node)
 
@@ -311,6 +315,9 @@ def update_user_context_section(
         fail("MALFORMED_CONTEXT", str(exc), status_code=500)
     if node is None:
         fail("NOT_FOUND", f"User context not found: {user_id}", status_code=404)
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
     return success(_section_response(node, section_name))
 
 
@@ -333,4 +340,7 @@ def reset_user_context_section(
         fail("MALFORMED_CONTEXT", str(exc), status_code=500)
     if node is None:
         fail("NOT_FOUND", f"User context not found: {user_id}", status_code=404)
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
     return success(_section_response(node, section_name))

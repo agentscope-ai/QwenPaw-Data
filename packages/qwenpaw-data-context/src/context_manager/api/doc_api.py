@@ -159,6 +159,9 @@ def _run_kg_ingest_sync(
                 )
         log.exception("KG ingest failed for %r", filename)
     else:
+        from .retrieval import invalidate_global_graph_snapshot_cache
+
+        invalidate_global_graph_snapshot_cache()
         if not client.file_exists(doc_id):
             log.info("Skipped KG ingest success status for %r (document removed)", doc_id)
             return
@@ -177,6 +180,9 @@ def _run_kg_delete_sync(driver: Any, filename: str) -> None:
     try:
         result = delete_kg_nodes_by_source(driver, filename)
         log.info("KG delete completed for %r: %s", filename, result)
+        from .retrieval import invalidate_global_graph_snapshot_cache
+
+        invalidate_global_graph_snapshot_cache()
     except Exception:
         log.exception("KG delete failed for %r", filename)
 

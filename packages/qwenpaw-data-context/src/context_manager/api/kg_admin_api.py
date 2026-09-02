@@ -31,6 +31,14 @@ def _driver(request: Request):
     return request.app.state.driver
 
 
+def _success_after_write(result):
+    """Wrap a successful graph mutation, dropping stale global snapshots."""
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
+    return success(result)
+
+
 # ═══════════════════════════════════════════════════════════════════════ #
 #  Entity
 # ═══════════════════════════════════════════════════════════════════════ #
@@ -63,7 +71,7 @@ def batch_delete_entities(body: BatchDeleteRequest, request: Request):
     driver = _driver(request)
     try:
         result = kg_admin.delete_knowledge_nodes_batch(driver, body.keys)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -102,7 +110,7 @@ def upsert_entity(key: str, body: EntityUpsertRequest, request: Request):
             description=body.description,
             lifecycle_state=body.lifecycle_state,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -113,7 +121,7 @@ def delete_entity(key: str, request: Request):
     driver = _driver(request)
     try:
         result = kg_admin.delete_knowledge_node(driver, key)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -180,7 +188,7 @@ def upsert_event(key: str, body: EventUpsertRequest, request: Request):
             source_trust=body.source_trust,
             extractor=body.extractor,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -191,7 +199,7 @@ def delete_event(key: str, request: Request):
     driver = _driver(request)
     try:
         result = kg_admin.delete_knowledge_node(driver, key)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -212,7 +220,7 @@ def create_related_to(body: RelatedToRequest, request: Request):
             relation_subtype=body.relation_subtype,
             description=body.description,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -223,7 +231,7 @@ def delete_related_to(body: RelatedToDeleteRequest, request: Request):
     driver = _driver(request)
     try:
         result = kg_admin.delete_related_to(driver, from_key=body.from_key, to_key=body.to_key)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -239,7 +247,7 @@ def toggle_about(body: AboutRequest, request: Request):
             entity_key=body.entity_key,
             connect=body.connect,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -256,7 +264,7 @@ def create_cross_graph_edge(body: CrossGraphEdgeRequest, request: Request):
             rel_type=body.rel_type,
             properties=body.properties,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -272,7 +280,7 @@ def delete_cross_graph_edge(body: CrossGraphEdgeDeleteRequest, request: Request)
             to_key=body.to_key,
             rel_type=body.rel_type,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -289,7 +297,7 @@ def update_edge_properties(body: EdgePropertiesUpdateRequest, request: Request):
             rel_type=body.rel_type,
             properties=body.properties,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -306,7 +314,7 @@ def delete_adjacent_edge(body: AdjacentEdgeDeleteRequest, request: Request):
             rel_type=body.rel_type,
             direction=body.direction,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -322,7 +330,7 @@ def delete_edges_by_type(body: EdgeDeleteByTypeRequest, request: Request):
             rel_type=body.rel_type,
             direction_scope=body.direction_scope,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -343,6 +351,6 @@ def purge_edges_by_type_global(body: GlobalEdgePurgeRequest, request: Request):
         result = kg_admin.delete_all_edges_touching_knowledge_nodes_by_type(
             driver, rel_type=body.rel_type,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
