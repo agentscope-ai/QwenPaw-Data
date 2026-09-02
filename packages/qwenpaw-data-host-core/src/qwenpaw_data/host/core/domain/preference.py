@@ -22,6 +22,14 @@ class ModelOverride:
     generate_kwargs: Optional[dict[str, Any]] = None
 
 
+@dataclass(frozen=True)
+class UserRuntimeConfig:
+    """Resolved model selection for background work (e.g. follow-up)."""
+
+    default: ActiveModel | None = None
+    light: ActiveModel | None = None
+
+
 @dataclass
 class UserPreferences:
     """Loaded user preference state for provider credentials and models."""
@@ -39,6 +47,22 @@ class UserPreferences:
         if not self.default_provider_id or not self.default_model_id:
             return None
         return self._active_model(self.default_provider_id, self.default_model_id)
+
+    def runtime_config(self) -> UserRuntimeConfig:
+        """Resolve default/light selections; unresolvable sides become None."""
+        default = light = None
+        try:
+            default = self.active_default()
+        except ValueError:
+            pass
+        if self.light_provider_id and self.light_model_id:
+            try:
+                light = self._active_model(
+                    self.light_provider_id, self.light_model_id
+                )
+            except ValueError:
+                pass
+        return UserRuntimeConfig(default=default, light=light)
 
     def validate_selection(self) -> None:
         """Raise ValueError when the active selection cannot resolve."""

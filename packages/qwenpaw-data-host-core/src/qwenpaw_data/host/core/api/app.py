@@ -157,6 +157,7 @@ def create_app(
             chats=state.chats,
             events=state.events,
             hosts=state.hosts,
+            prefs=state.prefs,
         )
         await state.cron_manager.start()
         try:

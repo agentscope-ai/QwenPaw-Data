@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Literal
 
 from agentscope.event import EventType
+from agentscope.message import UserMsg
 
+from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.orchestration.tools import PLAN_TOOL_NAMES
@@ -22,7 +25,14 @@ from qwenpaw_data.host.core.stream.output_stream import OutputStream
 
 Outcome = Literal["completed", "canceled", "failed"]
 
+FOLLOWUP_ENABLED_ENV = "QWENPAW_DATA_FOLLOWUP_ENABLED"
+
 logger = logging.getLogger(__name__)
+
+
+def _followup_enabled() -> bool:
+    raw = (os.environ.get(FOLLOWUP_ENABLED_ENV) or "1").strip().lower()
+    return raw not in {"0", "false", "off"}
 
 
 class ChatRuntime:
@@ -34,16 +44,19 @@ class ChatRuntime:
         chats: ChatStore,
         events: ChatEventStore,
         hosts: QwenPawDataHostRegistry,
+        prefs: Any = None,
     ) -> None:
         self.chats = chats
         self.events = events
         self.hosts = hosts
+        self.prefs = prefs
         self._executor = AgentExecutor()
         self._finished = asyncio.Event()
         self._cancel_requested = False
         self._agent: Any = None
         self._run_context: RunContext | None = None
         self._stream: OutputStream | None = None
+        self._followup: FollowUpRecommend | None = None
 
     @property
     def agent(self) -> Any:
@@ -118,6 +131,8 @@ class ChatRuntime:
                 identity=identity,
                 request_context=request_context,
             )
+            if _followup_enabled():
+                await self._start_followup(chat, identity, envelope)
             if self._cancel_requested:
                 outcome, error = "canceled", None
             else:
@@ -127,6 +142,7 @@ class ChatRuntime:
                     envelope,
                     after_event_callback=self._after_event_callback,
                 )
+                await self._deliver_followup(envelope)
                 outcome, error = "completed", None
         except asyncio.CancelledError:
             outcome, error = "canceled", None
@@ -141,9 +157,79 @@ class ChatRuntime:
             )
 
         await self._executor.stop()
+        if self._followup is not None and outcome != "completed":
+            # Cancel/failure path: stop collecting without recommending.
+            await self._followup.append(None, last=True)
         await self._finish(chat, envelope, outcome, error=error)
 
+    async def _start_followup(
+        self,
+        chat: Chat,
+        identity: Identity,
+        envelope: Envelope,
+    ) -> None:
+        try:
+            if self.prefs is not None and self._run_context is not None:
+                try:
+                    prefs = await self.prefs.load(identity.user_id)
+                    self._run_context.user_runtime_config = prefs.runtime_config()
+                except Exception:
+                    logger.exception("followup: failed to load preferences")
+            followup = FollowUpRecommend(
+                run_context=self._run_context,
+                previous_followups=await self._load_previous_followups(chat),
+                deliver=envelope.send_followup,
+            )
+            await followup.start()
+            await followup.append(
+                {
+                    "kind": "user_input",
+                    "payload": UserMsg(
+                        name="user", content=chat.user_input
+                    ).model_dump(),
+                }
+            )
+            self._followup = followup
+        except Exception:
+            logger.exception("followup: failed to start for chat %s", chat.id)
+            self._followup = None
+
+    async def _deliver_followup(self, envelope: Envelope) -> None:
+        followup = self._followup
+        if followup is None:
+            return
+        try:
+            await followup.append(None, last=True)
+            questions = await followup.join()
+            if questions:
+                await envelope.send_followup(questions)
+        except Exception:
+            logger.exception("followup: delivery failed")
+
+    async def _load_previous_followups(self, chat: Chat) -> tuple[str, ...]:
+        """Questions recommended earlier in this Session, for dedup."""
+        try:
+            chats = await self.chats.list_for_session(chat.session_id)
+            questions: list[str] = []
+            for prior in chats:
+                if prior.id == chat.id:
+                    continue
+                for obj in await self.events.read_after(prior.id, -1):
+                    if obj.object == "followup.generated":
+                        questions.extend(obj.followup.questions)
+            return tuple(questions)
+        except Exception:
+            logger.exception(
+                "followup: failed to load previous followups for session %s",
+                chat.session_id,
+            )
+            return ()
+
     async def _after_event_callback(self, event: Any) -> None:
+        if self._followup is not None and hasattr(event, "model_dump"):
+            await self._followup.append(
+                {"kind": "agent_event", "payload": event.model_dump()}
+            )
         if event.type != EventType.TOOL_RESULT_START:
             return
         if event.tool_call_name not in PLAN_TOOL_NAMES:

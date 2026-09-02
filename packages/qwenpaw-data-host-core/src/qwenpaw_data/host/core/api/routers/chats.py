@@ -43,6 +43,7 @@ async def create_chat(
         chats=state.chats,
         events=state.events,
         hosts=state.hosts,
+        prefs=state.prefs,
     )
     state.track(asyncio.create_task(runtime.run(chat.id, identity=identity)))
     return {"chat": chat_to_schema(chat)}
