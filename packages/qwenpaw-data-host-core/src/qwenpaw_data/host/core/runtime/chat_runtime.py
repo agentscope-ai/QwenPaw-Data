@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from agentscope.event import EventType
 from agentscope.message import UserMsg
 
+from qwenpaw_data.host.core.algo.biztrace.transformer import BizTraceTransformer
 from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
@@ -22,16 +25,25 @@ from qwenpaw_data.host.core.runtime.turn import TurnInput
 from qwenpaw_data.host.core.store.protocols import ChatEventStore, ChatStore
 from qwenpaw_data.host.core.stream.hub import get_hub
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
+from qwenpaw_data.host.core.utils.ids import create_id
+from qwenpaw_data.host.core.utils.workspace import list_session_files
 
 Outcome = Literal["completed", "canceled", "failed"]
 
 FOLLOWUP_ENABLED_ENV = "QWENPAW_DATA_FOLLOWUP_ENABLED"
+BIZTRACE_ENABLED_ENV = "QWENPAW_DATA_BIZ_TRACE_ENABLED"
+BIZTRACE_JOIN_TIMEOUT_SECONDS = 90.0
 
 logger = logging.getLogger(__name__)
 
 
 def _followup_enabled() -> bool:
     raw = (os.environ.get(FOLLOWUP_ENABLED_ENV) or "1").strip().lower()
+    return raw not in {"0", "false", "off"}
+
+
+def _biztrace_enabled() -> bool:
+    raw = (os.environ.get(BIZTRACE_ENABLED_ENV) or "1").strip().lower()
     return raw not in {"0", "false", "off"}
 
 
@@ -57,6 +69,9 @@ class ChatRuntime:
         self._run_context: RunContext | None = None
         self._stream: OutputStream | None = None
         self._followup: FollowUpRecommend | None = None
+        self._biztrace: BizTraceTransformer | None = None
+        self._envelope: Envelope | None = None
+        self._artifact_seen: dict[str, tuple[int, int]] = {}
 
     @property
     def agent(self) -> Any:
@@ -115,6 +130,7 @@ class ChatRuntime:
             )
             self._stream = stream
             envelope = Envelope(stream)
+            self._envelope = envelope
             await envelope.begin()
 
             request_context = {"datasource_id": chat.datasource_id}
@@ -131,8 +147,11 @@ class ChatRuntime:
                 identity=identity,
                 request_context=request_context,
             )
+            await self._load_runtime_config(identity)
             if _followup_enabled():
-                await self._start_followup(chat, identity, envelope)
+                await self._start_followup(chat, envelope)
+            if _biztrace_enabled():
+                await self._start_biztrace(chat, envelope)
             if self._cancel_requested:
                 outcome, error = "canceled", None
             else:
@@ -142,6 +161,7 @@ class ChatRuntime:
                     envelope,
                     after_event_callback=self._after_event_callback,
                 )
+                await self._deliver_biztrace()
                 await self._deliver_followup(envelope)
                 outcome, error = "completed", None
         except asyncio.CancelledError:
@@ -157,24 +177,30 @@ class ChatRuntime:
             )
 
         await self._executor.stop()
-        if self._followup is not None and outcome != "completed":
-            # Cancel/failure path: stop collecting without recommending.
-            await self._followup.append(None, last=True)
+        if outcome != "completed":
+            # Cancel/failure path: stop collecting without waiting on results.
+            if self._followup is not None:
+                await self._followup.append(None, last=True)
+            if self._biztrace is not None:
+                await self._biztrace.append(None, last=True)
         await self._finish(chat, envelope, outcome, error=error)
+
+    async def _load_runtime_config(self, identity: Identity) -> None:
+        """Attach the user's model preferences to the run context; never raises."""
+        if self.prefs is None or self._run_context is None:
+            return
+        try:
+            prefs = await self.prefs.load(identity.user_id)
+            self._run_context.user_runtime_config = prefs.runtime_config()
+        except Exception:
+            logger.exception("failed to load preferences for chat runtime")
 
     async def _start_followup(
         self,
         chat: Chat,
-        identity: Identity,
         envelope: Envelope,
     ) -> None:
         try:
-            if self.prefs is not None and self._run_context is not None:
-                try:
-                    prefs = await self.prefs.load(identity.user_id)
-                    self._run_context.user_runtime_config = prefs.runtime_config()
-                except Exception:
-                    logger.exception("followup: failed to load preferences")
             followup = FollowUpRecommend(
                 run_context=self._run_context,
                 previous_followups=await self._load_previous_followups(chat),
@@ -193,6 +219,51 @@ class ChatRuntime:
         except Exception:
             logger.exception("followup: failed to start for chat %s", chat.id)
             self._followup = None
+
+    async def _start_biztrace(
+        self,
+        chat: Chat,
+        envelope: Envelope,
+    ) -> None:
+        try:
+            transformer = BizTraceTransformer(
+                run_context=self._run_context,
+                envelope=envelope,
+            )
+            await transformer.start()
+            await transformer.append(
+                {
+                    "kind": "user_input",
+                    "payload": UserMsg(
+                        name="user", content=chat.user_input
+                    ).model_dump(),
+                }
+            )
+            self._artifact_seen = self._artifact_snapshot()
+            self._biztrace = transformer
+        except Exception:
+            logger.exception("biztrace: failed to start for chat %s", chat.id)
+            self._biztrace = None
+
+    async def _deliver_biztrace(self) -> None:
+        """Cap the wait here: the algorithm's join is shielded and has no limit."""
+        biztrace = self._biztrace
+        if biztrace is None:
+            return
+        try:
+            await biztrace.append(None, last=True)
+            await asyncio.wait_for(
+                biztrace.join(), timeout=BIZTRACE_JOIN_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            logger.warning(
+                "biztrace: join timed out after %ss for chat %s; "
+                "completing with raw trace only",
+                BIZTRACE_JOIN_TIMEOUT_SECONDS,
+                biztrace.chat_id,
+            )
+        except Exception:
+            logger.exception("biztrace: delivery failed")
 
     async def _deliver_followup(self, envelope: Envelope) -> None:
         followup = self._followup
@@ -226,15 +297,85 @@ class ChatRuntime:
             return ()
 
     async def _after_event_callback(self, event: Any) -> None:
-        if self._followup is not None and hasattr(event, "model_dump"):
-            await self._followup.append(
-                {"kind": "agent_event", "payload": event.model_dump()}
-            )
+        if self._biztrace is not None and self._is_tool_success(event):
+            # Delta first: the pipeline binds pending files to the coming
+            # TOOL_RESULT_END, so order matters.
+            await self._register_new_files()
+        if hasattr(event, "model_dump"):
+            entry = {"kind": "agent_event", "payload": event.model_dump()}
+            if self._followup is not None:
+                await self._followup.append(dict(entry))
+            if self._biztrace is not None:
+                await self._biztrace.append(dict(entry))
         if event.type != EventType.TOOL_RESULT_START:
             return
         if event.tool_call_name not in PLAN_TOOL_NAMES:
             return
         await self._save_plan()
+
+    @staticmethod
+    def _is_tool_success(event: Any) -> bool:
+        evt_type = getattr(event, "type", None)
+        if hasattr(evt_type, "value"):
+            evt_type = evt_type.value
+        if evt_type != EventType.TOOL_RESULT_END.value:
+            return False
+        tool_state = getattr(event, "state", None)
+        if hasattr(tool_state, "value"):
+            tool_state = tool_state.value
+        return tool_state == "success"
+
+    async def _register_new_files(self) -> None:
+        """Diff the artifact directory; notify the stream and the algorithm."""
+        biztrace = self._biztrace
+        envelope = self._envelope
+        if biztrace is None or envelope is None:
+            return
+        try:
+            current = self._artifact_snapshot()
+            changed = [
+                path
+                for path, stamp in current.items()
+                if self._artifact_seen.get(path) != stamp
+            ]
+            self._artifact_seen = current
+            if not changed:
+                return
+            now = datetime.now(timezone.utc)
+            files: dict[str, str] = {}
+            for path in changed:
+                name = Path(path).name
+                await envelope.stream.artifact_registered(
+                    id=create_id("artifact"),
+                    name=name,
+                    path=path,
+                    created_at=now,
+                    updated_at=now,
+                )
+                files[name] = path
+            await biztrace.append(
+                {"kind": "artifact_delta", "payload": {"files": files}}
+            )
+        except Exception:
+            logger.exception(
+                "biztrace: failed to register artifact files for chat %s",
+                biztrace.chat_id,
+            )
+
+    def _artifact_snapshot(self) -> dict[str, tuple[int, int]]:
+        ctx = self._run_context
+        if ctx is None:
+            return {}
+        artifact_dir = Path(ctx.paths.artifact_dir)
+        stamps: dict[str, tuple[int, int]] = {}
+        for item in list_session_files(artifact_dir):
+            path = item["rel_path"]
+            try:
+                stat = (artifact_dir / path).stat()
+            except OSError:
+                continue
+            stamps[path] = (stat.st_size, stat.st_mtime_ns)
+        return stamps
 
     async def _save_plan(self) -> None:
         ctx = self._run_context
