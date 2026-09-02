@@ -54,6 +54,21 @@ async def _run_turn(http, session_id: str) -> list[dict]:
     _ids, payloads = await _collect_sse(
         http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
     )
+    # The terminal SSE frame is published before the chat's terminal status is
+    # persisted; wait for the store to catch up so a fast follow-up POST does
+    # not race into a spurious has_active_chat CONFLICT.
+    import asyncio
+
+    for _ in range(100):
+        listed = await http.get(f"/api/v1/sessions/{session_id}/chats")
+        chats = {c["id"]: c for c in listed.json()["items"]}
+        if chats.get(chat_id, {}).get("status") in (
+            "completed",
+            "failed",
+            "canceled",
+        ):
+            break
+        await asyncio.sleep(0.05)
     return payloads
 
 
