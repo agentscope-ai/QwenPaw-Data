@@ -55,6 +55,9 @@ def _ser_change(c):
 
 def _post_apply_rebuild(driver) -> list[str]:
     """应用 diff 后重建 embedding + caliber，返回警告列表。"""
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
     warnings: list[str] = []
     try:
         from ..graph.embeddings import index_embeddings
@@ -363,7 +366,11 @@ def import_from_excel_apply(
     等效于先调 ``/import/from-excel`` 得到 JSON，再 POST 到 ``/api/v1/semantic/import``。
     ``target_datasource_id`` 支持一键替换 datasource。
     """
-    from ..contracts.import_models import SemanticImportRequest, SemanticPayload
+    from ..contracts.import_models import (
+        ImportStatus,
+        SemanticImportRequest,
+        SemanticPayload,
+    )
 
     suffix = Path(file.filename or "upload.xlsx").suffix or ".xlsx"
     tmp = save_upload_to_temp(file, suffix=suffix)
@@ -392,7 +399,12 @@ def import_from_excel_apply(
 
     from ..graph.semantic_import_service import run_semantic_import_sync
 
-    return run_semantic_import_sync(_driver(request), sem_req)
+    result = run_semantic_import_sync(_driver(request), sem_req)
+    if result.status == ImportStatus.success:
+        from .retrieval import invalidate_global_graph_snapshot_cache
+
+        invalidate_global_graph_snapshot_cache()
+    return result
 
 
 __all__ = ["router"]

@@ -1,4 +1,5 @@
 """Unified graph explorer API used by the CM Graph frontend."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -16,6 +17,7 @@ from .retrieval import (
     _KNOWLEDGE_LAYER_LABELS,
     _METADATA_LAYER_LABELS,
     _TRACE_LAYER_LABELS,
+    search_explorer_subgraph,
 )
 
 log = get_logger("api.explorer")
@@ -24,10 +26,32 @@ router = APIRouter(prefix="/api/v1/admin/explorer", tags=["explorer"])
 
 _NODE_EDITABLE_FIELDS: dict[str, list[str]] = {
     "Claim": ["text", "confidence", "subject_type", "predicate", "object"],
-    "Strategy": ["strategy_semantics", "memory_tier", "source_trust", "polarity", "example_query"],
-    "StrategyCard": ["strategy_semantics", "memory_tier", "source_trust", "polarity", "example_query"],
+    "Strategy": [
+        "strategy_semantics",
+        "memory_tier",
+        "source_trust",
+        "polarity",
+        "example_query",
+    ],
+    "StrategyCard": [
+        "strategy_semantics",
+        "memory_tier",
+        "source_trust",
+        "polarity",
+        "example_query",
+    ],
     "Entity": ["canonical_name", "type", "aliases", "description", "lifecycle_state"],
-    "Event": ["name", "type", "description", "date_from", "date_to", "scope", "source_id", "source_trust", "extractor"],
+    "Event": [
+        "name",
+        "type",
+        "description",
+        "date_from",
+        "date_to",
+        "scope",
+        "source_id",
+        "source_trust",
+        "extractor",
+    ],
 }
 
 _EDGE_EDITABLE_FIELDS: dict[str, list[str]] = {
@@ -141,6 +165,7 @@ def global_graph(body: GlobalGraphRequest, request: Request):
         ds_id = body.resolved_datasource_id
         if ds_id:
             from .datasource_filter import filter_graph_by_datasource
+
             filtered = filter_graph_by_datasource(data, ds_id)
             if filtered is not None:
                 data = filtered
@@ -197,9 +222,7 @@ def expand_node(body: ExpandNodeRequest, request: Request):
         fail("INTERNAL_ERROR", str(exc), status_code=500)
 
 
-def _filter_expand_result(
-    data: dict, *, zone: str | None, label: str | None
-) -> dict:
+def _filter_expand_result(data: dict, *, zone: str | None, label: str | None) -> dict:
     nodes = data.get("nodes", [])
     center_id = data.get("center")
     filtered_ids: set[str] = set()
@@ -359,11 +382,15 @@ def cross_graph_neighbors(key: str, request: Request, limit: int = 50):
     node_zone = ""
     if zone_record:
         raw_zone = str(zone_record["zone"] or "")
-        node_zone = _LABEL_ZONE.get(raw_zone, raw_zone if raw_zone in _LABEL_ZONE.values() else "")
+        node_zone = _LABEL_ZONE.get(
+            raw_zone, raw_zone if raw_zone in _LABEL_ZONE.values() else ""
+        )
 
     neighbors = []
     for row in rows:
-        other_zone = row.get("other_zone") or _LABEL_ZONE.get(row.get("other_label", ""), "")
+        other_zone = row.get("other_zone") or _LABEL_ZONE.get(
+            row.get("other_label", ""), ""
+        )
         if other_zone and other_zone != node_zone:
             neighbors.append(
                 {
@@ -457,7 +484,9 @@ def edge_detail(body: EdgeDetailRequest, request: Request):
             "target_zone": target_zone,
             "properties": properties,
             "editable_fields": _EDGE_EDITABLE_FIELDS.get(body.rel_type, []),
-            "is_cross_graph": bool(source_zone and target_zone and source_zone != target_zone),
+            "is_cross_graph": bool(
+                source_zone and target_zone and source_zone != target_zone
+            ),
         }
     )
 
@@ -467,107 +496,27 @@ def search_subgraph(body: SearchSubgraphRequest, request: Request):
     """Search nodes and expand each hit by up to three hops."""
     query = body.query.strip()
     if not query:
-        return success({"hit_nodes": [], "nodes": [], "edges": []})
+        return _budgeted_success({"hit_nodes": [], "nodes": [], "edges": []})
 
-    zone_labels = {
-        label
-        for label, zone in _LABEL_ZONE.items()
-        if zone in (body.scope or ["metadata", "trace", "knowledge"])
-    }
-    label_filter = ""
-    if zone_labels:
-        label_filter = " AND (" + " OR ".join(
-            f"node:`{label}`" for label in sorted(zone_labels)
-        ) + ")"
-
-    if body.match_mode == "exact":
-        match_filter = "(node.key = $search_query OR node.name = $search_query)"
-    else:
-        match_filter = """(
-            toLower(coalesce(node.key, '')) CONTAINS $search_query_lower
-            OR toLower(coalesce(node.name, '')) CONTAINS $search_query_lower
-            OR toLower(coalesce(node.canonical_name, '')) CONTAINS $search_query_lower
-            OR toLower(coalesce(node.description, '')) CONTAINS $search_query_lower
-            OR any(alias IN coalesce(node.aliases, [])
-                   WHERE toLower(toString(alias)) CONTAINS $search_query_lower)
-        )"""
-
-    hit_query = f"""
-    MATCH (node)
-    WHERE {match_filter}{label_filter}
-    RETURN node.key AS key, head(labels(node)) AS label,
-           coalesce(node.zone, '') AS zone,
-           coalesce(node.name, node.canonical_name, node.goal, node.key) AS display_name
-    LIMIT $limit
-    """
-    driver = _driver(request)
-    with graph_session(driver) as session:
-        hit_rows = session.run(
-            hit_query,
-            search_query=query,
-            search_query_lower=query.lower(),
-            limit=body.limit,
-        ).data()
-
-    hit_nodes = []
-    for row in hit_rows:
-        hit_nodes.append(
-            {
-                "key": row["key"],
-                "label": row.get("label", ""),
-                "zone": row.get("zone") or _LABEL_ZONE.get(row.get("label", ""), ""),
-                "display_name": row.get("display_name", ""),
-            }
-        )
-    if not hit_nodes:
-        return success({"hit_nodes": [], "nodes": [], "edges": []})
-
-    nodes_by_key = {node["key"]: node for node in hit_nodes if node.get("key")}
-    edges: list[dict] = []
-    seen_edges: set[tuple[str, str, str]] = set()
-    expand_query = f"""
-    MATCH (hit {{key: $hit_key}})
-    OPTIONAL MATCH path = (hit)-[*1..{body.hops}]-(neighbor)
-    WITH hit, neighbor, relationships(path) AS relationships
-    WHERE neighbor IS NOT NULL AND neighbor <> hit
-    RETURN neighbor.key AS key, head(labels(neighbor)) AS label,
-           coalesce(neighbor.zone, '') AS zone,
-           coalesce(neighbor.name, neighbor.canonical_name, neighbor.goal, neighbor.key) AS display_name,
-           [rel IN relationships | {{
-             source_key: coalesce(startNode(rel).key, ''),
-             target_key: coalesce(endNode(rel).key, ''),
-             rel_type: type(rel)
-           }}] AS edge_info
-    LIMIT 200
-    """
-    with graph_session(driver) as session:
-        for hit_key in list(nodes_by_key):
-            for row in session.run(expand_query, hit_key=hit_key).data():
-                node_key = row.get("key")
-                if node_key and node_key not in nodes_by_key:
-                    nodes_by_key[node_key] = {
-                        "key": node_key,
-                        "label": row.get("label", ""),
-                        "zone": row.get("zone") or _LABEL_ZONE.get(row.get("label", ""), ""),
-                        "display_name": row.get("display_name", ""),
-                    }
-                for edge in row.get("edge_info") or []:
-                    edge_id = (
-                        edge.get("source_key", ""),
-                        edge.get("target_key", ""),
-                        edge.get("rel_type", ""),
-                    )
-                    if all(edge_id) and edge_id not in seen_edges:
-                        seen_edges.add(edge_id)
-                        edges.append(
-                            {
-                                "source_key": edge_id[0],
-                                "target_key": edge_id[1],
-                                "rel_type": edge_id[2],
-                                "properties": {},
-                            }
-                        )
-
-    return success(
-        {"hit_nodes": hit_nodes, "nodes": list(nodes_by_key.values()), "edges": edges}
+    scope = body.scope or ["metadata", "trace", "knowledge"]
+    allowed_labels = sorted(
+        label for label, zone in _LABEL_ZONE.items() if zone in scope
     )
+    requested_nodes = body.limit * (body.hops * 4 + 1)
+    requested_edges = body.limit * body.hops * 4
+    max_nodes, max_edges = current_request_budget().cap_graph(
+        nodes=requested_nodes,
+        edges=requested_edges,
+    )
+    data = search_explorer_subgraph(
+        _driver(request),
+        query,
+        allowed_labels=allowed_labels,
+        label_zones=_LABEL_ZONE,
+        match_mode=body.match_mode,
+        hops=body.hops,
+        limit=body.limit,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
+    )
+    return _budgeted_success(data)

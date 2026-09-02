@@ -52,6 +52,21 @@ def test_sync_endpoint_delegation_is_not_awaited_directly():
     assert not inspect.iscoroutinefunction(tg_admin_api.get_task_graph)
 
 
+def test_retrieval_surfaces_stay_on_the_sync_worker_path():
+    from context_manager.api import explorer_api, retrieval
+
+    for endpoint in (
+        explorer_api.global_graph,
+        explorer_api.search_subgraph,
+        cm_api.cm_search_event,
+    ):
+        assert not inspect.iscoroutinefunction(endpoint)
+
+    retrieval_source = inspect.getsource(retrieval)
+    assert "asyncio.to_thread" not in retrieval_source
+    assert "run_in_executor" not in retrieval_source
+
+
 def test_async_routes_use_the_governor_instead_of_default_to_thread():
     assert "asyncio.to_thread" not in inspect.getsource(doc_api)
     assert "run_in_executor" not in inspect.getsource(doc_api)

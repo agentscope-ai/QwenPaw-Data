@@ -27,6 +27,14 @@ def _driver(request: Request):
     return request.app.state.driver
 
 
+def _success_after_write(result):
+    """Wrap a successful graph mutation, dropping stale global snapshots."""
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
+    return success(result)
+
+
 # ═══════════════════════════════════════════════════════════════════════ #
 #  Task
 # ═══════════════════════════════════════════════════════════════════════ #
@@ -66,7 +74,7 @@ def update_task_status(key: str, body: UpdateTaskStatusRequest, request: Request
         result = store.update_task_status(
             driver, key, new_status=body.status, reason=body.reason,
         )
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -81,7 +89,7 @@ def batch_archive_tasks(body: BatchTaskKeysRequest, request: Request):
         fail("VALIDATION_ERROR", "单次最多归档 50 个 Task")
     try:
         result = batch_archive_tasks(driver, body.task_keys, reason=body.reason or "")
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -94,7 +102,7 @@ def delete_task(key: str, request: Request):
     driver = _driver(request)
     try:
         result = delete_task_cascade(driver, key)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -109,7 +117,7 @@ def batch_delete_tasks(body: BatchTaskKeysRequest, request: Request):
         fail("VALIDATION_ERROR", "单次最多删除 50 个 Task")
     try:
         result = batch_delete_tasks(driver, body.task_keys)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -165,7 +173,7 @@ def update_claim(key: str, body: UpdateClaimFieldsRequest, request: Request, bg:
         fail("VALIDATION_ERROR", "至少提供一个要编辑的字段")
     try:
         result = store.update_claim_fields(driver, key, updates=updates, background_tasks=bg)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -178,7 +186,7 @@ def invalidate_claim(key: str, body: InvalidateRequest, request: Request):
     driver = _driver(request)
     try:
         result = invalidate_claim(driver, key, reason=body.reason)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -228,7 +236,7 @@ def update_strategy(key: str, body: UpdateStrategyFieldsRequest, request: Reques
         fail("VALIDATION_ERROR", "至少提供一个要编辑的字段")
     try:
         result = store.update_strategy_card_fields(driver, key, updates=updates)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 
@@ -241,7 +249,7 @@ def invalidate_strategy(key: str, body: InvalidateRequest, request: Request):
     driver = _driver(request)
     try:
         result = invalidate_strategy_card(driver, key, reason=body.reason)
-        return success(result)
+        return _success_after_write(result)
     except ValueError as exc:
         fail("VALIDATION_ERROR", str(exc))
 

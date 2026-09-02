@@ -164,6 +164,9 @@ def ingest_trace_events(req: TraceIngestRequest, request: Request):
         oss_raw_key=oss_key,
     )
 
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
     return TraceIngestResponse(
         task_key=result["task_key"],
         step_count=result["step_count"],
@@ -239,6 +242,10 @@ def ingest_trace_file(
                 oss_raw_key=result.get("oss_raw_key", ""),
             ))
 
+        if results:
+            from .retrieval import invalidate_global_graph_snapshot_cache
+
+            invalidate_global_graph_snapshot_cache()
         return results
     finally:
         upload_path.unlink(missing_ok=True)
@@ -597,4 +604,7 @@ def submit_trace(payload: dict[str, Any], request: Request):
             },
         )
 
+    from .retrieval import invalidate_global_graph_snapshot_cache
+
+    invalidate_global_graph_snapshot_cache()
     return {"success": True, "status": "success"}

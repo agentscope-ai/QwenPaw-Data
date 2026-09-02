@@ -182,6 +182,10 @@ async def import_data(request: ImportRequest, req: Request) -> ImportResult:
             result.task_id,
             result,
         )
+        if result.status in {ImportStatus.success, ImportStatus.degraded}:
+            from .retrieval import invalidate_global_graph_snapshot_cache
+
+            invalidate_global_graph_snapshot_cache()
         if callback_url:
             asyncio.create_task(_fire_callback(callback_url, result))
         return result

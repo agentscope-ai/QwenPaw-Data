@@ -8,10 +8,16 @@
 
 返回结构都是 plain ``dict``，前端 vis-network 直接消费。
 """
+
 from __future__ import annotations
 
+import copy
 import json
 import re
+import threading
+import time
+from collections import OrderedDict
+from collections.abc import Mapping
 from typing import Any, Optional
 
 from neo4j import Driver
@@ -19,7 +25,7 @@ from neo4j import Driver
 from ..embedder import embed_one
 from ..config import CFG
 from ..rrf import rrf_merge as _rrf_merge
-from ..utils import get_logger, neo4j_session
+from ..utils import get_logger, neo4j_database_ctx, neo4j_session
 
 log = get_logger("api.retrieval")
 
@@ -61,7 +67,11 @@ def relevance_gate(
     )
     from ..config import CFG
 
-    eff_threshold = threshold if (threshold is not None and threshold > 0) else CFG.relevance_threshold
+    eff_threshold = (
+        threshold
+        if (threshold is not None and threshold > 0)
+        else CFG.relevance_threshold
+    )
     eff_floor = floor if floor is not None else CFG.relevance_floor
 
     if not rows:
@@ -95,7 +105,11 @@ def relevance_gate(
         return [], {"status": status, "score": round(best_score, 3), "matched_name": ""}
 
     filtered = [row for score, row in scored_rows if score >= eff_threshold]
-    return filtered, {"status": status, "score": round(best_score, 3), "matched_name": best_name}
+    return filtered, {
+        "status": status,
+        "score": round(best_score, 3),
+        "matched_name": best_name,
+    }
 
 
 # ---------------------------------------------------------------------- #
@@ -147,8 +161,9 @@ def _vector_search(
 # ---------------------------------------------------------------------- #
 
 
-def detect_dimensions(driver: Driver, domain: Optional[str], query: str,
-                      datasource_id: str = "") -> list[dict[str, Any]]:
+def detect_dimensions(
+    driver: Driver, domain: Optional[str], query: str, datasource_id: str = ""
+) -> list[dict[str, Any]]:
     """在 ``Dimension.name + aliases`` 里做子串匹配；可选限定 domain 与 datasource_id。"""
     if not query:
         return []
@@ -189,8 +204,9 @@ def detect_domain(driver: Driver, query: str) -> Optional[str]:
 # ---------------------------------------------------------------------- #
 # Q-1: 自然语言 → metric (Hybrid: fulltext + vector via RRF)
 # ---------------------------------------------------------------------- #
-def _fulltext_search_metrics(driver: Driver, query: str, k: int,
-                             domain: Optional[str] = None) -> list[dict[str, Any]]:
+def _fulltext_search_metrics(
+    driver: Driver, query: str, k: int, domain: Optional[str] = None
+) -> list[dict[str, Any]]:
     domain_clause = "AND node.domain = $domain" if domain else ""
     cypher = f"""
     CALL db.index.fulltext.queryNodes('metric_text', $q) YIELD node, score
@@ -268,9 +284,9 @@ def resolve_metric(
             log.warning("embed_one failed (%s); skipping vector path", exc)
             qvec = None
         if qvec:
-            vec_rows = _vector_search(driver, index_name="met_vec",
-                                       query_vec=qvec, k=pool_k,
-                                       domain=domain)
+            vec_rows = _vector_search(
+                driver, index_name="met_vec", query_vec=qvec, k=pool_k, domain=domain
+            )
             if vec_rows:
                 rankings.append(vec_rows)
                 for r in vec_rows:
@@ -441,8 +457,9 @@ def resolve_column(
         log.warning("embed_one failed for column: %s", exc)
         qvec = None
     if qvec:
-        rankings.append(_vector_search(driver, index_name="col_vec",
-                                        query_vec=qvec, k=pool_k))
+        rankings.append(
+            _vector_search(driver, index_name="col_vec", query_vec=qvec, k=pool_k)
+        )
 
     # fulltext
     cypher_ft = """
@@ -463,8 +480,11 @@ def resolve_column(
     if domain_table_keys:
         # column.key = col:db.schema.table.col → 用前缀匹配
         prefixes = [tk.replace("tbl:", "col:") + "." for tk in domain_table_keys]
-        rows = [r for r in rows
-                if any(str(r.get("key", "")).startswith(p) for p in prefixes)]
+        rows = [
+            r
+            for r in rows
+            if any(str(r.get("key", "")).startswith(p) for p in prefixes)
+        ]
     return rows[:k]
 
 
@@ -547,7 +567,9 @@ def expand_subgraph(
             }
         return key
 
-    def add_edge(src: Optional[str], dst: Optional[str], rel: str, props: Optional[dict] = None) -> None:
+    def add_edge(
+        src: Optional[str], dst: Optional[str], rel: str, props: Optional[dict] = None
+    ) -> None:
         if not (src and dst):
             return
         edges.append({"from": src, "to": dst, "type": rel, "props": props or {}})
@@ -581,7 +603,11 @@ def expand_subgraph(
             add_edge(f_key, t_key, "OF_VIEW")
         if r.get("col"):
             _col_props = dict(r["col"])
-            _col_group = "DatasetColumn" if str(_col_props.get("key", "")).startswith("dscol:") else "Column"
+            _col_group = (
+                "DatasetColumn"
+                if str(_col_props.get("key", "")).startswith("dscol:")
+                else "Column"
+            )
             c_key = add_node(r["col"], _col_group)
             add_edge(f_key, c_key, "USES_COLUMN", {"role": r.get("role") or ""})
         # 整理 raw.formulas
@@ -613,12 +639,27 @@ def expand_subgraph(
             add_edge(metric_key_actual, dim_key, "ANALYZED_BY")
             if r.get("col"):
                 _dc_props = dict(r["col"])
-                _dc_group = "DatasetColumn" if str(_dc_props.get("key", "")).startswith("dscol:") else "Column"
+                _dc_group = (
+                    "DatasetColumn"
+                    if str(_dc_props.get("key", "")).startswith("dscol:")
+                    else "Column"
+                )
                 col_key = add_node(r["col"], _dc_group)
-                _dc_rel = "MAPS_TO_DATASET_COLUMN" if _dc_group == "DatasetColumn" else "MAPS_TO_COLUMN"
-                add_edge(dim_key, col_key, _dc_rel,
-                         {"expr": r.get("expr") or "", "filter": r.get("filter") or "",
-                          "binding_type": r.get("binding_type") or ""})
+                _dc_rel = (
+                    "MAPS_TO_DATASET_COLUMN"
+                    if _dc_group == "DatasetColumn"
+                    else "MAPS_TO_COLUMN"
+                )
+                add_edge(
+                    dim_key,
+                    col_key,
+                    _dc_rel,
+                    {
+                        "expr": r.get("expr") or "",
+                        "filter": r.get("filter") or "",
+                        "binding_type": r.get("binding_type") or "",
+                    },
+                )
             if dim_props.get("key") not in seen_dim:
                 seen_dim.add(dim_props.get("key"))
                 raw["drill_dims"].append(
@@ -636,8 +677,12 @@ def expand_subgraph(
             if not r or not r.get("parent"):
                 continue
             pk = add_node(r["parent"], "Metric")
-            add_edge(metric_key_actual, pk, "DERIVED_FROM",
-                     {"role": r.get("role"), "relation_type": r.get("relation_type")})
+            add_edge(
+                metric_key_actual,
+                pk,
+                "DERIVED_FROM",
+                {"role": r.get("role"), "relation_type": r.get("relation_type")},
+            )
             raw["derived"].append(
                 {
                     "key": dict(r["parent"]).get("key"),
@@ -709,7 +754,8 @@ def expand_subgraph(
 
     # DatasetColumn composite: 把 COMPOSED_OF 边和目标 Column 带入子图
     composite_dc_keys = [
-        k for k, n in nodes.items()
+        k
+        for k, n in nodes.items()
         if n["group"] == "DatasetColumn" and n["props"].get("composite")
     ]
     if composite_dc_keys:
@@ -732,8 +778,6 @@ def expand_subgraph(
         "edges": edges,
         "raw": raw,
     }
-
-
 
 
 # ---------------------------------------------------------------------- #
@@ -851,7 +895,13 @@ def _collect_keys_from_trigger_conditions(raw: Any) -> list[str]:
         if g:
             keys.append(f"db:{g}")
 
-    for ak in ("anchor_keys", "entry_anchor_keys", "metric_keys", "seed_keys", "dimension_keys"):
+    for ak in (
+        "anchor_keys",
+        "entry_anchor_keys",
+        "metric_keys",
+        "seed_keys",
+        "dimension_keys",
+    ):
         v = tc.get(ak)
         if isinstance(v, list):
             for x in v:
@@ -897,7 +947,9 @@ def _strategy_card_extra_fetch_keys(
             pks = str(pk).strip()
             if pks and pks not in nodes:
                 want.append(pks)
-        want.extend(_collect_keys_from_trigger_conditions(props.get("trigger_conditions")))
+        want.extend(
+            _collect_keys_from_trigger_conditions(props.get("trigger_conditions"))
+        )
 
     budget = max(0, max_total_nodes - len(nodes))
     out: list[str] = []
@@ -976,9 +1028,14 @@ def _append_strategy_card_synthetic_edges(
         if not ck:
             continue
         props = nv.get("props") or {}
-        path_keys = [_trim_key_token(x) for x in _parse_path_subgraph_keys(props.get("path_subgraph_keys"))]
+        path_keys = [
+            _trim_key_token(x)
+            for x in _parse_path_subgraph_keys(props.get("path_subgraph_keys"))
+        ]
         path_keys = [x for x in path_keys if x]
-        meta_keys = _collect_keys_from_trigger_conditions(props.get("trigger_conditions"))
+        meta_keys = _collect_keys_from_trigger_conditions(
+            props.get("trigger_conditions")
+        )
 
         first_path_idx: Optional[int] = None
         for i, pk in enumerate(path_keys):
@@ -1007,7 +1064,12 @@ def _append_strategy_card_synthetic_edges(
             add_edge(sa, sb, "PATH_ORDER", leg="chain", step=i)
 
         if path_keys and first_path_idx is not None:
-            add_edge(ck, f"syn:path_step:{ck}:{first_path_idx}", "CARD_ENTRY", role="path_head")
+            add_edge(
+                ck,
+                f"syn:path_step:{ck}:{first_path_idx}",
+                "CARD_ENTRY",
+                role="path_head",
+            )
         elif path_keys:
             p0 = path_keys[0]
             if p0 in nodes:
@@ -1105,7 +1167,12 @@ def subgraph_snapshot_from_keys(
                 continue
             seen_edge.add(sig)
             edges_out.append(
-                {"from": ka, "to": kb, "type": rt, "props": _trim_props(dict(row.get("rp") or {}))}
+                {
+                    "from": ka,
+                    "to": kb,
+                    "type": rt,
+                    "props": _trim_props(dict(row.get("rp") or {})),
+                }
             )
 
     _append_strategy_card_synthetic_edges(nodes, edges_out)
@@ -1318,9 +1385,7 @@ def _add_node_unchecked(add_node, node, group: str):
 def _all_layer_labels_union() -> tuple[str, ...]:
     """``zone_mode=all`` 时合并三类图层的结点标签（去重保序）。"""
     merged: dict[str, None] = {}
-    for lab in (
-        _METADATA_LAYER_LABELS + _KNOWLEDGE_LAYER_LABELS + _TRACE_LAYER_LABELS
-    ):
+    for lab in _METADATA_LAYER_LABELS + _KNOWLEDGE_LAYER_LABELS + _TRACE_LAYER_LABELS:
         merged.setdefault(lab, None)
     return tuple(merged.keys())
 
@@ -1337,8 +1402,7 @@ def _zone_mode_allowed(zone_mode: str) -> Optional[tuple[str, ...]]:
     if zm == "knowledge":
         return ("knowledge", "_shared")
     raise ValueError(
-        "zone_mode must be one of: all, metadata, trace, knowledge "
-        f"(got {zone_mode!r})"
+        f"zone_mode must be one of: all, metadata, trace, knowledge (got {zone_mode!r})"
     )
 
 
@@ -1521,7 +1585,259 @@ def search_explorer_nodes(
     return out[:lim]
 
 
+def search_explorer_subgraph(
+    driver: Driver,
+    query: str,
+    *,
+    allowed_labels: Optional[list[str] | tuple[str, ...] | set[str]] = None,
+    label_zones: Optional[Mapping[str, str]] = None,
+    match_mode: str = "fuzzy",
+    hops: int = 1,
+    limit: int = 50,
+    max_nodes: int = 250,
+    max_edges: int = 200,
+) -> dict[str, list[dict[str, Any]]]:
+    """Search Explorer nodes and return one bounded, scope-filtered traversal."""
+    q = (query or "").strip()
+    if not q:
+        return {"hit_nodes": [], "nodes": [], "edges": []}
+
+    restrict_labels = allowed_labels is not None
+    labels: list[str] = []
+    for raw_label in allowed_labels or ():
+        label = str(raw_label).strip()
+        if not _LABEL_TOKEN_RE.fullmatch(label):
+            raise ValueError(f"Invalid Neo4j label: {raw_label!r}")
+        if label not in labels:
+            labels.append(label)
+    labels.sort()
+
+    mode = (match_mode or "fuzzy").strip().lower()
+    if mode not in ("exact", "fuzzy"):
+        raise ValueError("match_mode must be 'exact' or 'fuzzy'")
+    hop_cap = max(1, min(int(hops), 3))
+    seed_cap = max(1, min(int(limit), 200))
+    node_cap = max(0, int(max_nodes))
+    edge_cap = max(0, int(max_edges))
+    if node_cap == 0 or (restrict_labels and not labels):
+        return {"hit_nodes": [], "nodes": [], "edges": []}
+    seed_cap = min(seed_cap, node_cap)
+
+    if mode == "exact":
+        match_filter = "(node.key = $search_query OR node.name = $search_query)"
+    else:
+        match_filter = """(
+            toLower(coalesce(node.key, '')) CONTAINS $search_query_lower
+            OR toLower(coalesce(node.name, '')) CONTAINS $search_query_lower
+            OR toLower(coalesce(node.canonical_name, '')) CONTAINS $search_query_lower
+            OR toLower(coalesce(node.description, '')) CONTAINS $search_query_lower
+            OR any(alias IN coalesce(node.aliases, [])
+                   WHERE toLower(toString(alias)) CONTAINS $search_query_lower)
+        )"""
+
+    hit_query = f"""
+    MATCH (node)
+    WHERE node.key IS NOT NULL
+      AND {match_filter}
+      AND (NOT $restrict_labels OR any(label IN labels(node) WHERE label IN $allowed_labels))
+    WITH node,
+         CASE WHEN $restrict_labels
+              THEN head([label IN $allowed_labels WHERE label IN labels(node)])
+              ELSE head(labels(node)) END AS label
+    RETURN node.key AS key, label,
+           coalesce(node.zone, '') AS zone,
+           coalesce(node.name, node.canonical_name, node.goal, node.key) AS display_name
+    ORDER BY toString(node.key), label
+    LIMIT $limit
+    """
+    params = {
+        "search_query": q,
+        "search_query_lower": q.lower(),
+        "restrict_labels": restrict_labels,
+        "allowed_labels": labels,
+        "limit": seed_cap,
+    }
+    with neo4j_session(driver) as session:
+        hit_rows = session.run(hit_query, **params).data()
+
+    zones = label_zones or {}
+
+    def normalize_node(row: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+        key = row.get("key")
+        if key is None or not str(key):
+            return None
+        label = str(row.get("label") or "")
+        if restrict_labels and label not in labels:
+            return None
+        return {
+            "key": str(key),
+            "label": label,
+            "zone": row.get("zone") or zones.get(label, ""),
+            "display_name": row.get("display_name", ""),
+        }
+
+    hits_by_key: dict[str, dict[str, Any]] = {}
+    for row in hit_rows:
+        node = normalize_node(row)
+        if node is not None:
+            hits_by_key.setdefault(node["key"], node)
+    hit_nodes = sorted(hits_by_key.values(), key=lambda node: node["key"])
+    if not hit_nodes:
+        return {"hit_nodes": [], "nodes": [], "edges": []}
+
+    nodes_by_key = dict(hits_by_key)
+    edges_by_id: dict[tuple[str, str, str], dict[str, Any]] = {}
+    path_limit = max(1, node_cap + edge_cap)
+    traversal_query = f"""
+    MATCH path = (hit)-[*1..{hop_cap}]-(neighbor)
+    WHERE hit.key IN $hit_keys
+      AND neighbor <> hit
+      AND all(path_node IN nodes(path) WHERE path_node.key IS NOT NULL)
+      AND (NOT $restrict_labels OR all(
+            path_node IN nodes(path)
+            WHERE any(label IN labels(path_node) WHERE label IN $allowed_labels)
+          ))
+    WITH path,
+         [path_node IN nodes(path) | toString(path_node.key)] AS path_node_keys,
+         [rel IN relationships(path) | type(rel)] AS path_rel_types
+    ORDER BY length(path), path_node_keys, path_rel_types
+    LIMIT $path_limit
+    RETURN [path_node IN nodes(path) | {{
+             key: path_node.key,
+             label: CASE WHEN $restrict_labels
+                         THEN head([label IN labels(path_node) WHERE label IN $allowed_labels])
+                         ELSE head(labels(path_node)) END,
+             zone: coalesce(path_node.zone, ''),
+             display_name: coalesce(path_node.name, path_node.canonical_name,
+                                    path_node.goal, path_node.key)
+           }}] AS path_nodes,
+           [rel IN relationships(path) | {{
+             source_key: startNode(rel).key,
+             target_key: endNode(rel).key,
+             rel_type: type(rel)
+           }}] AS path_edges
+    """
+    with neo4j_session(driver) as session:
+        path_rows = session.run(
+            traversal_query,
+            hit_keys=[node["key"] for node in hit_nodes],
+            restrict_labels=restrict_labels,
+            allowed_labels=labels,
+            path_limit=path_limit,
+        ).data()
+
+    for row in path_rows:
+        path_nodes: dict[str, dict[str, Any]] = {}
+        for raw_node in row.get("path_nodes") or []:
+            node = normalize_node(raw_node)
+            if node is not None:
+                path_nodes.setdefault(node["key"], node)
+        missing = [node for key, node in path_nodes.items() if key not in nodes_by_key]
+        if len(nodes_by_key) + len(missing) > node_cap:
+            continue
+        for node in missing:
+            nodes_by_key[node["key"]] = node
+        for edge in row.get("path_edges") or []:
+            edge_id = (
+                str(edge.get("source_key") or ""),
+                str(edge.get("target_key") or ""),
+                str(edge.get("rel_type") or ""),
+            )
+            if not all(edge_id) or edge_id in edges_by_id:
+                continue
+            if edge_id[0] not in nodes_by_key or edge_id[1] not in nodes_by_key:
+                continue
+            if len(edges_by_id) >= edge_cap:
+                break
+            edges_by_id[edge_id] = {
+                "source_key": edge_id[0],
+                "target_key": edge_id[1],
+                "rel_type": edge_id[2],
+                "properties": {},
+            }
+
+    return {
+        "hit_nodes": hit_nodes,
+        "nodes": sorted(nodes_by_key.values(), key=lambda node: node["key"]),
+        "edges": [edges_by_id[key] for key in sorted(edges_by_id)],
+    }
+
+
+_GLOBAL_GRAPH_SNAPSHOT_CACHE_TTL_SECONDS = 8.0
+_GLOBAL_GRAPH_SNAPSHOT_CACHE_MAX_ENTRIES = 128
+_GLOBAL_GRAPH_SNAPSHOT_CACHE_LOCK = threading.Lock()
+_GLOBAL_GRAPH_SNAPSHOT_CACHE: OrderedDict[
+    tuple[Any, ...], tuple[float, dict[str, Any]]
+] = OrderedDict()
+_GLOBAL_GRAPH_SNAPSHOT_CACHE_GENERATION = 0
+
+
+def invalidate_global_graph_snapshot_cache() -> None:
+    """Clear all cached global snapshots and invalidate in-flight fills."""
+    global _GLOBAL_GRAPH_SNAPSHOT_CACHE_GENERATION
+    with _GLOBAL_GRAPH_SNAPSHOT_CACHE_LOCK:
+        _GLOBAL_GRAPH_SNAPSHOT_CACHE.clear()
+        _GLOBAL_GRAPH_SNAPSHOT_CACHE_GENERATION += 1
+
+
 def global_graph_snapshot(
+    driver: Driver,
+    *,
+    max_edges: int = 800,
+    max_nodes: int = 600,
+    skeleton: bool = True,
+    domain_roots_only: bool = True,
+    task_roots: bool = False,
+    max_task_roots: int = 10,
+    zone_mode: str = "all",
+) -> dict[str, Any]:
+    """Return a cached global graph snapshot."""
+    cache_key = (
+        id(driver),
+        neo4j_database_ctx.get() or CFG.neo4j_database,
+        max_edges,
+        max_nodes,
+        skeleton,
+        domain_roots_only,
+        task_roots,
+        max_task_roots,
+        zone_mode,
+    )
+    now = time.monotonic()
+    with _GLOBAL_GRAPH_SNAPSHOT_CACHE_LOCK:
+        generation = _GLOBAL_GRAPH_SNAPSHOT_CACHE_GENERATION
+        cached = _GLOBAL_GRAPH_SNAPSHOT_CACHE.get(cache_key)
+        if cached is not None:
+            stored_at, value = cached
+            if now - stored_at < _GLOBAL_GRAPH_SNAPSHOT_CACHE_TTL_SECONDS:
+                _GLOBAL_GRAPH_SNAPSHOT_CACHE.move_to_end(cache_key)
+                return copy.deepcopy(value)
+            del _GLOBAL_GRAPH_SNAPSHOT_CACHE[cache_key]
+
+    value = _global_graph_snapshot_uncached(
+        driver,
+        max_edges=max_edges,
+        max_nodes=max_nodes,
+        skeleton=skeleton,
+        domain_roots_only=domain_roots_only,
+        task_roots=task_roots,
+        max_task_roots=max_task_roots,
+        zone_mode=zone_mode,
+    )
+    cached_value = copy.deepcopy(value)
+    with _GLOBAL_GRAPH_SNAPSHOT_CACHE_LOCK:
+        if generation == _GLOBAL_GRAPH_SNAPSHOT_CACHE_GENERATION:
+            _GLOBAL_GRAPH_SNAPSHOT_CACHE[cache_key] = (time.monotonic(), cached_value)
+            _GLOBAL_GRAPH_SNAPSHOT_CACHE.move_to_end(cache_key)
+            while (
+                len(_GLOBAL_GRAPH_SNAPSHOT_CACHE)
+                > _GLOBAL_GRAPH_SNAPSHOT_CACHE_MAX_ENTRIES
+            ):
+                _GLOBAL_GRAPH_SNAPSHOT_CACHE.popitem(last=False)
+    return value
+
+
+def _global_graph_snapshot_uncached(
     driver: Driver,
     *,
     max_edges: int = 800,
@@ -1588,8 +1904,9 @@ def global_graph_snapshot(
             }
         return key if key in nodes else None
 
-    def add_edge(src: Optional[str], dst: Optional[str], rel: str,
-                 props: Optional[dict] = None) -> None:
+    def add_edge(
+        src: Optional[str], dst: Optional[str], rel: str, props: Optional[dict] = None
+    ) -> None:
         if not (src and dst):
             return
         if len(edges) >= max_edges:
@@ -1722,7 +2039,7 @@ def global_graph_snapshot(
         if counts["domain"] == 0:
             # 无 Domain：Database -[:HAS_TABLE]-> Table
             # Default 物理层：Database -[:HAS_SCHEMA]-> Schema -[:HAS_TABLE]-> Table
-            #（OF_VIEW→Dataset→CONTAINS_TABLE 是 Formula→Table 路径，不能用来数表）
+            # （OF_VIEW→Dataset→CONTAINS_TABLE 是 Formula→Table 路径，不能用来数表）
             db_rows = s.run(
                 "MATCH (db:Database) "
                 "WHERE size($az) = 0 OR coalesce(db.zone, 'metadata') IN $az "
@@ -1748,9 +2065,14 @@ def global_graph_snapshot(
                         "id": synth_key,
                         "label": db_name,
                         "group": "Database",
-                        "props": {**_trim_props(props), "table_count": int(r.get("table_count") or 0)},
+                        "props": {
+                            **_trim_props(props),
+                            "table_count": int(r.get("table_count") or 0),
+                        },
                     }
-            counts["database"] = sum(1 for n in nodes.values() if n["group"] == "Database")
+            counts["database"] = sum(
+                1 for n in nodes.values() if n["group"] == "Database"
+            )
 
             # 如果仍然没有 Database，再试 Schema / Table 根节点
             if counts.get("database", 0) == 0:
@@ -1771,7 +2093,9 @@ def global_graph_snapshot(
                             "group": "Schema",
                             "props": _trim_props(props),
                         }
-                counts["schema"] = sum(1 for n in nodes.values() if n["group"] == "Schema")
+                counts["schema"] = sum(
+                    1 for n in nodes.values() if n["group"] == "Schema"
+                )
 
         # 2) 可选：最近的 N 个 Task（``all`` / ``metadata`` 浏览时追加 trace 入口）
         if effective_task_roots and eff_task_cap > 0:
@@ -1811,7 +2135,9 @@ def global_graph_snapshot(
             for r in rows:
                 a_key = add_node(r["a"], r.get("la") or "Node")
                 b_key = add_node(r["b"], r.get("lb") or "Node")
-                add_edge(a_key, b_key, r["rel"], _trim_props(dict(r.get("rprops") or {})))
+                add_edge(
+                    a_key, b_key, r["rel"], _trim_props(dict(r.get("rprops") or {}))
+                )
 
     return {
         "center": None,
@@ -1819,9 +2145,9 @@ def global_graph_snapshot(
         "edges": edges,
         "raw": {
             "zone_mode": zm,
-            "mode": "domain_roots_only" if domain_roots_only else (
-                "skeleton" if skeleton else "full_sampled"
-            ),
+            "mode": "domain_roots_only"
+            if domain_roots_only
+            else ("skeleton" if skeleton else "full_sampled"),
             "stats": {
                 "node_count": len(nodes),
                 "edge_count": len(edges),
@@ -1882,7 +2208,9 @@ def domain_graph_snapshot(
     for m in metrics:
         m_key = add_node(m, "Metric")
         if dom_key and m_key:
-            edges.append({"from": dom_key, "to": m_key, "type": "HAS_METRIC", "props": {}})
+            edges.append(
+                {"from": dom_key, "to": m_key, "type": "HAS_METRIC", "props": {}}
+            )
 
     return {
         "center": dom_key,
@@ -1890,8 +2218,11 @@ def domain_graph_snapshot(
         "edges": edges,
         "raw": {
             "domain": domain,
-            "stats": {"node_count": len(nodes), "edge_count": len(edges),
-                      "metric_count": len(metrics)},
+            "stats": {
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+                "metric_count": len(metrics),
+            },
         },
     }
 
@@ -1900,8 +2231,8 @@ def _zone_clause(exclude_trace_knowledge: bool) -> str:
     """生成 Cypher 片段：当 ``exclude_trace_knowledge=True`` 时过滤目标节点 zone。"""
     if not exclude_trace_knowledge:
         return ""
-    return (
-        " AND NOT coalesce(nb.zone, 'metadata') IN " + repr(list(_NON_METADATA_ZONES))
+    return " AND NOT coalesce(nb.zone, 'metadata') IN " + repr(
+        list(_NON_METADATA_ZONES)
     )
 
 
@@ -1930,7 +2261,7 @@ def expand_node_snapshot(
     for prefix, (lbl, attr) in _SYNTH_PREFIXES_SNAP.items():
         if node_key.startswith(prefix):
             synth_label_snap = lbl
-            synth_name_snap = node_key[len(prefix):]
+            synth_name_snap = node_key[len(prefix) :]
             break
 
     def add_node(node, group: str, force_key: Optional[str] = None) -> Optional[str]:
@@ -1993,8 +2324,9 @@ def expand_node_snapshot(
         raise ValueError(f"Node {node_key!r} not found")
 
     force_canvas = bool(synth_label_snap) or matched_by_element_id
-    center_key = add_node(rec["a"], rec.get("la") or "Node",
-                          force_key=node_key if force_canvas else None)
+    center_key = add_node(
+        rec["a"], rec.get("la") or "Node", force_key=node_key if force_canvas else None
+    )
     for row in rec["rels"] or []:
         if not row or row.get("nb") is None:
             continue
@@ -2063,7 +2395,7 @@ def expand_node_layer(
     for prefix, (lbl, attr) in _SYNTH_PREFIXES.items():
         if node_key.startswith(prefix):
             synth_label = lbl
-            synth_name = node_key[len(prefix):]
+            synth_name = node_key[len(prefix) :]
             break
 
     if synth_label:
@@ -2133,14 +2465,17 @@ def expand_node_layer(
         raise ValueError(f"Node {node_key!r} not found")
 
     layer_force = bool(synth_label) or matched_by_element_id_layer
-    center_key = add_node(rec["a"], rec.get("la") or "Node", force_key=node_key if layer_force else None)
+    center_key = add_node(
+        rec["a"], rec.get("la") or "Node", force_key=node_key if layer_force else None
+    )
     rels = rec["rels"] or []
 
     if not rels and fallback_neighbors:
         # 该方向无邻居 → 退回到全邻域；这种情况通常是叶子（Column）或
         # 反向只走 _shared 节点（Domain）
         return expand_node_snapshot(
-            driver, node_key,
+            driver,
+            node_key,
             max_edges=max_edges,
             exclude_trace_knowledge=exclude_trace_knowledge,
         )
@@ -2349,7 +2684,9 @@ def recall_strategy_cards(
         sql_template, hit_count, success_rate, memory_tier, composite_score,
         trigger_conditions.
     """
-    from ..graph.strategy_card import StrategyCardRetriever  # avoid circular at module level
+    from ..graph.strategy_card import (
+        StrategyCardRetriever,
+    )  # avoid circular at module level
 
     retriever = StrategyCardRetriever(driver)
     candidates = retriever.recall_top_k(
@@ -2366,10 +2703,16 @@ def recall_strategy_cards(
 #  Phase 2 helpers — node edges, experiences, tags
 # ═══════════════════════════════════════════════════════════════════════ #
 
-_STRIP_KEYS_RETR = frozenset({
-    "embedding", "embedding_hash", "signature_emb",
-    "query_emb", "query_embedding", "strategy_vec",
-})
+_STRIP_KEYS_RETR = frozenset(
+    {
+        "embedding",
+        "embedding_hash",
+        "signature_emb",
+        "query_emb",
+        "query_embedding",
+        "strategy_vec",
+    }
+)
 
 
 def _to_jsonable_retr(obj):
@@ -2440,23 +2783,32 @@ def list_node_edges(
     SKIP $skip LIMIT $limit
     """
     with neo4j_session(driver) as s:
-        total_rec = s.run(count_cypher, **{kk: vv for kk, vv in params.items() if kk not in ("skip", "limit")}).single()
+        total_rec = s.run(
+            count_cypher,
+            **{kk: vv for kk, vv in params.items() if kk not in ("skip", "limit")},
+        ).single()
         total = int(total_rec["total"]) if total_rec else 0
         rows = s.run(data_cypher, **params).data()
 
     edges = []
     for row in rows:
         rp = row.get("properties") or {}
-        rp = {kk: vv for kk, vv in (rp if isinstance(rp, dict) else {}).items() if kk not in _STRIP_KEYS_RETR}
-        edges.append({
-            "rel_type": row.get("rel_type", ""),
-            "direction": row.get("direction", ""),
-            "source_key": row.get("source_key", ""),
-            "target_key": row.get("target_key", ""),
-            "target_label": row.get("target_label", ""),
-            "target_display": row.get("target_display", ""),
-            "properties": _to_jsonable_retr(rp),
-        })
+        rp = {
+            kk: vv
+            for kk, vv in (rp if isinstance(rp, dict) else {}).items()
+            if kk not in _STRIP_KEYS_RETR
+        }
+        edges.append(
+            {
+                "rel_type": row.get("rel_type", ""),
+                "direction": row.get("direction", ""),
+                "source_key": row.get("source_key", ""),
+                "target_key": row.get("target_key", ""),
+                "target_label": row.get("target_label", ""),
+                "target_display": row.get("target_display", ""),
+                "properties": _to_jsonable_retr(rp),
+            }
+        )
     return edges, total
 
 
@@ -2496,7 +2848,10 @@ def list_experiences(
     SKIP $skip LIMIT $limit
     """
     with neo4j_session(driver) as s:
-        total_rec = s.run(count_cypher, **{k: v for k, v in params.items() if k not in ("skip", "limit")}).single()
+        total_rec = s.run(
+            count_cypher,
+            **{k: v for k, v in params.items() if k not in ("skip", "limit")},
+        ).single()
         total = int(total_rec["total"]) if total_rec else 0
         rows = s.run(data_cypher, **params).data()
     return rows, total
@@ -2559,7 +2914,10 @@ def list_tags(
     SKIP $skip LIMIT $limit
     """
     with neo4j_session(driver) as s:
-        total_rec = s.run(count_cypher, **{k: v for k, v in params.items() if k not in ("skip", "limit")}).single()
+        total_rec = s.run(
+            count_cypher,
+            **{k: v for k, v in params.items() if k not in ("skip", "limit")},
+        ).single()
         total = int(total_rec["total"]) if total_rec else 0
         rows = s.run(data_cypher, **params).data()
     return rows, total
@@ -2572,9 +2930,12 @@ __all__ = [
     "expand_node_snapshot",
     "expand_subgraph",
     "global_graph_snapshot",
+    "invalidate_global_graph_snapshot_cache",
     "list_domains",
     "recall_strategy_cards",
     "resolve_metric",
+    "search_events",
+    "search_explorer_subgraph",
     "subgraph_snapshot_from_keys",
     "guess_physical_db_id",
     "topology_insights_for_query",

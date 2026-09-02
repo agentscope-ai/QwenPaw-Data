@@ -228,6 +228,11 @@ def _extract_write_targets(
     return targeted, unresolved
 
 
+def _is_write_statement(cypher: str) -> bool:
+    lowered = _strip_string_literals(cypher).lower()
+    return _has_keyword(lowered, _DML_KEYWORDS)
+
+
 def _check_write_acl(cypher: str) -> None:
     """Validate Cypher write ACL.  Raises via ``fail()`` on violation."""
     cleaned = _strip_string_literals(cypher)
@@ -418,6 +423,10 @@ def execute_cypher(body: CypherRequest, request: Request):
         raw_rows_serial = [dict(zip(keys, (r.data()[k] for k in keys))) for r in records]
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
+    if _is_write_statement(body.cypher):
+        from .retrieval import invalidate_global_graph_snapshot_cache
+
+        invalidate_global_graph_snapshot_cache()
     rows_native = raw_rows_native
     columns = keys if keys else (list(rows_native[0].keys()) if rows_native else [])
 
