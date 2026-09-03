@@ -442,6 +442,10 @@ class ChatRuntime:
             snapshot = self._agent.get_plan().model_dump(mode="json")
         except RuntimeError:
             return None
+        if not snapshot.get("nodes"):
+            # finish_plan archives the graph; keep the last real plan
+            # visible instead of clobbering it with an empty snapshot.
+            return None
         states = self._agent.get_plan_states()
         for node in snapshot.get("nodes") or []:
             state = states.get(node.get("node_id"))
