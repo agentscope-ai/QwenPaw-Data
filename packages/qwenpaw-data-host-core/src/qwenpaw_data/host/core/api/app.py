@@ -287,6 +287,11 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/api/v1/auth/status")
+    async def auth_status() -> dict[str, Any]:
+        """Console-compat probe; bearer auth lives in the middleware."""
+        return {"enabled": False, "sso_enabled": False, "sso_login_path": ""}
+
     # Auth first (inner), CORS last (outermost).
     install_api_token_auth(app)
     app.add_middleware(
