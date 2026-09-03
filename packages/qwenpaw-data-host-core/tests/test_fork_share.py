@@ -276,3 +276,46 @@ async def test_shared_route_bypasses_bearer_auth(tmp_path, monkeypatch) -> None:
         resolved = await http.get(shared.json()["url"])
         assert resolved.status_code == 200
         assert resolved.text == "shared"
+
+
+async def test_init_db_adds_missing_columns(tmp_path) -> None:
+    """Old databases gain newly introduced columns without data loss."""
+    import aiosqlite  # noqa: F401  (ensures the driver is present)
+    from sqlalchemy import text
+
+    from qwenpaw_data.host.core.db.engine import (
+        create_engine_and_factory,
+        init_db,
+    )
+    from qwenpaw_data.host.core.store.sql_store import SQLChatStore
+
+    db_path = tmp_path / "host.db"
+    engine, factory = create_engine_and_factory(
+        f"sqlite+aiosqlite:///{db_path}",
+    )
+    await init_db(engine)
+    # Simulate an old install: drop a column that a later release added.
+    async with engine.begin() as conn:
+        await conn.execute(
+            text('ALTER TABLE "chats" DROP COLUMN "artifact_comments_json"')
+        )
+        await conn.execute(
+            text('ALTER TABLE "chats" DROP COLUMN "attachments_json"')
+        )
+    await init_db(engine)
+
+    from qwenpaw_data.host.core.domain.chat import Chat
+    from qwenpaw_data.host.core.domain.identity import Identity
+
+    store = SQLChatStore(factory)
+    chat = Chat.start(
+        session_id="s",
+        identity=Identity.anonymous(),
+        sequence=1,
+        datasource_id=None,
+        text="hi",
+    )
+    await store.add(chat)
+    loaded = await store.get(chat.id)
+    assert loaded.attachments == []
+    await engine.dispose()

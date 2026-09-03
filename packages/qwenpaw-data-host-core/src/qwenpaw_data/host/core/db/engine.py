@@ -11,8 +11,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from sqlalchemy import event
-from sqlalchemy.engine import make_url
+from sqlalchemy import event, inspect, text
+from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -66,3 +66,25 @@ async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             await conn.execute(CreateTable(table, if_not_exists=True))
+        await conn.run_sync(_add_missing_columns)
+
+
+def _add_missing_columns(conn: Connection) -> None:
+    """Additive migration: columns introduced after a table already exists.
+
+    Added as nullable regardless of the model (SQLite cannot ADD COLUMN
+    NOT NULL without a default); readers treat NULL as the empty value.
+    """
+    inspector = inspect(conn)
+    for table in Base.metadata.sorted_tables:
+        existing = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            column_type = column.type.compile(conn.dialect)
+            conn.execute(
+                text(
+                    f'ALTER TABLE "{table.name}" '
+                    f'ADD COLUMN "{column.name}" {column_type}'
+                )
+            )
