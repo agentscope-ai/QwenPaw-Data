@@ -9,6 +9,7 @@ in-process, so run uvicorn with ``--workers 1``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -224,8 +225,14 @@ def create_app(
                 except Exception:
                     logger.exception("channel manager shutdown failed")
             await state.cron_manager.shutdown()
-            for task in list(state.tasks):
+            # Cancel tracked tasks AND wait for them to unwind before the
+            # hub/hosts/engine go away, or a chat runtime mid-_finish races
+            # engine.dispose() and can wedge event-loop teardown.
+            pending = [task for task in state.tasks if not task.done()]
+            for task in pending:
                 task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             for host in list(state.hosts._items.values()):
                 try:
                     await host.close()
