@@ -36,7 +36,7 @@ async def artifacts_client(tmp_path: Path, monkeypatch):
             artifact_dir.mkdir(parents=True, exist_ok=True)
             (artifact_dir / "chart.png").write_bytes(b"png-bytes")
             (artifact_dir / "sub").mkdir()
-            (artifact_dir / "sub" / "rows.csv").write_text("a,b\n1,2\n")
+            (artifact_dir / "sub" / "rows.csv").write_bytes(b"a,b\n1,2\n")
             (tmp_path / "secret.txt").write_text("nope")
             yield http, session_id
 

@@ -2,6 +2,7 @@
 """Session artifact listing and download."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -64,9 +65,13 @@ async def download_artifact(
         or any(segment in {"", ".", ".."} for segment in path.split("/"))
     ):
         raise_api("NOT_FOUND", "artifact not found", status=404)
+    # Recognized normpath+prefix barrier first, then a symlink-safe resolve
+    # containment check on top.
     root = _artifact_dir(state, session_id).resolve()
-    candidate = (root / path).resolve()
-    # Containment check: the resolved file must stay inside the artifact dir.
+    normalized = os.path.normpath(os.path.join(str(root), path))
+    if not normalized.startswith(str(root) + os.sep):
+        raise_api("NOT_FOUND", "artifact not found", status=404)
+    candidate = Path(normalized).resolve()
     if candidate == root or root not in candidate.parents:
         raise_api("NOT_FOUND", "artifact not found", status=404)
     if not candidate.is_file():
