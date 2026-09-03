@@ -277,6 +277,7 @@ def create_app(
     app.include_router(datasources_router.router, prefix="/api/v1")
     app.include_router(cron_router.router, prefix="/api/v1")
     app.include_router(settlement_router.router, prefix="/api/v1")
+    app.include_router(settlement_router.drafts_router, prefix="/api/v1")
     app.include_router(channels_router.router, prefix="/api/v1")
     app.include_router(artifacts_router.router, prefix="/api/v1")
     app.include_router(files_router.router, prefix="/api/v1")
