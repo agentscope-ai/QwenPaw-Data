@@ -20,6 +20,7 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
     parse_stream_object,
 )
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
+from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.preference import (
@@ -361,6 +362,8 @@ def _chat_to_dict(chat: Chat) -> dict[str, Any]:
         "active_duration_ms": chat.active_duration_ms,
         "error": chat.error,
         "plan": chat.plan,
+        "artifact_comments": list(chat.artifact_comments),
+        "attachments": list(chat.attachments),
         "created_at": _dt_to_json(chat.created_at),
         "updated_at": _dt_to_json(chat.updated_at),
     }
@@ -386,6 +389,8 @@ def _chat_from_dict(data: dict[str, Any]) -> Chat:
         active_duration_ms=data.get("active_duration_ms", 0),
         error=data.get("error"),
         plan=data.get("plan"),
+        artifact_comments=data.get("artifact_comments") or [],
+        attachments=data.get("attachments") or [],
         created_at=_dt_from_json(data["created_at"]),
         updated_at=_dt_from_json(data["updated_at"]),
     )
@@ -1004,3 +1009,116 @@ class JSONChannelBindingStore:
     async def exists(self, user_id: str, channel: str, external_key: str) -> bool:
         doc = await asyncio.to_thread(self._read, user_id)
         return external_key in (doc.get(channel) or {})
+
+
+def _attachment_to_dict(attachment: Attachment) -> dict[str, Any]:
+    return {
+        "id": attachment.id,
+        "session_id": attachment.session_id,
+        "identity": {
+            "user_id": attachment.identity.user_id,
+            "attrs": dict(attachment.identity.attrs),
+        },
+        "filename": attachment.filename,
+        "storage_path": attachment.storage_path,
+        "created_at": _dt_to_json(attachment.created_at),
+    }
+
+
+def _attachment_from_dict(data: dict[str, Any]) -> Attachment:
+    identity = data["identity"]
+    return Attachment(
+        id=data["id"],
+        session_id=data["session_id"],
+        identity=Identity(
+            user_id=identity["user_id"],
+            attrs=identity.get("attrs") or {},
+        ),
+        filename=data["filename"],
+        storage_path=data["storage_path"],
+        created_at=_dt_from_json(data["created_at"]),
+    )
+
+
+class JSONAttachmentStore:
+    """Layout: ``<root>/attachments/<attachment_id>.json``."""
+
+    def __init__(self, root: Path) -> None:
+        self._attachments_root = Path(root).expanduser().resolve() / "attachments"
+
+    def _path(self, attachment_id: str) -> Path:
+        return self._attachments_root / f"{attachment_id}.json"
+
+    @staticmethod
+    def _read(path: Path) -> dict[str, Any] | None:
+        with file_lock(path):
+            if not path.exists():
+                return None
+            return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _write(path: Path, doc: dict[str, Any]) -> None:
+        with file_lock(path):
+            write_atomic(path, doc)
+
+    def _scan(self) -> list[dict[str, Any]]:
+        if not self._attachments_root.exists():
+            return []
+        docs = []
+        for path in self._attachments_root.glob("*.json"):
+            doc = self._read(path)
+            if doc is not None:
+                docs.append(doc)
+        return docs
+
+    async def add(self, attachment: Attachment) -> None:
+        path = self._path(attachment.id)
+        if await asyncio.to_thread(path.exists):
+            raise RuntimeError(f"CONFLICT: attachment already exists: {attachment.id}")
+        await asyncio.to_thread(self._write, path, _attachment_to_dict(attachment))
+
+    async def get(self, user_id: str, attachment_id: str) -> Attachment:
+        doc = await asyncio.to_thread(self._read, self._path(attachment_id))
+        if doc is None or doc["identity"]["user_id"] != user_id:
+            raise LookupError("attachment not found")
+        return _attachment_from_dict(doc)
+
+    async def find_by_filename(
+        self,
+        user_id: str,
+        session_id: str,
+        filename: str,
+    ) -> Attachment | None:
+        for doc in await asyncio.to_thread(self._scan):
+            if (
+                doc["session_id"] == session_id
+                and doc["filename"] == filename
+                and doc["identity"]["user_id"] == user_id
+            ):
+                return _attachment_from_dict(doc)
+        return None
+
+    async def require_for_session(
+        self,
+        user_id: str,
+        session_id: str,
+        attachment_ids: list[str],
+        *,
+        workspace: Path,
+    ) -> list[Attachment]:
+        seen: set[str] = set()
+        items: list[Attachment] = []
+        for attachment_id in attachment_ids:
+            if attachment_id in seen:
+                raise ValueError(f"duplicate attachment_id: {attachment_id}")
+            seen.add(attachment_id)
+            attachment = await self.get(user_id, attachment_id)
+            if attachment.session_id != session_id:
+                raise LookupError("attachment not found")
+            attachment.require_file(workspace)
+            items.append(attachment)
+        return items
+
+    async def delete(self, user_id: str, attachment_id: str) -> None:
+        await self.get(user_id, attachment_id)
+        await asyncio.to_thread(self._path(attachment_id).unlink)

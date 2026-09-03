@@ -130,4 +130,6 @@ def chat_to_schema(chat: Chat) -> dict[str, Any]:
         active_duration_ms=chat.active_duration_ms,
         error=ChatErrorSchema(**chat.error) if chat.error else None,
         plan=chat.plan,
+        artifact_comments=chat.artifact_comments,  # type: ignore[arg-type]
+        attachments=chat.attachments,  # type: ignore[arg-type]
     ).model_dump(mode="json")

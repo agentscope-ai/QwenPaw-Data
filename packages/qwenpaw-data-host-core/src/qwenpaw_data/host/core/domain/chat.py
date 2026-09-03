@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -31,6 +31,8 @@ class Chat:
     plan: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
+    artifact_comments: list[dict[str, Any]] = field(default_factory=list)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def start(
@@ -41,8 +43,11 @@ class Chat:
         sequence: int,
         datasource_id: str | None,
         text: str,
+        artifact_comments: list[dict[str, Any]] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> Chat:
-        if not text.strip():
+        refs = list(attachments or [])
+        if not text.strip() and not refs:
             raise ValueError("text is required")
 
         now = utcnow()
@@ -63,6 +68,13 @@ class Chat:
             plan=None,
             created_at=now,
             updated_at=now,
+            artifact_comments=list(artifact_comments or []),
+            attachments=refs,
+        )
+
+    def references_attachment(self, attachment_id: str) -> bool:
+        return any(
+            item.get("attachment_id") == attachment_id for item in self.attachments
         )
 
     def cancel(self) -> None:

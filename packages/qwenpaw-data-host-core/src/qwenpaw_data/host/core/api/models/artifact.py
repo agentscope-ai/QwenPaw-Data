@@ -14,3 +14,10 @@ class ArtifactSchema(ApiModel):
     path: str
     created_at: datetime
     updated_at: datetime
+
+
+class ArtifactCommentSchema(ApiModel):
+    path: str
+    line_start: int
+    line_end: int
+    comment: str

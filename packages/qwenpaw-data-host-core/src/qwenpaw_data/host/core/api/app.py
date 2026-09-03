@@ -30,6 +30,7 @@ from qwenpaw_data.host.core.api.routers import artifacts as artifacts_router
 from qwenpaw_data.host.core.api.routers import channels as channels_router
 from qwenpaw_data.host.core.api.routers import chats as chats_router
 from qwenpaw_data.host.core.api.routers import clarification as clarification_router
+from qwenpaw_data.host.core.api.routers import console as console_router
 from qwenpaw_data.host.core.api.routers import cron as cron_router
 from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
@@ -46,6 +47,7 @@ from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
 from qwenpaw_data.host.core.runtime.registry import reset_runtime_registry
 from qwenpaw_data.host.core.channels import ChannelManager, ChannelServices
 from qwenpaw_data.host.core.store.json_store import (
+    JSONAttachmentStore,
     JSONChannelBindingStore,
     JSONChannelConfigStore,
     JSONChatEventStore,
@@ -111,6 +113,7 @@ def create_app(
             settlement_store: Any = JSONSettlementStore(store_root)
             channel_config_store: Any = JSONChannelConfigStore(store_root)
             channel_binding_store: Any = JSONChannelBindingStore(store_root)
+            attachment_store: Any = JSONAttachmentStore(store_root)
         else:
             from qwenpaw_data.host.core.db.engine import (
                 create_engine_and_factory,
@@ -118,6 +121,7 @@ def create_app(
                 resolve_db_url,
             )
             from qwenpaw_data.host.core.store.sql_store import (
+                SQLAttachmentStore,
                 SQLChannelBindingStore,
                 SQLChannelConfigStore,
                 SQLChatEventStore,
@@ -140,6 +144,7 @@ def create_app(
             settlement_store = SQLSettlementStore(factory)
             channel_config_store = SQLChannelConfigStore(factory)
             channel_binding_store = SQLChannelBindingStore(factory)
+            attachment_store = SQLAttachmentStore(factory)
 
         async def resolve_model() -> Any:
             """Prefer the local user's configured default model over env."""
@@ -171,6 +176,7 @@ def create_app(
             settlement=settlement_store,
             channel_configs=channel_config_store,
             channel_bindings=channel_binding_store,
+            attachments=attachment_store,
             hosts=QwenPawDataHostRegistry(
                 home=resolved_home,
                 model=model,
@@ -251,6 +257,7 @@ def create_app(
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.include_router(sessions_router.router, prefix="/api/v1")
     app.include_router(chats_router.router, prefix="/api/v1")
+    app.include_router(console_router.router, prefix="/api/v1")
     app.include_router(events_router.router, prefix="/api/v1")
     app.include_router(steer_router.router, prefix="/api/v1")
     app.include_router(clarification_router.router, prefix="/api/v1")

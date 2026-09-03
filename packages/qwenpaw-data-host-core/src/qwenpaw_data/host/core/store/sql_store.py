@@ -11,6 +11,7 @@ the routers rely on.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import exists, func, select
@@ -23,6 +24,7 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
 )
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
 from qwenpaw_data.host.core.db.tables import (
+    AttachmentRow,
     ChannelBindingRow,
     ChannelConfigRow,
     ChatEventRow,
@@ -34,6 +36,7 @@ from qwenpaw_data.host.core.db.tables import (
     UserProviderModelRow,
     UserProviderRow,
 )
+from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.preference import (
@@ -421,6 +424,8 @@ def _chat_from_row(row: ChatRow) -> Chat:
         active_duration_ms=row.active_duration_ms,
         error=row.error_json,
         plan=row.plan,
+        artifact_comments=list(row.artifact_comments_json or []),
+        attachments=list(row.attachments_json or []),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -436,6 +441,8 @@ def _apply_chat(row: ChatRow, chat: Chat) -> None:
     row.active_duration_ms = chat.active_duration_ms
     row.error_json = chat.error
     row.plan = chat.plan
+    row.artifact_comments_json = list(chat.artifact_comments)
+    row.attachments_json = list(chat.attachments)
     row.updated_at = chat.updated_at
 
 
@@ -464,6 +471,8 @@ class SQLChatStore:
                     active_duration_ms=chat.active_duration_ms,
                     error_json=chat.error,
                     plan=chat.plan,
+                    artifact_comments_json=list(chat.artifact_comments),
+                    attachments_json=list(chat.attachments),
                     created_at=chat.created_at,
                     updated_at=chat.updated_at,
                 )
@@ -1026,3 +1035,92 @@ class SQLChannelBindingStore:
             return (
                 await db.get(ChannelBindingRow, (user_id, channel, external_key))
             ) is not None
+
+
+def _attachment_from_row(row: AttachmentRow) -> Attachment:
+    return Attachment(
+        id=row.attachment_id,
+        session_id=row.session_id,
+        identity=Identity(user_id=row.user_id),
+        filename=row.filename,
+        storage_path=row.storage_path,
+        created_at=row.created_at,
+    )
+
+
+class SQLAttachmentStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    async def add(self, attachment: Attachment) -> None:
+        async with self._sessions() as db:
+            existing = await db.get(AttachmentRow, attachment.id)
+            if existing is not None:
+                raise RuntimeError(
+                    f"CONFLICT: attachment already exists: {attachment.id}"
+                )
+            db.add(
+                AttachmentRow(
+                    attachment_id=attachment.id,
+                    user_id=attachment.identity.user_id,
+                    session_id=attachment.session_id,
+                    filename=attachment.filename,
+                    storage_path=attachment.storage_path,
+                    created_at=attachment.created_at,
+                )
+            )
+            await db.commit()
+
+    async def get(self, user_id: str, attachment_id: str) -> Attachment:
+        async with self._sessions() as db:
+            row = await db.get(AttachmentRow, attachment_id)
+            if row is None or row.user_id != user_id:
+                raise LookupError("attachment not found")
+            return _attachment_from_row(row)
+
+    async def find_by_filename(
+        self,
+        user_id: str,
+        session_id: str,
+        filename: str,
+    ) -> Attachment | None:
+        async with self._sessions() as db:
+            row = (
+                await db.scalars(
+                    select(AttachmentRow).where(
+                        AttachmentRow.session_id == session_id,
+                        AttachmentRow.filename == filename,
+                        AttachmentRow.user_id == user_id,
+                    )
+                )
+            ).first()
+            return _attachment_from_row(row) if row is not None else None
+
+    async def require_for_session(
+        self,
+        user_id: str,
+        session_id: str,
+        attachment_ids: list[str],
+        *,
+        workspace: Path,
+    ) -> list[Attachment]:
+        seen: set[str] = set()
+        items: list[Attachment] = []
+        for attachment_id in attachment_ids:
+            if attachment_id in seen:
+                raise ValueError(f"duplicate attachment_id: {attachment_id}")
+            seen.add(attachment_id)
+            attachment = await self.get(user_id, attachment_id)
+            if attachment.session_id != session_id:
+                raise LookupError("attachment not found")
+            attachment.require_file(workspace)
+            items.append(attachment)
+        return items
+
+    async def delete(self, user_id: str, attachment_id: str) -> None:
+        async with self._sessions() as db:
+            row = await db.get(AttachmentRow, attachment_id)
+            if row is None or row.user_id != user_id:
+                raise LookupError("attachment not found")
+            await db.delete(row)
+            await db.commit()
