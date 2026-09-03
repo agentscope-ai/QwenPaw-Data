@@ -34,6 +34,7 @@ from qwenpaw_data.host.core.store._prefs_logic import (
     clean_model_upsert,
     merge_provider_patch,
 )
+from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.secrets import decrypt_api_key
 from qwenpaw_data.host.core.utils.time import utcnow
 
@@ -1122,3 +1123,152 @@ class JSONAttachmentStore:
     async def delete(self, user_id: str, attachment_id: str) -> None:
         await self.get(user_id, attachment_id)
         await asyncio.to_thread(self._path(attachment_id).unlink)
+
+
+class JSONFeedbackStore:
+    """Layout: ``<root>/feedback/<chat_id>.json`` (list of feedback docs)."""
+
+    def __init__(self, root: Path) -> None:
+        self._feedback_root = Path(root).expanduser().resolve() / "feedback"
+
+    def _path(self, chat_id: str) -> Path:
+        return self._feedback_root / f"{chat_id}.json"
+
+    def _read(self, chat_id: str) -> list[dict[str, Any]]:
+        path = self._path(chat_id)
+        with file_lock(path):
+            if not path.exists():
+                return []
+            return json.loads(path.read_text(encoding="utf-8"))
+
+    def _write(self, chat_id: str, docs: list[dict[str, Any]]) -> None:
+        path = self._path(chat_id)
+        with file_lock(path):
+            write_atomic(path, docs)
+
+    @staticmethod
+    def _new_doc(
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None,
+        detail: str | None,
+        artifact_ref: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return {
+            "id": create_id("fbk"),
+            "user_id": user_id,
+            "session_id": session_id,
+            "chat_id": chat_id,
+            "kind": kind,
+            "reason": reason,
+            "detail": detail,
+            "artifact_ref": artifact_ref,
+            "created_at": _dt_to_json(utcnow()),
+        }
+
+    @staticmethod
+    def _public(doc: dict[str, Any]) -> dict[str, Any]:
+        item = dict(doc)
+        item.pop("user_id", None)
+        item["created_at"] = _dt_from_json(doc["created_at"])
+        return item
+
+    async def add(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None = None,
+        detail: str | None = None,
+        artifact_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        doc = self._new_doc(
+            user_id=user_id,
+            session_id=session_id,
+            chat_id=chat_id,
+            kind=kind,
+            reason=reason,
+            detail=detail,
+            artifact_ref=artifact_ref,
+        )
+
+        def _append() -> None:
+            docs = self._read(chat_id)
+            docs.append(doc)
+            self._write(chat_id, docs)
+
+        await asyncio.to_thread(_append)
+        return self._public(doc)
+
+    def _reactions(self, docs: list[dict[str, Any]], user_id: str) -> list[dict]:
+        return [
+            d
+            for d in docs
+            if d["kind"] in ("like", "dislike") and d["user_id"] == user_id
+        ]
+
+    async def set_reaction(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None = None,
+        detail: str | None = None,
+    ) -> dict[str, Any]:
+        if kind not in ("like", "dislike"):
+            raise ValueError("reaction kind must be like or dislike")
+        doc = self._new_doc(
+            user_id=user_id,
+            session_id=session_id,
+            chat_id=chat_id,
+            kind=kind,
+            reason=reason,
+            detail=detail,
+            artifact_ref=None,
+        )
+
+        def _replace() -> None:
+            docs = self._read(chat_id)
+            docs = [d for d in docs if d not in self._reactions(docs, user_id)]
+            docs.append(doc)
+            self._write(chat_id, docs)
+
+        await asyncio.to_thread(_replace)
+        return self._public(doc)
+
+    async def get_reaction(
+        self,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+    ) -> dict[str, Any] | None:
+        _ = session_id
+        docs = await asyncio.to_thread(self._read, chat_id)
+        reactions = self._reactions(docs, user_id)
+        if not reactions:
+            return None
+        reactions.sort(key=lambda d: (d["created_at"], d["id"]))
+        return self._public(reactions[-1])
+
+    async def clear_reaction(
+        self,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+    ) -> None:
+        _ = session_id
+
+        def _clear() -> None:
+            docs = self._read(chat_id)
+            keep = [d for d in docs if d not in self._reactions(docs, user_id)]
+            if len(keep) != len(docs):
+                self._write(chat_id, keep)
+
+        await asyncio.to_thread(_clear)

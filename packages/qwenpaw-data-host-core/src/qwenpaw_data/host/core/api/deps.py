@@ -16,6 +16,7 @@ from qwenpaw_data.host.core.store.protocols import (
     ChatEventStore,
     ChatStore,
     CronStore,
+    FeedbackStore,
     PreferencesStore,
     SessionStore,
     SettlementStore,
@@ -33,6 +34,7 @@ class ServiceState:
     channel_configs: ChannelConfigStore
     channel_bindings: ChannelBindingStore
     attachments: AttachmentStore
+    feedback: FeedbackStore
     hosts: QwenPawDataHostRegistry
     cron_manager: Any = None
     channel_manager: Any = None

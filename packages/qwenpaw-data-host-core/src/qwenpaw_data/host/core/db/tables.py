@@ -94,6 +94,21 @@ class AttachmentRow(UserIdColumn, Base):
     )
 
 
+class FeedbackRow(UserIdColumn, Base):
+    __tablename__ = "feedbacks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False)
+    chat_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    artifact_ref_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class ChatEventRow(UserIdColumn, Base):
     __tablename__ = "chat_events"
 

@@ -30,6 +30,7 @@ from qwenpaw_data.host.core.db.tables import (
     ChatEventRow,
     ChatRow,
     CronJobRow,
+    FeedbackRow,
     SessionRow,
     SettlementCardRow,
     UserActiveModelRow,
@@ -1123,4 +1124,134 @@ class SQLAttachmentStore:
             if row is None or row.user_id != user_id:
                 raise LookupError("attachment not found")
             await db.delete(row)
+            await db.commit()
+
+
+class SQLFeedbackStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    @staticmethod
+    def _to_dict(row: FeedbackRow) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "session_id": row.session_id,
+            "chat_id": row.chat_id,
+            "kind": row.kind,
+            "reason": row.reason,
+            "detail": row.detail,
+            "artifact_ref": row.artifact_ref_json,
+            "created_at": row.created_at,
+        }
+
+    async def _reaction_rows(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        chat_id: str,
+    ) -> list[FeedbackRow]:
+        return list(
+            (
+                await db.scalars(
+                    select(FeedbackRow)
+                    .where(
+                        FeedbackRow.user_id == user_id,
+                        FeedbackRow.chat_id == chat_id,
+                        FeedbackRow.kind.in_(("like", "dislike")),
+                    )
+                    .order_by(
+                        FeedbackRow.created_at.desc(), FeedbackRow.id.desc()
+                    )
+                )
+            ).all()
+        )
+
+    async def add(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None = None,
+        detail: str | None = None,
+        artifact_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = FeedbackRow(
+                id=create_id("fbk"),
+                user_id=user_id,
+                session_id=session_id,
+                chat_id=chat_id,
+                kind=kind,
+                reason=reason,
+                detail=detail,
+                artifact_ref_json=artifact_ref,
+                created_at=utcnow(),
+            )
+            db.add(row)
+            await db.commit()
+            return self._to_dict(row)
+
+    async def set_reaction(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None = None,
+        detail: str | None = None,
+    ) -> dict[str, Any]:
+        if kind not in ("like", "dislike"):
+            raise ValueError("reaction kind must be like or dislike")
+        async with self._sessions() as db:
+            now = utcnow()
+            rows = await self._reaction_rows(db, user_id, chat_id)
+            if rows:
+                row = rows[0]
+                row.kind = kind
+                row.reason = reason
+                row.detail = detail
+                row.artifact_ref_json = None
+                row.created_at = now
+                for stale in rows[1:]:
+                    await db.delete(stale)
+            else:
+                row = FeedbackRow(
+                    id=create_id("fbk"),
+                    user_id=user_id,
+                    session_id=session_id,
+                    chat_id=chat_id,
+                    kind=kind,
+                    reason=reason,
+                    detail=detail,
+                    artifact_ref_json=None,
+                    created_at=now,
+                )
+                db.add(row)
+            await db.commit()
+            return self._to_dict(row)
+
+    async def get_reaction(
+        self,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+    ) -> dict[str, Any] | None:
+        _ = session_id
+        async with self._sessions() as db:
+            rows = await self._reaction_rows(db, user_id, chat_id)
+            return self._to_dict(rows[0]) if rows else None
+
+    async def clear_reaction(
+        self,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+    ) -> None:
+        _ = session_id
+        async with self._sessions() as db:
+            for row in await self._reaction_rows(db, user_id, chat_id):
+                await db.delete(row)
             await db.commit()
