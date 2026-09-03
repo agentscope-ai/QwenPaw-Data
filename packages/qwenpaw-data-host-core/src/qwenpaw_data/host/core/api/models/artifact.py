@@ -29,3 +29,13 @@ class ArtifactCommentSchema(ApiModel):
     line_start: int
     line_end: int
     comment: str
+
+
+class ShareFileRequest(ApiModel):
+    path: str
+
+
+class ShareFileResponse(ApiModel):
+    url: str
+    expires_at: datetime
+    name: str

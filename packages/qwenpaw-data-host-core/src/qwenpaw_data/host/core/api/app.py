@@ -35,6 +35,7 @@ from qwenpaw_data.host.core.api.routers import cron as cron_router
 from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
 from qwenpaw_data.host.core.api.routers import feedback as feedback_router
+from qwenpaw_data.host.core.api.routers import files as files_router
 from qwenpaw_data.host.core.api.routers import plan as plan_router
 from qwenpaw_data.host.core.api.routers import preferences as preferences_router
 from qwenpaw_data.host.core.api.routers import sessions as sessions_router
@@ -278,6 +279,8 @@ def create_app(
     app.include_router(settlement_router.router, prefix="/api/v1")
     app.include_router(channels_router.router, prefix="/api/v1")
     app.include_router(artifacts_router.router, prefix="/api/v1")
+    app.include_router(files_router.router, prefix="/api/v1")
+    app.include_router(files_router.shared_router, prefix="/api/v1")
     app.include_router(channels_router.config_router, prefix="/api/v1")
 
     @app.get("/health")

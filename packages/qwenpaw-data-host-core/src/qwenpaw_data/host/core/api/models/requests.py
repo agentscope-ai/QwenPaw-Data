@@ -25,6 +25,10 @@ class PatchSessionRequest(ApiModel):
     title: str | None = None
 
 
+class ForkSessionRequest(ApiModel):
+    chat_id: str
+
+
 class CreateChatRequest(ApiModel):
     text: str
     datasource_id: str | None = None

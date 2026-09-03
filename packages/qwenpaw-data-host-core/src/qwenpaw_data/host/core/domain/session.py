@@ -96,6 +96,29 @@ class Session:
         self.updated_at = utcnow()
         return self.chat_count
 
+    def fork(self, *, at_chat: Chat, has_active_chat: bool) -> Session:
+        if has_active_chat:
+            raise RuntimeError("CONFLICT: session has active chat")
+        if at_chat.session_id != self.id:
+            raise LookupError("chat not found")
+        if at_chat.status != "completed":
+            raise RuntimeError("CONFLICT: chat is not completed")
+        now = utcnow()
+        title = self.title.strip()
+        return Session(
+            id=create_id("ses"),
+            identity=self.identity,
+            agent_id=self.agent_id,
+            title=f"{title} (fork)" if title else "fork",
+            datasource_id=self.datasource_id,
+            chat_count=at_chat.sequence,
+            channel="console",
+            created_at=now,
+            updated_at=now,
+            parent_session_id=self.id,
+            forked_from_chat_id=at_chat.id,
+        )
+
     def soft_delete(self, *, has_active_chat: bool) -> None:
         if self.deleted_at is not None:
             return

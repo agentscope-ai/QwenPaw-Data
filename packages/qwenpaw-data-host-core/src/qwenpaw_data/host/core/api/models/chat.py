@@ -7,8 +7,10 @@ from typing import Any, Literal
 from qwenpaw_data.host.core.api.models.artifact import (
     ArtifactCommentSchema,
     ArtifactLineRefSchema,
+    ArtifactSchema,
 )
 from qwenpaw_data.host.core.api.models.common import ApiModel, AttachmentRefSchema
+from qwenpaw_data.host.core.api.models.trace import BizEventSchema, SegmentSchema
 
 
 class ChatErrorSchema(ApiModel):
@@ -76,5 +78,9 @@ class ChatSchema(ApiModel):
     active_duration_ms: int = 0
     error: ChatErrorSchema | None = None
     plan: dict[str, Any] | None = None
+    segments: list[SegmentSchema] = []
+    biz_events: list[BizEventSchema] = []
+    artifacts: list[ArtifactSchema] = []
+    followup: FollowUpSchema | None = None
     artifact_comments: list[ArtifactCommentSchema] = []
     attachments: list[AttachmentRefSchema] = []
