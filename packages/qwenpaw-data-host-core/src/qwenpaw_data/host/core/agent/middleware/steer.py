@@ -11,6 +11,7 @@ from agentscope.message import AssistantMsg, HintBlock
 from agentscope.middleware import MiddlewareBase
 
 from qwenpaw_data.host.core.domain.steer import SteerQueue
+from qwenpaw_data.host.core.runtime.turn import compose_agent_input
 
 
 class SteerMiddleware(MiddlewareBase):
@@ -37,9 +38,13 @@ class SteerMiddleware(MiddlewareBase):
         """Start a fresh queue; cancel_all() closes a queue terminally."""
         self.queue = SteerQueue()
 
-    async def steer(self, text: str) -> None:
+    async def steer(
+        self,
+        text: str,
+        artifact_comments: list[dict] | None = None,
+    ) -> None:
         """Enqueue steer text and wait until it is injected."""
-        await self.queue.wait_until_injected(text)
+        await self.queue.wait_until_injected(text, artifact_comments)
 
     async def cancel(self) -> None:
         """Release every pending steer waiter."""
@@ -54,17 +59,22 @@ class SteerMiddleware(MiddlewareBase):
         pending = await self.queue.take_pending()
         if pending:
             hint_blocks = [
-                HintBlock(hint=item.text, source="steer") for item in pending
+                HintBlock(
+                    hint=compose_agent_input(item.text, item.artifact_comments),
+                    source="steer",
+                )
+                for item in pending
             ]
             self._append_hints(agent, hint_blocks)
             for item in pending:
                 await self.queue.mark_injected(item)
-            for hint in hint_blocks:
+            for hint, item in zip(hint_blocks, pending):
                 yield HintBlockEvent(
                     reply_id=agent.state.reply_id,
                     block_id=hint.id,
                     source="steer",
-                    hint=hint.hint,
+                    hint=item.text,
+                    metadata={"artifact_comments": item.artifact_comments},
                 )
 
         async for event in next_handler(**input_kwargs):

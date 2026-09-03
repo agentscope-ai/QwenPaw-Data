@@ -34,6 +34,7 @@ from qwenpaw_data.host.core.api.routers import console as console_router
 from qwenpaw_data.host.core.api.routers import cron as cron_router
 from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
+from qwenpaw_data.host.core.api.routers import plan as plan_router
 from qwenpaw_data.host.core.api.routers import preferences as preferences_router
 from qwenpaw_data.host.core.api.routers import sessions as sessions_router
 from qwenpaw_data.host.core.api.routers import settlement as settlement_router
@@ -259,6 +260,7 @@ def create_app(
     app.include_router(chats_router.router, prefix="/api/v1")
     app.include_router(console_router.router, prefix="/api/v1")
     app.include_router(events_router.router, prefix="/api/v1")
+    app.include_router(plan_router.router, prefix="/api/v1")
     app.include_router(steer_router.router, prefix="/api/v1")
     app.include_router(clarification_router.router, prefix="/api/v1")
     app.include_router(preferences_router.router, prefix="/api/v1")

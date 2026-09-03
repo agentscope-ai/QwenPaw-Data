@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from qwenpaw_data.host.core.utils.ids import create_id
 
@@ -33,6 +33,7 @@ class PendingSteer:
     id: str = field(default_factory=lambda: create_id("steer"))
     status: SteerStatus = "waiting"
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    artifact_comments: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SteerQueue:
@@ -53,11 +54,18 @@ class SteerQueue:
     def closed(self) -> bool:
         return self._closed
 
-    async def wait_until_injected(self, text: str) -> None:
+    async def wait_until_injected(
+        self,
+        text: str,
+        artifact_comments: list[dict[str, Any]] | None = None,
+    ) -> None:
         """Enqueue ``text`` and wait until it is injected (or cancelled)."""
         if not text.strip():
             raise ValueError("text is required")
-        item = PendingSteer(text=text)
+        item = PendingSteer(
+            text=text,
+            artifact_comments=list(artifact_comments or []),
+        )
         if self._closed:
             raise SteerChatEndedError()
         self._items.append(item)

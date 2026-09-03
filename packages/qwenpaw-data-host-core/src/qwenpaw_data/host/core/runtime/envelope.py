@@ -651,9 +651,16 @@ class Envelope:
         msg_id = create_id("msg")
         seq = self._next_seq()
         source = getattr(event, "source", None)
-        metadata: dict[str, Any] | None = (
-            {"source": source} if source is not None else None
-        )
+        comments = (getattr(event, "metadata", None) or {}).get(
+            "artifact_comments"
+        ) or []
+        metadata: dict[str, Any] | None = {}
+        if source is not None:
+            metadata["source"] = source
+        if comments:
+            metadata["artifact_comments"] = list(comments)
+        if not metadata:
+            metadata = None
         content = [
             {
                 "object": "content",

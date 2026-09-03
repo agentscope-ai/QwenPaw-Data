@@ -41,11 +41,15 @@ class AgentExecutor:
             result=result,
         )
 
-    async def steer(self, text: str) -> None:
+    async def steer(
+        self,
+        text: str,
+        artifact_comments: list[dict] | None = None,
+    ) -> None:
         """Enqueue steer text and wait until it is injected into the agent."""
         if self._agent is None:
             raise RuntimeError("CONFLICT: chat runtime agent is not ready")
-        await SteerMiddleware.require(self._agent).steer(text)
+        await SteerMiddleware.require(self._agent).steer(text, artifact_comments)
 
     async def cancel_steer(self) -> None:
         """Release pending steer waiters when SteerMiddleware is present."""

@@ -23,11 +23,15 @@ from qwenpaw_data.host.core.runtime.registry import (  # noqa: E402
 
 class FakeRuntime:
     def __init__(self) -> None:
-        self.steers: list[str] = []
+        self.steers: list[tuple[str, list[dict[str, Any]]]] = []
         self.answers: list[tuple[str, dict[str, Any]]] = []
 
-    async def steer(self, text: str) -> None:
-        self.steers.append(text)
+    async def steer(
+        self,
+        text: str,
+        artifact_comments: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.steers.append((text, list(artifact_comments or [])))
 
     def answer(self, *, clarification_id: str, result: dict[str, Any]) -> None:
         if clarification_id == "clar_conflict":
@@ -101,7 +105,26 @@ async def test_steer_paths(tmp_path, monkeypatch) -> None:
                 json={"text": "聚焦华东"},
             )
             assert ok.status_code == 204
-            assert runtime.steers == ["聚焦华东"]
+            assert runtime.steers == [("聚焦华东", [])]
+
+            commented = await http.post(
+                f"/api/v1/sessions/{sid}/chats/{cid}/steer",
+                json={
+                    "text": "改一下图",
+                    "artifact_comments": [
+                        {
+                            "path": "out/chart.png",
+                            "line_start": 1,
+                            "line_end": 1,
+                            "comment": "换成柱状图",
+                        }
+                    ],
+                },
+            )
+            assert commented.status_code == 204
+            text, comments = runtime.steers[-1]
+            assert text == "改一下图"
+            assert comments[0]["comment"] == "换成柱状图"
         finally:
             get_runtime_registry().unregister(cid)
 
