@@ -65,15 +65,12 @@ async def download_artifact(
         or any(segment in {"", ".", ".."} for segment in path.split("/"))
     ):
         raise_api("NOT_FOUND", "artifact not found", status=404)
-    # Recognized normpath+prefix barrier first, then a symlink-safe resolve
-    # containment check on top.
+    # Normpath+prefix barrier; the response is only reachable inside the
+    # guarded branch, with a symlink-safe resolve containment check on top.
     root = _artifact_dir(state, session_id).resolve()
     normalized = os.path.normpath(os.path.join(str(root), path))
-    if not normalized.startswith(str(root) + os.sep):
-        raise_api("NOT_FOUND", "artifact not found", status=404)
-    candidate = Path(normalized).resolve()
-    if candidate == root or root not in candidate.parents:
-        raise_api("NOT_FOUND", "artifact not found", status=404)
-    if not candidate.is_file():
-        raise_api("NOT_FOUND", "artifact not found", status=404)
-    return FileResponse(candidate, filename=candidate.name)
+    if normalized.startswith(str(root) + os.sep):
+        candidate = Path(normalized).resolve()
+        if candidate != root and root in candidate.parents and candidate.is_file():
+            return FileResponse(candidate, filename=candidate.name)
+    raise_api("NOT_FOUND", "artifact not found", status=404)

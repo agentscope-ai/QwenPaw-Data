@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from typing import NoReturn
+
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -14,7 +16,7 @@ def raise_api(
     *,
     status: int,
     details: dict | None = None,
-) -> None:
+) -> NoReturn:
     raise HTTPException(
         status_code=status,
         detail=ErrorBodySchema(
