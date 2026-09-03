@@ -12,17 +12,17 @@ router = APIRouter(prefix="/api/semantic-config/metric-lib", tags=["metric-lib"]
 
 
 @router.post("", response_model=MetricResponse)
-async def create_metric(payload: MetricCreate, db: aiosqlite.Connection = Depends(get_db)):
+async def create_metric(payload: MetricCreate, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.create(db, payload)
 
 
 @router.put("/{metric_id}", response_model=MetricResponse)
-async def update_metric(metric_id: int, payload: MetricUpdate, db: aiosqlite.Connection = Depends(get_db)):
+async def update_metric(metric_id: int, payload: MetricUpdate, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.update(db, metric_id, payload)
 
 
 @router.get("/{metric_id}", response_model=MetricResponse)
-async def get_metric(metric_id: int, db: aiosqlite.Connection = Depends(get_db)):
+async def get_metric(metric_id: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.get_one(db, metric_id)
 
 
@@ -33,11 +33,11 @@ async def list_metric(
     metric_name: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1),
-    db: aiosqlite.Connection = Depends(get_db),
+    db: aiosqlite.Connection = Depends(get_db, scope="function"),
 ):
     return await service.list_page(db, datasource_id, domain_id, metric_name, page, size)
 
 
 @router.delete("/{metric_id}")
-async def delete_metric(metric_id: int, db: aiosqlite.Connection = Depends(get_db)):
+async def delete_metric(metric_id: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.delete(db, metric_id)

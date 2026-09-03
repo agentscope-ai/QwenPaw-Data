@@ -12,22 +12,22 @@ router = APIRouter(prefix="/api/semantic-config/metric-formula-lib", tags=["metr
 
 
 @router.post("", response_model=FormulaResponse)
-async def create_formula(payload: FormulaCreate, db: aiosqlite.Connection = Depends(get_db)):
+async def create_formula(payload: FormulaCreate, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.create(db, payload)
 
 
 @router.put("/{fid}", response_model=FormulaResponse)
-async def update_formula(fid: int, payload: FormulaUpdate, db: aiosqlite.Connection = Depends(get_db)):
+async def update_formula(fid: int, payload: FormulaUpdate, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.update(db, fid, payload)
 
 
 @router.get("/dataset/{dataset_id}", response_model=list[FormulaResponse])
-async def list_formulas_by_dataset(dataset_id: int, db: aiosqlite.Connection = Depends(get_db)):
+async def list_formulas_by_dataset(dataset_id: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.list_by_dataset(db, dataset_id)
 
 
 @router.get("/{fid}", response_model=FormulaResponse)
-async def get_formula(fid: int, db: aiosqlite.Connection = Depends(get_db)):
+async def get_formula(fid: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.get_one(db, fid)
 
 
@@ -39,16 +39,16 @@ async def list_formula(
     dataset_id: int | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1),
-    db: aiosqlite.Connection = Depends(get_db),
+    db: aiosqlite.Connection = Depends(get_db, scope="function"),
 ):
     return await service.list_page(db, datasource_id, domain_id, metric_id, dataset_id, page, size)
 
 
 @router.delete("/dataset/{dataset_id}")
-async def delete_formulas_by_dataset(dataset_id: int, db: aiosqlite.Connection = Depends(get_db)):
+async def delete_formulas_by_dataset(dataset_id: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.delete_by_dataset(db, dataset_id)
 
 
 @router.delete("/{fid}")
-async def delete_formula(fid: int, db: aiosqlite.Connection = Depends(get_db)):
+async def delete_formula(fid: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.delete(db, fid)

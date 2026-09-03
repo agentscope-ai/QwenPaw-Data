@@ -12,12 +12,12 @@ router = APIRouter(prefix="/api/semantic-config/dimension", tags=["dimension"])
 
 
 @router.post("", response_model=DimensionResponse)
-async def create_dimension(payload: DimensionCreate, db: aiosqlite.Connection = Depends(get_db)):
+async def create_dimension(payload: DimensionCreate, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.create(db, payload)
 
 
 @router.put("/{dim_id}", response_model=DimensionResponse)
-async def update_dimension(dim_id: int, payload: DimensionUpdate, db: aiosqlite.Connection = Depends(get_db)):
+async def update_dimension(dim_id: int, payload: DimensionUpdate, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.update(db, dim_id, payload)
 
 
@@ -28,16 +28,16 @@ async def list_dimension(
     dimension_name: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1),
-    db: aiosqlite.Connection = Depends(get_db),
+    db: aiosqlite.Connection = Depends(get_db, scope="function"),
 ):
     return await service.list_page(db, datasource_id, domain_id, dimension_name, page, size)
 
 
 @router.get("/{dim_id}", response_model=DimensionResponse)
-async def get_dimension(dim_id: int, db: aiosqlite.Connection = Depends(get_db)):
+async def get_dimension(dim_id: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.get_one(db, dim_id)
 
 
 @router.delete("/{dim_id}")
-async def delete_dimension(dim_id: int, db: aiosqlite.Connection = Depends(get_db)):
+async def delete_dimension(dim_id: int, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.delete(db, dim_id)
