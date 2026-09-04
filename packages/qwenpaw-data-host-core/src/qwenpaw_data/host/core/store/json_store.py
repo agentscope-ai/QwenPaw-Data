@@ -33,6 +33,8 @@ from qwenpaw_data.host.core.session._locking import file_lock, write_atomic
 from qwenpaw_data.host.core.store._prefs_logic import (
     clean_model_upsert,
     merge_provider_patch,
+    merge_runtime_patch,
+    resolve_runtime_settings,
 )
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.secrets import decrypt_api_key
@@ -191,6 +193,20 @@ class JSONPreferencesStore:
         }
         await asyncio.to_thread(self._write, user_id, doc)
         return await self.get_active_models(user_id)
+
+    async def get_runtime_settings(self, user_id: str) -> dict[str, Any]:
+        doc = await asyncio.to_thread(self._read, user_id)
+        return resolve_runtime_settings(doc.get("runtime"))
+
+    async def set_runtime_settings(
+        self,
+        user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        doc = await asyncio.to_thread(self._read, user_id)
+        doc["runtime"] = merge_runtime_patch(doc.get("runtime"), patch)
+        await asyncio.to_thread(self._write, user_id, doc)
+        return resolve_runtime_settings(doc["runtime"])
 
 
 def _session_to_dict(session: Session) -> dict[str, Any]:

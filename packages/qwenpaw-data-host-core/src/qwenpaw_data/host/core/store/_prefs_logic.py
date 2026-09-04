@@ -55,3 +55,55 @@ def clean_model_upsert(
 def validate_active_selection(prefs: Any) -> None:
     """Raise when the requested active models cannot resolve."""
     prefs.validate_selection()
+
+
+RUNTIME_SETTING_KEYS = (
+    "react_max_iters",
+    "llm_retry_enabled",
+    "llm_max_retries",
+)
+
+
+def runtime_defaults() -> dict[str, Any]:
+    """Instance-wide runtime defaults, overridable via environment."""
+    import os
+
+    def _int(name: str, fallback: int) -> int:
+        raw = (os.environ.get(name) or "").strip()
+        try:
+            return int(raw) if raw else fallback
+        except ValueError:
+            return fallback
+
+    raw_retry = (
+        os.environ.get("QWENPAW_DATA_LLM_RETRY_ENABLED") or ""
+    ).strip().lower()
+    return {
+        "react_max_iters": _int("QWENPAW_DATA_REACT_MAX_ITERS", 10000),
+        "llm_retry_enabled": raw_retry not in {"0", "false", "off"},
+        "llm_max_retries": _int("QWENPAW_DATA_LLM_MAX_RETRIES", 3),
+    }
+
+
+def resolve_runtime_settings(
+    overrides: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Per-user overrides on top of the instance defaults."""
+    resolved = runtime_defaults()
+    for key in RUNTIME_SETTING_KEYS:
+        value = None if overrides is None else overrides.get(key)
+        if value is not None:
+            resolved[key] = value
+    return resolved
+
+
+def merge_runtime_patch(
+    current: dict[str, Any] | None,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply only known keys; ``None`` values clear back to the default."""
+    merged = dict(current or {})
+    for key in RUNTIME_SETTING_KEYS:
+        if key in patch:
+            merged[key] = patch[key]
+    return merged

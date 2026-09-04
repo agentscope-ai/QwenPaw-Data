@@ -10,7 +10,9 @@ from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.api.mappers import models_to_schema, providers_to_schema
 from qwenpaw_data.host.core.api.models.preferences import (
     ActiveModelsSchema,
+    RuntimeSettingsSchema,
     SetActiveModelsRequest,
+    SetRuntimeSettingsRequest,
     UpsertProviderModelRequest,
     UpsertProviderRequest,
 )
@@ -157,3 +159,31 @@ async def set_active_models(
     except Exception as exc:
         _raise(exc)
     return {"active_models": ActiveModelsSchema.model_validate(item)}
+
+
+@router.get("/runtime-settings")
+async def get_runtime_settings(
+    identity: Identity = Depends(get_identity),
+    state: ServiceState = Depends(get_state),
+) -> dict[str, Any]:
+    try:
+        item = await state.prefs.get_runtime_settings(identity.user_id)
+    except Exception as exc:
+        _raise(exc)
+    return {"runtime_settings": RuntimeSettingsSchema.model_validate(item)}
+
+
+@router.put("/runtime-settings")
+async def set_runtime_settings(
+    body: SetRuntimeSettingsRequest,
+    identity: Identity = Depends(get_identity),
+    state: ServiceState = Depends(get_state),
+) -> dict[str, Any]:
+    try:
+        item = await state.prefs.set_runtime_settings(
+            identity.user_id,
+            body.model_dump(exclude_unset=True),
+        )
+    except Exception as exc:
+        _raise(exc)
+    return {"runtime_settings": RuntimeSettingsSchema.model_validate(item)}

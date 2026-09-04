@@ -53,3 +53,15 @@ class SetActiveModelsRequest(ApiModel):
     default_model_id: str
     light_provider_id: str | None = None
     light_model_id: str | None = None
+
+
+class RuntimeSettingsSchema(ApiModel):
+    react_max_iters: int
+    llm_retry_enabled: bool
+    llm_max_retries: int
+
+
+class SetRuntimeSettingsRequest(ApiModel):
+    react_max_iters: int | None = None
+    llm_retry_enabled: bool | None = None
+    llm_max_retries: int | None = None

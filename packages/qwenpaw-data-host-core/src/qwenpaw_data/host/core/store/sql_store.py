@@ -36,6 +36,7 @@ from qwenpaw_data.host.core.db.tables import (
     UserActiveModelRow,
     UserProviderModelRow,
     UserProviderRow,
+    UserRuntimeSettingsRow,
 )
 from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.chat import ACTIVE, Chat
@@ -49,6 +50,8 @@ from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.store._prefs_logic import (
     clean_model_upsert,
     merge_provider_patch,
+    merge_runtime_patch,
+    resolve_runtime_settings,
 )
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.secrets import decrypt_api_key
@@ -263,6 +266,42 @@ class SQLPreferencesStore:
                 row.updated_at = now
             await db.commit()
         return await self.get_active_models(user_id)
+
+    async def get_runtime_settings(self, user_id: str) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await db.get(UserRuntimeSettingsRow, user_id)
+            return resolve_runtime_settings(self._runtime_overrides(row))
+
+    async def set_runtime_settings(
+        self,
+        user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        async with self._sessions() as db:
+            row = await db.get(UserRuntimeSettingsRow, user_id)
+            merged = merge_runtime_patch(self._runtime_overrides(row), patch)
+            now = utcnow()
+            if row is None:
+                row = UserRuntimeSettingsRow(user_id=user_id, updated_at=now)
+                db.add(row)
+            row.react_max_iters = merged.get("react_max_iters")
+            row.llm_retry_enabled = merged.get("llm_retry_enabled")
+            row.llm_max_retries = merged.get("llm_max_retries")
+            row.updated_at = now
+            await db.commit()
+            return resolve_runtime_settings(merged)
+
+    @staticmethod
+    def _runtime_overrides(
+        row: UserRuntimeSettingsRow | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {
+            "react_max_iters": row.react_max_iters,
+            "llm_retry_enabled": row.llm_retry_enabled,
+            "llm_max_retries": row.llm_max_retries,
+        }
 
 
 def _session_from_row(row: SessionRow) -> Session:
