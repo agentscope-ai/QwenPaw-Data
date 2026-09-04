@@ -981,6 +981,20 @@ wheels = [
 ]
 
 [[package]]
+name = "duckdb-engine"
+version = "0.17.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "duckdb" },
+    { name = "packaging" },
+    { name = "sqlalchemy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/89/d5/c0d8d0a4ca3ffea92266f33d92a375e2794820ad89f9be97cf0c9a9697d0/duckdb_engine-0.17.0.tar.gz", hash = "sha256:396b23869754e536aa80881a92622b8b488015cf711c5a40032d05d2cf08f3cf", size = 48054, upload-time = "2025-03-29T09:49:17.663Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/a2/e90242f53f7ae41554419b1695b4820b364df87c8350aa420b60b20cab92/duckdb_engine-0.17.0-py3-none-any.whl", hash = "sha256:3aa72085e536b43faab635f487baf77ddc5750069c16a2f8d9c6c3cb6083e979", size = 49676, upload-time = "2025-03-29T09:49:15.564Z" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3420,6 +3434,10 @@ dependencies = [
 bigquery = [
     { name = "google-cloud-bigquery" },
 ]
+duckdb = [
+    { name = "duckdb" },
+    { name = "duckdb-engine" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -3430,6 +3448,8 @@ requires-dist = [
     { name = "dbt-core", specifier = ">=1.11,<2.0" },
     { name = "dbt-duckdb", specifier = ">=1.10,<2.0" },
     { name = "duckdb", specifier = ">=1.5,<2.0" },
+    { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.0,<2.0" },
+    { name = "duckdb-engine", marker = "extra == 'duckdb'", specifier = ">=0.13,<1.0" },
     { name = "fastapi", specifier = ">=0.141.1,<1.0" },
     { name = "func-timeout", specifier = ">=4.3,<5.0" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'", specifier = ">=3.25,<4.0" },
@@ -3457,7 +3477,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.68,<5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1,<1.0" },
 ]
-provides-extras = ["bigquery"]
+provides-extras = ["bigquery", "duckdb"]
 
 [[package]]
 name = "qwenpaw-data-host-core"

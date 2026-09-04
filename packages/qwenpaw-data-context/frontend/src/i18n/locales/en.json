@@ -391,7 +391,9 @@
       "createFailed": "Failed to create. Please try again.",
       "testFailed": "Connection test failed. Please try again.",
       "notFound": "Data source not found"
-    }
+    },
+    "filePathRequired": "Please enter the database file path",
+    "filePathPlaceholder": "Absolute path on the server, e.g. /data/analytics.duckdb"
   },
   "kgDocs": {
     "title": "KG Docs Management",

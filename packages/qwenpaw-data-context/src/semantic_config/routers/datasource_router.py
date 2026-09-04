@@ -34,6 +34,52 @@ async def list_datasource_metadata(
     )
 
 
+_SECRET_FIELDS = {"password", "access_key_secret", "sts_token"}
+
+
+@router.get("/types")
+async def list_datasource_types() -> dict:
+    """支持的数据源类型及其连接表单字段（由 pydantic 配置模型单点导出）。
+
+    前端 Add Data Source 表单据此渲染类型下拉与逐字段输入；新增类型只改
+    ``datasource_config.py``，不再改前端硬编码列表。
+    """
+    from semantic_config.models.datasource_config import (
+        CONFIG_MODEL_BY_TYPE,
+        TYPE_LABELS,
+    )
+
+    items = []
+    for ds_type, model in CONFIG_MODEL_BY_TYPE.items():
+        schema = model.model_json_schema()
+        required = set(schema.get("required", []))
+        fields = []
+        for name, spec in (schema.get("properties") or {}).items():
+            json_type = spec.get("type")
+            if json_type is None and "anyOf" in spec:
+                json_type = next(
+                    (opt.get("type") for opt in spec["anyOf"] if opt.get("type") not in (None, "null")),
+                    "string",
+                )
+            fields.append(
+                {
+                    "name": name,
+                    "type": json_type or "string",
+                    "required": name in required,
+                    "default": spec.get("default"),
+                    "secret": name in _SECRET_FIELDS,
+                }
+            )
+        items.append(
+            {
+                "type": ds_type.value,
+                "label": TYPE_LABELS.get(ds_type, ds_type.value),
+                "fields": fields,
+            }
+        )
+    return {"items": items}
+
+
 @router.post("", response_model=DatasourceResponse)
 async def create_datasource(payload: DatasourceCreate, db: aiosqlite.Connection = Depends(get_db)):
     return await service.create(db, payload)

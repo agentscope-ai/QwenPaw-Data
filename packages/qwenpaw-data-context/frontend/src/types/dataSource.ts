@@ -1,4 +1,4 @@
-export type DataSourceType = 'ODPS' | 'MYSQL' | 'POSTGRESQL' | 'odps' | 'mysql' | 'postgresql';
+export type DataSourceType = string;
 
 export type DataSourceConfig =
   | {

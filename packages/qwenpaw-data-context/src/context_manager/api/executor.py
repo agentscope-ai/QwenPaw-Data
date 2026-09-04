@@ -212,10 +212,15 @@ def _resolve_sql_exec_backend() -> str:
             ds_type = cfg.get("_datasource_type", "")
             if ds_type in ("postgresql", "postgres", "hologres"):
                 return "direct"
-            if ds_type == "mysql":
+            if ds_type in ("mysql", "starrocks", "doris", "tidb"):
+                # MySQL 线协议兼容引擎全部走 PyMySQL 直连。
                 return "pymysql_direct"
             if ds_type == "odps":
                 return "odps_akless"
+            if ds_type == "duckdb":
+                return "duckdb_direct"
+            if ds_type == "sqlite":
+                return "sqlite_direct"
     return "unknown"
 
 
@@ -237,10 +242,15 @@ def _resolve_backend_for_datasource(datasource_id: str) -> str:
             ds_type = cfg.get("_datasource_type", "")
             if ds_type in ("postgresql", "postgres", "hologres"):
                 return "direct"
-            if ds_type == "mysql":
+            if ds_type in ("mysql", "starrocks", "doris", "tidb"):
+                # MySQL 线协议兼容引擎全部走 PyMySQL 直连。
                 return "pymysql_direct"
             if ds_type == "odps":
                 return "odps_akless"
+            if ds_type == "duckdb":
+                return "duckdb_direct"
+            if ds_type == "sqlite":
+                return "sqlite_direct"
         return "unknown"
     return _resolve_sql_exec_backend()
 
@@ -333,6 +343,94 @@ def _execute_sql_via_pymysql(
                 )
         finally:
             conn.close()
+    except Exception as exc:
+        return ExecResult(
+            sql=sql, error=str(exc),
+            elapsed_ms=(time.time() - t0) * 1000,
+        )
+
+
+def _file_db_path(datasource_id: str, expected_type: str) -> "Path":
+    """从 semantic_config.db 取单文件数据源的本地路径并校验存在。"""
+    from pathlib import Path
+
+    from .datasource_active_api import load_datasource_config
+
+    cfg = load_datasource_config(datasource_id)
+    if cfg is None:
+        raise RuntimeError(
+            f"datasource_id={datasource_id!r} 在 semantic_config.db 中无 config"
+        )
+    ds_type = cfg.get("_datasource_type", "")
+    if ds_type != expected_type:
+        raise RuntimeError(
+            f"datasource_id={datasource_id!r} 类型 {ds_type!r} 不是 {expected_type}"
+        )
+    path = Path(str(cfg.get("path") or "")).expanduser()
+    if not path.is_file():
+        raise RuntimeError(f"{expected_type} 数据库文件不存在: {path}")
+    return path
+
+
+def _execute_sql_via_duckdb(
+    sql: str,
+    *,
+    max_rows: int = 200,
+    datasource_id: str = "",
+) -> ExecResult:
+    """Execute read-only SQL against a local DuckDB file (read_only=True)."""
+    t0 = time.time()
+    try:
+        path = _file_db_path(datasource_id, "duckdb")
+        import duckdb
+
+        conn = duckdb.connect(str(path), read_only=True)
+        try:
+            cur = conn.execute(sql)
+            cols = [d[0] for d in (cur.description or [])]
+            rows = cur.fetchmany(max_rows + 1)
+            truncated = len(rows) > max_rows
+            rows = rows[:max_rows]
+        finally:
+            conn.close()
+        return ExecResult(
+            sql=sql, columns=cols, rows=[list(r) for r in rows],
+            row_count=len(rows), truncated=truncated,
+            elapsed_ms=(time.time() - t0) * 1000,
+        )
+    except Exception as exc:
+        return ExecResult(
+            sql=sql, error=str(exc),
+            elapsed_ms=(time.time() - t0) * 1000,
+        )
+
+
+def _execute_sql_via_sqlite(
+    sql: str,
+    *,
+    max_rows: int = 200,
+    datasource_id: str = "",
+) -> ExecResult:
+    """Execute read-only SQL against a local SQLite file (mode=ro URI)."""
+    t0 = time.time()
+    try:
+        path = _file_db_path(datasource_id, "sqlite")
+        import sqlite3
+
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            cur = conn.execute(sql)
+            cols = [d[0] for d in (cur.description or [])]
+            rows = cur.fetchmany(max_rows + 1)
+            truncated = len(rows) > max_rows
+            rows = rows[:max_rows]
+        finally:
+            conn.close()
+        return ExecResult(
+            sql=sql, columns=cols, rows=[list(r) for r in rows],
+            row_count=len(rows), truncated=truncated,
+            elapsed_ms=(time.time() - t0) * 1000,
+        )
     except Exception as exc:
         return ExecResult(
             sql=sql, error=str(exc),
@@ -468,6 +566,10 @@ def execute_sql(
             return _execute_sql_via_odps_akless(s, max_rows=max_rows, datasource_id=active_ds)
         if backend == "pymysql_direct":
             return _execute_sql_via_pymysql(s, max_rows=max_rows, datasource_id=active_ds)
+        if backend == "duckdb_direct":
+            return _execute_sql_via_duckdb(s, max_rows=max_rows, datasource_id=active_ds)
+        if backend == "sqlite_direct":
+            return _execute_sql_via_sqlite(s, max_rows=max_rows, datasource_id=active_ds)
         if backend == "direct":
             return _execute_sql_via_psycopg(
                 s, max_rows=max_rows, datasource_id=active_ds,

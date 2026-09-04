@@ -64,6 +64,7 @@ dependencies = [
 
 [project.optional-dependencies]
 bigquery = ["google-cloud-bigquery>=3.25,<4.0"]
+duckdb = ["duckdb>=1.0,<2.0", "duckdb-engine>=0.13,<1.0"]
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"

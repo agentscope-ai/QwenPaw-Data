@@ -7,6 +7,25 @@ export const queryDataSourceList = (params?: DataSourceQueryParams) => {
   return request.get(semanticConfigApi('/datasource'), { params });
 };
 
+export interface DataSourceFieldSpec {
+  name: string;
+  type: string;
+  required: boolean;
+  default?: unknown;
+  secret?: boolean;
+}
+
+export interface DataSourceTypeInfo {
+  type: string;
+  label: string;
+  fields: DataSourceFieldSpec[];
+}
+
+// 支持的数据源类型与连接表单字段（后端 pydantic 模型单点导出）
+export const fetchDataSourceTypes = (): Promise<{ items: DataSourceTypeInfo[] }> => {
+  return request.get(semanticConfigApi('/datasource/types'));
+};
+
 // Credential-free datasource identities for ordinary query pages/dropdowns.
 export const queryDataSourceMetadata = (params?: DataSourceQueryParams) => {
   return request.get('/api/v1/cm/datasources', { params });

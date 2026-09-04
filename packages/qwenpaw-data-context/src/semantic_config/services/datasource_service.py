@@ -22,7 +22,9 @@ from semantic_config.services import connection_tester
 
 log = logging.getLogger("semantic_config.datasource_service")
 
-_ALLOWED_TYPES = {"mysql", "postgresql", "odps"}
+from semantic_config.models.datasource_config import DatasourceType as _DatasourceType
+
+_ALLOWED_TYPES = {t.value for t in _DatasourceType}
 _SENSITIVE_CONFIG_KEYS = frozenset({"password", "access_key_secret", "sts_token"})
 
 
