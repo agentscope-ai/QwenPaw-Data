@@ -4,13 +4,27 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from qwenpaw_data.host.core.api.models.artifact import ArtifactCommentSchema
+from qwenpaw_data.host.core.api.models.artifact import (
+    ArtifactCommentSchema,
+    ArtifactLineRefSchema,
+)
 from qwenpaw_data.host.core.api.models.common import ApiModel, AttachmentRefSchema
 
 
 class ChatErrorSchema(ApiModel):
     code: str
     message: str
+
+
+class FeedbackSchema(ApiModel):
+    id: str
+    session_id: str
+    chat_id: str
+    kind: Literal["like", "dislike", "copy", "artifact_comment"]
+    reason: str | None = None
+    detail: str | None = None
+    artifact_ref: ArtifactLineRefSchema | None = None
+    created_at: datetime
 
 
 class AskUserQuestionAnswerSchema(ApiModel):

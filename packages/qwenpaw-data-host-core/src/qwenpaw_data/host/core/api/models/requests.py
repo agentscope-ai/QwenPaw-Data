@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from qwenpaw_data.host.core.api.models.artifact import ArtifactCommentSchema
+from typing import Literal
+
+from qwenpaw_data.host.core.api.models.artifact import (
+    ArtifactCommentSchema,
+    ArtifactLineRefSchema,
+)
 from qwenpaw_data.host.core.api.models.chat import (
     AskUserQuestionAnsweredResultSchema,
     AskUserQuestionTimeoutResultSchema,
@@ -42,6 +47,13 @@ class SteerRequest(ApiModel):
 class PlanEditRequest(ApiModel):
     reason: str | None = None
     plan: PlanSchema | None
+
+
+class FeedbackRequest(ApiModel):
+    kind: Literal["like", "dislike", "copy", "artifact_comment"]
+    reason: str | None = None
+    detail: str | None = None
+    artifact_ref: ArtifactLineRefSchema | None = None
 
 
 class ClarificationAnswerRequest(ApiModel):

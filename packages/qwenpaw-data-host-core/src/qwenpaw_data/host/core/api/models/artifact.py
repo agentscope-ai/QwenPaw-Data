@@ -16,6 +16,14 @@ class ArtifactSchema(ApiModel):
     updated_at: datetime
 
 
+class ArtifactLineRefSchema(ApiModel):
+    artifact_id: str
+    content_hash: str
+    line_start: int
+    line_end: int
+    quote: str
+
+
 class ArtifactCommentSchema(ApiModel):
     path: str
     line_start: int

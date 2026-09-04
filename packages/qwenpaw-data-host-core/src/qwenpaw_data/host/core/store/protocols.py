@@ -172,6 +172,47 @@ class AttachmentStore(Protocol):
     async def delete(self, user_id: str, attachment_id: str) -> None: ...
 
 
+class FeedbackStore(Protocol):
+    """Chat feedback: one mutable like/dislike reaction plus append-only rest."""
+
+    async def add(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None = None,
+        detail: str | None = None,
+        artifact_ref: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def set_reaction(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+        kind: str,
+        reason: str | None = None,
+        detail: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def get_reaction(
+        self,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+    ) -> dict[str, Any] | None: ...
+
+    async def clear_reaction(
+        self,
+        user_id: str,
+        session_id: str,
+        chat_id: str,
+    ) -> None: ...
+
+
 class ChatEventStore(Protocol):
     async def append(
         self,

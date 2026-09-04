@@ -34,11 +34,13 @@ from qwenpaw_data.host.core.api.routers import console as console_router
 from qwenpaw_data.host.core.api.routers import cron as cron_router
 from qwenpaw_data.host.core.api.routers import datasources as datasources_router
 from qwenpaw_data.host.core.api.routers import events as events_router
+from qwenpaw_data.host.core.api.routers import feedback as feedback_router
 from qwenpaw_data.host.core.api.routers import plan as plan_router
 from qwenpaw_data.host.core.api.routers import preferences as preferences_router
 from qwenpaw_data.host.core.api.routers import sessions as sessions_router
 from qwenpaw_data.host.core.api.routers import settlement as settlement_router
 from qwenpaw_data.host.core.api.routers import steer as steer_router
+from qwenpaw_data.host.core.api.routers import trace as trace_router
 from qwenpaw_data.host.core.cron import CronManager
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.model import build_model_from_env
@@ -54,6 +56,7 @@ from qwenpaw_data.host.core.store.json_store import (
     JSONChatEventStore,
     JSONChatStore,
     JSONCronStore,
+    JSONFeedbackStore,
     JSONPreferencesStore,
     JSONSessionStore,
     JSONSettlementStore,
@@ -115,6 +118,7 @@ def create_app(
             channel_config_store: Any = JSONChannelConfigStore(store_root)
             channel_binding_store: Any = JSONChannelBindingStore(store_root)
             attachment_store: Any = JSONAttachmentStore(store_root)
+            feedback_store: Any = JSONFeedbackStore(store_root)
         else:
             from qwenpaw_data.host.core.db.engine import (
                 create_engine_and_factory,
@@ -128,6 +132,7 @@ def create_app(
                 SQLChatEventStore,
                 SQLChatStore,
                 SQLCronStore,
+                SQLFeedbackStore,
                 SQLPreferencesStore,
                 SQLSessionStore,
                 SQLSettlementStore,
@@ -146,6 +151,7 @@ def create_app(
             channel_config_store = SQLChannelConfigStore(factory)
             channel_binding_store = SQLChannelBindingStore(factory)
             attachment_store = SQLAttachmentStore(factory)
+            feedback_store = SQLFeedbackStore(factory)
 
         async def resolve_model() -> Any:
             """Prefer the local user's configured default model over env."""
@@ -178,6 +184,7 @@ def create_app(
             channel_configs=channel_config_store,
             channel_bindings=channel_binding_store,
             attachments=attachment_store,
+            feedback=feedback_store,
             hosts=QwenPawDataHostRegistry(
                 home=resolved_home,
                 model=model,
@@ -261,6 +268,8 @@ def create_app(
     app.include_router(console_router.router, prefix="/api/v1")
     app.include_router(events_router.router, prefix="/api/v1")
     app.include_router(plan_router.router, prefix="/api/v1")
+    app.include_router(trace_router.router, prefix="/api/v1")
+    app.include_router(feedback_router.router, prefix="/api/v1")
     app.include_router(steer_router.router, prefix="/api/v1")
     app.include_router(clarification_router.router, prefix="/api/v1")
     app.include_router(preferences_router.router, prefix="/api/v1")
