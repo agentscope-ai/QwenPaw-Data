@@ -30,7 +30,10 @@ async def steer(
         runtime = get_runtime_registry().get(chat_id)
         if runtime is None:
             raise SteerChatEndedError()
-        await runtime.steer(body.text)
+        await runtime.steer(
+            body.text,
+            [item.model_dump(mode="json") for item in body.artifact_comments],
+        )
     except Exception as exc:
         http = map_domain_error(exc)
         if http:

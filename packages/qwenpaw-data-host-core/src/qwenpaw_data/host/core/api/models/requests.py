@@ -7,6 +7,7 @@ from qwenpaw_data.host.core.api.models.chat import (
     AskUserQuestionTimeoutResultSchema,
 )
 from qwenpaw_data.host.core.api.models.common import ApiModel, AttachmentRefSchema
+from qwenpaw_data.host.core.api.models.plan import PlanSchema
 
 
 class CreateSessionRequest(ApiModel):
@@ -35,6 +36,12 @@ class ConsoleChatRequest(ApiModel):
 
 class SteerRequest(ApiModel):
     text: str
+    artifact_comments: list[ArtifactCommentSchema] = []
+
+
+class PlanEditRequest(ApiModel):
+    reason: str | None = None
+    plan: PlanSchema | None
 
 
 class ClarificationAnswerRequest(ApiModel):

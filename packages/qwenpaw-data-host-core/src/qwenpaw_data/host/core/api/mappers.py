@@ -16,6 +16,7 @@ from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.preference import UserPreferences
 from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.providers.registry import ProviderRegistry
+from qwenpaw_data.host.core.utils.plan import sop_plan_to_schema
 from qwenpaw_data.host.core.utils.secrets import mask_api_key
 
 
@@ -129,7 +130,7 @@ def chat_to_schema(chat: Chat) -> dict[str, Any]:
         completed_at=chat.completed_at,
         active_duration_ms=chat.active_duration_ms,
         error=ChatErrorSchema(**chat.error) if chat.error else None,
-        plan=chat.plan,
+        plan=sop_plan_to_schema(chat.plan),
         artifact_comments=chat.artifact_comments,  # type: ignore[arg-type]
         attachments=chat.attachments,  # type: ignore[arg-type]
     ).model_dump(mode="json")

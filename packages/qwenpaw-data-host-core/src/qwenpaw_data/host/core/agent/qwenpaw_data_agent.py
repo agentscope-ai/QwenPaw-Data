@@ -140,6 +140,38 @@ class QwenPawDataAgent(Agent):
             )
         return nodes_to_sop(rs._nodes, graph_id, rs._graph_registry)
 
+    def get_plan_states(self) -> dict[str, str]:
+        """当前活跃图的 ``node_id → state`` 快照。"""
+        rs = self._runtime_state
+        graph_id = rs.current_graph_id
+        if not graph_id:
+            return {}
+        return {n.id: n.state for n in graph_nodes(rs._nodes, graph_id)}
+
+    async def replace_plan(
+        self,
+        sop: SOP | dict | str,
+        *,
+        reason: str | None = None,
+    ) -> SOP:
+        """整体替换当前计划；节点运行态重置为 todo，由后续执行重新推进。"""
+        rs = self._runtime_state
+        graph_id, nodes, graph_meta = sop_to_nodes(sop)
+        rs._graph_registry[graph_id] = graph_meta
+        await rs.load_graph_from_nodes(graph_id, nodes)
+        self.state.context.append(self._plan_changed_message(reason))
+        return nodes_to_sop(rs._nodes, graph_id, rs._graph_registry)
+
+    @staticmethod
+    def _plan_changed_message(reason: str | None = None) -> Msg:
+        lines = [
+            "[用户更新了当前计划]",
+            "当前计划已被完整替换，请依据最新的 system plan hint 继续。",
+        ]
+        if reason:
+            lines.append(f"修改原因：{reason}")
+        return user_msg("\n".join(lines))
+
     async def execute_sop(
         self,
         sop: SOP | dict | str,

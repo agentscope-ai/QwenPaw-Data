@@ -98,9 +98,13 @@ class ChatRuntime:
             result=result,
         )
 
-    async def steer(self, text: str) -> None:
+    async def steer(
+        self,
+        text: str,
+        artifact_comments: list[dict] | None = None,
+    ) -> None:
         """Enqueue steer text and wait until it is injected into the agent."""
-        await self._executor.steer(text)
+        await self._executor.steer(text, artifact_comments)
 
     async def run(self, chat_id: str, *, identity: Identity) -> None:
         registry = get_runtime_registry()
@@ -418,20 +422,37 @@ class ChatRuntime:
             stamps[path] = (stat.st_size, stat.st_mtime_ns)
         return stamps
 
-    async def _save_plan(self) -> None:
+    async def replace_plan(
+        self,
+        plan: dict[str, Any],
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace the live plan wholesale; persists and streams the snapshot."""
+        agent = self.agent
+        await agent.replace_plan(plan, reason=reason)
+        return await self._save_plan() or {}
+
+    async def _save_plan(self) -> dict[str, Any] | None:
         ctx = self._run_context
         stream = self._stream
         if self._agent is None or ctx is None or stream is None:
-            return
+            return None
         try:
             snapshot = self._agent.get_plan().model_dump(mode="json")
         except RuntimeError:
-            return
+            return None
+        states = self._agent.get_plan_states()
+        for node in snapshot.get("nodes") or []:
+            state = states.get(node.get("node_id"))
+            if state is not None:
+                node["state"] = state
         await self.chats.update_plan(ctx.chat_id, snapshot)
         await stream.task_status(
             event_type="graph_updated",
             graph_snapshot=snapshot,
         )
+        return snapshot
 
     async def _finish(
         self,
