@@ -31,6 +31,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import psycopg
@@ -350,10 +351,8 @@ def _execute_sql_via_pymysql(
         )
 
 
-def _file_db_path(datasource_id: str, expected_type: str) -> "Path":
+def _file_db_path(datasource_id: str, expected_type: str) -> Path:
     """从 semantic_config.db 取单文件数据源的本地路径并校验存在。"""
-    from pathlib import Path
-
     from .datasource_active_api import load_datasource_config
 
     cfg = load_datasource_config(datasource_id)
