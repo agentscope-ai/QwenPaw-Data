@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/semantic-config/import", tags=["import"])
 @router.post("/excel")
 async def import_excel(
     file: UploadFile | None = File(default=None),
-    db: aiosqlite.Connection = Depends(get_db),
+    db: aiosqlite.Connection = Depends(get_db, scope="function"),
 ):
     if file is None:
         raise BadRequestError("上传文件不能为空")

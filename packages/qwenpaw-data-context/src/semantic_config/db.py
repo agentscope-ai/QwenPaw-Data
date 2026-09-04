@@ -41,6 +41,11 @@ async def get_db() -> AsyncIterator[aiosqlite.Connection]:
     """FastAPI 依赖：每请求一个连接、一个事务。
 
     正常结束 -> commit；抛异常 -> rollback（整请求原子，Excel 导入据此实现整体回滚）。
+
+    必须以 ``Depends(get_db, scope="function")`` 使用：commit 在 teardown 里，
+    request 作用域的 teardown 在响应发出**之后**才执行，客户端拿到 200 后立刻
+    发起的下一个请求会用新连接读到未提交的数据（写后读竞态，CI 上 metric
+    create→update 曾因此偶发 404）。function 作用域保证 commit 先于响应发送。
     """
     settings = get_settings()
     conn = await aiosqlite.connect(settings.db_path)

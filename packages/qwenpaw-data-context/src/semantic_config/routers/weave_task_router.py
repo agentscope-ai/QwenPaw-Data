@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/semantic-config/weave-task", tags=["weave-task"]
 async def submit_task(
     payload: WeaveTaskSubmit,
     request: Request,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: aiosqlite.Connection = Depends(get_db, scope="function"),
 ):
     driver = getattr(request.app.state, "driver", None)
     governor = getattr(request.app.state, "blocking_io", None)
@@ -28,16 +28,16 @@ async def list_task(
     task_name: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1),
-    db: aiosqlite.Connection = Depends(get_db),
+    db: aiosqlite.Connection = Depends(get_db, scope="function"),
 ):
     return await service.list_page(db, datasource_name, task_name, page, size)
 
 
 @router.post("/{task_id}/kill", response_model=WeaveTaskResponse)
-async def kill_task(task_id: str, db: aiosqlite.Connection = Depends(get_db)):
+async def kill_task(task_id: str, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.kill(db, task_id)
 
 
 @router.post("/callback", response_model=WeaveTaskResponse)
-async def callback_task(payload: WeaveTaskCallback, db: aiosqlite.Connection = Depends(get_db)):
+async def callback_task(payload: WeaveTaskCallback, db: aiosqlite.Connection = Depends(get_db, scope="function")):
     return await service.callback(db, payload)
