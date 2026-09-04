@@ -117,6 +117,7 @@ def duckdb_db(tmp_path):
 
 
 def test_duckdb_adapter_metadata_and_sql(duckdb_db) -> None:
+    pytest.importorskip("duckdb_engine")
     from context_manager.graph.adapters.duckdb_adapter import DuckDBConnector
     from context_manager.secrets.schemas import DuckdbConnection
 
