@@ -25,8 +25,6 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
 from qwenpaw_data.host.core.db.tables import (
     AttachmentRow,
-    ChannelBindingRow,
-    ChannelConfigRow,
     ChatEventRow,
     ChatRow,
     CronJobRow,
@@ -675,8 +673,6 @@ def _cron_to_dict(row: CronJobRow) -> dict[str, Any]:
         "enabled": row.enabled,
         "message": row.message,
         "datasource_id": row.datasource_id,
-        "channel": row.channel,
-        "target_external_key": row.target_external_key,
         "session_id": row.session_id,
         "schedule": ScheduleSpec.model_validate(row.schedule_json).model_dump(
             mode="json"
@@ -722,8 +718,6 @@ class SQLCronStore:
                 enabled=body.enabled,
                 message=body.message,
                 datasource_id=body.datasource_id,
-                channel=body.channel,
-                target_external_key=body.target_external_key,
                 session_id=body.session_id,
                 schedule_json=body.schedule.model_dump(mode="json"),
                 created_at=now,
@@ -742,8 +736,6 @@ class SQLCronStore:
             row.enabled = body.enabled
             row.message = body.message
             row.datasource_id = body.datasource_id
-            row.channel = body.channel
-            row.target_external_key = body.target_external_key
             row.session_id = body.session_id
             row.schedule_json = body.schedule.model_dump(mode="json")
             row.updated_at = utcnow()
@@ -943,138 +935,6 @@ class SQLSettlementStore:
             await db.delete(row)
             await db.commit()
             return True
-
-
-class SQLChannelConfigStore:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = session_factory
-
-    async def load(self, user_id: str) -> dict[str, Any]:
-        from qwenpaw_data.host.core.channels.config import initial_config
-
-        async with self._sessions() as db:
-            row = await db.get(ChannelConfigRow, user_id)
-            if row is not None and row.config_json:
-                return dict(row.config_json)
-        return initial_config()
-
-    async def save(self, user_id: str, config: dict[str, Any]) -> None:
-        async with self._sessions() as db:
-            row = await db.get(ChannelConfigRow, user_id)
-            if row is None:
-                db.add(
-                    ChannelConfigRow(
-                        user_id=user_id,
-                        config_json=dict(config),
-                        updated_at=utcnow(),
-                    )
-                )
-            else:
-                row.config_json = dict(config)
-                row.updated_at = utcnow()
-            await db.commit()
-
-    async def list_user_ids(self) -> list[str]:
-        async with self._sessions() as db:
-            rows = (
-                await db.scalars(
-                    select(ChannelConfigRow).order_by(ChannelConfigRow.user_id)
-                )
-            ).all()
-            return [r.user_id for r in rows]
-
-
-def _binding_to_dict(row: ChannelBindingRow) -> dict[str, Any]:
-    return {
-        "external_key": row.external_key,
-        "target_type": row.target_type,
-        "display_name": row.display_name,
-        "last_active_at": row.updated_at,
-    }
-
-
-class SQLChannelBindingStore:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = session_factory
-
-    async def get_active_session_id(
-        self, user_id: str, channel: str, external_key: str
-    ) -> str | None:
-        async with self._sessions() as db:
-            row = await db.get(ChannelBindingRow, (user_id, channel, external_key))
-            return row.active_session_id if row is not None else None
-
-    async def point_to(
-        self,
-        user_id: str,
-        channel: str,
-        external_key: str,
-        session_id: str,
-        *,
-        target_meta: dict[str, Any] | None = None,
-        display_name: str = "",
-    ) -> None:
-        now = utcnow()
-        async with self._sessions() as db:
-            row = await db.get(ChannelBindingRow, (user_id, channel, external_key))
-            if row is None:
-                db.add(
-                    ChannelBindingRow(
-                        user_id=user_id,
-                        channel=channel,
-                        external_key=external_key,
-                        active_session_id=session_id,
-                        target_type=str((target_meta or {}).get("target_type") or ""),
-                        display_name=display_name,
-                        send_meta_json=(target_meta or {}).get("send_meta") or {},
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-            else:
-                row.active_session_id = session_id
-                if target_meta:
-                    row.target_type = str(target_meta.get("target_type") or "")
-                    row.send_meta_json = target_meta.get("send_meta") or {}
-                if display_name:
-                    row.display_name = display_name
-                row.updated_at = now
-            await db.commit()
-
-    async def list_by_channel(
-        self, user_id: str, channel: str
-    ) -> list[dict[str, Any]]:
-        async with self._sessions() as db:
-            rows = (
-                await db.scalars(
-                    select(ChannelBindingRow)
-                    .where(
-                        ChannelBindingRow.user_id == user_id,
-                        ChannelBindingRow.channel == channel,
-                    )
-                    .order_by(ChannelBindingRow.updated_at.desc())
-                )
-            ).all()
-            return [_binding_to_dict(r) for r in rows]
-
-    async def get_target_meta(
-        self, user_id: str, channel: str, external_key: str
-    ) -> dict[str, Any] | None:
-        async with self._sessions() as db:
-            row = await db.get(ChannelBindingRow, (user_id, channel, external_key))
-            if row is None:
-                return None
-            return {
-                "target_type": row.target_type,
-                "display_name": row.display_name,
-                "send_meta": row.send_meta_json or {},
-            }
-
-    async def exists(self, user_id: str, channel: str, external_key: str) -> bool:
-        async with self._sessions() as db:
-            return (
-                await db.get(ChannelBindingRow, (user_id, channel, external_key))
-            ) is not None
 
 
 def _attachment_from_row(row: AttachmentRow) -> Attachment:
