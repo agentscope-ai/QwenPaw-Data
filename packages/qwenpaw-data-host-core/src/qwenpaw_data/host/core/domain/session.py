@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
@@ -71,6 +72,8 @@ class Session:
         text: str,
         datasource_id: str | None,
         has_active_chat: bool,
+        artifact_comments: list[dict[str, Any]] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> Chat:
         if has_active_chat:
             raise RuntimeError("CONFLICT: session already has an active chat")
@@ -84,6 +87,8 @@ class Session:
             sequence=sequence,
             datasource_id=self.datasource_id,
             text=text,
+            artifact_comments=artifact_comments,
+            attachments=attachments,
         )
 
     def register_chat(self) -> int:

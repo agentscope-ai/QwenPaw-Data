@@ -70,10 +70,26 @@ class ChatRow(UserIdColumn, Base):
     active_duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    artifact_comments_json: Mapped[list] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    attachments_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class AttachmentRow(UserIdColumn, Base):
+    __tablename__ = "attachments"
+
+    attachment_id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    storage_path: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )
 

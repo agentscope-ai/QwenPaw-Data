@@ -16,6 +16,11 @@ class ErrorBodySchema(ApiModel):
     details: dict[str, Any] | None = None
 
 
+class AttachmentRefSchema(ApiModel):
+    attachment_id: str
+    filename: str
+
+
 class DatasourceOptionSchema(ApiModel):
     id: str
     name: str

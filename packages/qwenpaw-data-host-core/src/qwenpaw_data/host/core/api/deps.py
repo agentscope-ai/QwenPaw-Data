@@ -10,6 +10,7 @@ from fastapi import Request
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
 from qwenpaw_data.host.core.store.protocols import (
+    AttachmentStore,
     ChannelBindingStore,
     ChannelConfigStore,
     ChatEventStore,
@@ -31,6 +32,7 @@ class ServiceState:
     settlement: SettlementStore
     channel_configs: ChannelConfigStore
     channel_bindings: ChannelBindingStore
+    attachments: AttachmentStore
     hosts: QwenPawDataHostRegistry
     cron_manager: Any = None
     channel_manager: Any = None

@@ -8,10 +8,12 @@ runtime.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol
 
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite
 from qwenpaw_data.host.core.api.models.stream_objects import StreamObject
+from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.preference import UserPreferences
 from qwenpaw_data.host.core.domain.session import Session
@@ -142,6 +144,32 @@ class ChatStore(Protocol):
     async def update_plan(self, chat_id: str, plan: dict[str, Any]) -> None: ...
 
     async def reload_event_watermark(self, chat: Chat) -> None: ...
+
+
+class AttachmentStore(Protocol):
+    """Uploaded-file metadata; payload bytes live under the shared workspace."""
+
+    async def add(self, attachment: Attachment) -> None: ...
+
+    async def get(self, user_id: str, attachment_id: str) -> Attachment: ...
+
+    async def find_by_filename(
+        self,
+        user_id: str,
+        session_id: str,
+        filename: str,
+    ) -> Attachment | None: ...
+
+    async def require_for_session(
+        self,
+        user_id: str,
+        session_id: str,
+        attachment_ids: list[str],
+        *,
+        workspace: Path,
+    ) -> list[Attachment]: ...
+
+    async def delete(self, user_id: str, attachment_id: str) -> None: ...
 
 
 class ChatEventStore(Protocol):

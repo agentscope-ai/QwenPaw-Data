@@ -3485,6 +3485,7 @@ service = [
     { name = "apscheduler" },
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "python-multipart" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
@@ -3501,6 +3502,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28,<0.29" },
     { name = "lark-oapi", marker = "extra == 'channels'", specifier = ">=1.5.3" },
     { name = "pydantic", specifier = ">=2.13,<3.0" },
+    { name = "python-multipart", marker = "extra == 'service'", specifier = ">=0.0.18,<1.0" },
     { name = "pyyaml", specifier = ">=6.0,<7.0" },
     { name = "qwenpaw-data-skills", editable = "packages/qwenpaw-data-skills" },
     { name = "shortuuid", specifier = ">=1.0,<2.0" },

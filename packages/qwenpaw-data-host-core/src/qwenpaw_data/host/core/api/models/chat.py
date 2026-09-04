@@ -4,7 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from qwenpaw_data.host.core.api.models.common import ApiModel
+from qwenpaw_data.host.core.api.models.artifact import ArtifactCommentSchema
+from qwenpaw_data.host.core.api.models.common import ApiModel, AttachmentRefSchema
 
 
 class ChatErrorSchema(ApiModel):
@@ -61,3 +62,5 @@ class ChatSchema(ApiModel):
     active_duration_ms: int = 0
     error: ChatErrorSchema | None = None
     plan: dict[str, Any] | None = None
+    artifact_comments: list[ArtifactCommentSchema] = []
+    attachments: list[AttachmentRefSchema] = []

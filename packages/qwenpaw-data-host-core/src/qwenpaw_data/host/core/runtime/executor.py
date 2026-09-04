@@ -17,7 +17,7 @@ from agentscope.message import UserMsg
 from qwenpaw_data.host.core.agent.middleware import SteerMiddleware
 from qwenpaw_data.host.core.domain.clarification import ClarificationWithExecutor
 from qwenpaw_data.host.core.runtime.envelope import Envelope
-from qwenpaw_data.host.core.runtime.turn import TurnInput
+from qwenpaw_data.host.core.runtime.turn import TurnInput, compose_agent_input
 from qwenpaw_data.host.core.utils.agent import close_interrupted_tool_calls
 
 
@@ -63,7 +63,12 @@ class AgentExecutor:
     ) -> None:
         inputs: Any = UserMsg(
             name="user",
-            content=turn.user_input,
+            content=compose_agent_input(
+                turn.user_input,
+                turn.artifact_comments,
+                turn.attachments,
+                session_id=turn.session_id,
+            ),
         )
 
         while True:
