@@ -391,7 +391,9 @@
       "createFailed": "创建失败，请稍后重试",
       "testFailed": "连接测试失败，请稍后重试",
       "notFound": "数据源不存在"
-    }
+    },
+    "filePathRequired": "请输入数据库文件路径",
+    "filePathPlaceholder": "服务器上的绝对路径，如 /data/analytics.duckdb"
   },
   "kgDocs": {
     "title": "KG 文档管理",

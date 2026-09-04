@@ -20,7 +20,8 @@ class PostgresConnection(BaseModel):
 
 
 class MySQLConnection(BaseModel):
-    type: Literal["mysql"]
+    # MySQL 线协议兼容引擎（StarRocks/Doris/TiDB）共用同一连接形态。
+    type: Literal["mysql", "starrocks", "doris", "tidb"]
     host: str
     port: int = 3306
     database: str
@@ -90,6 +91,14 @@ class SqliteConnection(BaseModel):
     )
 
 
+class DuckdbConnection(BaseModel):
+    type: Literal["duckdb"]
+    path: str
+    read_only: bool = Field(
+        default=True, description="只读模式打开（防止误写）"
+    )
+
+
 TypedConnection = Annotated[
     Union[
         PostgresConnection,
@@ -101,6 +110,7 @@ TypedConnection = Annotated[
         DDLConnection,
         CSVConnection,
         SqliteConnection,
+        DuckdbConnection,
     ],
     Field(discriminator="type"),
 ]

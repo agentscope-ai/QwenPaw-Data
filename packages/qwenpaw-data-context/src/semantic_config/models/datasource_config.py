@@ -20,6 +20,29 @@ class DatasourceType(str, Enum):
     POSTGRESQL = "postgresql"
     MYSQL = "mysql"
     ODPS = "odps"
+    # MySQL 线协议兼容引擎：注册/校验/连测/执行全部复用 MySQL 通道。
+    STARROCKS = "starrocks"
+    DORIS = "doris"
+    TIDB = "tidb"
+    # 单文件分析库：无 host/凭证，只需本地路径。
+    DUCKDB = "duckdb"
+    SQLITE = "sqlite"
+
+
+#: MySQL 线协议兼容类型（PyMySQL 直连 + information_schema 反射均可用）。
+MYSQL_COMPATIBLE_TYPES: frozenset[DatasourceType] = frozenset(
+    {
+        DatasourceType.MYSQL,
+        DatasourceType.STARROCKS,
+        DatasourceType.DORIS,
+        DatasourceType.TIDB,
+    }
+)
+
+#: 单文件类型（连接配置只有 ``path``）。
+FILE_DATABASE_TYPES: frozenset[DatasourceType] = frozenset(
+    {DatasourceType.DUCKDB, DatasourceType.SQLITE}
+)
 
 
 class PostgresConfig(BaseModel):
@@ -58,10 +81,44 @@ class OdpsConfig(BaseModel):
     sts_token: str | None = None
 
 
+class DuckdbConfig(BaseModel):
+    """DuckDB 单文件连接（duckdb 原生驱动，只读打开）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+
+class SqliteConfig(BaseModel):
+    """SQLite 单文件连接（sqlite3，``mode=ro`` 只读 URI 打开）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+
 CONFIG_MODEL_BY_TYPE: dict[DatasourceType, type[BaseModel]] = {
     DatasourceType.POSTGRESQL: PostgresConfig,
     DatasourceType.MYSQL: MysqlConfig,
     DatasourceType.ODPS: OdpsConfig,
+    # MySQL 兼容引擎共用同一份连接模型。
+    DatasourceType.STARROCKS: MysqlConfig,
+    DatasourceType.DORIS: MysqlConfig,
+    DatasourceType.TIDB: MysqlConfig,
+    DatasourceType.DUCKDB: DuckdbConfig,
+    DatasourceType.SQLITE: SqliteConfig,
+}
+
+#: 展示名（``/datasource/types`` 端点使用；前端下拉据此渲染）。
+TYPE_LABELS: dict[DatasourceType, str] = {
+    DatasourceType.MYSQL: "MySQL",
+    DatasourceType.POSTGRESQL: "PostgreSQL",
+    DatasourceType.ODPS: "ODPS",
+    DatasourceType.STARROCKS: "StarRocks",
+    DatasourceType.DORIS: "Apache Doris",
+    DatasourceType.TIDB: "TiDB",
+    DatasourceType.DUCKDB: "DuckDB",
+    DatasourceType.SQLITE: "SQLite",
 }
 
 
@@ -100,10 +157,15 @@ def validate_config(datasource_type: str | None, config: dict | None) -> dict:
 
 __all__ = [
     "DatasourceType",
+    "MYSQL_COMPATIBLE_TYPES",
+    "FILE_DATABASE_TYPES",
     "PostgresConfig",
     "MysqlConfig",
     "OdpsConfig",
+    "DuckdbConfig",
+    "SqliteConfig",
     "CONFIG_MODEL_BY_TYPE",
+    "TYPE_LABELS",
     "resolve_type",
     "validate_config",
 ]

@@ -251,6 +251,7 @@ _register(
     ("PUT", "/api/system/model-config/embedding"),
     ("POST", "/api/system/model-config/embedding/test"),
     ("GET", "/api/semantic-config/datasource"),
+    ("GET", "/api/semantic-config/datasource/types"),
     ("POST", "/api/semantic-config/datasource"),
     ("POST", "/api/semantic-config/datasource/test-connection"),
     ("GET", "/api/semantic-config/datasource/{datasource_id}"),

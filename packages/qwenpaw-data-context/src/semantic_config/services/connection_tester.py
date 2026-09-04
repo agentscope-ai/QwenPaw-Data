@@ -118,10 +118,53 @@ def _try_count(cur, sql: str, params: tuple = ()) -> int | None:
         return None
 
 
+def _test_duckdb(cfg: dict) -> tuple[str, int | None]:
+    from pathlib import Path
+
+    import duckdb
+
+    path = Path(cfg["path"]).expanduser()
+    if not path.is_file():
+        raise RuntimeError(f"DuckDB 数据库文件不存在: {path}")
+    conn = duckdb.connect(str(path), read_only=True)
+    try:
+        row = conn.execute(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_schema = 'main'"
+        ).fetchone()
+        tables = int(row[0]) if row and row[0] is not None else None
+    finally:
+        conn.close()
+    return f"connected to {path}", tables
+
+
+def _test_sqlite(cfg: dict) -> tuple[str, int | None]:
+    import sqlite3
+    from pathlib import Path
+
+    path = Path(cfg["path"]).expanduser()
+    if not path.is_file():
+        raise RuntimeError(f"SQLite 数据库文件不存在: {path}")
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=CONNECT_TIMEOUT)
+    try:
+        cur = conn.execute("SELECT count(*) FROM sqlite_master WHERE type = 'table'")
+        row = cur.fetchone()
+        tables = int(row[0]) if row and row[0] is not None else None
+    finally:
+        conn.close()
+    return f"connected to {path}", tables
+
+
 _TESTER_BY_TYPE = {
     DatasourceType.POSTGRESQL: _test_postgres,
     DatasourceType.MYSQL: _test_mysql,
     DatasourceType.ODPS: _test_odps,
+    # MySQL 线协议兼容引擎：探测通道与 MySQL 相同。
+    DatasourceType.STARROCKS: _test_mysql,
+    DatasourceType.DORIS: _test_mysql,
+    DatasourceType.TIDB: _test_mysql,
+    DatasourceType.DUCKDB: _test_duckdb,
+    DatasourceType.SQLITE: _test_sqlite,
 }
 
 
