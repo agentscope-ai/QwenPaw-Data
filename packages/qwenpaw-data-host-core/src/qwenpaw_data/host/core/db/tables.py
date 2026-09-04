@@ -189,6 +189,18 @@ class UserProviderModelRow(Base):
     )
 
 
+class UserRuntimeSettingsRow(Base):
+    __tablename__ = "user_runtime_settings"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    react_max_iters: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_retry_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    llm_max_retries: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class UserActiveModelRow(Base):
     __tablename__ = "user_active_models"
 

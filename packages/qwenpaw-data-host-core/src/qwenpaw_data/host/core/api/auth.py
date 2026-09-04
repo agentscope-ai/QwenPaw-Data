@@ -21,6 +21,8 @@ from fastapi.responses import JSONResponse
 
 API_TOKEN_ENV = "QWENPAW_DATA_API_TOKEN"
 AUTH_EXEMPT_PATHS = frozenset({"/health"})
+# Share links carry their own HMAC credential; recipients have no token.
+AUTH_EXEMPT_PREFIXES = ("/api/v1/files/shared/",)
 
 
 def get_configured_api_token() -> str:
@@ -58,6 +60,8 @@ def install_api_token_auth(app: FastAPI) -> None:
     @app.middleware("http")
     async def api_token_auth_middleware(request: Request, call_next):
         if request.url.path in AUTH_EXEMPT_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+        if request.url.path.startswith(AUTH_EXEMPT_PREFIXES):
             return await call_next(request)
 
         expected = get_configured_api_token()

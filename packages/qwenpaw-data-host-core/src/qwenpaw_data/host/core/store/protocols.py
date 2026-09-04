@@ -98,6 +98,14 @@ class PreferencesStore(Protocol):
         light_model_id: str | None = None,
     ) -> dict[str, Any]: ...
 
+    async def get_runtime_settings(self, user_id: str) -> dict[str, Any]: ...
+
+    async def set_runtime_settings(
+        self,
+        user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]: ...
+
 
 class SessionStore(Protocol):
     async def add(self, session: Session) -> None: ...

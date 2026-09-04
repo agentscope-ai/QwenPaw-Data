@@ -106,3 +106,45 @@ async def dismiss_settlement_card(
             raise http from exc
         raise
     return {"ok": True, "card": card}
+
+
+# Skill evolution stays in the enterprise edition; the console's workspace
+# probes these on every session open, so answer with empty collections.
+@router.get("/skill-proposals")
+async def list_skill_proposals(
+    session_id: str,
+    status: str | None = Query(default=None),
+    identity: Identity = Depends(get_identity),
+    state: ServiceState = Depends(get_state),
+) -> dict[str, Any]:
+    _ = (status, identity)
+    try:
+        await state.sessions.get(session_id)
+    except Exception as exc:
+        http = map_domain_error(exc)
+        if http:
+            raise http from exc
+        raise
+    return {"skill_proposals": [], "count": 0}
+
+
+drafts_router = APIRouter(
+    prefix="/sessions/{session_id}/skill-drafts", tags=["settlement"]
+)
+
+
+@drafts_router.get("")
+async def list_skill_drafts(
+    session_id: str,
+    identity: Identity = Depends(get_identity),
+    state: ServiceState = Depends(get_state),
+) -> dict[str, Any]:
+    _ = identity
+    try:
+        await state.sessions.get(session_id)
+    except Exception as exc:
+        http = map_domain_error(exc)
+        if http:
+            raise http from exc
+        raise
+    return {"skill_drafts": [], "count": 0}
