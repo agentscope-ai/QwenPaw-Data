@@ -681,7 +681,7 @@ def create_app() -> FastAPI:
             "Last-Event-ID",
             "Mcp-Protocol-Version",
             "Mcp-Session-Id",
-            "X-QwenPaw Data-Run",
+            "X-Qwenpaw-Data-Run",
             "X-Neo4j-Database",
             "X-Request-ID",
         ],

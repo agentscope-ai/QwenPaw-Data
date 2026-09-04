@@ -710,7 +710,7 @@ def standalone_http_app() -> Any:
             "Last-Event-ID",
             "Mcp-Protocol-Version",
             "Mcp-Session-Id",
-            "X-QwenPaw Data-Run",
+            "X-Qwenpaw-Data-Run",
             "X-Request-ID",
         ],
         expose_headers=[
