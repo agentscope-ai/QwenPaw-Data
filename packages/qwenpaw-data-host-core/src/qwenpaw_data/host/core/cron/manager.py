@@ -46,8 +46,6 @@ class CronManager:
         self._hosts = hosts
         self._prefs = prefs
         self._settlement = settlement
-        # Set by the app once the ChannelManager is up; IM jobs are delegated to it.
-        self.channel_manager: Any = None
         self._scheduler = AsyncIOScheduler(timezone="UTC")
 
     async def start(self) -> None:
@@ -82,15 +80,6 @@ class CronManager:
 
     async def run(self, job: dict[str, Any]) -> None:
         try:
-            channel = (job.get("channel") or "console").strip() or "console"
-            if channel != "console":
-                if self.channel_manager is None:
-                    raise RuntimeError(
-                        f"cron job {job['id']} targets channel {channel!r} "
-                        "but no channel manager is running"
-                    )
-                await self.channel_manager.run_cron_job(job)
-                return
             await self._run_console(job)
         except Exception:
             logger.exception("cron run failed: %s", job["id"])

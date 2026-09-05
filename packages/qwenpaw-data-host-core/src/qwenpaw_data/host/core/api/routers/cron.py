@@ -26,18 +26,6 @@ async def _check_session(state: ServiceState, session_id: str | None) -> None:
         await state.sessions.get(session_id)
 
 
-async def _check_channel(
-    state: ServiceState, identity: Identity, body: CronJobWrite
-) -> None:
-    """IM jobs must target a known channel target (the bot has spoken to it)."""
-    if body.channel == "console":
-        return
-    manager = state.channel_manager
-    if manager is None:
-        raise ValueError(f"channel {body.channel!r} is not running")
-    await manager.is_channel_eligible_for_cron_job(identity, body)
-
-
 @router.get("/jobs")
 async def list_jobs(
     identity: Identity = Depends(get_identity),
@@ -55,7 +43,6 @@ async def create_job(
 ) -> dict[str, Any]:
     try:
         await _check_session(state, body.session_id)
-        await _check_channel(state, identity, body)
         job = await state.cron.create(identity.user_id, body)
         state.cron_manager.sync(job)
         return {"job": job}
@@ -84,7 +71,6 @@ async def replace_job(
 ) -> dict[str, Any]:
     try:
         await _check_session(state, body.session_id)
-        await _check_channel(state, identity, body)
         job = await state.cron.replace(identity.user_id, job_id, body)
         state.cron_manager.sync(job)
         return {"job": job}
@@ -147,19 +133,3 @@ async def run_job(
         _map(exc)
     state.track(asyncio.create_task(state.cron_manager.run(job)))
     return {"ok": True}
-
-
-@router.get("/targets")
-async def list_targets(
-    channel: str,
-    identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
-) -> dict[str, Any]:
-    """Known IM send targets for this user and channel (cron target picker)."""
-    try:
-        targets = await state.channel_bindings.list_by_channel(
-            identity.user_id, channel
-        )
-        return {"targets": targets, "count": len(targets)}
-    except Exception as exc:
-        _map(exc)

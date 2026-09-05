@@ -471,7 +471,6 @@ async def test_cron_crud_roundtrip(cron_backend) -> None:
     store = cron_backend
     job = await store.create("u1", _job_body())
     assert job["enabled"] is True
-    assert job["channel"] == "console"
     assert job["schedule"]["cron"] == "0 8 * * mon"  # dow normalized
 
     got = await store.get("u1", job["id"])
