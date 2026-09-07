@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-cli"
-version = "0.1.0"
+version = "0.3.0"
 description = "Standalone command-line interface for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-  "qwenpaw-data-host-core>=0.1,<0.2",
+  "qwenpaw-data-host-core>=0.3,<0.4",
   "python-dotenv>=1.2.2,<2.0",
 ]
 

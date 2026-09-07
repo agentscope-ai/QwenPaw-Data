@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="数据语义配置 - 本地版", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="数据语义配置 - 本地版", version="0.3.0", lifespan=lifespan)
 
     # Keep the standalone semantic-config process behind the same auth boundary
     # as the unified server. Install before CORS so error responses retain CORS.

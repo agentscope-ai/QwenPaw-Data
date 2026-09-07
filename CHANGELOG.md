@@ -6,6 +6,43 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-07
+
+### Added
+
+- A headless engine service with HTTP and replayable SSE APIs for sessions,
+  chats, attachments, artifacts, files, scheduled runs, steering, feedback,
+  trace views, snapshots, forks, and signed share links.
+- End-of-turn follow-up recommendations with model generation, deterministic
+  rule fallback, entity grounding, relevance ranking, and prior-question
+  deduplication.
+- Pluggable graph backends, universal datasource connectors, a datasource type
+  registry, and MySQL-compatible, DuckDB, and SQLite integrations.
+- BizTrace segments, SQL-result artifacts, and confirmed semantic-knowledge
+  settlement for analytical runs.
+
+### Changed
+
+- **Breaking:** renamed the public `datapaw-*` distributions, Python namespaces,
+  and CLI to the `qwenpaw-data-*` package line and `qwenpaw-data` command.
+- **Breaking:** removed engine-owned IM channel delivery. Hosts now own delivery
+  and consume the engine through its HTTP/SSE boundary.
+- The four Python distributions now follow one coordinated `0.3.x` minor line;
+  internal package dependencies require `>=0.3,<0.4`.
+
+### Fixed
+
+- Follow-up timeout fallback now emits deterministic recommendations before the
+  terminal SSE response instead of attempting an unobservable late event.
+- Semantic-config writes commit before returning, and renamed CORS allow-header
+  configuration is honored.
+
+### Security
+
+- Hardened explorer subgraph search and global snapshot caching.
+- Raised `pypdf`, `dbt-core`, and `sqlparse` constraints past published
+  advisories.
+
 ## [0.2.4] - 2026-08-20
 
 ### Added
@@ -135,7 +172,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...v0.2.4
 [0.2.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.1...v0.1.2

@@ -4,6 +4,14 @@ QwenPaw-Data is pre-1.0 software. Minor releases may contain breaking changes,
 but deprecations are announced in `CHANGELOG.md` whenever practical. Patch
 releases are intended to remain API compatible within the same minor line.
 
+## Release compatibility
+
+The four Python distributions are released as one coordinated `0.3.x` line.
+Consumers should keep `qwenpaw-data-skills`, `qwenpaw-data-context`,
+`qwenpaw-data-host-core`, and `qwenpaw-data-cli` on the same minor version.
+Consumers that run the engine service must install
+`qwenpaw-data-host-core[service]>=0.3,<0.4`.
+
 ## Validated environments
 
 | Component | Supported / validated baseline |
