@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-context"
-version = "0.1.0"
+version = "0.3.0"
 description = "Context management and graph memory foundation for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"
@@ -82,6 +82,13 @@ packages = [
   "src/qwenpaw_data/context",
   "src/context_manager",
   "src/semantic_config",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/frontend/node_modules",
+  "/frontend/dist",
+  "/frontend/dist-ssr",
 ]
 
 [tool.hatch.build.targets.sdist.force-include]

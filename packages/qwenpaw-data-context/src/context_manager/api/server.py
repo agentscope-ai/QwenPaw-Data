@@ -503,7 +503,7 @@ def create_app() -> FastAPI:
                         sync_route_limiter.total_tokens = previous_sync_route_tokens
             log.info("Neo4j driver closed")
 
-    app = FastAPI(title="QwenPaw Data Context Manager", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="QwenPaw Data Context Manager", version="0.3.0", lifespan=lifespan)
     from qwenpaw_data.context.errors import install_error_handlers
 
     install_error_handlers(app)
