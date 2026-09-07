@@ -96,6 +96,23 @@ async def test_envelope_uses_host_ids_and_agentscope_source_ids() -> None:
     assert stream.calls[-1][0] == "response_completed"
 
 
+async def test_envelope_drops_followup_after_terminal_response() -> None:
+    stream = RecordingStream()
+    envelope = Envelope(stream)
+
+    await envelope.send_followup(["继续分析？"])
+    await envelope.complete()
+    await envelope.send_followup(["这条不能出现"])
+
+    followups = [
+        payload
+        for name, payload in stream.calls
+        if name == "followup_generated"
+    ]
+    assert followups == [{"questions": ["继续分析？"]}]
+    assert stream.calls[-1][0] == "response_completed"
+
+
 async def test_envelope_renders_hint_block() -> None:
     stream = RecordingStream()
     envelope = Envelope(stream)

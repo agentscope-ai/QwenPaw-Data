@@ -249,7 +249,6 @@ class ChatRuntime:
             followup = FollowUpRecommend(
                 run_context=self._run_context,
                 previous_followups=await self._load_previous_followups(chat),
-                deliver=envelope.send_followup,
             )
             await followup.start()
             await followup.append(

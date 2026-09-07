@@ -251,7 +251,7 @@ async def test_the_eof_sentinel_freezes_without_a_join() -> None:
     snapshot = await unit._snapshot  # type: ignore[arg-type]
 
     assert isinstance(snapshot, SignalSnapshot)
-    assert unit._pipeline is None
+    assert unit._questions is None
 
 
 async def test_join_answers_the_same_way_twice() -> None:
@@ -268,55 +268,24 @@ async def test_join_without_start_recommends_nothing() -> None:
     assert await _recommend().join() == []
 
 
-async def test_an_over_budget_recommendation_arrives_late(
+async def test_a_slow_model_falls_back_before_join_returns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The turn closes on time; the result is still worth persisting when it
-    lands, so the next Chat can carry it."""
+    class SlowLLM:
+        async def complete(self, prompt: str) -> dict[str, Any]:
+            await asyncio.sleep(0.2)
+            return {
+                "questions": [
+                    {"text": "按页面拆解 GAAP用户数", "intent": "drilldown"}
+                ]
+            }
 
-    late = Candidate(
-        text="按渠道类型拆解一下 GAAP用户数",
-        intent_category="drilldown",
-        target_entities=[],
-        source_channel="rules",
-    )
+    monkeypatch.setattr(FollowUpRecommend, "_build_llm", lambda self: SlowLLM())
 
-    async def slow_recommend(self: Any, snapshot: SignalSnapshot) -> list[Candidate]:
-        await asyncio.sleep(0.2)
-        return [late]
+    questions = await _drive(_recommend(timeout_sec=0.02))
 
-    monkeypatch.setattr(
-        recommend_module.FollowUpService, "recommend", slow_recommend
-    )
-    delivered: list[list[str]] = []
-
-    async def deliver(questions: list[str]) -> None:
-        delivered.append(questions)
-
-    unit = _recommend(
-        deliver=deliver, timeout_sec=0.02
-    )
-
-    assert await _drive(unit) == []
-
-    await unit._late  # type: ignore[arg-type]
-    assert delivered == [[late.text]]
-
-
-async def test_a_late_result_is_dropped_when_the_host_wants_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def slow_recommend(self: Any, snapshot: SignalSnapshot) -> list[Candidate]:
-        await asyncio.sleep(0.05)
-        return []
-
-    monkeypatch.setattr(
-        recommend_module.FollowUpService, "recommend", slow_recommend
-    )
-    unit = _recommend(timeout_sec=0.01)
-
-    assert await _drive(unit) == []
-    assert unit._late is None
+    assert questions
+    assert all("GAAP用户数" in question for question in questions)
 
 
 async def test_a_failing_pipeline_costs_the_host_nothing(
