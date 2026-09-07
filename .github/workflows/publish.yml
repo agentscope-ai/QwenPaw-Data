@@ -36,7 +36,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.release_tag == ''
         run: exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
 
