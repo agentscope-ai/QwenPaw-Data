@@ -118,7 +118,9 @@ class Envelope:
             )
 
     async def send_followup(self, questions: list[str]) -> None:
-        """Persist and broadcast follow-up questions (FollowUpCallback shape)."""
+        """Persist and broadcast follow-up questions before completion."""
+        if self._terminal:
+            return
         try:
             await self.stream.followup_generated(questions=questions)
         except Exception:

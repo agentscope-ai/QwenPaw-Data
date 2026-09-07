@@ -10,10 +10,7 @@ from qwenpaw_data.host.core.algo.followup.models import (
     SourceChannel,
 )
 from qwenpaw_data.host.core.algo.followup.ranking import select
-from qwenpaw_data.host.core.algo.followup.recommend import (
-    FollowUpCallback,
-    FollowUpRecommend,
-)
+from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
 from qwenpaw_data.host.core.algo.followup.relevance import (
     EntityEvidence,
     RankedEntities,
@@ -30,7 +27,6 @@ __all__ = [
     "EntityEvidence",
     "EntityRecord",
     "FollowUp",
-    "FollowUpCallback",
     "FollowUpRecommend",
     "FollowUpService",
     "IntentCategory",
