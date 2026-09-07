@@ -4,6 +4,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and verify
+        required: false
+        type: string
+      publish:
+        description: Publish the verified distributions to PyPI
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -13,14 +23,31 @@ jobs:
     name: Build release distributions
     runs-on: ubuntu-latest
     steps:
+      - name: Validate manual release tag
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            exit 1
+          fi
+
+      - name: Require a tag for manual publication
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.release_tag == ''
+        run: exit 1
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
       - name: Verify release versions
-        if: github.event_name == 'release'
-        run: uv run python scripts/check_release_versions.py "${{ github.event.release.tag_name }}"
+        if: github.event_name == 'release' || inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: uv run python scripts/check_release_versions.py "$RELEASE_TAG"
 
       - name: Build all publishable packages
         run: uv build --all-packages --out-dir dist
@@ -33,25 +60,58 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: python-distributions
-          path: dist/
+          name: python-distributions-qwenpaw-data-skills
+          path: dist/qwenpaw_data_skills-*
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-qwenpaw-data-context
+          path: dist/qwenpaw_data_context-*
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-qwenpaw-data-host-core
+          path: dist/qwenpaw_data_host_core-*
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-qwenpaw-data-cli
+          path: dist/qwenpaw_data_cli-*
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    name: Publish to PyPI with OIDC
-    if: github.event_name == 'release'
+    name: Publish ${{ matrix.project }} to PyPI with OIDC
+    if: github.event_name == 'release' || inputs.publish
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: qwenpaw-data-skills
+            environment: pypi-skills
+          - project: qwenpaw-data-context
+            environment: pypi-context
+          - project: qwenpaw-data-host-core
+            environment: pypi-host-core
+          - project: qwenpaw-data-cli
+            environment: pypi-cli
     environment:
-      name: pypi
-      url: https://pypi.org/search/?q=qwenpaw-data
+      name: ${{ matrix.environment }}
+      url: https://pypi.org/project/${{ matrix.project }}/
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: python-distributions
+          name: python-distributions-${{ matrix.project }}
           path: dist/
 
       - name: Publish package distributions
