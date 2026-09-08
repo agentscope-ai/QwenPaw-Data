@@ -94,7 +94,12 @@ class Paths:
         """解析当前 session 下的 graph/node 产物目录。"""
         return self.artifact_dir / graph_id / node_id
 
-    @property
-    def artifact_context(self) -> ArtifactPathContext:
-        """该 session 的产物路径上下文。"""
-        return ArtifactPathContext(self.artifact_dir)
+    def artifact_context(
+        self,
+        model_artifact_dir: str | Path,
+    ) -> ArtifactPathContext:
+        """Build this session's host/model artifact path mapping."""
+        return ArtifactPathContext(
+            host_artifact_dir=self.artifact_dir,
+            model_artifact_dir=model_artifact_dir,
+        )

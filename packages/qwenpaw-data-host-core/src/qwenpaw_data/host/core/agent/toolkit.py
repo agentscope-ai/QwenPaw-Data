@@ -217,6 +217,7 @@ async def build_qwenpaw_data_toolkit(
     parent_agent_getter: Any | None = None,
     workspace_dir: Any | None = None,
     artifacts_root: Any | None = None,
+    host_artifact_dir: Any | None = None,
     session_id_getter: Any | None = None,
     request_context_getter: Any | None = None,
 ) -> Toolkit:
@@ -258,8 +259,9 @@ async def build_qwenpaw_data_toolkit(
                 workspace_mcps=subagent_mcps,
                 workspace_skills=workspace_skills,
                 parent_agent_getter=parent_agent_getter,
-                workspace_dir=workspace_dir or getattr(workspace, "workdir", None),
+                workspace_dir=workspace_dir,
                 artifacts_root=artifacts_root,
+                host_artifact_dir=host_artifact_dir,
                 session_id_getter=session_id_getter,
                 request_context_getter=request_context_getter,
                 cm_mcp_tool_prefixes=cm_mcp_tool_prefixes,

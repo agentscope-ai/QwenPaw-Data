@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from pathlib import Path
 from typing import Any, Literal
 
 from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
@@ -68,11 +69,19 @@ class QwenPawDataAgent(Agent):
         request_context: dict[str, Any] | None = None,
         mode: str = "agent",
         session_id: str = "default",
+        workspace_dir: Path | str | None = None,
+        artifact_dir: Path | str | None = None,
         session_trace_writer: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         confirmation_handler: ConfirmationHandler | None = None,
     ) -> None:
         self._mode: Literal["plan", "agent"] = mode  # type: ignore[assignment]
         self._session_id = session_id
+        self._workspace_dir = Path(
+            workspace_dir or getattr(offloader, "workdir", Path.cwd()),
+        )
+        self._artifact_dir = Path(
+            artifact_dir or self._workspace_dir / "artifacts" / session_id,
+        )
         self._runtime_state = runtime_state or RuntimeStateManager(
             graph_to_hint=DefaultGraphToHint(),
         )
@@ -439,6 +448,8 @@ class QwenPawDataAgent(Agent):
             QwenPawDataPromptMiddleware(
                 mode_getter=lambda: self._mode,
                 session_id=self._session_id,
+                workspace_dir=self._workspace_dir,
+                artifact_dir=self._artifact_dir,
                 prompt_dir=DEFAULT_PROMPT_DIR,
             ),
             QwenPawDataHintMiddleware(rs),

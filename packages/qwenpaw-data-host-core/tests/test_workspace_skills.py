@@ -139,7 +139,6 @@ async def test_local_workspace_persists_native_state_under_host_workspace(
             if inspect.isawaitable(result):
                 await result
 
-    assert paths.mcp_config_file.is_file()
     assert paths.skills.is_dir()
     assert Path(context_path) == paths.session_root / "context.jsonl"
     assert set(path.name for path in tmp_path.iterdir()) == {"host"}

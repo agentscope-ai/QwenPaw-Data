@@ -68,6 +68,8 @@ def build_master_prompt(
 def analysis_environment_hint(
     *,
     session_id: str,
+    workspace_dir: Path | str,
+    artifact_dir: Path | str,
     prompt_dir: Path | str | None = None,
 ) -> str:
     """Return the runtime analysis-environment block appended to the system prompt."""
@@ -75,4 +77,8 @@ def analysis_environment_hint(
     path = root / "ANALYSIS_ENVIRONMENT.md"
     if not path.exists():
         return ""
-    return path.read_text(encoding="utf-8").strip().format(session_id=session_id)
+    return path.read_text(encoding="utf-8").strip().format(
+        session_id=session_id,
+        workspace_dir=workspace_dir,
+        artifact_dir=artifact_dir,
+    )

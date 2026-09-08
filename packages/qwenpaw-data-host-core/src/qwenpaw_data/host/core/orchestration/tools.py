@@ -142,7 +142,15 @@ class UpdateSubtask(QwenPawDataToolBase):
                             "type": "object",
                             "properties": {
                                 "name": {"type": "string"},
-                                "path": {"type": "string"},
+                                "path": {
+                                    "type": "string",
+                                    "description": (
+                                        "Existing regular file path relative to "
+                                        "the current session artifacts root; do "
+                                        "not include workspace, artifacts, or "
+                                        "session_id prefixes."
+                                    ),
+                                },
                                 "mime_type": {"type": "string"},
                             },
                             "required": ["name", "path", "mime_type"],

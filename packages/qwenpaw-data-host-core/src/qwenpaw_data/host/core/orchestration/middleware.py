@@ -115,10 +115,14 @@ class QwenPawDataPromptMiddleware(MiddlewareBase):
         *,
         mode_getter: Callable[[], str],
         session_id: str,
+        workspace_dir: Any,
+        artifact_dir: Any,
         prompt_dir: Any = None,
     ) -> None:
         self._mode_getter = mode_getter
         self._session_id = session_id
+        self._workspace_dir = workspace_dir
+        self._artifact_dir = artifact_dir
         self._prompt_dir = prompt_dir
 
     async def on_system_prompt(self, agent: "Agent", current_prompt: str) -> str:
@@ -128,6 +132,8 @@ class QwenPawDataPromptMiddleware(MiddlewareBase):
         sys_prompt = build_master_prompt(mode=mode, prompt_dir=self._prompt_dir)
         env_hint = analysis_environment_hint(
             session_id=self._session_id,
+            workspace_dir=self._workspace_dir,
+            artifact_dir=self._artifact_dir,
             prompt_dir=self._prompt_dir,
         )
         if env_hint:

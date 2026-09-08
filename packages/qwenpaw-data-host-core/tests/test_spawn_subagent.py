@@ -125,7 +125,7 @@ def _make_tool(
     *,
     request_context: dict | None = None,
 ) -> SpawnSubagent:
-    workspace = SimpleNamespace(workdir=str(tmp_path / "workspace"))
+    workspace = SimpleNamespace()
     return SpawnSubagent(
         runtime_state=rs or RuntimeStateManager(),
         workspace=workspace,
@@ -164,6 +164,7 @@ def _make_tool(
         ),
         workspace_dir=tmp_path / "workspace",
         artifacts_root=tmp_path / "workspace" / "artifacts",
+        host_artifact_dir=tmp_path / "host-artifacts" / "s1",
         session_id_getter=lambda: "s1",
         cm_mcp_tool_prefixes={"mcp__context-manager__"},
     )
@@ -188,7 +189,10 @@ def test_build_sub_prompt_includes_context_and_environment(tmp_path) -> None:
     assert "上游摘要" in prompt
     assert "Bash" in prompt
     assert "execute_sql" in prompt
-    assert "artifacts/s1/graph_1/n1/" in prompt
+    assert str(tmp_path / "workspace") in prompt
+    assert str(tmp_path / "workspace/artifacts/s1/graph_1/n1") in prompt
+    assert "graph_1/n1/<filename>" in prompt
+    assert "s1/graph_1/n1/<filename>" not in prompt
 
 
 def test_build_sub_prompt_uses_session_artifacts_without_active_node(
@@ -205,8 +209,9 @@ def test_build_sub_prompt_uses_session_artifacts_without_active_node(
         session_id="s1",
     )
 
-    assert "当前会话产物必须保存到 `artifacts/s1/`" in prompt
-    assert "s1/<filename>" in prompt
+    assert f"当前会话产物必须保存到 `{tmp_path / 'workspace/artifacts/s1'}`" in prompt
+    assert "FileRef 使用 `<filename>`" in prompt
+    assert "s1/<filename>" not in prompt
     assert "<graph_id>" not in prompt
     assert "<node_id>" not in prompt
 
@@ -222,12 +227,38 @@ def test_master_prompt_gates_subagent(monkeypatch) -> None:
     assert "spawn_subagent(task" in agent_prompt
     assert "没有活动 TaskGraph 节点时" in agent_prompt
     assert "spawn_subagent(task" not in build_master_prompt(mode="plan")
-    environment = analysis_environment_hint(session_id="s1")
-    assert "artifacts/s1/" in environment
+    environment = analysis_environment_hint(
+        session_id="s1",
+        workspace_dir="/workspace",
+        artifact_dir="/workspace/artifacts/s1",
+    )
+    assert "模型可见 workspace 绝对路径：`/workspace`" in environment
+    assert "当前 session 产物绝对目录：`/workspace/artifacts/s1`" in environment
+    assert (
+        "`/workspace/skills/default/bi-report-generation/SKILL.md`"
+        in environment
+    )
+    assert "skills/default/bi-report-generation/SKILL.md" in agent_prompt
+    assert "FileRef.path 使用" in environment
     assert "不要臆造" in environment
 
     monkeypatch.setenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", "0")
     assert "spawn_subagent(task" not in build_master_prompt(mode="agent")
+
+
+def test_analysis_environment_uses_local_host_paths(tmp_path) -> None:
+    from qwenpaw_data.host.core.prompts import analysis_environment_hint
+
+    workspace_dir = (tmp_path / "workspace").resolve()
+    artifact_dir = workspace_dir / "artifacts" / "s1"
+    environment = analysis_environment_hint(
+        session_id="s1",
+        workspace_dir=workspace_dir,
+        artifact_dir=artifact_dir,
+    )
+
+    assert f"模型可见 workspace 绝对路径：`{workspace_dir}`" in environment
+    assert f"当前 session 产物绝对目录：`{artifact_dir}`" in environment
 
 
 @pytest.mark.asyncio
@@ -251,8 +282,9 @@ async def test_prompt_uses_runtime_context(monkeypatch, tmp_path) -> None:
     assert "执行当前节点" in prompt
     assert "用户约束" in prompt
     assert "upstream summary" in prompt
-    assert "artifacts/s1/" in prompt
-    assert "/n1/" in prompt
+    assert str(tmp_path / "workspace/artifacts/s1") in prompt
+    assert str(tmp_path / "workspace/artifacts/s1" / rs.current_graph_id / "n1") in prompt
+    assert f"{rs.current_graph_id}/n1/<filename>" in prompt
 
 
 @pytest.mark.asyncio
@@ -288,6 +320,9 @@ async def test_role_injection_allowlists_tools_and_fetch_skill(
     assert skill_names == {"fetch-data"}
     permission_context = FakeSubAgent.instances[0].kwargs["state"].permission_context
     assert permission_context.mode is PermissionMode.ACCEPT_EDITS
+    sql_middleware = FakeSubAgent.instances[0].kwargs["middlewares"][0]
+    assert sql_middleware._host_artifact_dir == tmp_path / "host-artifacts" / "s1"
+    assert sql_middleware._model_artifact_dir == tmp_path / "workspace/artifacts/s1"
 
 
 @pytest.mark.asyncio
@@ -480,8 +515,9 @@ async def test_trace_metadata_without_active_node(monkeypatch, tmp_path) -> None
 
     assert chunks[-1].metadata["subagent_trace"]["node_id"] is None
     prompt = FakeSubAgent.instances[0].kwargs["system_prompt"]
-    assert "当前会话产物必须保存到 `artifacts/s1/`" in prompt
-    assert "artifacts/s1/<graph_id>" not in prompt
+    assert f"当前会话产物必须保存到 `{tmp_path / 'workspace/artifacts/s1'}`" in prompt
+    assert "<graph_id>" not in prompt
+    assert "s1/<filename>" not in prompt
     assert rs._traces == {}
 
 

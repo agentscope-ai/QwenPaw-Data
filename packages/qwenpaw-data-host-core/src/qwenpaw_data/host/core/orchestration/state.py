@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import stat
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import (
     Any,
@@ -23,6 +26,7 @@ from agentscope.tool import ToolChunk
 from agentscope.message import TextBlock
 from pydantic import ValidationError
 
+from ..artifact_paths import ArtifactPathContext
 from .artifact import ArtifactItem
 from .dag_store import DAGStore
 from .events import TaskEventType
@@ -45,6 +49,22 @@ FilesInput = Optional[
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class _ImageTagDetector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag.casefold() == "img":
+            self.found = True
+
+    handle_startendtag = handle_starttag
 
 
 def _text(msg: str) -> ToolChunk:
@@ -70,6 +90,57 @@ def _error(msg: str) -> ToolChunk:
         state="error",
         is_last=True,
     )
+
+
+def _validate_business_view_html(path: Path) -> None:
+    html = path.read_text(encoding="utf-8")
+    detector = _ImageTagDetector()
+    detector.feed(html)
+    if detector.found:
+        raise ValueError(
+            "HTML artifacts must not contain <img> tags. Business View cannot "
+            "resolve artifact-relative images; render charts with ECharts and "
+            "inline their data in the HTML instead."
+        )
+    placeholder_markers = ("示例章节标题", "示例内容")
+    if all(marker in html for marker in placeholder_markers):
+        raise ValueError(
+            "HTML artifacts must not register the sample placeholder section. "
+            "Replace it with the actual analysis, chart, and inline data."
+        )
+    unresolved_placeholder = re.search(
+        r"\{(?:table_html|options_json|table_rows|html_fragment|"
+        r"[A-Za-z_]\w*\.dump_options\(\))\}",
+        html,
+        re.IGNORECASE,
+    )
+    if unresolved_placeholder:
+        raise ValueError(
+            "HTML artifacts must not contain unresolved report template "
+            f"placeholders such as {unresolved_placeholder.group(0)!r}."
+        )
+
+    has_chart_markup = bool(
+        re.search(
+            r"<[^>]+(?:id|class)\s*=\s*['\"][^'\"]*chart",
+            html,
+            re.IGNORECASE,
+        )
+    )
+    has_echarts_init = bool(
+        re.search(r"\becharts\s*\.\s*init\s*\(", html, re.IGNORECASE)
+    )
+    has_set_option = bool(
+        re.search(r"\.\s*setOption\s*\(", html, re.IGNORECASE)
+    )
+    if (has_chart_markup or has_echarts_init or has_set_option) and not (
+        has_echarts_init and has_set_option
+    ):
+        raise ValueError(
+            "HTML chart artifacts must initialize ECharts with echarts.init(...) "
+            "and render it with setOption(...). Inline the actual chart data "
+            "instead of registering an incomplete report."
+        )
 
 
 def _normalize_deps_to_node_ids(nodes: List[TaskNode]) -> str | None:
@@ -145,7 +216,7 @@ class RuntimeStateManager:
     def __init__(
         self,
         graph_to_hint: Optional[Callable] = None,
-        path_resolver: Callable[[str], Path] | None = None,
+        artifact_path_context: ArtifactPathContext | None = None,
     ) -> None:
         self._nodes: List[TaskNode] = []
         self._current_graph_id: str | None = None
@@ -154,7 +225,7 @@ class RuntimeStateManager:
         self._pending_edits: list[dict] = []
         self._traces: Dict[str, list] = {}
         self._graph_registry: GraphRegistry = {}
-        self._path_resolver = path_resolver
+        self._artifact_path_context = artifact_path_context
         self._graph_to_hint = graph_to_hint or DefaultGraphToHint()
 
         # DAGStore 持久化
@@ -316,48 +387,88 @@ class RuntimeStateManager:
     # Artifact 管理
     # ==================================================================
 
-    def set_path_resolver(
+    def set_artifact_path_context(
         self,
-        resolver: Callable[[str], Path] | None,
+        context: ArtifactPathContext | None,
     ) -> None:
-        self._path_resolver = resolver
+        self._artifact_path_context = context
 
     def resolve_path(self, path: str) -> Optional[Path]:
-        if self._path_resolver is None:
+        if self._artifact_path_context is None:
             return None
         try:
-            return self._path_resolver(path)
-        except Exception:
+            return self._artifact_path_context.resolve_path(path)
+        except (OSError, RuntimeError, ValueError):
             logger.warning(
                 "RuntimeStateManager: failed to resolve artifact path %r",
-                path, exc_info=True,
+                path,
+                exc_info=True,
             )
             return None
 
-    def _stat_size_bytes(self, rel_path: str) -> int:
-        if self._path_resolver is None:
-            return 0
-        try:
-            path = self._path_resolver(rel_path)
-            return path.stat().st_size
-        except Exception:
-            logger.warning(
-                "RuntimeStateManager: failed to stat artifact path %r",
-                rel_path, exc_info=True,
+    def _validate_files(
+        self,
+        files: List[FileRef],
+    ) -> list[tuple[FileRef, int]]:
+        if not files:
+            return []
+        if self._artifact_path_context is None:
+            raise ValueError("artifact path validation is not configured")
+
+        validated: list[tuple[FileRef, int]] = []
+        for file_ref in files:
+            submitted_path = file_ref.path
+            try:
+                resolved = self._artifact_path_context.resolve_ref(submitted_path)
+            except ValueError:
+                raise ValueError(
+                    f"FileRef.path {submitted_path!r} is invalid or outside the "
+                    "current session artifacts root",
+                ) from None
+            except (OSError, RuntimeError):
+                raise ValueError(
+                    f"FileRef.path {submitted_path!r} could not be resolved",
+                ) from None
+
+            try:
+                file_stat = resolved.host_path.stat()
+            except FileNotFoundError:
+                raise ValueError(
+                    f"FileRef.path {submitted_path!r} does not exist",
+                ) from None
+            except OSError:
+                raise ValueError(
+                    f"FileRef.path {submitted_path!r} could not be inspected",
+                ) from None
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise ValueError(
+                    f"FileRef.path {submitted_path!r} is not a regular file",
+                )
+            if file_ref.mime_type.partition(";")[0].strip().casefold() == "text/html":
+                try:
+                    _validate_business_view_html(resolved.host_path)
+                except (OSError, UnicodeError) as exc:
+                    raise ValueError(
+                        f"FileRef.path {submitted_path!r} is not readable UTF-8 HTML",
+                    ) from exc
+            validated.append(
+                (
+                    file_ref.model_copy(
+                        update={"path": resolved.relative_path},
+                    ),
+                    file_stat.st_size,
+                ),
             )
-            return 0
+        return validated
 
     def _record_files(
         self,
         *,
         graph_id: str,
         node_id: str,
-        files: Optional[List[FileRef]],
+        files: list[tuple[FileRef, int]],
     ) -> int:
-        if not files:
-            return 0
-        count = 0
-        for file_ref in files:
+        for file_ref, size_bytes in files:
             self.artifacts.append(
                 ArtifactItem(
                     graph_id=graph_id,
@@ -365,11 +476,10 @@ class RuntimeStateManager:
                     name=file_ref.name,
                     path=file_ref.path,
                     mime_type=file_ref.mime_type,
-                    size_bytes=self._stat_size_bytes(file_ref.path),
+                    size_bytes=size_bytes,
                 ),
             )
-            count += 1
-        return count
+        return len(files)
 
     def _normalize_files(self, files: FilesInput) -> List[FileRef]:
         if not files:
@@ -498,25 +608,33 @@ class RuntimeStateManager:
                 )
             try:
                 file_refs = self._normalize_files(files)
-            except (ValueError, ValidationError) as exc:
-                return _text(
-                    "Invalid files argument. Use files as a structured array: "
-                    '[{"name": "result.csv", "path": "...", '
-                    '"mime_type": "text/csv"}]. '
-                    f"Details: {exc}",
+            except (ValueError, ValidationError):
+                return _error(
+                    "Invalid files argument. Use files as a structured array of "
+                    "FileRef objects with name, path, and mime_type fields.",
+                )
+            try:
+                validated_files = self._validate_files(file_refs)
+            except ValueError as exc:
+                return _error(f"Invalid files argument. {exc}")
+            except OSError:
+                return _error(
+                    "Invalid files argument. A submitted FileRef could not be "
+                    "safely inspected.",
                 )
 
+            canonical_refs = [file_ref for file_ref, _ in validated_files]
             node.state = "done"
             node.output = NodeOutput(
                 reasoning=reasoning,
                 summary=summary,
-                files=file_refs,
+                files=canonical_refs,
             )
 
             file_count = self._record_files(
                 graph_id=self._current_graph_id,
                 node_id=node_id,
-                files=file_refs,
+                files=validated_files,
             )
 
             await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)

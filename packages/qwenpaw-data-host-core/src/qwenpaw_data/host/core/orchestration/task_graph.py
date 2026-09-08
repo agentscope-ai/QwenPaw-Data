@@ -25,7 +25,10 @@ class FileRef(BaseModel):
 
     name: str = Field(description="文件名，如 ``dau_trend.png``")
     path: str = Field(
-        description="相对当前 session artifacts 根的文件路径",
+        description=(
+            "已存在文件相对当前 session artifacts 根的路径；不含 workspace、"
+            "artifacts 或 session_id 前缀"
+        ),
     )
     mime_type: str = Field(description="MIME 类型，如 ``image/png``")
 

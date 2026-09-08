@@ -92,8 +92,16 @@ sub-agent 完成后会返回执行摘要（包含产出文件路径）。你基�
 
 - 当用户要求"报告"、"分析报告"、"可视化报告"、"最终报告"或 TaskGraph 的最终交付物是报告时，
   默认最终产物必须是完整 HTML 文件，除非用户明确要求 Markdown / 纯文本。
-- 生成最终报告前必须读取并遵循 `skills/bi-report-generation/SKILL.md`；其中要求的
+- 生成最终报告前必须从分析环境给出的绝对路径读取并遵循
+  `skills/default/bi-report-generation/SKILL.md`；其中要求的
   `references/layout-spec.md`、`scripts/report_builder.py` 和 HTML 自检流程也必须执行。
+  如果读取失败，不得自行仿写报告构建器或跳过技能约束。
+- 最终 HTML 中的图表必须内联数据并通过 ECharts 渲染；不得用 `<img>` 引用 PNG/JPG、
+  base64 或外链图片。Business View 无法解析 artifact 相对图片，包含 `<img>` 的 HTML
+  也无法通过 `update_subtask` 的产物登记。
+- `references/sample_section.json` 只能用于理解输入格式；不得将未替换的示例章节作为最终
+  报告登记。登记前读取生成的 HTML，确认其中包含实际分析内容，并且每个图表都执行了
+  `echarts.init(...)` 和 `setOption(...)`。
 - 最终报告文件使用 `.html` 后缀（通常为 `report.html`），并在
   `update_subtask(..., state="done", files=...)` 中记录 `mime_type="text/html"`。
 - Markdown 只用于过程说明、DAG 概览、临时分析笔记或用户明确要求 Markdown 的报告；

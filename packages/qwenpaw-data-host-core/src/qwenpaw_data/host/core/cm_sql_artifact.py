@@ -52,10 +52,41 @@ def _download_id(download_url: str) -> str:
     return match.group(1)
 
 
+def _safe_artifact_destination(
+    host_artifact_dir: Path | str,
+    relative_path: Path,
+) -> Path:
+    """Create and validate a destination beneath the host artifact root."""
+    try:
+        root = Path(host_artifact_dir).resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        parent = root
+        for part in relative_path.parent.parts:
+            candidate = parent / part
+            candidate.mkdir(exist_ok=True)
+            parent = candidate.resolve(strict=True)
+            if not parent.is_dir() or not parent.is_relative_to(root):
+                raise SqlArtifactError("unsafe execute_sql artifact destination")
+
+        destination = parent / relative_path.name
+        if destination.is_symlink():
+            raise SqlArtifactError("unsafe execute_sql artifact destination")
+        if not destination.resolve().is_relative_to(root):
+            raise SqlArtifactError("unsafe execute_sql artifact destination")
+        return destination
+    except SqlArtifactError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise SqlArtifactError(
+            "could not safely create execute_sql artifact destination",
+        ) from exc
+
+
 async def materialize_execute_sql_result(
     result_text: str,
     *,
     artifact_dir: Path | str,
+    model_artifact_dir: Path | str | None = None,
     access_token: str | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> str:
@@ -69,8 +100,8 @@ async def materialize_execute_sql_result(
 
     token = _resolve_token(access_token)
     download_id = _download_id(download_url.strip())
-    dest = Path(artifact_dir) / "data" / "raw" / f"{download_id}.csv"
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    relative_path = Path("data") / "raw" / f"{download_id}.csv"
+    dest = _safe_artifact_destination(artifact_dir, relative_path)
     url = f"{resolve_cm_base_url()}/api/v1/cm/downloads/{download_id}.csv"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     async with httpx.AsyncClient(
@@ -87,6 +118,11 @@ async def materialize_execute_sql_result(
             f"execute_sql CSV fetch returned HTTP {response.status_code}"
         )
     dest.write_bytes(response.content)
-    payload["file_path"] = str(dest.resolve())
+    model_dest = (
+        dest.resolve()
+        if model_artifact_dir is None
+        else Path(model_artifact_dir) / relative_path
+    )
+    payload["file_path"] = str(model_dest)
     del payload["download_url"]
     return json.dumps(payload, ensure_ascii=False)

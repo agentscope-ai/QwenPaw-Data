@@ -18,10 +18,16 @@ if TYPE_CHECKING:
 
 
 class SqlArtifactMiddleware(MiddlewareBase):
-    """Copy CM execute_sql CSV into artifact_dir before the result hits context."""
+    """Copy CM execute_sql CSV into the session artifacts before model context."""
 
-    def __init__(self, *, artifact_dir: Path) -> None:
-        self._artifact_dir = artifact_dir
+    def __init__(
+        self,
+        *,
+        host_artifact_dir: Path,
+        model_artifact_dir: Path,
+    ) -> None:
+        self._host_artifact_dir = host_artifact_dir
+        self._model_artifact_dir = model_artifact_dir
 
     async def on_acting(  # type: ignore[override]
         self,
@@ -54,7 +60,8 @@ class SqlArtifactMiddleware(MiddlewareBase):
             return chunk
         rewritten = await materialize_execute_sql_result(
             text,
-            artifact_dir=self._artifact_dir,
+            artifact_dir=self._host_artifact_dir,
+            model_artifact_dir=self._model_artifact_dir,
             access_token=token,
         )
         if rewritten != text:

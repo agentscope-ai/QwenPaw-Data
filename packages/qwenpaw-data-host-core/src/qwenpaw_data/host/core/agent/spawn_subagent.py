@@ -39,6 +39,7 @@ from agentscope.tool import ToolBase, ToolChunk, Toolkit
 
 from ..mcp_cm import inject_datasource_metadata
 from ..orchestration.state import RuntimeStateManager
+from .middleware.sql_artifact import SqlArtifactMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -133,25 +134,28 @@ def _build_environment_section(
     workspace_text = str(workspace_dir) if workspace_dir else "(unknown)"
     artifacts_text = str(artifacts_root) if artifacts_root else "(unknown)"
     if session_id and graph_id and node_id:
-        artifact_dir = f"artifacts/{session_id}/{graph_id}/{node_id}/"
-        file_ref = f"{session_id}/{graph_id}/{node_id}/<filename>"
+        artifact_dir = str(
+            Path(artifacts_text) / session_id / graph_id / node_id,
+        )
+        file_ref = f"{graph_id}/{node_id}/<filename>"
         artifact_scope = "当前节点"
     elif session_id:
-        artifact_dir = f"artifacts/{session_id}/"
-        file_ref = f"{session_id}/<filename>"
+        artifact_dir = str(Path(artifacts_text) / session_id)
+        file_ref = "<filename>"
         artifact_scope = "当前会话"
     else:
-        artifact_dir = "artifacts/<session_id>/"
-        file_ref = "<session_id>/<filename>"
+        artifact_dir = str(Path(artifacts_text) / "<session_id>")
+        file_ref = "<filename>"
         artifact_scope = "当前会话"
 
     return (
         "## QwenPaw Data 分析环境\n"
-        f"- agent workspace: `{workspace_text}`\n"
-        f"- artifacts 根目录: `{artifacts_text}`\n"
+        f"- 模型可见 workspace 绝对路径: `{workspace_text}`\n"
+        f"- 模型可见 artifacts 根目录: `{artifacts_text}`\n"
         "- 工具的相对路径以 agent workspace 为根。\n"
         f"- {artifact_scope}产物必须保存到 `{artifact_dir}`；"
-        f"最终摘要中的文件引用使用 `{file_ref}`，不要带 `artifacts/` 前缀。\n\n"
+        f"最终摘要中的 FileRef 使用 `{file_ref}`，相对当前 session artifacts 根，"
+        "不要带 workspace、`artifacts` 或 session_id 前缀。\n\n"
     )
 
 
@@ -320,6 +324,7 @@ class SpawnSubagent(ToolBase):
         parent_agent_getter: Callable[[], Any] | None = None,
         workspace_dir: Path | str | None = None,
         artifacts_root: Path | str | None = None,
+        host_artifact_dir: Path | str | None = None,
         session_id_getter: Callable[[], str | None] | None = None,
         request_context_getter: Callable[[], dict[str, Any]] | None = None,
         cm_mcp_tool_prefixes: Iterable[str] = (),
@@ -332,6 +337,7 @@ class SpawnSubagent(ToolBase):
         self._parent_agent_getter = parent_agent_getter
         self._workspace_dir = _as_path(workspace_dir)
         self._artifacts_root = _as_path(artifacts_root)
+        self._host_artifact_dir = _as_path(host_artifact_dir)
         self._session_id_getter = session_id_getter or (lambda: None)
         self._request_context_getter = request_context_getter
         self._cm_mcp_tool_prefixes = set(cm_mcp_tool_prefixes)
@@ -455,11 +461,24 @@ class SpawnSubagent(ToolBase):
                 parent_permission_context = parent_permission_context.model_copy(
                     deep=True,
                 )
+            middlewares = []
+            if (
+                self._host_artifact_dir is not None
+                and self._artifacts_root is not None
+                and session_id is not None
+            ):
+                middlewares.append(
+                    SqlArtifactMiddleware(
+                        host_artifact_dir=self._host_artifact_dir,
+                        model_artifact_dir=self._artifacts_root / session_id,
+                    ),
+                )
             sub_agent = _SubAgent(
                 name=agent_name,
                 system_prompt=sys_prompt,
                 model=model,
                 toolkit=sub_toolkit,
+                middlewares=middlewares,
                 state=AgentState(
                     permission_context=parent_permission_context,
                 ),

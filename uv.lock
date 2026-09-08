@@ -41,7 +41,7 @@ wheels = [
 
 [[package]]
 name = "agentscope"
-version = "2.0.6"
+version = "2.0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -52,7 +52,7 @@ dependencies = [
     { name = "filetype" },
     { name = "httpx" },
     { name = "jinja2" },
-    { name = "json-repair" },
+    { name = "json-repair", extra = ["schema"] },
     { name = "json5" },
     { name = "jsonschema" },
     { name = "mcp" },
@@ -63,17 +63,19 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-sdk" },
     { name = "opentelemetry-semantic-conventions" },
+    { name = "pypdf" },
     { name = "python-datauri" },
     { name = "python-frontmatter" },
     { name = "python-socketio" },
+    { name = "rich" },
     { name = "shortuuid" },
     { name = "tree-sitter" },
     { name = "tree-sitter-bash" },
     { name = "tzdata" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/42/81/90446a6fa1031b5b54e79f8abb172629897b511320723d4e6f63abb6ffa8/agentscope-2.0.6.tar.gz", hash = "sha256:5fcf2be7b56dabc2ebb616c8999f8ba299355ba4cbae9ac0d4f777ad04e7e3f6", size = 794346, upload-time = "2026-08-07T10:40:17.364Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/d5/60c08b53eac780dc8c1a5c5f3bfadf54ccb5c7da918f5977e9659c2aba3f/agentscope-2.0.8.tar.gz", hash = "sha256:bba52a9a40747f4a6d0351cde6b46a652cd8b324c56fe76acf17ccf7b8467f76", size = 952710, upload-time = "2026-09-08T13:12:54.201Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/f9/354cdf98e3f6e5835b2eb0214e6c6a5b0e402dfbade92769d280b683fd44/agentscope-2.0.6-py3-none-any.whl", hash = "sha256:091e7f214eff7fd6f4934d98a7d7c4bb8707a5d4b33d335def7fc31255e7ccb8", size = 1057146, upload-time = "2026-08-07T10:40:15.21Z" },
+    { url = "https://files.pythonhosted.org/packages/df/02/b3ddfe786dbef1ee06256470c53352ef9f75f92d3ef12011b77d28acd19d/agentscope-2.0.8-py3-none-any.whl", hash = "sha256:4381a88ad63269284c19cdbad1eda07d8fddf9b672d9c929f49d0194b82819f7", size = 1239277, upload-time = "2026-09-08T13:12:52.365Z" },
 ]
 
 [[package]]
@@ -1568,11 +1570,17 @@ wheels = [
 
 [[package]]
 name = "json-repair"
-version = "0.61.1"
+version = "0.63.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7c/92/b46b19c400cdb87c634778cc7eec140c922f7ec0af3941d1e4a04ebeda81/json_repair-0.61.1.tar.gz", hash = "sha256:24a68de2891c696ad3bd9a94874e8d3ef2d309c56af2973094b8297c975b5b58", size = 50069, upload-time = "2026-06-29T12:09:55.104Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/72/4ec122befe7c2091ba7370d985cf0a3d4dbeccc2f832898ddb7921b4ab94/json_repair-0.63.4.tar.gz", hash = "sha256:77aa642193d62b02b889e8ce0df33898d3ea87282f0b9d8653f8ce8772c642b4", size = 52906, upload-time = "2026-08-25T07:39:02.725Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/0d/abd5fe1251c8588c6c8d441fab263734bcaa71dfd895ec4b88c202a86254/json_repair-0.61.1-py3-none-any.whl", hash = "sha256:7ab26583e4c73418b8b60cc61202f64f119984a9b5fed61087e84158fa29e7d0", size = 48543, upload-time = "2026-06-29T12:09:53.962Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/ea/1a7b47196b0d03f59a80f5218b2a34160587c84ca8b0bcb56cb4ee93834e/json_repair-0.63.4-py3-none-any.whl", hash = "sha256:0f374f3eee21454aef0a5d72c06b8689b660a1788f80ab392639e3f7d5c5d458", size = 51295, upload-time = "2026-08-25T07:39:01.259Z" },
+]
+
+[package.optional-dependencies]
+schema = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
 ]
 
 [[package]]
@@ -3325,7 +3333,7 @@ service = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentscope", specifier = ">=2.0.6,<2.1" },
+    { name = "agentscope", specifier = ">=2.0.8,<2.1" },
     { name = "aiodocker", specifier = ">=0.27,<0.28" },
     { name = "aiosqlite", marker = "extra == 'service'", specifier = ">=0.20,<1.0" },
     { name = "apscheduler", marker = "extra == 'service'", specifier = ">=3.10,<4.0" },

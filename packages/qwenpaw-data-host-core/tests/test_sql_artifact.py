@@ -58,6 +58,7 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
     rewritten = await materialize_execute_sql_result(
         _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
         artifact_dir=artifact_dir,
+        model_artifact_dir=Path("/workspace/artifacts/ses_1"),
         access_token="tok-user",
         transport=httpx.MockTransport(_handler(captured)),
     )
@@ -65,12 +66,57 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
     payload = json.loads(rewritten)
     dest = artifact_dir / "data" / "raw" / "54814f8b.csv"
     assert dest.read_bytes() == b"day,dau\n"
-    assert payload["file_path"] == str(dest.resolve())
+    assert payload["file_path"] == "/workspace/artifacts/ses_1/data/raw/54814f8b.csv"
     assert "download_url" not in payload
     assert payload["rows"] == [[1]]
     assert len(captured) == 1
     assert str(captured[0].url) == "http://cm.test/api/v1/cm/downloads/54814f8b.csv"
     assert captured[0].headers["authorization"] == "Bearer tok-user"
+
+
+@pytest.mark.asyncio
+async def test_materialize_returns_host_path_for_local_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+    artifact_dir = (tmp_path / "artifacts" / "ses_1").resolve()
+
+    rewritten = await materialize_execute_sql_result(
+        _sql_result(download_url="/api/v1/cm/downloads/local.csv"),
+        artifact_dir=artifact_dir,
+        transport=httpx.MockTransport(_handler([])),
+    )
+
+    assert json.loads(rewritten)["file_path"] == str(
+        artifact_dir / "data" / "raw" / "local.csv",
+    )
+
+
+@pytest.mark.asyncio
+async def test_materialize_rejects_symlink_target_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+    artifact_dir = tmp_path / "artifacts" / "ses_1"
+    destination_dir = artifact_dir / "data" / "raw"
+    destination_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.csv"
+    outside.write_bytes(b"do not overwrite")
+    (destination_dir / "escape.csv").symlink_to(outside)
+    captured: list[httpx.Request] = []
+
+    with pytest.raises(SqlArtifactError, match="unsafe.*destination"):
+        await materialize_execute_sql_result(
+            _sql_result(download_url="/api/v1/cm/downloads/escape.csv"),
+            artifact_dir=artifact_dir,
+            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+            transport=httpx.MockTransport(_handler(captured)),
+        )
+
+    assert outside.read_bytes() == b"do not overwrite"
+    assert captured == []
 
 
 @pytest.mark.asyncio
@@ -85,6 +131,7 @@ async def test_materialize_uses_env_token_when_no_access_token(
     await materialize_execute_sql_result(
         _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
         artifact_dir=tmp_path,
+        model_artifact_dir=tmp_path,
         transport=httpx.MockTransport(_handler(captured)),
     )
 
@@ -104,6 +151,7 @@ async def test_materialize_omits_auth_header_without_any_token(
     await materialize_execute_sql_result(
         _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
         artifact_dir=tmp_path,
+        model_artifact_dir=tmp_path,
         transport=httpx.MockTransport(_handler(captured)),
     )
 
@@ -116,6 +164,7 @@ async def test_materialize_skips_when_no_download_url(tmp_path: Path) -> None:
     rewritten = await materialize_execute_sql_result(
         original,
         artifact_dir=tmp_path,
+        model_artifact_dir=tmp_path,
         access_token="tok-user",
     )
     assert rewritten == original
@@ -126,6 +175,7 @@ async def test_materialize_skips_non_json_text(tmp_path: Path) -> None:
     rewritten = await materialize_execute_sql_result(
         "not json",
         artifact_dir=tmp_path,
+        model_artifact_dir=tmp_path,
     )
     assert rewritten == "not json"
 
@@ -136,6 +186,7 @@ async def test_materialize_rejects_foreign_download_url(tmp_path: Path) -> None:
         await materialize_execute_sql_result(
             _sql_result(download_url="http://evil.test/steal.csv"),
             artifact_dir=tmp_path,
+            model_artifact_dir=tmp_path,
             access_token="tok-user",
         )
 
@@ -152,6 +203,7 @@ async def test_materialize_fails_on_http_error(
                 download_url="http://127.0.0.1:8080/api/v1/cm/downloads/54814f8b.csv",
             ),
             artifact_dir=tmp_path,
+            model_artifact_dir=tmp_path,
             access_token="tok-user",
             transport=httpx.MockTransport(_handler([], status=401, body=b"no")),
         )
@@ -181,7 +233,10 @@ async def test_middleware_skips_non_sql_tools(tmp_path: Path) -> None:
     async def next_handler(**_kwargs):
         yield response
 
-    middleware = SqlArtifactMiddleware(artifact_dir=tmp_path)
+    middleware = SqlArtifactMiddleware(
+        host_artifact_dir=tmp_path,
+        model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+    )
     items = [
         item
         async for item in middleware.on_acting(
@@ -227,7 +282,10 @@ async def test_middleware_rewrites_execute_sql_tool_response(
     async def next_handler(**_kwargs):
         yield response
 
-    middleware = SqlArtifactMiddleware(artifact_dir=tmp_path)
+    middleware = SqlArtifactMiddleware(
+        host_artifact_dir=tmp_path,
+        model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+    )
     items = [
         item
         async for item in middleware.on_acting(
@@ -244,6 +302,6 @@ async def test_middleware_rewrites_execute_sql_tool_response(
     payload = json.loads(items[0].content[0].text)
     dest = tmp_path / "data" / "raw" / "54814f8b.csv"
     assert dest.read_bytes() == b"day,dau\n"
-    assert payload["file_path"] == str(dest.resolve())
+    assert payload["file_path"] == "/workspace/artifacts/ses_1/data/raw/54814f8b.csv"
     assert "download_url" not in payload
     assert captured[0].headers["authorization"] == "Bearer tok-user"

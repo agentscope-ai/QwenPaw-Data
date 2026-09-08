@@ -11,6 +11,10 @@ from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
 
 
 class FakeWorkspace:
+    def __init__(self, workdir: str | None = None) -> None:
+        if workdir is not None:
+            self.workdir = workdir
+
     async def initialize(self) -> None:
         return None
 
@@ -79,11 +83,57 @@ def test_agent_id_is_not_accepted_by_host_or_registry(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_top_level_agent_uses_stable_qwenpaw_data_name(
+async def test_top_level_agent_uses_runtime_visible_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    toolkit_kwargs: dict[str, Any] = {}
+
     async def fake_build_toolkit(*args: Any, **kwargs: Any) -> object:
+        toolkit_kwargs.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(core_module, "build_qwenpaw_data_toolkit", fake_build_toolkit)
+    monkeypatch.setattr(core_module, "QwenPawDataAgent", FakeAgent)
+
+    host = QwenPawDataHost(
+        home=tmp_path,
+        model=object(),
+        workspace=FakeWorkspace("/workspace"),
+        session_id="session-a",
+    )
+
+    agent = await host._get_agent(mode="agent")
+
+    assert QWENPAW_DATA_AGENT_NAME == "qwenpaw-data"
+    assert agent.kwargs["name"] == QWENPAW_DATA_AGENT_NAME
+    assert agent.kwargs["session_id"] == "session-a"
+    assert agent.kwargs["workspace_dir"] == Path("/workspace")
+    assert agent.kwargs["artifact_dir"] == Path(
+        "/workspace/artifacts/session-a",
+    )
+    sql_middleware = agent.kwargs["middlewares"][0]
+    assert sql_middleware._host_artifact_dir == host.paths.artifact_dir
+    assert sql_middleware._model_artifact_dir == Path(
+        "/workspace/artifacts/session-a",
+    )
+    assert toolkit_kwargs["workspace_dir"] == Path("/workspace")
+    assert toolkit_kwargs["artifacts_root"] == Path("/workspace/artifacts")
+    assert toolkit_kwargs["host_artifact_dir"] == host.paths.artifact_dir
+    artifact_context = agent.kwargs["runtime_state"]._artifact_path_context
+    assert artifact_context.host_artifact_dir == host.paths.artifact_dir.resolve()
+    assert artifact_context.model_artifact_dir == "/workspace/artifacts/session-a"
+
+
+@pytest.mark.asyncio
+async def test_model_paths_fall_back_without_workspace_workdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_kwargs: dict[str, Any] = {}
+
+    async def fake_build_toolkit(*args: Any, **kwargs: Any) -> object:
+        toolkit_kwargs.update(kwargs)
         return object()
 
     monkeypatch.setattr(core_module, "build_qwenpaw_data_toolkit", fake_build_toolkit)
@@ -98,6 +148,10 @@ async def test_top_level_agent_uses_stable_qwenpaw_data_name(
 
     agent = await host._get_agent(mode="agent")
 
-    assert QWENPAW_DATA_AGENT_NAME == "qwenpaw-data"
-    assert agent.kwargs["name"] == QWENPAW_DATA_AGENT_NAME
-    assert agent.kwargs["session_id"] == "session-a"
+    assert agent.kwargs["workspace_dir"] == host.paths.workspace
+    assert agent.kwargs["artifact_dir"] == host.paths.artifact_dir
+    assert toolkit_kwargs["workspace_dir"] == host.paths.workspace
+    assert toolkit_kwargs["artifacts_root"] == host.paths.artifacts_root
+    assert toolkit_kwargs["host_artifact_dir"] == host.paths.artifact_dir
+    artifact_context = agent.kwargs["runtime_state"]._artifact_path_context
+    assert artifact_context.model_artifact_dir == str(host.paths.artifact_dir)

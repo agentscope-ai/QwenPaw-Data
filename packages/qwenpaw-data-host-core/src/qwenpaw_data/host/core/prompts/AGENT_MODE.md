@@ -26,11 +26,11 @@
 - 每一轮推理都要先读 `<system-hint>`，再决策下一步工具。
 - TaskGraph 全部 done/abandoned 后，汇总成报告并调用 `finish_plan(
   "done", outcome=…)` 归档。
-- 当执行报告节点，或分析已完成且需要生成最终报告时，必须先读取并遵循
-  `skills/bi-report-generation/SKILL.md`，生成完整 HTML 报告文件（通常为
-  `report.html`），并在 `update_subtask(..., files=...)` 中记录
+- 当执行报告节点，或分析已完成且需要生成最终报告时，必须先从分析环境给出的绝对路径
+  读取并遵循 `skills/default/bi-report-generation/SKILL.md`，生成完整 HTML 报告文件
+  （通常为 `report.html`），并在 `update_subtask(..., files=...)` 中记录
   `mime_type="text/html"`。除非用户明确要求 Markdown / 纯文本报告，不要只写
-  Markdown 作为最终报告。
+  Markdown 作为最终报告；不得用 `<img>` 引用静态图表。
 
 ## 分析环境与 MCP 取数结果
 

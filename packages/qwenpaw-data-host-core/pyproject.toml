@@ -19,7 +19,7 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-  "agentscope>=2.0.6,<2.1",
+  "agentscope>=2.0.8,<2.1",
   "aiodocker>=0.27,<0.28",
   "qwenpaw-data-skills>=0.3,<0.4",
   "httpx>=0.28,<0.29",

@@ -26,9 +26,10 @@ SQL 执行取数等）均不可用。** 你的职责是帮用户设计一个可�
      不要填写节点 `name`，不要制造虚假顺序；
    - `expected_outcome` 写得具体可衡量（避免"完成分析"这类空话）。
    - 如果用户要求报告、分析报告、可视化报告或最终交付物是报告，必须规划一个最终
-     报告节点；该节点 `description` 写明读取并遵循 `skills/bi-report-generation/SKILL.md`，
-     `expected_outcome` 明确为 HTML 报告文件（例如 `report.html`），除非用户明确要求
-     Markdown / 纯文本报告。
+     报告节点；该节点 `description` 写明从分析环境给出的绝对路径读取并遵循
+     `skills/default/bi-report-generation/SKILL.md`，并以内联数据通过 ECharts 渲染图表，
+     不得使用 `<img>` 引用静态图表；`expected_outcome` 明确为 HTML 报告文件
+     （例如 `report.html`），除非用户明确要求 Markdown / 纯文本报告。
 2. **创建完成后停下**，向用户展示 DAG 概览，询问是否满意或需要调整。
 3. 如果用户反馈需要修改，调用 `revise_current_plan(changes=[...])` 更新方案。
    每个 `add` / `revise` 的 `node` 都要包含完整的 `name`、`description`、

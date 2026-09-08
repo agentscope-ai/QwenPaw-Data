@@ -200,18 +200,25 @@ class QwenPawDataHost:
         paths = self.paths
 
         ws = await self._workspace()
+        model_workspace_dir = Path(
+            getattr(ws, "workdir", None) or paths.workspace,
+        )
+        model_artifact_dir = (
+            model_workspace_dir / "artifacts" / self.session_id
+        )
 
         rs = RuntimeStateManager(
             graph_to_hint=DefaultGraphToHint(),
-            path_resolver=paths.artifact_context.resolve_path,
+            artifact_path_context=paths.artifact_context(model_artifact_dir),
         )
         agent_ref: dict[str, Any] = {}
         toolkit = await build_qwenpaw_data_toolkit(
             rs,
             workspace=ws,
             parent_agent_getter=lambda: agent_ref.get("agent"),
-            workspace_dir=paths.workspace,
-            artifacts_root=paths.artifacts_root,
+            workspace_dir=model_workspace_dir,
+            artifacts_root=model_artifact_dir.parent,
+            host_artifact_dir=paths.artifact_dir,
             session_id_getter=lambda: self.session_id,
         )
         session_store = self.session_store
@@ -234,10 +241,15 @@ class QwenPawDataHost:
             request_context=effective_context,
             mode=mode,
             session_id=self.session_id,
+            workspace_dir=model_workspace_dir,
+            artifact_dir=model_artifact_dir,
             session_trace_writer=append_session_trace,
             confirmation_handler=self.confirmation_handler,
             middlewares=[
-                SqlArtifactMiddleware(artifact_dir=paths.artifact_dir),
+                SqlArtifactMiddleware(
+                    host_artifact_dir=paths.artifact_dir,
+                    model_artifact_dir=model_artifact_dir,
+                ),
                 *self.extra_middlewares,
             ],
         )
