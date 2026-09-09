@@ -5,8 +5,9 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from agentscope.event import EventType
 from agentscope.message import UserMsg
@@ -145,7 +146,10 @@ class ChatRuntime:
             self._envelope = envelope
             await envelope.begin()
 
-            request_context = {"datasource_id": chat.datasource_id}
+            request_context = {
+                "datasource_id": chat.datasource_id,
+                "user_id": chat.identity.user_id,
+            }
             agent = await host.get_agent(
                 mode="agent",
                 request_context=request_context,
@@ -465,35 +469,40 @@ class ChatRuntime:
         *,
         error: dict[str, Any] | None = None,
     ) -> None:
+        emit_terminal: Callable[[], Awaitable[None]]
         if outcome == "completed":
-            await envelope.complete()
             chat.mark_status("completed")
+            emit_terminal = envelope.complete
         elif outcome == "canceled":
+            chat.cancel()
             if envelope is not None:
-                await envelope.cancel()
+                emit_terminal = envelope.cancel
             else:
-                await OutputStream(
+                emit_terminal = OutputStream(
                     self.events,
                     session_id=chat.session_id,
                     chat_id=chat.id,
                     identity=chat.identity,
-                ).response_cancelled()
-            chat.cancel()
+                ).response_cancelled
         else:
             failure = error or {}
-            if envelope is not None:
-                await envelope.fail(error=failure)
-            else:
-                await OutputStream(
-                    self.events,
-                    session_id=chat.session_id,
-                    chat_id=chat.id,
-                    identity=chat.identity,
-                ).response_failed(error=failure)
             chat.error = {
                 "code": str(failure.get("code") or "VALIDATION"),
                 "message": str(failure.get("message") or "Chat execution failed"),
             }
             chat.mark_status("failed")
+            if envelope is not None:
+                emit_terminal = partial(envelope.fail, error=failure)
+            else:
+                emit_terminal = partial(
+                    OutputStream(
+                        self.events,
+                        session_id=chat.session_id,
+                        chat_id=chat.id,
+                        identity=chat.identity,
+                    ).response_failed,
+                    error=failure,
+                )
         await self.chats.reload_event_watermark(chat)
         await self.chats.save(chat)
+        await emit_terminal()

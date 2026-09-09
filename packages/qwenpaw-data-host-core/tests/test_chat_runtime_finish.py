@@ -48,7 +48,7 @@ def _runtime(chats: FakeChats) -> ChatRuntime:
     return ChatRuntime(chats=chats, events=None, hosts=None)  # type: ignore[arg-type]
 
 
-async def test_completed_completes_response_then_saves() -> None:
+async def test_completed_saves_before_completing_response() -> None:
     calls: list[str] = []
     runtime = _runtime(FakeChats(calls))
     await runtime._finish(
@@ -57,10 +57,10 @@ async def test_completed_completes_response_then_saves() -> None:
         "completed",
     )
 
-    assert calls == ["complete", "status:completed", "reload", "save"]
+    assert calls == ["status:completed", "reload", "save", "complete"]
 
 
-async def test_canceled_cancels_envelope_and_chat() -> None:
+async def test_canceled_saves_before_cancelling_response() -> None:
     calls: list[str] = []
     runtime = _runtime(FakeChats(calls))
     await runtime._finish(
@@ -69,7 +69,7 @@ async def test_canceled_cancels_envelope_and_chat() -> None:
         "canceled",
     )
 
-    assert calls == ["cancel", "status:canceled", "reload", "save"]
+    assert calls == ["status:canceled", "reload", "save", "cancel"]
 
 
 async def test_failed_with_no_envelope_still_marks_failed(monkeypatch) -> None:
@@ -89,6 +89,7 @@ async def test_failed_with_no_envelope_still_marks_failed(monkeypatch) -> None:
 
         async def response_failed(self, *, error: dict[str, Any]) -> None:
             published.append(error)
+            calls.append("failed_event")
 
     monkeypatch.setattr(
         "qwenpaw_data.host.core.runtime.chat_runtime.OutputStream",
@@ -111,5 +112,4 @@ async def test_failed_with_no_envelope_still_marks_failed(monkeypatch) -> None:
         "code": "VALIDATION",
         "message": "model is not configured",
     }
-    assert "status:failed" in calls
-    assert calls[-1] == "save"
+    assert calls == ["status:failed", "reload", "save", "failed_event"]
