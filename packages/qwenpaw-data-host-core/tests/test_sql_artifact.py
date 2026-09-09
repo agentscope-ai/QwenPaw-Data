@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolResponse
 
 from qwenpaw_data.host.core.agent.middleware import sql_artifact as mw_mod
@@ -305,3 +305,91 @@ async def test_middleware_rewrites_execute_sql_tool_response(
     assert payload["file_path"] == "/workspace/artifacts/ses_1/data/raw/54814f8b.csv"
     assert "download_url" not in payload
     assert captured[0].headers["authorization"] == "Bearer tok-user"
+
+
+async def _drive(
+    middleware: SqlArtifactMiddleware,
+    text: str,
+) -> ToolResponse:
+    response = ToolResponse(content=[TextBlock(type="text", text=text)])
+
+    async def next_handler(**_kwargs):
+        yield response
+
+    items = [
+        item
+        async for item in middleware.on_acting(
+            _agent(),  # type: ignore[arg-type]
+            {"tool_call": SimpleNamespace(name="mcp__context-manager__execute_sql")},
+            next_handler,
+        )
+    ]
+    return items[0]
+
+
+def _assert_contained(chunk: ToolResponse) -> None:
+    assert chunk.state == ToolResultState.ERROR
+    payload = json.loads(chunk.content[0].text)
+    assert payload["error"]["code"] == "SQL_ARTIFACT_MATERIALIZATION_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_middleware_contains_parse_failure(tmp_path: Path) -> None:
+    chunk = await _drive(
+        SqlArtifactMiddleware(
+            host_artifact_dir=tmp_path,
+            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+        ),
+        _sql_result(download_url="http://evil.test/steal.csv"),
+    )
+    _assert_contained(chunk)
+
+
+@pytest.mark.asyncio
+async def test_middleware_contains_fetch_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+
+    async def _materialize(result_text: str, **kwargs):
+        return await materialize_execute_sql_result(
+            result_text,
+            **kwargs,
+            transport=httpx.MockTransport(_handler([], status=500, body=b"boom")),
+        )
+
+    monkeypatch.setattr(mw_mod, "materialize_execute_sql_result", _materialize)
+
+    chunk = await _drive(
+        SqlArtifactMiddleware(
+            host_artifact_dir=tmp_path,
+            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+        ),
+        _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
+    )
+    _assert_contained(chunk)
+
+
+@pytest.mark.asyncio
+async def test_middleware_contains_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+    artifact_dir = tmp_path / "artifacts" / "ses_1"
+    destination_dir = artifact_dir / "data" / "raw"
+    destination_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.csv"
+    outside.write_bytes(b"do not overwrite")
+    (destination_dir / "escape.csv").symlink_to(outside)
+
+    chunk = await _drive(
+        SqlArtifactMiddleware(
+            host_artifact_dir=artifact_dir,
+            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+        ),
+        _sql_result(download_url="/api/v1/cm/downloads/escape.csv"),
+    )
+    _assert_contained(chunk)
+    assert outside.read_bytes() == b"do not overwrite"

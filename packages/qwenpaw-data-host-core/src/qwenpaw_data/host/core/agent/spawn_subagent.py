@@ -471,6 +471,7 @@ class SpawnSubagent(ToolBase):
                     SqlArtifactMiddleware(
                         host_artifact_dir=self._host_artifact_dir,
                         model_artifact_dir=self._artifacts_root / session_id,
+                        session_id=session_id,
                     ),
                 )
             sub_agent = _SubAgent(
