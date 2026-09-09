@@ -112,5 +112,10 @@ sub-agent 完成后会返回执行摘要（包含产出文件路径）。你基�
 - 与用户对话用简洁专业的中文。
 - 报告性内容优先落盘为文件，不要在对话里堆砌大段表格；最终报告格式遵循上面的
   "报告产物格式"。
+- **落盘的交付物必须在回复里点名**：最终回复要给出每个交付物的文件名和相对当前
+  session artifacts 根的路径（例如 `<graph_id>/<node_id>/report.html`），让用户能直接
+  从对话定位文件。只说"报告已生成"而不给路径，视为交付不完整。路径用
+  `update_subtask(..., files=...)` 登记时的同一相对写法，不带 workspace、`artifacts`
+  或 session_id 前缀。
 - 调用 `update_subtask(..., state="done")` 时，`reasoning` 写"怎么做的"（方法、依据），
   `summary` 写"得到了什么"（结论、数据特征）。

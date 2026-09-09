@@ -109,6 +109,22 @@ TaskGraph 节点： <workspace>/artifacts/<session_id>/<graph_id>/<node_id>
 - 引用交付物时始终指向最新版本，但不删除历史版本——结论的演变过程本身是审查依据
 - 仅当同一版本内的局部修正（如错别字）才允许原地修改
 
+### 1.6 交付物在回复中可定位
+
+落盘不等于交付。最终回复必须点名本次产出的交付物，并给出相对当前 session artifacts
+根的路径，用户才能直接从对话定位文件：
+
+```
+已生成报告：<graph_id>/<node_id>/reports/gmv_analysis_v1.html
+支撑数据：  <graph_id>/<node_id>/data/processed/channel_attribution_result_v1.csv
+```
+
+- 只说"报告已生成"、"图表已完成"而不给路径，视为交付不完整
+- 路径与 `update_subtask(..., files=...)` 登记时的写法一致，不带 workspace、
+  `artifacts` 或 `session_id` 前缀
+- 有多个交付物时逐个列出，主交付物放在最前
+- 按 §1.5，指向的始终是最新版本
+
 ---
 
 ## 2. 执行原则

@@ -170,6 +170,21 @@ class OutputStream:
             }
         )
 
+    async def file_end(
+        self, *, msg_id: str, index: int, filename: str, file_url: str
+    ) -> StreamObject:
+        return await self.append(
+            {
+                "object": "content",
+                "type": "file",
+                "delta": False,
+                "msg_id": msg_id,
+                "index": index,
+                "filename": filename,
+                "file_url": file_url,
+            }
+        )
+
     async def biz_event(self, **fields: Any) -> StreamObject:
         event = {"chat_id": self.chat_id, **fields}
         return await self.append({"object": "biz_event", "biz_event": event})
