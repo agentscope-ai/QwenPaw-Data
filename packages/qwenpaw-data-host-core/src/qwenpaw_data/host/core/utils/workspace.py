@@ -23,6 +23,7 @@ from agentscope.workspace import LocalWorkspace
 from ..mcp_cm import is_cm_mcp_config
 from ..paths import Paths
 from ..tools.workspace import (
+    SILENT_SUCCESS_MESSAGE,
     WorkspaceBash,
     WorkspaceEdit,
     WorkspaceGlob,
@@ -167,6 +168,22 @@ class ManagedDockerBash(Bash):
                 is_last=True,
             )
             return
+
+        has_observation = any(
+            not isinstance(block, TextBlock) or bool(block.text)
+            for chunk in chunks
+            for block in chunk.content
+        )
+        if (
+            chunks
+            and all(chunk.state == ToolResultState.RUNNING for chunk in chunks)
+            and not has_observation
+        ):
+            chunks[-1] = chunks[-1].model_copy(
+                update={
+                    "content": [TextBlock(text=SILENT_SUCCESS_MESSAGE)],
+                },
+            )
 
         for chunk in chunks:
             yield chunk

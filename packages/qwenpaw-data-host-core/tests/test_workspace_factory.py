@@ -49,6 +49,21 @@ class RecordingBash:
         )
 
 
+class ResultBash:
+    def __init__(self, text: str, state=ToolResultState.RUNNING) -> None:
+        self.text = text
+        self.state = state
+
+    async def call(self, command, description="", timeout=120000):
+        _ = (command, description, timeout)
+        yield ToolChunk(
+            content=[TextBlock(text=self.text)],
+            state=self.state,
+            is_last=True,
+            metadata={"source": "delegate"},
+        )
+
+
 async def _collect_chunks(chunks):
     return [chunk async for chunk in chunks]
 
@@ -147,6 +162,36 @@ async def test_managed_docker_bash_reaps_cancelled_process_group():
     assert len(delegate.calls) == 2
     reaper_argv = shlex.split(delegate.calls[1][0])
     assert reaper_argv[-2].startswith("/tmp/qwenpaw-data-exec-")
+
+
+async def test_managed_docker_bash_reports_silent_success() -> None:
+    bash = ManagedDockerBash(ResultBash(""))
+
+    chunks = await _collect_chunks(bash.call(command="true"))
+
+    assert chunks[-1].state == ToolResultState.RUNNING
+    assert chunks[-1].content[0].text == (
+        "Command completed successfully with no stdout or stderr."
+    )
+    assert chunks[-1].metadata == {"source": "delegate"}
+
+
+async def test_managed_docker_bash_preserves_nonempty_output() -> None:
+    bash = ManagedDockerBash(ResultBash("created report.html"))
+
+    chunks = await _collect_chunks(bash.call(command="python report.py"))
+
+    assert chunks[-1].content[0].text == "created report.html"
+    assert chunks[-1].metadata == {"source": "delegate"}
+
+
+async def test_managed_docker_bash_preserves_errors() -> None:
+    bash = ManagedDockerBash(ResultBash("failed", ToolResultState.ERROR))
+
+    chunks = await _collect_chunks(bash.call(command="false"))
+
+    assert chunks[-1].state == ToolResultState.ERROR
+    assert chunks[-1].content[0].text == "failed"
 
 
 async def test_docker_workspace_wraps_bash_via_public_list_tools(

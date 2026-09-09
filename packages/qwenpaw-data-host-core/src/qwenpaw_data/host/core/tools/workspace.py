@@ -11,6 +11,8 @@ from typing import Any, AsyncGenerator, Literal
 from agentscope.message import TextBlock
 from agentscope.tool import Bash, Edit, Glob, Grep, Read, ToolChunk, Write
 
+SILENT_SUCCESS_MESSAGE = "Command completed successfully with no stdout or stderr."
+
 
 class _WorkspaceToolMixin:
     def __init__(self, workdir: str | Path) -> None:
@@ -244,7 +246,7 @@ class WorkspaceBash(Bash):
                 )
             else:
                 yield ToolChunk(
-                    content=[TextBlock(text=output)],
+                    content=[TextBlock(text=output or SILENT_SUCCESS_MESSAGE)],
                     state="running",
                     is_last=True,
                 )

@@ -64,6 +64,33 @@ async def test_bash_normal_command_still_works(tmp_path: Path) -> None:
 @pytest.mark.skipif(
     os.name == "nt", reason="native Windows workspace uses AgentScope PowerShell"
 )
+async def test_bash_silent_success_has_nonempty_observation(
+    tmp_path: Path,
+) -> None:
+    tool = WorkspaceBash(tmp_path)
+    chunks = await _collect_bash(tool, command="true", timeout=10000)
+
+    assert chunks[-1].state == "running"
+    assert chunks[-1].content[0].text == (
+        "Command completed successfully with no stdout or stderr."
+    )
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="native Windows workspace uses AgentScope PowerShell"
+)
+async def test_bash_failure_does_not_report_silent_success(tmp_path: Path) -> None:
+    tool = WorkspaceBash(tmp_path)
+    chunks = await _collect_bash(tool, command="exit 7", timeout=10000)
+
+    assert chunks[-1].state == "error"
+    assert "Command failed: exit 7" in chunks[-1].content[0].text
+    assert "completed successfully" not in chunks[-1].content[0].text
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="native Windows workspace uses AgentScope PowerShell"
+)
 async def test_bash_cancellation_terminates_process_group(
     tmp_path: Path,
 ) -> None:
