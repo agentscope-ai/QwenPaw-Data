@@ -109,15 +109,20 @@ description: 将 BI 数据分析结果组织成可视化 HTML 报告。当分析
 # 多主题
 python scripts/report_builder.py \
     --sections sections_001.json sections_002.json \
-    --output report.html \
+    --output report_v1.html \
     --report-title "XXX 产品 2025 年 12 月数据分析报告" \
     --overall-summary "<p>跨主题核心结论摘要...</p>"
 
 # 单主题（不传 report-title 和 overall-summary，让主题卡片直接展示）
 python scripts/report_builder.py \
     --sections sections_001.json \
-    --output report.html
+    --output report_v1.html
 ```
+
+**输出命名遵循 `runtime-guide` §1.5 交付物版本化**：首份报告输出 `report_v1.html`，
+报告被重做时（口径修正、用户反馈驱动、依赖数据重算）输出 `report_v2.html`、
+`report_v3.html`…，不原地覆盖已有版本。步骤 5 自检失败后的修正属于同一版本内的
+局部修正，可复用当前版本号。
 
 ### 5：生成后自检
 

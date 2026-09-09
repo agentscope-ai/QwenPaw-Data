@@ -93,6 +93,22 @@ TaskGraph 节点： <workspace>/artifacts/<session_id>/<graph_id>/<node_id>
 - 分析解读（对数据的推理判断）
 - 不确定性标注（数据不足或置信度低时明确提示）
 
+### 1.5 交付物版本化
+
+`plan_v1.yaml` / `plan_v2.yaml` 的版本化约定同样适用于**所有重新生成的交付物**（报告、
+数据文件、图表、`result.yaml`）。同一交付物被重做时，不原地覆盖，而是递增版本后缀：
+
+```
+<current_artifacts>/reports/gmv_analysis_v1.md
+<current_artifacts>/reports/gmv_analysis_v2.md      # 修订后的版本
+<current_artifacts>/data/processed/channel_attribution_result_v2.csv
+```
+
+- 首版即带 `_v1` 后缀，便于后续修订时保持命名一致
+- 交付物被用户反馈驱动重做、口径修正、或依赖数据更新后重算时，一律新增版本
+- 引用交付物时始终指向最新版本，但不删除历史版本——结论的演变过程本身是审查依据
+- 仅当同一版本内的局部修正（如错别字）才允许原地修改
+
 ---
 
 ## 2. 执行原则

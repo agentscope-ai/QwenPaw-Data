@@ -218,7 +218,7 @@ Step 2 的 YAML 即本 skill 的最终产出，作为 plan 草稿交付给 host�
 
 `create_plan` 完成后，根据 `interaction-strategy` skill 的 Type 2 触发条件判断：
 
-- **Type 2 未触发**（默认情况）→ 输出 1-2 句 plan 概览，**立即调用** `update_subtask_state` 开始执行第一个 ready 节点。不等待用户确认。
+- **Type 2 未触发**（默认情况）→ 输出 1-2 句 plan 概览，**立即调用** `update_subtask` 开始执行第一个 ready 节点。不等待用户确认。
 - **Type 2 触发** → 输出详细计划 + 确认语，**不调用工具**，等待用户回复。
 
 进入执行阶段后，还需 `read_file skills/runtime-guide/SKILL.md` 获取执行期通用策略（复用、异常处理、计划调整、质量自检、执行节奏、产出策略等）。
