@@ -23,6 +23,7 @@ from qwenpaw_data.host.core.agent.middleware import (
     ConfirmedSettlementPromptMiddleware,
     SteerMiddleware,
 )
+from qwenpaw_data.host.core.agent.tools import CronToolServices
 from qwenpaw_data.host.core.api.auth import install_api_token_auth
 from qwenpaw_data.host.core.api.deps import ServiceState
 from qwenpaw_data.host.core.api.errors import http_exception_handler
@@ -165,6 +166,15 @@ def create_app(
                 status="confirmed",
             )
 
+        def cron_tool_services() -> CronToolServices:
+            # Resolved per agent build, not at startup: cron_manager is
+            # assigned below, after the registry already exists.
+            return CronToolServices(
+                cron=state.cron,
+                cron_manager=state.cron_manager,
+                sessions=state.sessions,
+            )
+
         state = ServiceState(
             sessions=sessions_store,
             chats=chats_store,
@@ -185,6 +195,7 @@ def create_app(
                     ),
                 ],
                 model_factory=None if model is not None else resolve_model,
+                cron_services_factory=cron_tool_services,
             ),
             tasks=set(),
         )

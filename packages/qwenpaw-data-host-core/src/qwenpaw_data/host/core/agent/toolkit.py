@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 from agentscope.tool import Toolkit, ToolGroup
@@ -15,6 +16,7 @@ from ..orchestration import RuntimeStateManager
 from ..orchestration.tools import PLAN_MODE_TOOL_NAMES, build_qwenpaw_data_tools
 from .mcp_client_log import MCP_CLIENT_RUN_ID, MCP_RUN_HEADER, log_mcp_client_event
 from .spawn_subagent import SpawnSubagent
+from .tools import AskUserQuestionTool, CronJobTool, CronToolServices
 
 logger = logging.getLogger(__name__)
 
@@ -220,14 +222,29 @@ async def build_qwenpaw_data_toolkit(
     host_artifact_dir: Any | None = None,
     session_id_getter: Any | None = None,
     request_context_getter: Any | None = None,
+    enable_clarification: bool = False,
+    cron_services_factory: Callable[[], CronToolServices] | None = None,
 ) -> Toolkit:
     """拼装 QwenPaw Data Agent 用的 grouped ``Toolkit``。"""
     shared_tools = list(build_qwenpaw_data_tools(runtime_state, mode="plan"))
+    if enable_clarification:
+        # Shared: disambiguating the request is as useful while planning as
+        # it is mid-execution.
+        shared_tools.append(AskUserQuestionTool())
     agent_only_tools = [
         tool
         for tool in build_qwenpaw_data_tools(runtime_state, mode="agent")
         if tool.name not in PLAN_MODE_TOOL_NAMES
     ]
+    if cron_services_factory is not None:
+        # Agent-only: scheduling a run is an execution side effect, not part of
+        # drafting a plan.
+        agent_only_tools.append(
+            CronJobTool(
+                cron_services_factory,
+                request_context_getter=request_context_getter,
+            ),
+        )
     workspace_tools = list(await workspace.list_tools())
     workspace_mcps = list(await workspace.list_mcps())
     # Filters URL-confirmed CM MCP clients, raises their timeouts, and records

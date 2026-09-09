@@ -5,14 +5,176 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from agentscope.message import TextBlock, ToolResultBlock, ToolResultState
+from pydantic import BaseModel, Field, model_validator
 
 ASK_USER_QUESTION = "ask_user_question"
 
-CLARIFICATION_HINT_TTL_SECONDS = 300
+_ENV_PREFIX = "QWENPAW_DATA_CLARIFICATION_"
+
+DEFAULT_HINT_TTL_SECONDS = 300
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(f"{_ENV_PREFIX}{name.upper()}")
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+class ClarificationSettings(BaseModel):
+    """Bounds for one ask_user_question card; every knob has a safe default.
+
+    Defaults come from ``QWENPAW_DATA_CLARIFICATION_*`` env vars; constructor
+    kwargs win.
+    """
+
+    hint_ttl_seconds: int = Field(
+        default_factory=lambda: _env_int("hint_ttl_seconds", DEFAULT_HINT_TTL_SECONDS)
+    )
+    questions_min_items: int = Field(
+        default_factory=lambda: _env_int("questions_min_items", 1)
+    )
+    questions_max_items: int = Field(
+        default_factory=lambda: _env_int("questions_max_items", 4)
+    )
+    options_min_items: int = Field(
+        default_factory=lambda: _env_int("options_min_items", 2)
+    )
+    options_max_items: int = Field(
+        default_factory=lambda: _env_int("options_max_items", 4)
+    )
+
+    @model_validator(mode="after")
+    def _validate(self) -> ClarificationSettings:
+        if self.questions_max_items < self.questions_min_items:
+            raise ValueError("questions_max_items must be >= questions_min_items")
+        if self.options_max_items < self.options_min_items:
+            raise ValueError("options_max_items must be >= options_min_items")
+        return self
+
+
+_TOOL_DESCRIPTION = (
+    "Ask the user clarifying multiple-choice questions to gather information, "
+    "resolve ambiguity, understand preferences, confirm plans, or offer "
+    "choices. REQUIRED for any clarifying question to the user: do NOT ask "
+    "these as plain assistant text, numbered lists, or markdown option "
+    "bullets — call this tool instead and wait for the result. "
+    "Do not include an '其他' / 'Other' option in options. "
+    "The tool result has status=answered with answers. Each answer contains "
+    "the original question, selected_options (the option labels selected by "
+    "the user), and custom_text (the user's free-form answer or additional "
+    "explanation; null when absent). selected_options and custom_text may both "
+    "be present. A status=timeout result means the user did not answer before "
+    "the clarification timed out."
+)
+
+
+class ClarificationWithLLM:
+    """LLM ↔ Host: tool registration and the AgentScope input schema."""
+
+    @staticmethod
+    def tool_name() -> str:
+        return ASK_USER_QUESTION
+
+    @staticmethod
+    def tool_description() -> str:
+        return _TOOL_DESCRIPTION
+
+    @staticmethod
+    def agent_input_schema(
+        settings: ClarificationSettings | None = None,
+    ) -> dict[str, Any]:
+        """Build the tool's JSON Schema with settings-driven item bounds."""
+        cfg = settings or ClarificationSettings()
+        return {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": r"\S",
+                    "description": "Card title shown to the user.",
+                },
+                "questions": {
+                    "type": "array",
+                    "description": (
+                        "Questions to ask; must contain "
+                        f"{cfg.questions_min_items}..{cfg.questions_max_items} items."
+                    ),
+                    "minItems": cfg.questions_min_items,
+                    "maxItems": cfg.questions_max_items,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "type": "string",
+                                "minLength": 1,
+                                "pattern": r"\S",
+                                "description": "Question body.",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": (
+                                    "Optional clarification for the question."
+                                ),
+                            },
+                            "multiSelect": {
+                                "type": "boolean",
+                                "description": (
+                                    "true for multiple-choice; false for "
+                                    "single-choice."
+                                ),
+                            },
+                            "options": {
+                                "type": "array",
+                                "description": (
+                                    "Concrete, self-contained choices only; "
+                                    "selecting one must be enough to continue — "
+                                    "do not ask the user to type extra facts. "
+                                    "Do not include '其他' / 'Other'. Must contain "
+                                    f"{cfg.options_min_items}.."
+                                    f"{cfg.options_max_items} items."
+                                ),
+                                "minItems": cfg.options_min_items,
+                                "maxItems": cfg.options_max_items,
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "pattern": r"\S",
+                                            "description": "Option label.",
+                                        },
+                                        "description": {
+                                            "type": ["string", "null"],
+                                            "description": (
+                                                "Optional option description."
+                                            ),
+                                        },
+                                    },
+                                    "required": ["label"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["question", "multiSelect", "options"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["title", "questions"],
+            "additionalProperties": False,
+        }
 
 
 class ClarificationConflict(RuntimeError):
@@ -33,9 +195,14 @@ class ClarificationWithFrontend:
     """Host ↔ Frontend: Clarification interaction metadata."""
 
     @staticmethod
-    def tool_call_metadata(*, now: datetime | None = None) -> dict[str, str]:
+    def tool_call_metadata(
+        *,
+        now: datetime | None = None,
+        settings: ClarificationSettings | None = None,
+    ) -> dict[str, str]:
+        cfg = settings or ClarificationSettings()
         expires_at = (now or datetime.now(UTC)) + timedelta(
-            seconds=CLARIFICATION_HINT_TTL_SECONDS
+            seconds=cfg.hint_ttl_seconds
         )
         return {
             "expires_at": expires_at.isoformat().replace("+00:00", "Z"),

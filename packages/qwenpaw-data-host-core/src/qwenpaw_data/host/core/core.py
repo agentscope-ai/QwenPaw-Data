@@ -50,11 +50,20 @@ class QwenPawDataHost:
         confirmation_handler: ConfirmationHandler | None = None,
         extra_middlewares: list[Any] | None = None,
         model_factory: Any = None,
+        enable_clarification: bool = False,
+        cron_services_factory: Any = None,
     ) -> None:
         self.home = resolve_qwenpaw_data_home(home)
         self.session_id = session_id or create_session_id()
         self.request_context = dict(request_context or {})
         self._model_factory = model_factory
+        # ask_user_question parks the turn on RequireExternalExecutionEvent,
+        # which only AgentExecutor services. Direct agent.reply() callers such
+        # as the CLI would hang, so they leave this off.
+        self.enable_clarification = enable_clarification
+        # Resolved lazily at toolkit-build time: the cron manager is created
+        # after the host registry during API startup.
+        self._cron_services_factory = cron_services_factory
         if model is not None:
             self.model = model
         elif model_factory is not None:
@@ -220,6 +229,11 @@ class QwenPawDataHost:
             artifacts_root=model_artifact_dir.parent,
             host_artifact_dir=paths.artifact_dir,
             session_id_getter=lambda: self.session_id,
+            request_context_getter=lambda: dict(
+                getattr(agent_ref.get("agent"), "_request_context", None) or {},
+            ),
+            enable_clarification=self.enable_clarification,
+            cron_services_factory=self._cron_services_factory,
         )
         session_store = self.session_store
         permission_context = build_permission_context(
@@ -249,6 +263,7 @@ class QwenPawDataHost:
                 SqlArtifactMiddleware(
                     host_artifact_dir=paths.artifact_dir,
                     model_artifact_dir=model_artifact_dir,
+                    session_id=self.session_id,
                 ),
                 *self.extra_middlewares,
             ],
