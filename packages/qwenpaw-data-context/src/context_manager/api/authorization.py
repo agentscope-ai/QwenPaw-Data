@@ -77,6 +77,7 @@ _register(
     ("GET", "/api/v1/cm/metric-dimensions"),
     ("GET", "/api/v1/cm/dimension-metrics"),
     ("GET", "/api/v1/cm/datasets"),
+    ("GET", "/api/v1/cm/datasets/{name}/columns"),
     ("POST", "/api/v1/cm/search_context"),
     ("POST", "/api/v1/cm/search_event"),
     ("POST", "/api/v1/cm/explore_entity"),
