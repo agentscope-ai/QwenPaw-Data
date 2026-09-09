@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -23,6 +25,9 @@ from qwenpaw_data.host.core.store.protocols import (
 )
 
 logger = logging.getLogger(__name__)
+
+_IDLE_POLL_SECONDS = 5.0
+_IDLE_WAIT_TIMEOUT_SECONDS = 300.0
 
 
 class CronManager:
@@ -80,9 +85,31 @@ class CronManager:
 
     async def run(self, job: dict[str, Any]) -> None:
         try:
+            if not await self._wait_until_idle(job):
+                return
             await self._run_console(job)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             logger.exception("cron run failed: %s", job["id"])
+
+    async def _wait_until_idle(self, job: dict[str, Any]) -> bool:
+        """Return True once the pinned session is free to accept a new chat."""
+        session_id = (job.get("session_id") or "").strip()
+        if not session_id:
+            return True
+        deadline = time.monotonic() + _IDLE_WAIT_TIMEOUT_SECONDS
+        while await self._sessions.has_active_chat(session_id):
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "cron skipped: session %s still busy after %.0fs: %s",
+                    session_id,
+                    _IDLE_WAIT_TIMEOUT_SECONDS,
+                    job["id"],
+                )
+                return False
+            await asyncio.sleep(_IDLE_POLL_SECONDS)
+        return True
 
     def _trigger(self, schedule: ScheduleSpec) -> CronTrigger | DateTrigger:
         if schedule.type == "once":

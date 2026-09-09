@@ -13,6 +13,7 @@ import httpx  # noqa: E402
 from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
 from qwenpaw_data.host.core.api.models.cron import ScheduleSpec  # noqa: E402
 from qwenpaw_data.host.core.core import QwenPawDataHost  # noqa: E402
+from qwenpaw_data.host.core.cron import manager as cron_manager  # noqa: E402
 
 from test_service_smoke import ScriptedAgent, _script  # noqa: E402
 
@@ -136,3 +137,94 @@ async def test_cron_jobs_restore_on_restart(tmp_path, monkeypatch) -> None:
     async with service_client(tmp_path, monkeypatch) as (http, app):
         assert app.state.service.cron_manager._scheduler.get_job(job_id) is not None
         assert (await http.get("/api/v1/cron/jobs")).json()["count"] == 1
+
+
+class FakeSessions:
+    def __init__(self, busy_checks: int) -> None:
+        self.remaining = busy_checks
+        self.checked: list[str] = []
+
+    async def has_active_chat(self, session_id: str) -> bool:
+        self.checked.append(session_id)
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+def _manager(sessions: FakeSessions) -> cron_manager.CronManager:
+    return cron_manager.CronManager(
+        cron=None,  # type: ignore[arg-type]
+        sessions=sessions,  # type: ignore[arg-type]
+        chats=None,  # type: ignore[arg-type]
+        events=None,  # type: ignore[arg-type]
+        hosts=None,  # type: ignore[arg-type]
+    )
+
+
+_PINNED_JOB = {"id": "job-1", "session_id": "ses_1"}
+
+
+async def test_cron_waits_for_busy_session_then_runs(monkeypatch) -> None:
+    monkeypatch.setattr(cron_manager, "_IDLE_POLL_SECONDS", 0.0)
+    sessions = FakeSessions(busy_checks=2)
+    manager = _manager(sessions)
+    ran: list[dict] = []
+
+    async def fake_run_console(job: dict) -> None:
+        ran.append(job)
+
+    monkeypatch.setattr(manager, "_run_console", fake_run_console)
+
+    await manager.run(dict(_PINNED_JOB))
+
+    assert ran == [_PINNED_JOB]
+    assert sessions.checked == ["ses_1", "ses_1", "ses_1"]
+
+
+async def test_cron_skips_when_session_busy_past_deadline(monkeypatch) -> None:
+    monkeypatch.setattr(cron_manager, "_IDLE_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(cron_manager, "_IDLE_WAIT_TIMEOUT_SECONDS", 0.0)
+    manager = _manager(FakeSessions(busy_checks=1000))
+    ran: list[dict] = []
+
+    async def fake_run_console(job: dict) -> None:
+        ran.append(job)
+
+    monkeypatch.setattr(manager, "_run_console", fake_run_console)
+
+    await manager.run(dict(_PINNED_JOB))
+
+    assert ran == []
+
+
+async def test_cron_does_not_wait_without_pinned_session(monkeypatch) -> None:
+    sessions = FakeSessions(busy_checks=1000)
+    manager = _manager(sessions)
+    ran: list[dict] = []
+
+    async def fake_run_console(job: dict) -> None:
+        ran.append(job)
+
+    monkeypatch.setattr(manager, "_run_console", fake_run_console)
+
+    await manager.run({"id": "job-2"})
+
+    assert ran == [{"id": "job-2"}]
+    assert sessions.checked == []
+
+
+async def test_cron_wait_propagates_cancellation(monkeypatch) -> None:
+    monkeypatch.setattr(cron_manager, "_IDLE_POLL_SECONDS", 0.01)
+    manager = _manager(FakeSessions(busy_checks=10**6))
+
+    async def fake_run_console(job: dict) -> None:
+        raise AssertionError("must not run while the session is busy")
+
+    monkeypatch.setattr(manager, "_run_console", fake_run_console)
+
+    task = asyncio.create_task(manager.run(dict(_PINNED_JOB)))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
