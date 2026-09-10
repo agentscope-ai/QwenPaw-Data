@@ -13,12 +13,22 @@ Releases must be produced from a reviewed, clean commit on the default branch.
 
 Publishing a GitHub release triggers `.github/workflows/publish.yml`. Its build
 job verifies aligned package/tag versions, builds and checks all four package
-wheel/sdist pairs, and uploads them as an artifact. The publish job uses PyPI
-Trusted Publishing with the protected `pypi` GitHub environment and no stored
-API token. Configure the same owner/repository, workflow filename
-`publish.yml`, and environment `pypi` as a Trusted Publisher for each of the
-four PyPI projects before the first release. Manual workflow dispatch performs
-the build checks only and never publishes.
+wheel/sdist pairs, and uploads each package as a separate artifact. The publish
+job then uploads the packages independently, each using PyPI Trusted Publishing
+with no stored API token and gated behind its own protected GitHub environment:
+
+| PyPI project | GitHub environment |
+| --- | --- |
+| `qwenpaw-data-cli` | `pypi-cli` |
+| `qwenpaw-data-context` | `pypi-context` |
+| `qwenpaw-data-host-core` | `pypi-host-core` |
+| `qwenpaw-data-skills` | `pypi-skills` |
+
+For each of the four PyPI projects, configure the same owner/repository, the
+workflow filename `publish.yml`, and that project's environment name above as a
+Trusted Publisher before the first release. Manual workflow dispatch runs the
+build checks by default and publishes only when its `publish` input is enabled
+together with an existing `release_tag`.
 
 ## Public-history boundary
 
