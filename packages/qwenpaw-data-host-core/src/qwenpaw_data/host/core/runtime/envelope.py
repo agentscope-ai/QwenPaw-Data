@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from urllib.parse import urlencode
 
 from agentscope.event import EventBase, EventType
 
@@ -36,14 +35,6 @@ def _media_type_to_block_type(media_type: str | None) -> str:
     if major in ("image", "video", "audio"):
         return major
     return "data"
-
-
-def _artifact_file_url(session_id: str, path: str) -> str:
-    # The bearer-auth'd route, never a signed /files/shared link: that
-    # signature is itself the credential and must not be persisted into a
-    # chat event.
-    query = urlencode({"path": path, "purpose": "preview"})
-    return f"/api/v1/sessions/{session_id}/files/access?{query}"
 
 
 class Envelope:
@@ -123,65 +114,6 @@ class Envelope:
         except Exception:
             logger.exception(
                 "envelope: failed to send segment for chat %s",
-                self.stream.chat_id,
-            )
-
-    async def send_artifact_message(
-        self, artifacts: list[dict[str, Any]]
-    ) -> None:
-        """Reference declared deliverables as ``file`` blocks on a message.
-
-        ``artifact.registered`` is sorted into its own snapshot bucket, so
-        without this a generated report is reachable from the Outputs panel
-        yet has no reference anywhere in the conversation.
-        """
-        if self._terminal:
-            return
-        files = [
-            (str(a.get("name") or ""), str(a.get("path") or ""))
-            for a in artifacts
-        ]
-        files = [(name, path) for name, path in files if name and path]
-        if not files:
-            return
-        try:
-            msg_id = create_id("msg")
-            seq = self._next_seq()
-            await self.stream.message_start(
-                msg_id=msg_id,
-                sequence=seq,
-                type="message",
-                role="assistant",
-            )
-            content: list[dict[str, Any]] = []
-            for index, (name, path) in enumerate(files):
-                file_url = _artifact_file_url(self.stream.session_id, path)
-                await self.stream.file_end(
-                    msg_id=msg_id,
-                    index=index,
-                    filename=name,
-                    file_url=file_url,
-                )
-                content.append(
-                    {
-                        "object": "content",
-                        "type": "file",
-                        "delta": False,
-                        "index": index,
-                        "filename": name,
-                        "file_url": file_url,
-                    }
-                )
-            await self.stream.message_complete(
-                msg_id=msg_id,
-                sequence=seq,
-                type="message",
-                role="assistant",
-                content=content,
-            )
-        except Exception:
-            logger.exception(
-                "envelope: failed to send artifact references for chat %s",
                 self.stream.chat_id,
             )
 

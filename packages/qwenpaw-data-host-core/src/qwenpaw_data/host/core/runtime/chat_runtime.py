@@ -81,9 +81,6 @@ class ChatRuntime:
         self._biztrace: BizTraceTransformer | None = None
         self._envelope: Envelope | None = None
         self._artifact_seen: dict[str, tuple[int, int]] = {}
-        # The agent is session-scoped and its artifact list is append-only
-        # across chats, so this turn's deliverables are the tail past here.
-        self._declared_artifact_offset = 0
 
     @property
     def agent(self) -> Any:
@@ -158,7 +155,6 @@ class ChatRuntime:
                 request_context=request_context,
             )
             self._agent = agent
-            self._declared_artifact_offset = len(self._declared_artifact_items())
             self._run_context = RunContext(
                 session_id=chat.session_id,
                 chat_id=chat.id,
@@ -182,7 +178,6 @@ class ChatRuntime:
                     after_event_callback=self._after_event_callback,
                 )
                 await self._deliver_biztrace()
-                await envelope.send_artifact_message(self._declared_artifacts())
                 await self._deliver_followup(envelope)
                 outcome, error = "completed", None
         except asyncio.CancelledError:
@@ -429,30 +424,6 @@ class ChatRuntime:
                 continue
             stamps[path] = (stat.st_size, stat.st_mtime_ns)
         return stamps
-
-    def _declared_artifact_items(self) -> list[Any]:
-        """The agent's append-only list of model-declared deliverables."""
-        notebook = getattr(self._agent, "plan_notebook", None)
-        items = getattr(notebook, "artifacts", None)
-        if not isinstance(items, list):
-            return []
-        return list(items)
-
-    def _declared_artifacts(self) -> list[dict[str, Any]]:
-        """This turn's deliverables, as declared via ``update_subtask(files=)``.
-
-        Narrower than the ``_register_new_files`` filesystem diff, which also
-        picks up incidental intermediates such as raw SQL dumps.
-        """
-        tail = self._declared_artifact_items()[self._declared_artifact_offset :]
-        by_path: dict[str, dict[str, Any]] = {}
-        for item in tail:
-            by_path[item.path] = {
-                "name": item.name,
-                "path": item.path,
-                "mime_type": item.mime_type,
-            }
-        return list(by_path.values())
 
     async def replace_plan(
         self,
