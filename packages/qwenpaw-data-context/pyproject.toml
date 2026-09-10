@@ -40,7 +40,7 @@ dependencies = [
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
   # openai 上限放宽以兼容 QwenPaw 主应用（QwenPaw 要求 openai>=2.0.0,<=2.33.0）
-  "openai>=1.109,<2.34",
+  "openai>=1.109,<3.4",
   "jsonschema>=4.26,<5.0",
   # --- SQL / 元数据 ---
   "sqlglot>=30.0,<31.0",
