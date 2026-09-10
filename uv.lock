@@ -3206,7 +3206,7 @@ wheels = [
 
 [[package]]
 name = "qwenpaw-data-cli"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/qwenpaw-data-cli" }
 dependencies = [
     { name = "python-dotenv" },
@@ -3221,7 +3221,7 @@ requires-dist = [
 
 [[package]]
 name = "qwenpaw-data-context"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/qwenpaw-data-context" }
 dependencies = [
     { name = "aiohttp" },
@@ -3309,7 +3309,7 @@ provides-extras = ["bigquery", "duckdb"]
 
 [[package]]
 name = "qwenpaw-data-host-core"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/qwenpaw-data-host-core" }
 dependencies = [
     { name = "agentscope" },
@@ -3351,12 +3351,12 @@ provides-extras = ["service"]
 
 [[package]]
 name = "qwenpaw-data-skills"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "packages/qwenpaw-data-skills" }
 
 [[package]]
 name = "qwenpaw-data-workspace"
-version = "0.3.0"
+version = "0.3.1"
 source = { virtual = "." }
 
 [package.dev-dependencies]

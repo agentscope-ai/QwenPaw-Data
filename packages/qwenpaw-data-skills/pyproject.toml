@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-skills"
-version = "0.3.0"
+version = "0.3.1"
 description = "Reusable data analysis skills for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"

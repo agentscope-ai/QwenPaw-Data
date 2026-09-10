@@ -6,6 +6,34 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-10
+
+### Added
+
+- `qwenpaw-data-host-core` exposes clarification and cron scheduling as agent
+  tools, letting a running analysis request user input and schedule follow-up
+  jobs directly.
+
+### Changed
+
+- Reverted the experimental chat timeline artifact cards, which rendered broken
+  deliverable previews.
+
+### Fixed
+
+- The chat timeline now references generated deliverables instead of dangling
+  placeholders.
+- Chat state persists before the terminal event is emitted, preventing a lost
+  final message.
+- Scheduled (cron) runs wait for an idle session before firing, avoiding
+  overlapping executions.
+- SQL artifact materialization failures are contained instead of aborting the
+  whole turn.
+- Silent successful commands return a real observation rather than an empty
+  result.
+- Sandbox artifact handling is aligned across execution backends.
+- `qwenpaw-data-skills` guides reference the corrected tool name.
+
 ## [0.3.0] - 2026-09-07
 
 ### Added
@@ -172,7 +200,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...v0.2.4
 [0.2.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.1.2...v0.2.0
