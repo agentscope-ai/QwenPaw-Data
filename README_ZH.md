@@ -18,6 +18,17 @@ QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织�
 
 完整的系统级说明可参考 [技术报告](https://arxiv.org/pdf/2607.11019)。
 
+## 版本与 QwenPaw App 预告
+
+- **已发布：QwenPaw-Data 0.3.x。** 独立部署的 Engine 提供分析会话、执行事件及产物的
+  HTTP / 可重放 SSE 接口。详见
+  [0.3.0 发布说明](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
+  和 [0.3.1 修复](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.1)。
+- **即将推出：QwenPaw Data App 0.3.0。** 在 QwenPaw 的 Data 工作台和渠道会话中，
+  串联数据源选择、问题澄清、可追踪分析、报告预览与后续追问。更新正在
+  [QwenPaw #7637](https://github.com/agentscope-ai/QwenPaw/pull/7637) 中评审，发布日期待定。
+  详见 [发布预告、配置入口与版本说明](docs/QWENPAW_APP_ZH.md)。
+
 ## 核心思路
 
 QwenPaw-Data 的设计原则是按照智能体原生数据分析系统必须回答的核心问题来拆解企业数据分析：
@@ -78,12 +89,15 @@ QwenPaw-Data 面向数据团队日常处理的严肃分析任务，包括：
 
 ## 接入方式
 
-QwenPaw-Data 当前以 DataBridge 作为本地管理面；独立 CLI Host 已在仓库中提供，并持续演进为主要执行入口。
+QwenPaw-Data 可通过 CLI 或无界面的 Engine 服务独立运行，DataBridge 提供管理界面。
+QwenPaw App 增加平台工作区和渠道入口；面向 QPD 0.3 的集成当前处于预览阶段。
 
 | 模式 | 用途 | 典型用户 | 运行形态 |
 | --- | --- | --- | --- |
 | **DataBridge UI** | 管理图记忆、语义配置及相关 DataBridge 资产 | 分析师、平台运营 | 本地管理界面，后端对接 DataBridge API。 |
 | **CLI** | 平台集成、二次开发和本地自动化 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 提供意图理解、任务规划和工作流执行等能力。 |
+| **Headless Engine** | 将分析能力接入宿主或前端 | 应用开发者 | [HTTP + 可重放 SSE 服务](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra)。 |
+| **QwenPaw App — QPD 0.3 预览** | 从 QwenPaw 工作区和渠道发起数据分析 | QwenPaw 用户 | 内嵌 Data Console 与渠道桥接；详见 [发布预告与使用入口](docs/QWENPAW_APP_ZH.md)。 |
 
 ## 项目结构
 

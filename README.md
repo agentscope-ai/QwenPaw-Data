@@ -18,6 +18,19 @@ QwenPaw-Data organizes its system design around three core dimensions: **facts**
 
 For a complete system-level overview, see the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
+## Release and QwenPaw App preview
+
+- **Available: QwenPaw-Data 0.3.x.** The independently deployable engine provides
+  HTTP/replayable-SSE APIs for analysis sessions, execution events, and artifacts.
+  See the [0.3.0 release](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
+  and [0.3.1 fixes](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.1).
+- **Coming next: QwenPaw Data App 0.3.0.** Bring datasource
+  selection, clarification, traceable analysis, report previews, and follow-up
+  questions into QwenPaw's Data workspace and channel conversations. The update
+  is under review in [QwenPaw #7637](https://github.com/agentscope-ai/QwenPaw/pull/7637);
+  its release date is not yet announced. See the
+  [release preview, setup links, and version details](docs/QWENPAW_APP.md).
+
 ## Core Idea
 
 The design principle of QwenPaw-Data is to decompose enterprise data analysis according to the core questions an AI-native data agent must answer:
@@ -78,12 +91,16 @@ QwenPaw-Data is designed for serious analytical work that data teams handle day 
 
 ## Access Modes
 
-QwenPaw-Data currently provides DataBridge as the local management surface. A standalone CLI host is available in the repository and continues to evolve as the primary execution entry point.
+QwenPaw-Data runs independently through its CLI or headless engine service.
+DataBridge provides the management UI. The QwenPaw App adds a platform workspace
+and channel entry points; its QPD 0.3 integration is currently a preview.
 
 | Mode | Purpose | Typical Users | Runtime Form |
 | --- | --- | --- | --- |
 | **DataBridge UI** | Manage graph memory, semantic config, and related DataBridge assets | Analysts and platform operators | Local management UI backed by the DataBridge API. |
 | **CLI** | Platform integration, secondary development, and local automation | Developers and platform teams | Lightweight command-line entry point for intent understanding, task planning, and workflow execution via `qwenpaw-data-cli`. |
+| **Headless Engine** | Integrate analysis into a host or frontend | Application developers | [HTTP + replayable SSE service](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra). |
+| **QwenPaw App — QPD 0.3 preview** | Analyze data from the QwenPaw workspace and channels | QwenPaw users | Embedded Data Console and channel bridge; see [integration status and setup](docs/QWENPAW_APP.md). |
 
 ## Repository Structure
 
