@@ -29,6 +29,10 @@ QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织�
   [QwenPaw #7637](https://github.com/agentscope-ai/QwenPaw/pull/7637) 中评审，发布日期待定。
   详见 [发布预告、配置入口与版本说明](docs/QWENPAW_APP_ZH.md)。
 
+[![QwenPaw Data App 预览：会话工作区中的分析步骤、结论与产物](assets/qwenpaw-app/session-workspace.png)](docs/QWENPAW_APP_ZH.md)
+
+*QwenPaw Data App 预览界面，使用 GAAP 演示数据。点击进入发布预告，查看报告、澄清、轨迹及产物截图。*
+
 ## 核心思路
 
 QwenPaw-Data 的设计原则是按照智能体原生数据分析系统必须回答的核心问题来拆解企业数据分析：

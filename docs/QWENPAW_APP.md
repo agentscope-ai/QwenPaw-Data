@@ -16,6 +16,11 @@ host authentication, channels, and notifications; QwenPaw-Data supplies
 semantic grounding, analytical skills, execution, and the Data Console.
 The engine also runs independently, with QwenPaw as an optional host.
 
+![Data Console showing a GAAP demo question, execution steps, conclusion, CSV output, and session workspace](../assets/qwenpaw-app/session-workspace.png)
+
+*Analysis workspace: the question, execution steps, conclusion, and output file
+stay together. Screenshots on this page show the preview build with GAAP demo data.*
+
 ## Highlights
 
 - **A complete analysis workspace.** The embedded Data Console connects
@@ -47,6 +52,30 @@ changes,”** the workflow is:
 4. Read the conclusion and generated report in the workspace, inspect the
    output files, and continue with a follow-up question. Channel users receive
    the result and artifact notifications through the bridge.
+
+![Expanded GAAP HTML report inside an analysis session, with the report.html artifact below it](../assets/qwenpaw-app/inline-report.png)
+
+*Report preview: read the generated GAAP report within the session and access
+`report.html` from Key artifacts below it.*
+
+<details>
+<summary>More screenshots: clarification, execution traces, and outputs</summary>
+
+![Analysis segment explaining what needs clarification, with follow-up suggestions in the conversation](../assets/qwenpaw-app/clarification-followup.png)
+
+*Clarification and follow-up: identify the missing analysis scope and continue
+the conversation with suggested follow-up questions.*
+
+![Business Trace panel showing user input, retrieval and SQL steps, unsuccessful steps, and the final conclusion](../assets/qwenpaw-app/business-trace.png)
+
+*Business Trace: inspect the execution path, including unsuccessful steps,
+alongside the analysis conversation.*
+
+![Outputs panel listing the CSV artifact for the selected chat and analysis segment](../assets/qwenpaw-app/outputs.png)
+
+*Outputs: locate generated files by chat and analysis segment.*
+
+</details>
 
 ## Configuration and setup
 

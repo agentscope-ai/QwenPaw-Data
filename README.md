@@ -31,6 +31,11 @@ For a complete system-level overview, see the [Technical Report](https://arxiv.o
   its release date is not yet announced. See the
   [release preview, setup links, and version details](docs/QWENPAW_APP.md).
 
+[![QwenPaw Data App preview: analysis steps, conclusion, and outputs in the session workspace](assets/qwenpaw-app/session-workspace.png)](docs/QWENPAW_APP.md)
+
+*QwenPaw Data App preview with GAAP demo data. Open the release preview for
+report, clarification, trace, and output screenshots.*
+
 ## Core Idea
 
 The design principle of QwenPaw-Data is to decompose enterprise data analysis according to the core questions an AI-native data agent must answer:

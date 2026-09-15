@@ -13,6 +13,10 @@ QwenPaw 用户将获得专业的数据分析工作台，也可以从渠道会话
 QwenPaw 提供应用生命周期、宿主身份认证、渠道和通知；QwenPaw-Data 提供语义接地、
 分析技能、执行能力与 Data Console。Engine 仍可独立运行，QwenPaw 是可选的宿主。
 
+![Data Console 展示 GAAP 演示问题、执行步骤、结论、CSV 产物与会话工作区](../assets/qwenpaw-app/session-workspace.png)
+
+*分析工作台：问题、执行步骤、结论和结果文件同屏可见。本页截图来自预览构建，使用 GAAP 演示数据。*
+
 ## 本次亮点
 
 - **完整的分析工作台。** 内嵌 Data Console 串联数据源选择、分析会话、执行轨迹和产物，
@@ -38,6 +42,27 @@ QwenPaw 提供应用生命周期、宿主身份认证、渠道和通知；QwenPa
 3. 跟进分析过程：DataBridge 解析业务概念，Engine 执行分析工作；需要时可取消任务。
 4. 在工作台阅读结论与生成的报告、查看结果文件，再通过追问继续分析。
    渠道用户通过桥接接收结果和产物通知。
+
+![GAAP HTML 分析报告在会话内展开，下方保留 report.html 产物入口](../assets/qwenpaw-app/inline-report.png)
+
+*报告预览：在当前会话内阅读生成的 GAAP 报告，下方 Key artifacts 保留 `report.html` 的查看和下载入口。*
+
+<details>
+<summary>更多界面：澄清与追问、执行轨迹、产物列表</summary>
+
+![分析段说明需要补充的分析范围，会话中显示后续追问建议](../assets/qwenpaw-app/clarification-followup.png)
+
+*澄清与追问：问题范围不明确时说明需要补充的信息，并通过后续问题继续推进分析。*
+
+![Business Trace 面板展示用户输入、检索与 SQL 步骤、失败步骤及最终结论](../assets/qwenpaw-app/business-trace.png)
+
+*业务轨迹：在分析会话旁查看执行链路，也能定位未成功的步骤。*
+
+![Outputs 面板列出所选会话和分析段生成的 CSV 文件](../assets/qwenpaw-app/outputs.png)
+
+*产物列表：按会话和分析段定位生成的结果文件。*
+
+</details>
 
 ## 模型、数据源与安装入口
 
