@@ -1034,6 +1034,31 @@ def cm_datasets(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/datasets/{name}/columns", response_model=list[ColumnMeta])
+def cm_dataset_columns(
+    request: Request,
+    name: str,
+    domain: Optional[str] = Query(None),
+    session_ref: Optional[str] = Query(None),
+    datasource_id: Optional[str] = Query(None),
+) -> Union[list[ColumnMeta], JSONResponse]:
+    driver = _driver(request)
+    dom, sess = _domain_from_request(request, domain=domain, session_ref=session_ref)
+    ds_id = _read_datasource_id(dom, sess, datasource_id or "")
+    resolved = resolve_entity(driver, domain=dom, name=name.strip(), kind="dataset", datasource_id=ds_id)
+    if resolved.kind == "ambiguous":
+        return JSONResponse(
+            status_code=200,
+            content=ambiguous_payload(resolved.candidates, entity_type="Dataset"),
+        )
+    if resolved.kind == "not_found":
+        raise not_found_http("dataset", dom, name)
+    try:
+        return sem_store.get_dataset_columns(driver, dom, resolved.canonical_name, datasource_id=ds_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------------- #
 # L1 — search_context
 # ---------------------------------------------------------------------- #

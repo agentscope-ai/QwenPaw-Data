@@ -255,3 +255,32 @@ def test_every_application_api_route_has_an_explicit_policy(
     from context_manager.api.server import create_app
 
     assert unclassified_app_routes(create_app()) == []
+
+
+def test_get_dataset_columns_endpoint_is_registered_and_classified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """回归测试：get_dataset_columns MCP 工具依赖的 CM 端点必须存在且已分类。
+
+    该 MCP 工具调用 ``GET /api/v1/cm/datasets/{name}/columns``，但历史上只
+    注册了工具而未实现后端端点，导致请求被 fail-closed 中间件以 403
+    （unclassified_route）拦截。此测试同时防住「端点缺失」与「端点未分类」
+    两类回归。
+    """
+    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+    from context_manager.api.authorization import (
+        _walk_route_templates,
+        required_scopes_for_request,
+    )
+    from context_manager.api.server import create_app
+
+    app = create_app()
+    registered = {
+        (path, method)
+        for path, methods in _walk_route_templates(app.routes)
+        for method in methods
+    }
+    assert ("/api/v1/cm/datasets/{name}/columns", "GET") in registered
+    assert required_scopes_for_request(
+        "GET", "/api/v1/cm/datasets/realtime_viz/columns"
+    ) == frozenset({SCOPE_QUERY})
