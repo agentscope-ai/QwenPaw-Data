@@ -220,6 +220,9 @@ class RuntimeStateManager:
     ) -> None:
         self._nodes: List[TaskNode] = []
         self._current_graph_id: str | None = None
+        # Reply-local fallback after finish_plan clears the active graph.
+        # Intentionally excluded from persisted session state.
+        self.last_finished_graph_id: str | None = None
         self._trigger_msg_id: str = ""
         self.artifacts: List[ArtifactItem] = []
         self._pending_edits: list[dict] = []
@@ -723,6 +726,7 @@ class RuntimeStateManager:
                 n.state = state
 
         await self._notify_graph_change(TaskEventType.GRAPH_FINISHED)
+        self.last_finished_graph_id = self._current_graph_id
         self._current_graph_id = None
         return _text("Task graph finished.")
 
