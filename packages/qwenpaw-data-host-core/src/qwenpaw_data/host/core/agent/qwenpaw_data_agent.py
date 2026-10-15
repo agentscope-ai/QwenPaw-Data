@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Literal
 
 from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
@@ -23,6 +23,7 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 from agentscope.workspace import Offloader
 
+from ..artifact_paths import model_visible_path
 from ..config import DEFAULT_PROMPT_DIR
 from ..mcp_cm import inject_datasource_metadata
 from ..orchestration import DefaultGraphToHint, RuntimeStateManager
@@ -69,17 +70,17 @@ class QwenPawDataAgent(Agent):
         request_context: dict[str, Any] | None = None,
         mode: str = "agent",
         session_id: str = "default",
-        workspace_dir: Path | str | None = None,
-        artifact_dir: Path | str | None = None,
+        workspace_dir: PurePath | str | None = None,
+        artifact_dir: PurePath | str | None = None,
         session_trace_writer: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         confirmation_handler: ConfirmationHandler | None = None,
     ) -> None:
         self._mode: Literal["plan", "agent"] = mode  # type: ignore[assignment]
         self._session_id = session_id
-        self._workspace_dir = Path(
+        self._workspace_dir = model_visible_path(
             workspace_dir or getattr(offloader, "workdir", Path.cwd()),
         )
-        self._artifact_dir = Path(
+        self._artifact_dir = model_visible_path(
             artifact_dir or self._workspace_dir / "artifacts" / session_id,
         )
         self._runtime_state = runtime_state or RuntimeStateManager(

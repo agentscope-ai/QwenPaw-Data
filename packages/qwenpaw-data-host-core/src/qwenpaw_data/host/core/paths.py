@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from .artifact_paths import ArtifactPathContext
 
@@ -96,7 +96,7 @@ class Paths:
 
     def artifact_context(
         self,
-        model_artifact_dir: str | Path,
+        model_artifact_dir: str | PurePath,
     ) -> ArtifactPathContext:
         """Build this session's host/model artifact path mapping."""
         return ArtifactPathContext(

@@ -20,6 +20,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Workspace MCP defaults are available to native analysis sessions.
 - Later turns pick up model changes while retaining conversation memory.
+- Linux sandbox artifact paths retain POSIX separators on Windows hosts in
+  agent/subagent prompts and SQL artifact responses. Native Windows host paths
+  retain drive and UNC semantics.
 
 ### Security
 

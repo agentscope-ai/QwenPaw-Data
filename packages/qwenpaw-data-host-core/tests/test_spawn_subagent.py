@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,19 @@ from qwenpaw_data.host.core.agent.spawn_subagent import (
     _build_sub_prompt,
 )
 from qwenpaw_data.host.core.orchestration import RuntimeStateManager
+
+
+def test_subagent_prompt_preserves_linux_sandbox_paths_on_windows():
+    prompt = spawn_module._build_environment_section(
+        workspace_dir=PureWindowsPath("/workspace"),
+        artifacts_root=PureWindowsPath("/workspace/artifacts"),
+        session_id="session",
+        graph_id="graph",
+        node_id="node",
+    )
+    assert "`/workspace`" in prompt
+    assert "`/workspace/artifacts/session/graph/node`" in prompt
+    assert "\\" not in prompt
 
 
 def _chunk_text(chunk) -> str:
@@ -234,10 +248,7 @@ def test_master_prompt_gates_subagent(monkeypatch) -> None:
     )
     assert "模型可见 workspace 绝对路径：`/workspace`" in environment
     assert "当前 session 产物绝对目录：`/workspace/artifacts/s1`" in environment
-    assert (
-        "`/workspace/skills/default/bi-report-generation/SKILL.md`"
-        in environment
-    )
+    assert "`/workspace/skills/default/bi-report-generation/SKILL.md`" in environment
     assert "skills/default/bi-report-generation/SKILL.md" in agent_prompt
     assert "FileRef.path 使用" in environment
     assert "不要臆造" in environment
@@ -283,7 +294,9 @@ async def test_prompt_uses_runtime_context(monkeypatch, tmp_path) -> None:
     assert "用户约束" in prompt
     assert "upstream summary" in prompt
     assert str(tmp_path / "workspace/artifacts/s1") in prompt
-    assert str(tmp_path / "workspace/artifacts/s1" / rs.current_graph_id / "n1") in prompt
+    assert (
+        str(tmp_path / "workspace/artifacts/s1" / rs.current_graph_id / "n1") in prompt
+    )
     assert f"{rs.current_graph_id}/n1/<filename>" in prompt
 
 

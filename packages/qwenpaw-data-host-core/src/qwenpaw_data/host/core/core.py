@@ -19,6 +19,7 @@ from .model import build_model_from_env
 from .orchestration.dag_store import DAGStore
 from .orchestration import DefaultGraphToHint, RuntimeStateManager
 from .orchestration.task_graph import SOP
+from .artifact_paths import model_visible_path
 from .paths import Paths, resolve_qwenpaw_data_home
 from .permission import (
     ConfirmationHandler,
@@ -209,7 +210,7 @@ class QwenPawDataHost:
         paths = self.paths
 
         ws = await self._workspace()
-        model_workspace_dir = Path(
+        model_workspace_dir = model_visible_path(
             getattr(ws, "workdir", None) or paths.workspace,
         )
         model_artifact_dir = (

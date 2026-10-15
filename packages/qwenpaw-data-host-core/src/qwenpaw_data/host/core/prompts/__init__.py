@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from ..constants import is_spawn_subagent_enabled
 
@@ -68,8 +68,8 @@ def build_master_prompt(
 def analysis_environment_hint(
     *,
     session_id: str,
-    workspace_dir: Path | str,
-    artifact_dir: Path | str,
+    workspace_dir: PurePath | str,
+    artifact_dir: PurePath | str,
     prompt_dir: Path | str | None = None,
 ) -> str:
     """Return the runtime analysis-environment block appended to the system prompt."""
