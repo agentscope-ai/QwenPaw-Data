@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from qwenpaw_data.host.core.agent.middleware import (
@@ -25,7 +25,7 @@ from qwenpaw_data.host.core.agent.middleware import (
 )
 from qwenpaw_data.host.core.agent.tools import CronToolServices
 from qwenpaw_data.host.core.api.auth import install_api_token_auth
-from qwenpaw_data.host.core.api.deps import ServiceState
+from qwenpaw_data.host.core.api.deps import ServiceState, require_session_owner
 from qwenpaw_data.host.core.api.errors import http_exception_handler
 from qwenpaw_data.host.core.api.routers import artifacts as artifacts_router
 from qwenpaw_data.host.core.api.routers import chats as chats_router
@@ -235,6 +235,7 @@ def create_app(
 
     app = FastAPI(
         title="QwenPaw Data Host Service",
+        dependencies=[Depends(require_session_owner)],
         lifespan=lifespan,
     )
     app.add_exception_handler(HTTPException, http_exception_handler)

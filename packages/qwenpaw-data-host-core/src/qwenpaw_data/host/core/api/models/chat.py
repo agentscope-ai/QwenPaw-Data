@@ -47,6 +47,7 @@ class AskUserQuestionTimeoutResultSchema(ApiModel):
 
 class SessionSchema(ApiModel):
     id: str
+    display_code: str
     agent_id: str
     title: str
     status: Literal["idle", "running"]
@@ -69,6 +70,7 @@ class ChatSchema(ApiModel):
     session_id: str
     sequence: int
     user_input: str
+    dataset_names: list[str] = []
     datasource_id: str | None = None
     kind: Literal["simple", "planned"] = "simple"
     status: Literal["created", "running", "completed", "failed", "canceled"]

@@ -6,6 +6,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - Unreleased
+
+### Added
+
+- Native console capability discovery and ephemeral per-turn model bindings for
+  the standalone QwenPaw Data app 1.0.3 on stable QwenPaw 2.2.2.
+- Dataset discovery filtered by datasource, with selected datasets persisted
+  in chats and included in agent input.
+- Readable session display codes and names.
+
+### Fixed
+
+- Workspace MCP defaults are available to native analysis sessions.
+- Later turns pick up model changes while retaining conversation memory.
+
+### Security
+
+- Session reads, mutations, streams, attachments, and scheduled runs enforce
+  the trusted caller's user identity. The embedding Host binds this identity
+  to its authenticated user, workspace, and app.
+- Per-turn model credentials are excluded from persisted chat/request data.
+
+Host vNext delegation, durable submissions, capability execution, and artifact
+contracts remain on the separate vNext branch.
+
 ## [0.3.1] - 2026-09-10
 
 ### Added

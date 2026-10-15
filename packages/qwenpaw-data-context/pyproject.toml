@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-context"
-version = "0.3.1"
+version = "0.3.2"
 description = "Context management and graph memory foundation for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"

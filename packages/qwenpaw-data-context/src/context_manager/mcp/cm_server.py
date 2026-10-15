@@ -74,6 +74,14 @@ def _headers() -> dict[str, str]:
     )
     if db:
         h["x-neo4j-database"] = db
+    # Read from this MCP call's request, not a process-global preference.
+    try:
+        request = mcp.get_context().request_context.request
+        binding = request.headers.get("x-qwenpaw-model-binding") if request else None
+        if binding:
+            h["x-qwenpaw-model-binding"] = binding
+    except (LookupError, ValueError, AttributeError):
+        pass
     return h
 
 

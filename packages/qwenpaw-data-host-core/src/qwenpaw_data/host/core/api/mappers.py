@@ -18,6 +18,7 @@ from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.providers.registry import ProviderRegistry
 from qwenpaw_data.host.core.utils.plan import sop_plan_to_schema
 from qwenpaw_data.host.core.utils.secrets import mask_api_key
+from qwenpaw_data.host.core.utils.session_naming import session_display_code
 
 
 def providers_to_schema(
@@ -101,6 +102,7 @@ def session_to_schema(
 ) -> dict[str, Any]:
     return SessionSchema(
         id=session.id,
+        display_code=session_display_code(session.id),
         agent_id=session.agent_id,
         title=session.title,
         status=session.derive_status(  # type: ignore[arg-type]
@@ -139,6 +141,7 @@ def chat_to_schema(
         biz_events=bundle.get("biz_events") or [],
         artifacts=bundle.get("artifacts") or [],
         followup=bundle.get("followup"),
+        dataset_names=chat.dataset_names,
         artifact_comments=chat.artifact_comments,  # type: ignore[arg-type]
         attachments=chat.attachments,  # type: ignore[arg-type]
     ).model_dump(mode="json")

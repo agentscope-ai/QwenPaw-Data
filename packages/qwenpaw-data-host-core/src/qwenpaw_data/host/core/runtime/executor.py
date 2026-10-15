@@ -72,6 +72,7 @@ class AgentExecutor:
                 turn.artifact_comments,
                 turn.attachments,
                 session_id=turn.session_id,
+                dataset_names=turn.dataset_names,
             ),
         )
 

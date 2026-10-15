@@ -318,6 +318,37 @@ class QwenPawDataLocalWorkspace(LocalWorkspace):
         ]
 
 
+def _workspace_default_mcps(paths: Paths, *, docker: bool = False) -> list[Any]:
+    """Carry workspace-wide legacy declarations into isolated session clients.
+
+    AgentScope scopes restored .mcp entries to exact agent/session IDs. Its
+    public default_mcps parameter supplies fresh copies to other sessions;
+    falling back to the legacy *client* would share runtime model credentials.
+    Explicit per-session declarations, including an empty list, still win.
+    """
+    from agentscope.mcp import MCPClient
+
+    try:
+        value = json.loads(paths.mcp_config_file.read_text(encoding="utf-8"))
+        if isinstance(value, dict):
+            value = value.get("mcps", {}).get("", {}).get("", [])
+        if not isinstance(value, list):
+            return []
+    except (OSError, ValueError, AttributeError):
+        return []
+    if docker:
+        alias = os.getenv("QWENPAW_DATA_DOCKER_HOST_ALIAS", "").strip() or "host.docker.internal"
+        value = _container_mcp_specs(value, alias)
+    clients = []
+    for spec in value:
+        try:
+            clients.append(MCPClient.model_validate(spec))
+        except (ValueError, TypeError):
+            # Never log the rejected config: it can contain authentication.
+            logger.warning("Ignoring invalid workspace default MCP declaration")
+    return clients
+
+
 def create_local_workspace(
     paths: Paths,
 ) -> QwenPawDataLocalWorkspace:
@@ -326,6 +357,7 @@ def create_local_workspace(
     workdir.mkdir(parents=True, exist_ok=True)
     return QwenPawDataLocalWorkspace(
         workdir=str(workdir),
+        default_mcps=_workspace_default_mcps(paths),
         skill_paths=_default_skill_paths(),
     )
 
@@ -365,6 +397,7 @@ def create_docker_workspace(
         base_image=os.getenv("QWENPAW_DATA_DOCKER_BASE_IMAGE", "").strip()
         or "python:3.11-slim",
         host_workdir=str(workdir),
+        default_mcps=_workspace_default_mcps(paths, docker=True),
         node_version="20",
         extra_pip=extra_pip,
         skill_paths=_default_skill_paths(),

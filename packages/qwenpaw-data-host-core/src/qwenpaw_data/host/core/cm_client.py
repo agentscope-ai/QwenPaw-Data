@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import ipaddress
 import os
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 from urllib.parse import urlparse
 
 import httpx
@@ -15,6 +15,8 @@ API_TOKEN_ENV = "QWENPAW_DATA_API_TOKEN"
 CLIENT_API_TOKEN_ENV = "QWENPAW_DATA_CLIENT_API_TOKEN"
 DEFAULT_CM_BASE_URL = "http://127.0.0.1:8765"
 DATASOURCE_LIST_PATH = "/api/v1/cm/datasources"
+DATASET_LIST_PATH = "/api/semantic-config/dataset-meta"
+T = TypeVar("T")
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
@@ -39,6 +41,32 @@ class CMDatasourceList:
 
     items: list[CMDatasource]
     total: int
+
+
+@dataclass(frozen=True)
+class CMDataset:
+    dataset_name: str
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class CMDatasetList:
+    items: list[CMDataset]
+    total: int
+
+
+def _parse_dataset(record: Any, *, index: int) -> CMDataset:
+    if not isinstance(record, dict):
+        raise CMClientError(f"CM dataset response item {index} is not an object")
+    name = record.get("dataset_name")
+    description = record.get("description")
+    if not isinstance(name, str) or not name.strip():
+        raise CMClientError(
+            f"CM dataset response item {index} has invalid dataset_name"
+        )
+    if description is not None and not isinstance(description, str):
+        raise CMClientError(f"CM dataset response item {index} has invalid description")
+    return CMDataset(name.strip(), description)
 
 
 def resolve_cm_base_url(env: Mapping[str, str] | None = None) -> str:
@@ -68,7 +96,9 @@ def _required_int(payload: dict[str, Any], field_name: str, *, minimum: int) -> 
     return value
 
 
-def _nullable_string(record: dict[str, Any], field_name: str, *, index: int) -> str | None:
+def _nullable_string(
+    record: dict[str, Any], field_name: str, *, index: int
+) -> str | None:
     value = record.get(field_name)
     if value is not None and not isinstance(value, str):
         raise CMClientError(
@@ -132,14 +162,37 @@ class ContextManagerClient:
     def list_datasources(self) -> CMDatasourceList:
         """Fetch every datasource page and validate the new CM contract."""
 
-        items: list[CMDatasource] = []
+        items, total = self._collect_pages(
+            DATASOURCE_LIST_PATH, _parse_datasource, subject="datasource"
+        )
+        return CMDatasourceList(items, total)
+
+    def list_datasets(self, datasource_id: str) -> CMDatasetList:
+        """Discover dataset metadata for one explicitly selected datasource."""
+        if not datasource_id.strip():
+            raise ValueError("datasource_id is required")
+        items, total = self._collect_pages(
+            DATASET_LIST_PATH,
+            _parse_dataset,
+            subject="dataset",
+            params={"datasource_id": datasource_id.strip()},
+        )
+        return CMDatasetList(items, total)
+
+    def _collect_pages(
+        self,
+        path: str,
+        parse: Callable[..., T],
+        *,
+        subject: str,
+        params: dict[str, str] | None = None,
+    ) -> tuple[list[T], int]:
+        items: list[T] = []
         expected_total: int | None = None
         page = 1
 
         headers = (
-            {"Authorization": f"Bearer {self.api_token}"}
-            if self.api_token
-            else None
+            {"Authorization": f"Bearer {self.api_token}"} if self.api_token else None
         )
         with httpx.Client(
             timeout=self.timeout,
@@ -148,63 +201,83 @@ class ContextManagerClient:
             headers=headers,
         ) as client:
             while True:
-                payload = self._get_page(client, page)
+                payload = self._get_page(
+                    client, page, path=path, params=params, subject=subject
+                )
                 records = payload.get("records")
                 if not isinstance(records, list):
-                    raise CMClientError("CM datasource response has invalid records")
+                    raise CMClientError(f"CM {subject} response has invalid records")
 
                 total = _required_int(payload, "total", minimum=0)
                 response_page = _required_int(payload, "page", minimum=1)
                 _required_int(payload, "size", minimum=1)
                 if response_page != page:
-                    raise CMClientError("CM datasource response has an unexpected page")
+                    raise CMClientError(f"CM {subject} response has an unexpected page")
 
                 if expected_total is None:
                     expected_total = total
                 elif total != expected_total:
-                    raise CMClientError("CM datasource response total changed during pagination")
+                    raise CMClientError(
+                        f"CM {subject} response total changed during pagination"
+                    )
 
                 start_index = len(items)
                 items.extend(
-                    _parse_datasource(record, index=start_index + offset)
+                    parse(record, index=start_index + offset)
                     for offset, record in enumerate(records)
                 )
 
                 if len(items) > expected_total:
-                    raise CMClientError("CM datasource response contains more records than total")
+                    raise CMClientError(
+                        f"CM {subject} response contains more records than total"
+                    )
                 if len(items) == expected_total:
-                    return CMDatasourceList(items=items, total=expected_total)
+                    return items, expected_total
                 if not records:
-                    raise CMClientError("CM datasource response ended before total was reached")
+                    raise CMClientError(
+                        f"CM {subject} response ended before total was reached"
+                    )
                 page += 1
 
-    def _get_page(self, client: httpx.Client, page: int) -> dict[str, Any]:
+    def _get_page(
+        self,
+        client: httpx.Client,
+        page: int,
+        *,
+        path: str,
+        params: dict[str, str] | None,
+        subject: str,
+    ) -> dict[str, Any]:
         try:
             response = client.get(
-                f"{self.base_url}{DATASOURCE_LIST_PATH}",
-                params={"page": page, "size": self.page_size},
+                f"{self.base_url}{path}",
+                params={**(params or {}), "page": page, "size": self.page_size},
             )
         except httpx.TimeoutException as exc:
-            raise CMClientError(f"CM datasource request timed out on page {page}") from exc
+            raise CMClientError(
+                f"CM {subject} request timed out on page {page}"
+            ) from exc
         except httpx.RequestError as exc:
-            raise CMClientError(f"CM datasource request failed on page {page}") from exc
+            raise CMClientError(f"CM {subject} request failed on page {page}") from exc
 
         if not response.is_success:
             raise CMClientError(
-                f"CM datasource request returned HTTP {response.status_code} on page {page}",
+                f"CM {subject} request returned HTTP {response.status_code} on page {page}",
             )
         try:
             payload = response.json()
         except ValueError as exc:
-            raise CMClientError("CM datasource response is not valid JSON") from exc
+            raise CMClientError(f"CM {subject} response is not valid JSON") from exc
         if not isinstance(payload, dict):
-            raise CMClientError("CM datasource response is not an object")
+            raise CMClientError(f"CM {subject} response is not an object")
         return payload
 
 
 __all__ = [
     "CM_BASE_URL_ENV",
     "CLIENT_API_TOKEN_ENV",
+    "CMDataset",
+    "CMDatasetList",
     "CMDatasource",
     "CMDatasourceList",
     "CMClientError",

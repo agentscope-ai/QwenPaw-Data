@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Pure fork bookkeeping: id remapping and payload rewriting."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -53,6 +54,7 @@ class SessionFork:
             sequence=chat.sequence,
             user_input=self.rewrite(chat.user_input),
             datasource_id=chat.datasource_id,
+            dataset_names=list(chat.dataset_names),
             kind=chat.kind,
             status=chat.status,
             last_sequence_number=chat.last_sequence_number,
@@ -73,8 +75,6 @@ class SessionFork:
             session_id=self.target.id,
             identity=self.target.identity,
             filename=attachment.filename,
-            storage_path=uploads_relative_path(
-                self.target.id, attachment.filename
-            ),
+            storage_path=uploads_relative_path(self.target.id, attachment.filename),
             created_at=attachment.created_at,
         )
