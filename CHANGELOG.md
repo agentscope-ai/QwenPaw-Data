@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep chat event streams open until their terminal response is available, even
+  when the completed or failed chat status has already been saved.
+
 ## [0.3.2] - Unreleased
 
 ### Added
