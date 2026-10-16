@@ -90,14 +90,16 @@ class ScriptedAgent:
 
 
 @asynccontextmanager
-async def service_client(tmp_path: Path, agent: ScriptedAgent, monkeypatch):
+async def service_client(
+    tmp_path: Path, agent: ScriptedAgent, monkeypatch, *, store_backend="sql"
+):
     async def fake_get_agent(self, *, mode: str, request_context=None):
         return agent
 
     monkeypatch.setattr(QwenPawDataHost, "get_agent", fake_get_agent)
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
     monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
+    monkeypatch.setenv("QWENPAW_DATA_STORE", store_backend)
     app = create_app(home=tmp_path, model=object())
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
@@ -296,6 +298,78 @@ async def test_failing_agent_yields_response_failed(tmp_path, monkeypatch) -> No
         assert payloads[-1]["object"] == "response"
         assert payloads[-1]["status"] == "failed"
         assert payloads[-1]["error"]["message"] == "model exploded"
+
+
+@pytest.mark.parametrize("store_backend", ["sql", "json"])
+@pytest.mark.parametrize("outcome", ["completed", "failed"])
+async def test_stream_waits_for_terminal_response_after_status_is_saved(
+    tmp_path, monkeypatch, store_backend, outcome
+) -> None:
+    from qwenpaw_data.host.core.stream.hub import get_hub
+    from qwenpaw_data.host.core.stream.output_stream import OutputStream
+
+    terminal_pending = asyncio.Event()
+    release_terminal = asyncio.Event()
+    live_started = asyncio.Event()
+    original_append = OutputStream.append
+
+    async def delayed_append(self, payload):
+        if payload.get("object") == "response" and payload.get("status") == outcome:
+            terminal_pending.set()
+            await release_terminal.wait()
+        return await original_append(self, payload)
+
+    monkeypatch.setattr(OutputStream, "append", delayed_append)
+    agent = ScriptedAgent(_script(), boom=outcome == "failed")
+    async with service_client(
+        tmp_path, agent, monkeypatch, store_backend=store_backend
+    ) as (http, app):
+        hub = get_hub()
+        original_iterate = hub.iterate
+
+        async def observed_iterate(*args, **kwargs):
+            live_started.set()
+            async for obj in original_iterate(*args, **kwargs):
+                yield obj
+
+        monkeypatch.setattr(hub, "iterate", observed_iterate)
+        session_id = await _new_session(http)
+        created = await http.post(
+            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
+        )
+        chat_id = created.json()["chat"]["id"]
+        url = f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
+        collector = None
+        observer = None
+        try:
+            await asyncio.wait_for(terminal_pending.wait(), timeout=5)
+            assert (await app.state.service.chats.get(chat_id)).status == outcome
+            collector = asyncio.create_task(_collect_sse(http, url))
+            observer = asyncio.create_task(live_started.wait())
+            await asyncio.wait(
+                [collector, observer], timeout=5, return_when=asyncio.FIRST_COMPLETED
+            )
+            assert live_started.is_set(), "stream closed before terminal response"
+            assert not collector.done()
+            release_terminal.set()
+            ids, payloads = await asyncio.wait_for(collector, timeout=5)
+            assert ids == list(range(len(ids)))
+            assert payloads[-1]["object"] == "response"
+            assert payloads[-1]["status"] == outcome
+
+            # Reconnecting at the terminal cursor must return an empty stream.
+            resumed = await asyncio.wait_for(
+                _collect_sse(http, url, headers={"Last-Event-ID": str(ids[-1])}),
+                timeout=5,
+            )
+            assert resumed == ([], [])
+        finally:
+            release_terminal.set()
+            tasks = [task for task in (collector, observer) if task is not None]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def test_orphaned_running_chats_are_cancelled_on_startup(
