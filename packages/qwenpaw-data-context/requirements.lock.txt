@@ -23,7 +23,7 @@ annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
     # via pydantic
-anyio==4.14.1
+anyio==4.15.1
     # via
     #   -r requirements.txt
     #   httpx
@@ -52,7 +52,6 @@ charset-normalizer==3.4.7
 click==8.4.2
     # via
     #   dbt-core
-    #   dbt-semantic-interfaces
     #   uvicorn
 colorama==0.4.6
     # via
@@ -62,13 +61,13 @@ colorama==0.4.6
     #   uvicorn
 crcmod==1.7
     # via oss2
-cryptography==49.0.0
+cryptography==50.0.1
     # via
     #   aliyun-python-sdk-core
     #   pyjwt
 daff==1.4.2
     # via dbt-core
-dbt-adapters==1.24.2
+dbt-adapters==1.24.5
     # via
     #   dbt-core
     #   dbt-duckdb
@@ -77,10 +76,12 @@ dbt-common==1.38.0
     #   dbt-adapters
     #   dbt-core
     #   dbt-duckdb
-dbt-core==1.11.12
+dbt-core==1.12.6
     # via
     #   -r requirements.txt
     #   dbt-duckdb
+dbt-core-experimental-parser==2.0.8
+    # via dbt-core
 dbt-duckdb==1.10.1
     # via -r requirements.txt
 dbt-extractor==0.6.0
@@ -90,8 +91,6 @@ dbt-protos==1.0.514
     #   dbt-adapters
     #   dbt-common
     #   dbt-core
-dbt-semantic-interfaces==0.9.0
-    # via dbt-core
 deepdiff==8.6.2
     # via dbt-common
 distro==1.9.0
@@ -132,7 +131,7 @@ idna==3.18
     #   requests
     #   yarl
 importlib-metadata==8.9.0
-    # via dbt-semantic-interfaces
+    # via metricflow
 isodate==0.7.2
     # via
     #   agate
@@ -143,7 +142,7 @@ jinja2==3.1.6
     # via
     #   dbt-common
     #   dbt-core
-    #   dbt-semantic-interfaces
+    #   metricflow
 jiter==0.16.0
     # via openai
 jmespath==0.10.0
@@ -155,8 +154,8 @@ jsonschema==4.26.0
     #   -r requirements.txt
     #   dbt-common
     #   dbt-core
-    #   dbt-semantic-interfaces
     #   mcp
+    #   metricflow
 jsonschema-specifications==2025.9.1
     # via jsonschema
 leather==0.4.1
@@ -170,13 +169,15 @@ mashumaro==3.14
     #   dbt-adapters
     #   dbt-common
     #   dbt-core
-mcp==1.28.1
+mcp==1.30.0
     # via -r requirements.txt
+metricflow==0.213.0
+    # via dbt-core
 more-itertools==10.8.0
-    # via dbt-semantic-interfaces
+    # via metricflow
 msgpack==1.2.1
     # via mashumaro
-multidict==6.7.1
+multidict==6.9.1
     # via
     #   aiohttp
     #   yarl
@@ -188,6 +189,8 @@ openai==1.109.1
     # via -r requirements.txt
 openpyxl==3.1.5
     # via -r requirements.txt
+opentelemetry-api==1.45.1
+    # via dbt-core
 orderly-set==5.5.0
     # via deepdiff
 oss2==2.19.1
@@ -225,9 +228,9 @@ pycryptodome==3.23.0
 pydantic==2.13.4
     # via
     #   dbt-core
-    #   dbt-semantic-interfaces
     #   fastapi
     #   mcp
+    #   metricflow
     #   openai
     #   pydantic-settings
 pydantic-core==2.46.4
@@ -236,23 +239,24 @@ pydantic-settings==2.14.2
     # via
     #   -r requirements.txt
     #   mcp
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via mcp
 pymysql==1.2.0
     # via -r requirements.txt
 pyodps==0.13.0
     # via -r requirements.txt
-pypdf==6.15.0
+pypdf==6.20.1
     # via -r requirements.txt
 python-dateutil==2.9.0.post0
     # via
     #   dbt-common
-    #   dbt-semantic-interfaces
+    #   metricflow
 python-docx==1.2.0
     # via -r requirements.txt
 python-dotenv==1.2.2
     # via
     #   -r requirements.txt
+    #   dbt-core
     #   pydantic-settings
     #   uvicorn
 python-multipart==0.0.32
@@ -274,12 +278,15 @@ pyyaml==6.0.3
     # via
     #   -r requirements.txt
     #   dbt-core
-    #   dbt-semantic-interfaces
+    #   metricflow
     #   uvicorn
+rapidfuzz==3.14.6
+    # via metricflow
 referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
+    #   metricflow
 requests==2.34.2
     # via
     #   -r requirements.txt
@@ -300,9 +307,13 @@ sniffio==1.3.1
     # via openai
 snowplow-tracker==1.1.0
     # via dbt-core
-sqlglot==30.12.0
+sqlalchemy==2.1.4
     # via -r requirements.txt
-sqlparse==0.5.5
+sqlglot==30.12.0
+    # via
+    #   -r requirements.txt
+    #   metricflow
+sqlparse==0.6.0
     # via dbt-core
 sse-starlette==3.4.5
     # via
@@ -313,6 +324,8 @@ starlette==1.3.1
     #   fastapi
     #   mcp
     #   sse-starlette
+tabulate==0.10.0
+    # via metricflow
 text-unidecode==1.3
     # via python-slugify
 tqdm==4.68.3
@@ -327,17 +340,19 @@ typing-extensions==4.16.0
     #   dbt-adapters
     #   dbt-common
     #   dbt-core
-    #   dbt-semantic-interfaces
     #   fastapi
     #   mashumaro
     #   mcp
+    #   metricflow
     #   openai
+    #   opentelemetry-api
     #   psycopg
     #   pydantic
     #   pydantic-core
     #   python-docx
     #   referencing
     #   snowplow-tracker
+    #   sqlalchemy
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
@@ -350,7 +365,7 @@ tzdata==2026.3 ; sys_platform == 'win32'
     # via
     #   agate
     #   psycopg
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
 uvicorn==0.49.0
     # via

@@ -18,6 +18,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Include SQLAlchemy in the standalone Context requirements, matching the
+  package dependencies used by database adapters.
 - Workspace MCP defaults are available to native analysis sessions.
 - Later turns pick up model changes while retaining conversation memory.
 - Linux sandbox artifact paths retain POSIX separators on Windows hosts in
@@ -26,6 +28,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Refresh Python and frontend dependency locks to address the release audit
+  findings, and raise affected direct dependency floors where compatible with
+  the stable Host. Audit the standalone Context lock in CI and remove obsolete
+  sqlparse audit exceptions now that both locks resolve its patched release.
 - Session reads, mutations, streams, attachments, and scheduled runs enforce
   the trusted caller's user identity. The embedding Host binds this identity
   to its authenticated user, workspace, and app.
