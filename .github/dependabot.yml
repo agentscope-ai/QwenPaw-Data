@@ -26,6 +26,9 @@ updates:
       # Upgrade with ESLint; @eslint/js 10 requires ESLint 10.
       - dependency-name: "@eslint/js"
         update-types: ["version-update:semver-major"]
+      # Upgrade with react-hooks and @eslint/js; current hooks require ESLint <=9.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
