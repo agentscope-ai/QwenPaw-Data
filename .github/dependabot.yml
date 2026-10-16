@@ -12,6 +12,9 @@ updates:
     directory: "/packages/qwenpaw-data-context/frontend"
     schedule:
       interval: "weekly"
+    # @agentscope-ai/design requires exactly 1.2.1; upgrade these together.
+    ignore:
+      - dependency-name: "@rc-component/util"
     groups:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
