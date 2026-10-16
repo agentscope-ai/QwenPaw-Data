@@ -70,7 +70,21 @@ async def chat_events(
                 cursor = obj.sequence_number
 
             if status in TERMINAL and cursor >= last:
-                return
+                # Chat status is saved before its terminal response is appended.
+                # A caught-up cursor alone cannot prove the stream is finished.
+                # On reconnect, the response may precede the requested cursor.
+                history = (
+                    await state.events.read_after(chat_id, -1)
+                    if after >= 0
+                    else replay
+                )
+                if any(
+                    obj.object == "response"
+                    and obj.status in ("completed", "failed", "cancelled")
+                    and obj.sequence_number <= cursor
+                    for obj in history
+                ):
+                    return
 
             async for obj in hub.iterate(
                 chat_id,
