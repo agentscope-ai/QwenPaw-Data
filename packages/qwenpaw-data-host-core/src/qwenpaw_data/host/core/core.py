@@ -94,6 +94,7 @@ class QwenPawDataHost:
                 )
         self.dag_store = DAGStore(self.paths.dag_root)
         self._agent: QwenPawDataAgent | None = None
+        self._host_capability_client: Any = None
 
     # ------------------------------------------------------------------
     # 配置 / 路径 / 会话访问
@@ -162,6 +163,10 @@ class QwenPawDataHost:
 
         local workspace 无 close 钩子时为 no-op；重复调用安全。
         """
+        capability_client = self._host_capability_client
+        self._host_capability_client = None
+        if capability_client is not None:
+            await capability_client.aclose()
         workspace = self.workspace
         if workspace is None:
             return
@@ -231,10 +236,16 @@ class QwenPawDataHost:
             host_artifact_dir=paths.artifact_dir,
             session_id_getter=lambda: self.session_id,
             request_context_getter=lambda: dict(
-                getattr(agent_ref.get("agent"), "_request_context", None) or {},
+                getattr(agent_ref.get("agent"), "_request_context", None)
+                or effective_context,
             ),
             enable_clarification=self.enable_clarification,
             cron_services_factory=self._cron_services_factory,
+        )
+        self._host_capability_client = getattr(
+            toolkit,
+            "_qwenpaw_host_capability_client",
+            None,
         )
         session_store = self.session_store
         permission_context = build_permission_context(

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, Request
 
@@ -20,6 +21,9 @@ from qwenpaw_data.host.core.store.protocols import (
     SettlementStore,
 )
 
+if TYPE_CHECKING:
+    from qwenpaw_data.host.core.store.submissions import SQLSubmissionStore
+
 
 @dataclass
 class ServiceState:
@@ -32,6 +36,8 @@ class ServiceState:
     attachments: AttachmentStore
     feedback: FeedbackStore
     hosts: QwenPawDataHostRegistry
+    submissions: SQLSubmissionStore | None = None
+    analysis_model_ready: Callable[[], Awaitable[bool]] | None = None
     cron_manager: Any = None
     tasks: set[asyncio.Task] = field(default_factory=set)
 

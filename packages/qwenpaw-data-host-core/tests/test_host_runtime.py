@@ -120,9 +120,40 @@ async def test_top_level_agent_uses_runtime_visible_paths(
     assert toolkit_kwargs["workspace_dir"] == PurePosixPath("/workspace")
     assert toolkit_kwargs["artifacts_root"] == PurePosixPath("/workspace/artifacts")
     assert toolkit_kwargs["host_artifact_dir"] == host.paths.artifact_dir
+    assert toolkit_kwargs["request_context_getter"]() == {}
     artifact_context = agent.kwargs["runtime_state"]._artifact_path_context
     assert artifact_context.host_artifact_dir == host.paths.artifact_dir.resolve()
     assert artifact_context.model_artifact_dir == "/workspace/artifacts/session-a"
+
+
+@pytest.mark.asyncio
+async def test_initial_request_context_reaches_toolkit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    toolkit_kwargs: dict[str, Any] = {}
+
+    async def fake_build_toolkit(*args: Any, **kwargs: Any) -> object:
+        toolkit_kwargs.update(kwargs)
+        assert kwargs["request_context_getter"]() == {
+            "capability_bridge": {"protocol_version": 1},
+        }
+        return object()
+
+    monkeypatch.setattr(core_module, "build_qwenpaw_data_toolkit", fake_build_toolkit)
+    monkeypatch.setattr(core_module, "QwenPawDataAgent", FakeAgent)
+    host = QwenPawDataHost(
+        home=tmp_path,
+        model=object(),
+        workspace=FakeWorkspace(str(tmp_path / "workspace")),
+    )
+
+    await host._get_agent(
+        mode="agent",
+        request_context={"capability_bridge": {"protocol_version": 1}},
+    )
+
+    assert "request_context_getter" in toolkit_kwargs
 
 
 @pytest.mark.asyncio

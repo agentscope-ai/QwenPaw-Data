@@ -112,6 +112,13 @@ class TaskStatusEventSchema(StreamBaseSchema):
     graph_snapshot: dict[str, Any] | None = None
 
 
+class AnalysisProgressEventSchema(StreamBaseSchema):
+    """Domain-owned progress; normal stream events do not change the stage."""
+
+    object: Literal["analysis.progress"] = "analysis.progress"
+    stage: Literal["read_data", "confirm_scope", "analyze", "publish_report"]
+
+
 StreamObject = Annotated[
     Union[
         ResponseEventSchema,
@@ -123,6 +130,7 @@ StreamObject = Annotated[
         ArtifactRegisteredEventSchema,
         FollowUpGeneratedEventSchema,
         TaskStatusEventSchema,
+        AnalysisProgressEventSchema,
     ],
     Field(discriminator="object"),
 ]
