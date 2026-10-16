@@ -39,7 +39,9 @@ const CodeMirrorSql: React.FC<CodeMirrorSqlProps> = ({
 
     // 判断是否为受控模式：当外部传入了 value prop 时为受控模式
     const isControlled = value !== undefined;
-    const currentValue = isControlled ? value : internalValue;
+    // Form.Item 会把表单值原样传下来，后端 sql_content 可能为 null；
+    // CodeMirror 对非字符串 value 会直接 throw，这里统一归一成空串
+    const currentValue = isControlled ? (value ?? '') : internalValue;
 
     const handleChange = (val: string) => {
         // 非受控模式更新内部状态
