@@ -1,6 +1,8 @@
-"""Private per-turn bindings accepted by the authenticated native console.
+"""Private per-turn bindings for authenticated console and submission APIs.
 
-Credentials are excluded from request serialization and persisted chat records.
+Credentials are excluded from request serialization, persisted chat records,
+and durable submission digests. Replays retain the original run even when
+Host settings have changed.
 """
 
 from __future__ import annotations

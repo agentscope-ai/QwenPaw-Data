@@ -69,6 +69,25 @@ async def list_chats(
     return {"items": [chat_to_schema(c) for c in chats]}
 
 
+@router.get("/sessions/{session_id}/chats/{chat_id}")
+async def get_chat(
+    session_id: str,
+    chat_id: str,
+    identity: Identity = Depends(get_identity),
+    state: ServiceState = Depends(get_state),
+) -> dict[str, Any]:
+    try:
+        chat = await state.chats.get(chat_id, session_id=session_id)
+        if chat.identity.user_id != identity.user_id:
+            raise LookupError("chat not found")
+        return {"chat": chat_to_schema(chat)}
+    except Exception as exc:
+        http = map_domain_error(exc)
+        if http:
+            raise http from exc
+        raise
+
+
 @router.post("/sessions/{session_id}/chats/{chat_id}/stop")
 async def stop_chat(
     session_id: str,

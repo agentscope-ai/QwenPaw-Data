@@ -63,6 +63,8 @@ async def test_later_turn_uses_new_snapshot_and_keeps_session_agent(monkeypatch)
             hosts=SimpleNamespace(get=lambda **_: host),
         )
         runtime._executor = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+        runtime._artifact_snapshot = lambda: {}
+        runtime.report_analysis_progress = AsyncMock()
         runtime._deliver_biztrace = AsyncMock()
         runtime._deliver_followup = AsyncMock()
         runtime._finish = AsyncMock()
