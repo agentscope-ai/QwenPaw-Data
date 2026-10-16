@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import PureWindowsPath
 
 import httpx
 import pytest
@@ -45,7 +46,9 @@ def descriptor(
     }
 
 
-def client(tmp_path, handler) -> HostCapabilityClient:
+def client(
+    tmp_path, handler, *, runtime_workspace_dir="/workspace",
+) -> HostCapabilityClient:
     return HostCapabilityClient(
         {
             "protocol_version": 1,
@@ -53,12 +56,25 @@ def client(tmp_path, handler) -> HostCapabilityClient:
             "token": "scoped-token",
         },
         storage_workspace_dir=tmp_path,
-        runtime_workspace_dir="/workspace",
+        runtime_workspace_dir=runtime_workspace_dir,
         transport=httpx.MockTransport(handler),
     )
 
 
-async def test_remote_tool_and_skill_are_loaded_with_scoped_auth(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("runtime_workspace_dir", "expected_runtime_root"),
+    [
+        ("/workspace", "/workspace/.pawapp-capabilities"),
+        (PureWindowsPath("/workspace"), "/workspace/.pawapp-capabilities"),
+        (r"C:\workspace", r"C:\workspace\.pawapp-capabilities"),
+        (r"\\server\share\workspace", r"\\server\share\workspace\.pawapp-capabilities"),
+    ],
+)
+async def test_remote_tool_and_skill_are_loaded_with_scoped_auth(
+    tmp_path,
+    runtime_workspace_dir,
+    expected_runtime_root,
+) -> None:
     calls: list[tuple[str, str]] = []
     tool = descriptor(
         "app/tool/echo",
@@ -118,7 +134,7 @@ async def test_remote_tool_and_skill_are_loaded_with_scoped_auth(tmp_path) -> No
             },
         )
 
-    bridge = client(tmp_path, handler)
+    bridge = client(tmp_path, handler, runtime_workspace_dir=runtime_workspace_dir)
     try:
         tools = await bridge.build_tools()
         skills = await bridge.load_skills()
@@ -131,7 +147,8 @@ async def test_remote_tool_and_skill_are_loaded_with_scoped_auth(tmp_path) -> No
     assert result.state is ToolResultState.SUCCESS
     assert result.content[0].text == "echo: hello"
     assert skills[0].name == "guidance"
-    assert skills[0].dir == f"/workspace/.pawapp-capabilities/{'b' * 64}"
+    separator = "\\" if "\\" in expected_runtime_root else "/"
+    assert skills[0].dir == f"{expected_runtime_root}{separator}{'b' * 64}"
     materialized = tmp_path / ".pawapp-capabilities" / ("b" * 64)
     assert (materialized / "references/example.txt").read_text() == "example"
     assert sum(path.endswith("/catalog") for _, path in calls) == 1

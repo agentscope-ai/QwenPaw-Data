@@ -568,7 +568,14 @@ async def test_terminal_replay_survives_restart_and_cursor(tmp_path, starts, sta
         assert len(starts) == 1
 
 
-async def test_completed_row_without_terminal_event_is_not_success(tmp_path, starts):
+async def test_completed_row_without_terminal_event_is_not_success(
+    tmp_path, starts, monkeypatch,
+):
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    monkeypatch.setenv("QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS", "0.01")
     async with service(tmp_path) as (http, state):
         run = (await http.post(URL, json=PAYLOAD)).json()["run"]
         chat = await state.chats.get(run["run_id"])
@@ -577,7 +584,21 @@ async def test_completed_row_without_terminal_event_is_not_success(tmp_path, sta
         assert (await http.get(f"{URL}/sub_test")).json()["run"][
             "status"
         ] == "reconciling"
-        assert sse_payloads(await http.get(f"{URL}/sub_test/events")) == []
+        # A saved terminal status can precede the final event. Keep streaming
+        # until that event arrives, or the client disconnects before restart.
+        response = await routes.submission_events(
+            ConnectedRequest(),
+            "sub_test",
+            Identity.anonymous(),
+            state,
+            -1,
+            None,
+        )
+        iterator = response.body_iterator
+        try:
+            assert await asyncio.wait_for(anext(iterator), 5) == ": keepalive\n\n"
+        finally:
+            await iterator.aclose()
     async with service(tmp_path) as (http, state):
         lookup = (await http.get(f"{URL}/sub_test")).json()
         assert lookup["run"]["status"] == "interrupted"

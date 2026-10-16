@@ -11,7 +11,7 @@ import os
 import shutil
 import tempfile
 import threading
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 from urllib.parse import quote
 
@@ -20,6 +20,8 @@ import httpx
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.skill import Skill
 from agentscope.tool import FunctionTool, ToolChunk
+
+from ..artifact_paths import model_visible_path
 
 _MAX_SKILL_BYTES = 2 * 1024 * 1024
 _MAX_SKILL_FILES = 1024
@@ -43,7 +45,7 @@ class HostCapabilityClient:
         config: dict[str, Any],
         *,
         storage_workspace_dir: str | Path,
-        runtime_workspace_dir: str | Path,
+        runtime_workspace_dir: str | PurePath,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         if config.get("protocol_version") != 1:
@@ -66,7 +68,9 @@ class HostCapabilityClient:
         ):
             raise HostCapabilityError("invalid_host_capability_bridge")
         self._storage_root = Path(storage_workspace_dir) / ".pawapp-capabilities"
-        self._runtime_root = Path(runtime_workspace_dir) / ".pawapp-capabilities"
+        self._runtime_root = (
+            model_visible_path(runtime_workspace_dir) / ".pawapp-capabilities"
+        )
         self._client = httpx.AsyncClient(
             base_url=str(url).rstrip("/") + "/",
             headers={"Authorization": f"Bearer {token}"},
