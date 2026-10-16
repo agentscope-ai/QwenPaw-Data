@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-cli"
-version = "0.3.2"
+version = "0.3.3"
 description = "Standalone command-line interface for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"

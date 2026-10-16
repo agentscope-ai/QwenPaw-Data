@@ -20,7 +20,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Task-scoped Host tools and skills, verified artifact handoff with digest-bound
   reads, and explicit analysis progress and deliverable presentation metadata.
 
-## [0.3.2] - Unreleased
+## [0.3.3] - Unreleased
+
+### Fixed
+
+- Keep chat event streams open until their terminal response is available, even
+  when the completed or failed chat status has already been saved.
+
+### Changed
+
+- Support Neo4j Python driver 6.x and OpenAI Python SDK 3.x while retaining
+  dependency ranges compatible with supported earlier driver/SDK versions.
+- Refresh Python and Context frontend dependencies, including i18next 26,
+  TypeScript 5.9, and the compatible ESLint 9 tooling.
+- Reduce Dependabot noise with weekly grouped updates, two open version PRs
+  per ecosystem, and targeted deferrals for incompatible major upgrades.
+- Update GitHub Actions checkout to v7.
+
+## [0.3.2] - 2026-10-16
 
 ### Added
 
@@ -248,7 +265,9 @@ contracts remain on the separate vNext branch.
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...v0.2.4
