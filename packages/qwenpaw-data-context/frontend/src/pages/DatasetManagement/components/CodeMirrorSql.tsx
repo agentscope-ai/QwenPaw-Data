@@ -9,8 +9,8 @@ interface CodeMirrorSqlProps {
     placeholder?: string;
     /** 是否可编辑，false 时为只读模式 */
     editable?: boolean;
-    /** 受控模式下的值 */
-    value?: string;
+    /** 受控模式下的值；null 会被归一为空串（后端 sql_content 可能为 null） */
+    value?: string | null;
     /** 值变化时的回调 */
     onChange?: (value: string) => void;
     /** 编辑器高度，默认 200px */
