@@ -325,9 +325,13 @@ const DataSourceManagement: React.FC = () => {
       okType: 'danger',
       cancelText: t('common.cancel'),
       onOk: async () => {
-        await deleteDataSource(record.datasource_id);
-        message.success(t('common.deleteSuccess'));
-        reloadTable();
+        try {
+          await deleteDataSource(record.datasource_id);
+          message.success(t('common.deleteSuccess'));
+          reloadTable();
+        } catch {
+          // API 错误由响应拦截器统一提示
+        }
       },
     });
   };
