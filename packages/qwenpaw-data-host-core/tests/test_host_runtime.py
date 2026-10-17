@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -108,17 +108,17 @@ async def test_top_level_agent_uses_runtime_visible_paths(
     assert QWENPAW_DATA_AGENT_NAME == "qwenpaw-data"
     assert agent.kwargs["name"] == QWENPAW_DATA_AGENT_NAME
     assert agent.kwargs["session_id"] == "session-a"
-    assert agent.kwargs["workspace_dir"] == Path("/workspace")
-    assert agent.kwargs["artifact_dir"] == Path(
+    assert agent.kwargs["workspace_dir"] == PurePosixPath("/workspace")
+    assert agent.kwargs["artifact_dir"] == PurePosixPath(
         "/workspace/artifacts/session-a",
     )
     sql_middleware = agent.kwargs["middlewares"][0]
     assert sql_middleware._host_artifact_dir == host.paths.artifact_dir
-    assert sql_middleware._model_artifact_dir == Path(
+    assert sql_middleware._model_artifact_dir == PurePosixPath(
         "/workspace/artifacts/session-a",
     )
-    assert toolkit_kwargs["workspace_dir"] == Path("/workspace")
-    assert toolkit_kwargs["artifacts_root"] == Path("/workspace/artifacts")
+    assert toolkit_kwargs["workspace_dir"] == PurePosixPath("/workspace")
+    assert toolkit_kwargs["artifacts_root"] == PurePosixPath("/workspace/artifacts")
     assert toolkit_kwargs["host_artifact_dir"] == host.paths.artifact_dir
     artifact_context = agent.kwargs["runtime_state"]._artifact_path_context
     assert artifact_context.host_artifact_dir == host.paths.artifact_dir.resolve()

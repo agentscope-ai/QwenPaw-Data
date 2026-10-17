@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
 
 from agentscope.message import TextBlock, ToolResultState
@@ -46,7 +46,7 @@ class SqlArtifactMiddleware(MiddlewareBase):
         self,
         *,
         host_artifact_dir: Path,
-        model_artifact_dir: Path,
+        model_artifact_dir: PurePath,
         session_id: str | None = None,
     ) -> None:
         self._host_artifact_dir = host_artifact_dir

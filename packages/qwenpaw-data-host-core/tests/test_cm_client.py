@@ -298,3 +298,66 @@ def test_list_datasources_rejects_invalid_item_fields(
 
     with pytest.raises(CMClientError, match=error):
         ContextManagerClient(transport=transport).list_datasources()
+
+
+def test_datasets_paginate_with_datasource_filter_and_scoped_token():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.url.path == "/api/semantic-config/dataset-meta"
+        assert request.url.params["datasource_id"] == "pg-gaap"
+        assert "source_datasource" not in request.url.params
+        assert request.headers["authorization"] == "Bearer reader"
+        page = int(request.url.params["page"])
+        return httpx.Response(
+            200,
+            json=_page(
+                [
+                    {
+                        "dataset_name": f"dataset_{page}",
+                        "description": None,
+                        "config": "private",
+                    }
+                ],
+                total=2,
+                page=page,
+                size=1,
+            ),
+        )
+
+    client = ContextManagerClient(
+        transport=httpx.MockTransport(handler), api_token="reader", page_size=1
+    )
+    result = client.list_datasets(" pg-gaap ")
+    assert [item.dataset_name for item in result.items] == ["dataset_1", "dataset_2"]
+    assert result.total == 2
+    assert len(requests) == 2
+    assert "private" not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "records",
+    [[{}], [{"dataset_name": " "}], [{"dataset_name": "x", "description": 5}]],
+)
+def test_dataset_response_validation(records):
+    client = ContextManagerClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=_page(records, total=1, page=1))
+        )
+    )
+    with pytest.raises(CMClientError, match="CM dataset response"):
+        client.list_datasets("pg-gaap")
+
+
+def test_dataset_http_error_is_not_an_empty_catalog():
+    client = ContextManagerClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(403, text="private upstream detail")
+        )
+    )
+    with pytest.raises(
+        CMClientError, match="CM dataset request returned HTTP 403"
+    ) as error:
+        client.list_datasets("pg-gaap")
+    assert "private" not in str(error.value)

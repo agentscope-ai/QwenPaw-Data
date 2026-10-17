@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-context"
-version = "0.3.1"
+version = "0.3.3"
 description = "Context management and graph memory foundation for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"
@@ -29,18 +29,18 @@ dependencies = [
   "aiohttp>=3.14.3,<4.0",
   "python-multipart>=0.0.32,<1.0",
   "sse-starlette>=3.4,<4.0",
-  "mcp>=1.28.1,<2.0",
+  "mcp>=1.30.0,<2.0",
   # --- 配置 / 存储 ---
   "python-dotenv>=1.2.2,<2.0",
   "pydantic-settings>=2.14,<3.0",
   "pyyaml>=6.0,<7.0",
   "aiosqlite>=0.22,<1.0",
-  "neo4j>=5.28,<6.0",
+  "neo4j>=5.28,<7.0",
   "psycopg[binary]>=3.3.4,<4.0",
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
   # openai 上限放宽以兼容 QwenPaw 主应用（QwenPaw 要求 openai>=2.0.0,<=2.33.0）
-  "openai>=1.109,<2.34",
+  "openai>=1.109,<3.30",
   "jsonschema>=4.26,<5.0",
   # --- SQL / 元数据 ---
   "sqlglot>=30.0,<31.0",
@@ -52,7 +52,7 @@ dependencies = [
   "dbt-duckdb>=1.10,<2.0",
   # --- 文档解析 ---
   "python-docx>=1.2,<2.0",
-  "pypdf>=6.15,<7.0",
+  "pypdf>=6.19,<7.0",
   # --- 工具 ---
   "tqdm>=4.68,<5.0",
   "requests>=2.34.2,<3.0",

@@ -1,9 +1,26 @@
 # -*- coding: utf-8 -*-
 """Artifact 文件路径解析工具。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
+
+
+def model_visible_path(value: str | PurePath) -> PurePath:
+    """Keep sandbox paths POSIX, independently of the host operating system.
+
+    Drive-qualified and UNC paths belong to native Windows workspaces.
+    A drive-less path produced by Windows Path('/workspace') still denotes
+    the Linux sandbox namespace, not a path on the current host drive.
+    Host filesystem operations must continue to use concrete Path objects.
+    """
+    if isinstance(value, PurePosixPath):
+        return value
+    windows = PureWindowsPath(value)
+    if windows.drive:
+        return windows
+    return PurePosixPath(str(value).replace("\\", "/"))
 
 
 @dataclass(frozen=True)
@@ -19,11 +36,11 @@ class ArtifactPathContext:
     """Map model-visible artifact paths to the host session directory."""
 
     host_artifact_dir: Path
-    model_artifact_dir: Path | str
+    model_artifact_dir: PurePath | str
 
     def __post_init__(self) -> None:
         host_dir = Path(self.host_artifact_dir).resolve()
-        model_dir = str(self.model_artifact_dir).strip()
+        model_dir = str(model_visible_path(self.model_artifact_dir)).strip()
         model_posix = PurePosixPath(model_dir.replace("\\", "/"))
         model_windows = PureWindowsPath(model_dir)
         if not (model_posix.is_absolute() or model_windows.is_absolute()):

@@ -147,17 +147,21 @@ class ModelConfigStore:
 
     # ---- property accessors (for openai_client / embedder) ----
 
+    def _effective_llm(self):
+        from .runtime_model_binding import llm_binding
+        return llm_binding.get() or self._data.get("llm") or {}
+
     @property
     def llm_api_key(self) -> str:
-        return (self._data.get("llm") or {}).get("api_key", "") or ""
+        return self._effective_llm().get("api_key", "") or ""
 
     @property
     def llm_base_url(self) -> str:
-        return (self._data.get("llm") or {}).get("base_url", "") or ""
+        return self._effective_llm().get("base_url", "") or ""
 
     @property
     def llm_model(self) -> str:
-        return (self._data.get("llm") or {}).get("model", "") or ""
+        return self._effective_llm().get("model", "") or ""
 
     @property
     def embed_model(self) -> str:

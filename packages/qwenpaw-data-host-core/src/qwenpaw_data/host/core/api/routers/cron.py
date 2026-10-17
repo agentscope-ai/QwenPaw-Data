@@ -6,7 +6,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from qwenpaw_data.host.core.api.deps import ServiceState, get_identity, get_state
+from qwenpaw_data.host.core.api.deps import (
+    ServiceState,
+    get_identity,
+    get_state,
+    owned_session,
+)
 from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite
 from qwenpaw_data.host.core.domain.identity import Identity
@@ -21,9 +26,11 @@ def _map(exc: Exception) -> None:
     raise exc
 
 
-async def _check_session(state: ServiceState, session_id: str | None) -> None:
+async def _check_session(
+    state: ServiceState, identity: Identity, session_id: str | None
+) -> None:
     if session_id:
-        await state.sessions.get(session_id)
+        await owned_session(state, identity, session_id)
 
 
 @router.get("/jobs")
@@ -42,7 +49,7 @@ async def create_job(
     state: ServiceState = Depends(get_state),
 ) -> dict[str, Any]:
     try:
-        await _check_session(state, body.session_id)
+        await _check_session(state, identity, body.session_id)
         job = await state.cron.create(identity.user_id, body)
         state.cron_manager.sync(job)
         return {"job": job}
@@ -70,7 +77,7 @@ async def replace_job(
     state: ServiceState = Depends(get_state),
 ) -> dict[str, Any]:
     try:
-        await _check_session(state, body.session_id)
+        await _check_session(state, identity, body.session_id)
         job = await state.cron.replace(identity.user_id, job_id, body)
         state.cron_manager.sync(job)
         return {"job": job}

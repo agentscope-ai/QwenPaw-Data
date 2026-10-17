@@ -85,3 +85,56 @@ async def test_datasource_list_maps_cm_failure_to_502(tmp_path, monkeypatch) -> 
         response = await http.get("/api/v1/datasources")
         assert response.status_code == 502
         assert "connection refused" in response.json()["message"]
+
+
+async def test_dataset_list_reload_and_datasource_scope(tmp_path, monkeypatch):
+    from qwenpaw_data.host.core.cm_client import CMDataset, CMDatasetList
+
+    class Catalog:
+        calls = []
+
+        def list_datasets(self, datasource_id):
+            self.calls.append(datasource_id)
+            return CMDatasetList(
+                (
+                    [CMDataset("dws_gaap_di", "Daily GAAP")]
+                    if datasource_id == "gaap"
+                    else []
+                ),
+                1 if datasource_id == "gaap" else 0,
+            )
+
+    catalog = Catalog()
+    async with service_client(tmp_path, monkeypatch, catalog) as http:
+        for _ in range(2):
+            response = await http.get(
+                "/api/v1/datasets", params={"datasource_id": "gaap"}
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "items": [
+                    {
+                        "id": "dws_gaap_di",
+                        "name": "dws_gaap_di",
+                        "description": "Daily GAAP",
+                    }
+                ]
+            }
+        response = await http.get("/api/v1/datasets", params={"datasource_id": "other"})
+        assert response.json() == {"items": []}
+        assert (await http.get("/api/v1/datasets")).status_code == 422
+        assert (
+            await http.get("/api/v1/datasets", params={"datasource_id": " "})
+        ).status_code == 400
+    assert catalog.calls == ["gaap", "gaap", "other"]
+
+
+async def test_dataset_failure_maps_to_502(tmp_path, monkeypatch):
+    class Unavailable:
+        def list_datasets(self, datasource_id):
+            raise CMClientError("CM dataset request returned HTTP 503")
+
+    async with service_client(tmp_path, monkeypatch, Unavailable()) as http:
+        response = await http.get("/api/v1/datasets", params={"datasource_id": "gaap"})
+        assert response.status_code == 502
+        assert "Unable to load datasets" in response.json()["message"]

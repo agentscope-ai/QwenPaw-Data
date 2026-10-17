@@ -4,12 +4,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 
 from qwenpaw_data.host.core.api.deps import get_identity
 from qwenpaw_data.host.core.api.errors import raise_api
-from qwenpaw_data.host.core.api.models.common import DatasourceOptionSchema
+from qwenpaw_data.host.core.api.models.common import (
+    DatasourceOptionSchema,
+    DatasetOptionSchema,
+)
 from qwenpaw_data.host.core.cm_client import (
     CMClientError,
     CMDatasource,
@@ -51,3 +54,32 @@ async def list_datasources(
             status=502,
         )
     return {"items": [_to_option(item) for item in result.items]}
+
+
+@router.get("/datasets")
+async def list_datasets(
+    datasource_id: str = Query(min_length=1),
+    _identity: Identity = Depends(get_identity),
+    client: ContextManagerClient = Depends(get_context_manager_client),
+) -> dict[str, Any]:
+    if not datasource_id.strip():
+        raise_api("VALIDATION", "datasource_id is required", status=400)
+    try:
+        result = await run_in_threadpool(client.list_datasets, datasource_id.strip())
+    except CMClientError as exc:
+        logger.warning("DataBridge dataset list failed: %s", exc)
+        raise_api(
+            "VALIDATION",
+            f"Unable to load datasets from DataBridge: {exc}",
+            status=502,
+        )
+    return {
+        "items": [
+            DatasetOptionSchema(
+                id=item.dataset_name,
+                name=item.dataset_name,
+                description=(item.description or "").strip(),
+            )
+            for item in result.items
+        ]
+    }

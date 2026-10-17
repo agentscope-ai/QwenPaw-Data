@@ -6,6 +6,57 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.3] - Unreleased
+
+### Fixed
+
+- Keep chat event streams open until their terminal response is available, even
+  when the completed or failed chat status has already been saved.
+
+### Changed
+
+- Support Neo4j Python driver 6.x and OpenAI Python SDK 3.x while retaining
+  dependency ranges compatible with supported earlier driver/SDK versions.
+- Refresh Python and Context frontend dependencies, including i18next 26,
+  TypeScript 5.9, and the compatible ESLint 9 tooling.
+- Reduce Dependabot noise with weekly grouped updates, two open version PRs
+  per ecosystem, and targeted deferrals for incompatible major upgrades.
+- Update GitHub Actions checkout to v7.
+
+## [0.3.2] - 2026-10-16
+
+### Added
+
+- Native console capability discovery and ephemeral per-turn model bindings for
+  the standalone QwenPaw Data app 1.0.3 on stable QwenPaw 2.2.2.
+- Dataset discovery filtered by datasource, with selected datasets persisted
+  in chats and included in agent input.
+- Readable session display codes and names.
+
+### Fixed
+
+- Include SQLAlchemy in the standalone Context requirements, matching the
+  package dependencies used by database adapters.
+- Workspace MCP defaults are available to native analysis sessions.
+- Later turns pick up model changes while retaining conversation memory.
+- Linux sandbox artifact paths retain POSIX separators on Windows hosts in
+  agent/subagent prompts and SQL artifact responses. Native Windows host paths
+  retain drive and UNC semantics.
+
+### Security
+
+- Refresh Python and frontend dependency locks to address the release audit
+  findings, and raise affected direct dependency floors where compatible with
+  the stable Host. Audit the standalone Context lock in CI and remove obsolete
+  sqlparse audit exceptions now that both locks resolve its patched release.
+- Session reads, mutations, streams, attachments, and scheduled runs enforce
+  the trusted caller's user identity. The embedding Host binds this identity
+  to its authenticated user, workspace, and app.
+- Per-turn model credentials are excluded from persisted chat/request data.
+
+Host vNext delegation, durable submissions, capability execution, and artifact
+contracts remain on the separate vNext branch.
+
 ## [0.3.1] - 2026-09-10
 
 ### Added
@@ -200,7 +251,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...v0.2.4

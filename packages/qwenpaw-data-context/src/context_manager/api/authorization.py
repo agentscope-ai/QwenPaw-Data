@@ -251,6 +251,7 @@ _register(
     ("POST", "/api/system/model-config/llm/test"),
     ("PUT", "/api/system/model-config/embedding"),
     ("POST", "/api/system/model-config/embedding/test"),
+    ("POST", "/api/system/model-config/embedding/rebuild"),
     ("GET", "/api/semantic-config/datasource"),
     ("GET", "/api/semantic-config/datasource/types"),
     ("POST", "/api/semantic-config/datasource"),

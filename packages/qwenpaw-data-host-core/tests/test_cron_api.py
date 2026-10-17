@@ -112,7 +112,11 @@ async def test_cron_run_opens_console_chat(tmp_path, monkeypatch) -> None:
             if total:
                 chats = await state.chats.list_for_session(sessions[0][0].id)
                 if chats and chats[0].status == "completed":
-                    break
+                    # Chat status is committed before the terminal event.
+                    # Wait for both durable facts, including on slower CI.
+                    events = await state.events.read_after(chats[0].id, -1)
+                    if events and events[-1].object == "response":
+                        break
             await asyncio.sleep(0.02)
         else:
             raise AssertionError("cron run did not complete a chat")

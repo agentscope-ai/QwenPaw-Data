@@ -39,13 +39,13 @@ class EmbeddingConfigPayload(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = Field(None, description="留空表示不修改")
-    dim: Optional[int] = None
+    dim: Optional[int] = Field(default=None, gt=0, le=65536)
 
 
 class TestResult(BaseModel):
     success: bool
     message: str
-    detected_dim: Optional[int] = None
+    detected_dim: Optional[int] = Field(default=None, gt=0, le=65536)
 
 
 class EmbeddingUpdateResponse(BaseModel):
@@ -116,6 +116,23 @@ def update_embedding_config(
         except RuntimeError as exc:
             log.warning("Rebuild job creation failed: %s", exc)
     return EmbeddingUpdateResponse(embedding=masked, rebuild_required=rebuild, job_id=job_id)
+
+
+
+@router.post("/embedding/rebuild")
+def rebuild_embeddings(request: Request):
+    from ..embedding_rebuild import get_rebuild_store, start_rebuild
+    embedding = get_model_config_store().get_masked()["embedding"]
+    if not embedding.get("model") or not embedding.get("base_url") or not embedding.get("api_key"):
+        raise HTTPException(422, "Configure the embedding connection first")
+    try:
+        job = get_rebuild_store().create_job(config_snapshot={
+            key: embedding.get(key) for key in ("model", "base_url", "dim")
+        })
+    except RuntimeError as exc:
+        raise HTTPException(409, "An index rebuild is already active") from exc
+    start_rebuild(request.app.state.driver, job.job_id)
+    return {"job_id": job.job_id}
 
 
 @router.post("/embedding/test")
