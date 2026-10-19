@@ -24,7 +24,7 @@ function authenticationConfigured(env: Record<string, string>): boolean {
 }
 
 export default defineConfig(({ mode }) => {
-  const repoRoot = path.resolve(__dirname, '../../..');
+  const repoRoot = path.resolve(import.meta.dirname, '../../..');
   const env = loadEnv(mode, repoRoot, '');
   const serviceBaseUrl = env.VITE_API_BASE_URL || env.SERVICE_BASE_URL || 'http://localhost:8765';
   const allowedHosts = [
@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'src'),
+        '@': path.resolve(import.meta.dirname, 'src'),
         crypto: 'crypto-browserify',
       },
     },
@@ -89,32 +89,36 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       sourcemap: false,
       minify: 'terser' as const,
-      rollupOptions: {
+      rolldownOptions: {
         output: {
           entryFileNames: 'assets/index.js',
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash][extname]',
-          manualChunks(moduleId) {
-            if (!moduleId.includes('node_modules')) return undefined;
-            if (moduleId.includes('/@antv/')) return 'vendor-graph';
-            if (
-              moduleId.includes('/@codemirror/')
-              || moduleId.includes('/@lezer/')
-              || moduleId.includes('/@uiw/')
-              || moduleId.includes('/@ant-design/pro-components/')
-              || moduleId.includes('/@agentscope-ai/design/')
-              || moduleId.includes('/antd/')
-              || moduleId.includes('/@ant-design/icons/')
-              || moduleId.includes('/@rc-component/')
-              || moduleId.includes('/react/')
-              || moduleId.includes('/react-dom/')
-              || moduleId.includes('/react-router/')
-              || moduleId.includes('/react-i18next/')
-              || moduleId.includes('/i18next/')
-              || moduleId.includes('/zustand/')
-            ) return 'vendor-ui';
-            if (moduleId.includes('/@e965/xlsx/')) return 'vendor-xlsx';
-            return undefined;
+          codeSplitting: {
+            groups: [{
+              name(moduleId) {
+                if (!moduleId.includes('node_modules')) return undefined;
+                if (moduleId.includes('/@antv/')) return 'vendor-graph';
+                if (
+                  moduleId.includes('/@codemirror/')
+                  || moduleId.includes('/@lezer/')
+                  || moduleId.includes('/@uiw/')
+                  || moduleId.includes('/@ant-design/pro-components/')
+                  || moduleId.includes('/@agentscope-ai/design/')
+                  || moduleId.includes('/antd/')
+                  || moduleId.includes('/@ant-design/icons/')
+                  || moduleId.includes('/@rc-component/')
+                  || moduleId.includes('/react/')
+                  || moduleId.includes('/react-dom/')
+                  || moduleId.includes('/react-router/')
+                  || moduleId.includes('/react-i18next/')
+                  || moduleId.includes('/i18next/')
+                  || moduleId.includes('/zustand/')
+                ) return 'vendor-ui';
+                if (moduleId.includes('/@e965/xlsx/')) return 'vendor-xlsx';
+                return undefined;
+              },
+            }],
           },
         },
       },
