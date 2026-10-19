@@ -8,6 +8,7 @@ updates:
     # Routine major upgrades are planned manually; security updates stay eligible.
     allow:
       - dependency-name: "*"
+        dependency-type: "direct"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     groups:
       python-minor-and-patch:
@@ -21,6 +22,7 @@ updates:
     # Routine major upgrades are planned manually; security updates stay eligible.
     allow:
       - dependency-name: "*"
+        dependency-type: "direct"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     ignore:
       # @agentscope-ai/design requires exactly 1.2.1; upgrade these together.
@@ -37,6 +39,7 @@ updates:
     # Routine major upgrades are planned manually; security updates stay eligible.
     allow:
       - dependency-name: "*"
+        dependency-type: "direct"
         update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     groups:
       actions-minor-and-patch:
