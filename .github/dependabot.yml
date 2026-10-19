@@ -15,6 +15,9 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 2
     ignore:
+      # Match the Node 22 runtime in CI and docs/COMPATIBILITY.md.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
       # @agentscope-ai/design requires exactly 1.2.1; upgrade these together.
       - dependency-name: "@rc-component/util"
       # @agentscope-ai/design requires Ant Design 5; revisit with its upgrade.
