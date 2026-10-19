@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import mimetypes
 import os
 from datetime import datetime, timezone
 from functools import partial
@@ -15,8 +17,10 @@ from agentscope.message import UserMsg
 from qwenpaw_data.host.core.algo.biztrace.transformer import BizTraceTransformer
 from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
 from qwenpaw_data.host.core.algo.settlement import SettlementManager, SettlementSettings
-from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
+from qwenpaw_data.host.core.domain.chat import Chat
+from qwenpaw_data.host.core.api.models.artifact import ArtifactPresentationSchema
+from qwenpaw_data.host.core.artifact_paths import ArtifactPathContext
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.orchestration.tools import PLAN_TOOL_NAMES
 from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
@@ -113,6 +117,7 @@ class ChatRuntime:
         chat_id: str,
         *,
         identity: Identity,
+        capability_bridge: dict[str, Any] | None = None,
         runtime_config: UserRuntimeConfig | None = None,
         context_model_header: str | None = None,
     ) -> None:
@@ -122,6 +127,7 @@ class ChatRuntime:
             await self._run(
                 chat_id,
                 identity=identity,
+                capability_bridge=capability_bridge,
                 runtime_config=runtime_config,
                 context_model_header=context_model_header,
             )
@@ -143,6 +149,7 @@ class ChatRuntime:
         chat_id: str,
         *,
         identity: Identity,
+        capability_bridge: dict[str, Any] | None = None,
         runtime_config: UserRuntimeConfig | None = None,
         context_model_header: str | None = None,
     ) -> None:
@@ -169,10 +176,14 @@ class ChatRuntime:
             request_context = {
                 "datasource_id": chat.datasource_id,
                 "user_id": chat.identity.user_id,
+                "analysis_experience": self,
             }
+            if capability_bridge is not None:
+                request_context["capability_bridge"] = dict(capability_bridge)
             if runtime_config is not None:
                 from ..providers.factory import build_model
-
+                # Sessions serialize turns; changing the model here preserves memory
+                # and never modifies a currently running turn.
                 host.model = build_model(runtime_config.default)
                 if host._agent is not None:
                     host._agent.model = host.model
@@ -198,6 +209,8 @@ class ChatRuntime:
                 identity=identity,
                 request_context=request_context,
             )
+            self._artifact_seen = self._artifact_snapshot()
+            await self.report_analysis_progress("read_data")
             if runtime_config is not None:
                 self._run_context.user_runtime_config = runtime_config
             else:
@@ -383,7 +396,7 @@ class ChatRuntime:
             return ()
 
     async def _after_event_callback(self, event: Any) -> None:
-        if self._biztrace is not None and self._is_tool_success(event):
+        if self._is_tool_success(event):
             # Delta first: the pipeline binds pending files to the coming
             # TOOL_RESULT_END, so order matters.
             await self._register_new_files()
@@ -413,9 +426,8 @@ class ChatRuntime:
 
     async def _register_new_files(self) -> None:
         """Diff the artifact directory; notify the stream and the algorithm."""
-        biztrace = self._biztrace
         envelope = self._envelope
-        if biztrace is None or envelope is None:
+        if envelope is None:
             return
         try:
             current = self._artifact_snapshot()
@@ -431,22 +443,125 @@ class ChatRuntime:
             files: dict[str, str] = {}
             for path in changed:
                 name = Path(path).name
+                metadata = await asyncio.to_thread(
+                    self._artifact_metadata,
+                    path,
+                )
+                if metadata is None:
+                    continue
                 await envelope.stream.artifact_registered(
                     id=create_id("artifact"),
                     name=name,
                     path=path,
+                    **metadata,
+                    presentation={
+                        "role": "diagnostic",
+                        "kind": "data/diagnostic",
+                        "visibility": "app_only",
+                        "preview": "none",
+                        "rank": 300,
+                    },
                     created_at=now,
                     updated_at=now,
                 )
                 files[name] = path
-            await biztrace.append(
-                {"kind": "artifact_delta", "payload": {"files": files}}
-            )
+            if files and self._biztrace is not None:
+                await self._biztrace.append(
+                    {"kind": "artifact_delta", "payload": {"files": files}}
+                )
         except Exception:
             logger.exception(
-                "biztrace: failed to register artifact files for chat %s",
-                biztrace.chat_id,
+                "failed to register artifact files for chat %s",
+                self._run_context.chat_id if self._run_context else "unknown",
             )
+
+    async def report_analysis_progress(self, stage: str) -> None:
+        if self._envelope is None:
+            raise RuntimeError("analysis stream is unavailable")
+        # OutputStream validates and persists the typed event before returning.
+        await self._envelope.stream.append(
+            {"object": "analysis.progress", "stage": stage}
+        )
+
+    async def publish_analysis_artifact(
+        self,
+        path: str,
+        role: str,
+        kind: str,
+        visibility: str,
+    ) -> None:
+        ctx, envelope = self._run_context, self._envelope
+        if ctx is None or envelope is None:
+            raise RuntimeError("analysis stream is unavailable")
+        root = Path(ctx.paths.artifact_dir)
+        resolved = ArtifactPathContext(root, root).resolve_ref(path)
+        if not resolved.host_path.is_file():
+            raise ValueError("artifact must be an existing session file")
+        metadata = await asyncio.to_thread(
+            self._artifact_metadata, resolved.relative_path
+        )
+        if metadata is None:
+            raise ValueError("artifact changed during verification; retry publication")
+        presentation = ArtifactPresentationSchema(
+            role=role,
+            kind=kind,
+            visibility=visibility,
+            preview=(
+                "inline"
+                if metadata["media_type"]
+                in {
+                    "text/html",
+                    "text/markdown",
+                    "text/plain",
+                }
+                and visibility == "chat"
+                else "link" if visibility == "chat" else "none"
+            ),
+            rank={"primary": 0, "supporting": 20, "source": 200, "diagnostic": 300}[
+                role
+            ],
+        )
+        now = datetime.now(timezone.utc)
+        await envelope.stream.artifact_registered(
+            id=create_id("artifact"),
+            name=resolved.host_path.name,
+            path=resolved.relative_path,
+            **metadata,
+            presentation=presentation.model_dump(mode="json"),
+            created_at=now,
+            updated_at=now,
+        )
+        # Do not immediately republish the same bytes as an automatic diagnostic.
+        stamp = self._artifact_snapshot().get(resolved.relative_path)
+        if stamp is not None:
+            self._artifact_seen[resolved.relative_path] = stamp
+
+    def _artifact_metadata(self, path: str) -> dict[str, Any] | None:
+        ctx = self._run_context
+        if ctx is None:
+            return None
+        root = Path(ctx.paths.artifact_dir)
+        candidate = ArtifactPathContext(root, root).resolve_path(path)
+        try:
+            before = candidate.stat()
+            digest = hashlib.sha256()
+            with candidate.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+            after = candidate.stat()
+        except OSError:
+            return None
+        if (before.st_size, before.st_mtime_ns) != (
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            return None
+        media_type = mimetypes.guess_type(candidate.name)[0]
+        return {
+            "media_type": media_type or "application/octet-stream",
+            "size_bytes": after.st_size,
+            "digest": f"sha256:{digest.hexdigest()}",
+        }
 
     def _artifact_snapshot(self) -> dict[str, tuple[int, int]]:
         ctx = self._run_context

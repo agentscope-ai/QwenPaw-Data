@@ -64,6 +64,53 @@ async def test_provider_config_roundtrip(tmp_path, monkeypatch) -> None:
         ).status_code == 404
 
 
+async def test_analysis_readiness_uses_local_agent_settings_not_caller_prefs(
+    tmp_path, monkeypatch,
+) -> None:
+    built = []
+
+    def no_env_model():
+        raise RuntimeError("sensitive configuration detail")
+
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.api.app.build_model_from_env", no_env_model,
+    )
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.api.app.build_model",
+        lambda active: built.append(active) or object(),
+    )
+    async with service_client(tmp_path, monkeypatch) as (http, _):
+        url = "/api/v1/capabilities/analysis"
+        missing = await http.get(url, headers={"X-User-Id": "pawapp-scoped"})
+        assert missing.json() == {"readiness_version": 1, "model_configured": False}
+        assert "sensitive" not in missing.text
+        await http.put(
+            "/api/v1/preferences/providers/dashscope",
+            json={"api_key": "private-agent-key"},
+        )
+        await http.put(
+            "/api/v1/preferences/active-models",
+            json={"default_provider_id": "dashscope", "default_model_id": "qwen-max"},
+        )
+        ready = await http.get(url, headers={"X-User-Id": "pawapp-scoped"})
+        assert ready.json() == {"readiness_version": 1, "model_configured": True}
+        assert built[-1].api_key == "private-agent-key"
+        assert "private-agent-key" not in ready.text
+
+
+async def test_analysis_readiness_explicit_model_and_env_fallback(tmp_path, monkeypatch):
+    async with service_client(tmp_path / "explicit", monkeypatch, model=object()) as (http, _):
+        assert (await http.get("/api/v1/capabilities/analysis")).json()["model_configured"]
+    calls = []
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.api.app.build_model_from_env",
+        lambda: calls.append(True) or object(),
+    )
+    async with service_client(tmp_path / "env", monkeypatch) as (http, _):
+        assert (await http.get("/api/v1/capabilities/analysis")).json()["model_configured"]
+        assert calls == [True]
+
+
 async def test_models_and_active_selection(tmp_path, monkeypatch) -> None:
     async with service_client(tmp_path, monkeypatch, model=object()) as (http, _):
         added = await http.put(

@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Durable Engine submissions for PawApp backends: atomic session/run creation,
+  idempotent retries, lookup by submission ID, and replayable events. SQL startup
+  recovery preserves accepted run identities and reports interrupted execution
+  without automatically rerunning it. See the
+  [submission protocol](docs/design/pawapp-submission-protocol.md); JSON mode
+  explicitly declines this protocol.
+- Durable submission commands let a PawApp backend answer the active
+  clarification or cancel the original run with idempotent command receipts,
+  scoped lookup, conflict detection, and explicit unknown recovery state.
+- Task-scoped Host tools and skills, verified artifact handoff with digest-bound
+  reads, and explicit analysis progress and deliverable presentation metadata.
+
 ### Changed
 
 - Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6

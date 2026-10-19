@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import hashlib
 
 import pytest
 
@@ -64,6 +65,28 @@ async def test_list_and_download(tmp_path, monkeypatch) -> None:
         )
         assert nested.status_code == 200
         assert nested.text == "a,b\n1,2\n"
+
+        digest = "sha256:" + hashlib.sha256(b"png-bytes").hexdigest()
+        immutable = await http.get(
+            f"/api/v1/sessions/{session_id}/artifacts/file",
+            params={"path": "chart.png", "digest": digest},
+        )
+        assert immutable.status_code == 200
+        assert immutable.content == b"png-bytes"
+        assert immutable.headers["x-artifact-digest"] == digest
+
+        changed = await http.get(
+            f"/api/v1/sessions/{session_id}/artifacts/file",
+            params={"path": "chart.png", "digest": "sha256:" + "0" * 64},
+        )
+        assert changed.status_code == 409
+
+        forbidden = await http.get(
+            f"/api/v1/sessions/{session_id}/artifacts/file",
+            params={"path": "chart.png"},
+            headers={"X-User-Id": "another-user"},
+        )
+        assert forbidden.status_code == 404
 
 
 async def test_download_rejects_traversal_and_missing(

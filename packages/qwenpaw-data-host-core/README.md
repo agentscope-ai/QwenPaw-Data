@@ -32,6 +32,10 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 |---|---|
 | `POST /sessions` · `GET /sessions` · `GET/PATCH/DELETE /sessions/{id}` | Session lifecycle: create, list (search/filter/sort/pagination), rename, soft-delete |
 | `POST /sessions/{sid}/chats` | Start a turn in an existing session: `{"text": ..., "datasource_id": ...}` → `{"chat": {...}}`; 404 without a session, 409 while a turn is active |
+| `GET /capabilities/submissions` | Discover durable submission protocol support (SQL only) |
+| `POST /submissions` · `GET /submissions/{id}` | Atomically create an independent session/run with an idempotent submission ID; query its original identity and status |
+| `POST /submissions/{id}/commands` · `GET /submissions/{id}/commands/{command_id}` | Durably answer the run's active clarification or cancel the original run; retry and reconcile by command ID |
+| `GET /submissions/{id}/events` | Replay and follow the accepted run's persisted events with the same SSE cursor contract |
 | `GET /sessions/{sid}/chats` | List a session's chats |
 | `POST /sessions/{sid}/chats/{cid}/stop` | Cancel a running turn |
 | `GET /sessions/{sid}/chats/{cid}/events` | SSE stream: replays persisted history, then live events; supports `Last-Event-ID` (or `after_sequence_number`) resume |
@@ -52,6 +56,9 @@ protocol with two interchangeable backends:
   file layout (`<home>/host/{chats,sessions,preferences}/`).
 
 A conformance test suite runs every store test against both backends.
+Durable submissions require SQL; JSON mode explicitly returns 501 for this
+protocol. See the [submission contract](../../../docs/design/pawapp-submission-protocol.md)
+for retry, recovery, authentication, and compatibility requirements.
 When no explicit model is passed, the service resolves the local user's
 configured active model from preferences and falls back to env vars.
 
@@ -64,7 +71,9 @@ Each SSE frame carries `id` (dense per-chat sequence number), `event`
 close the stream) · `message` / `content` (assistant text, reasoning, tool
 calls and outputs, media) · `task_status` (DAG plan snapshots) ·
 `biz_event` / `segment` / `artifact.registered` / `followup.generated`
-(reserved; producers arrive in later waves).
+(structured execution metadata). Artifact registrations include media type,
+size, and SHA-256 digest. Digest-bound artifact reads verify session ownership
+and reject content that changed after registration.
 
 ### Environment variables
 
