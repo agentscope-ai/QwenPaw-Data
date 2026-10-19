@@ -3,8 +3,13 @@ updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 2
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    # Routine major upgrades are planned manually; security updates stay eligible.
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     groups:
       python-minor-and-patch:
         update-types: ["minor", "patch"]
@@ -12,23 +17,16 @@ updates:
   - package-ecosystem: "npm"
     directory: "/packages/qwenpaw-data-context/frontend"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 2
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    # Routine major upgrades are planned manually; security updates stay eligible.
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     ignore:
       # @agentscope-ai/design requires exactly 1.2.1; upgrade these together.
       - dependency-name: "@rc-component/util"
-      # @agentscope-ai/design requires Ant Design 5; revisit with its upgrade.
-      - dependency-name: "antd"
-        update-types: ["version-update:semver-major"]
-      # Upgrade with i18next/tooling after their TypeScript peer ranges permit it.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-      # Upgrade with ESLint; @eslint/js 10 requires ESLint 10.
-      - dependency-name: "@eslint/js"
-        update-types: ["version-update:semver-major"]
-      # Upgrade with react-hooks and @eslint/js; current hooks require ESLint <=9.
-      - dependency-name: "eslint"
-        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
@@ -36,8 +34,13 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 2
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    # Routine major upgrades are planned manually; security updates stay eligible.
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
     groups:
       actions-minor-and-patch:
         update-types: ["minor", "patch"]

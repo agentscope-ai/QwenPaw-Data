@@ -20,6 +20,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Task-scoped Host tools and skills, verified artifact handoff with digest-bound
   reads, and explicit analysis progress and deliverable presentation metadata.
 
+### Changed
+
+- Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6
+  together, including the Rolldown configuration migration.
+- Schedule grouped Dependabot minor/patch updates for directly declared
+  dependencies monthly with one open version PR per ecosystem. Plan major upgrades
+  manually while keeping security updates eligible independently of the routine
+  version-update filter.
+
 ## [0.3.3] - Unreleased
 
 ### Fixed

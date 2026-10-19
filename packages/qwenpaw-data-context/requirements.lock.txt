@@ -7,7 +7,7 @@ agate==1.9.1
     #   dbt-core
 aiohappyeyeballs==2.7.1
     # via aiohttp
-aiohttp==3.14.3
+aiohttp==3.14.5
     # via -r requirements.txt
 aiosignal==1.4.0
     # via aiohttp
@@ -377,7 +377,7 @@ watchfiles==1.2.0
     # via uvicorn
 websockets==16.0
     # via uvicorn
-yarl==1.24.5
+yarl==1.25.1
     # via aiohttp
 zipp==4.1.0
     # via importlib-metadata
