@@ -217,6 +217,8 @@ class QwenPawDataAgent(Agent):
         self,
         inputs: Any = None,
     ) -> AsyncGenerator[AgentEvent, None]:
+        # A later graph-free reply must not inherit the previous turn's result.
+        self._runtime_state.last_finished_graph_id = None
         try:
             async for event in self._reply_with_confirmations(inputs):
                 yield event
@@ -307,7 +309,10 @@ class QwenPawDataAgent(Agent):
         if self._mode != "agent":
             return msg
 
-        graph_id = self._runtime_state.current_graph_id
+        graph_id = (
+            self._runtime_state.current_graph_id
+            or self._runtime_state.last_finished_graph_id
+        )
         return self.set_execution_metadata(msg, graph_id=graph_id)
 
     async def handle_interrupt(
