@@ -40,3 +40,20 @@ def test_old_import_contract_path_is_compatible() -> None:
     from context_manager.contracts.import_models import ImportRequest
 
     assert OldImportRequest is ImportRequest
+
+def test_sql_cache_touch_renews_at_most_once() -> None:
+    """A popular query must not renew its TTL forever (stale rows served as fresh)."""
+    cache = cm_sql_results.SqlResultCache()
+    result = ExecResult(sql="SELECT 1", columns=["value"], rows=[[1]], row_count=1)
+    cache.put("SELECT 1", 10, result, "success", None, Path("x.csv"), ttl=1000)
+    key = cache._make_key("SELECT 1", 10)
+    e = cache._store[key]
+    first_created = e.created_at
+
+    e.touch()
+    assert e.touched
+    assert e.created_at >= first_created  # renewed once
+    renewed = e.created_at
+
+    e.touch()
+    assert e.created_at == renewed  # second touch is a no-op

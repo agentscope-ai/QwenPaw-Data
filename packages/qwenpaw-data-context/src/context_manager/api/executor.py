@@ -6,7 +6,7 @@
    后端可选: data-api-hub HTTP / psycopg 直连数仓 / JDBC / 本地 PG（见 ``SQL_EXEC_BACKEND``）。
    - 拒绝 ``INSERT/UPDATE/DELETE/DDL``（把 SQL 丢到 sqlglot 的 CTE-stripped AST 里检查，
      这里走简单的关键字白名单，已经够用，因为 SQL 是 LLM 出的）；
-   - ``statement_timeout`` + ``cur.fetchmany`` 双限流；
+   - 单条 SQL 执行超时（``QP_SQL_STATEMENT_TIMEOUT_MS``，PG ``statement_timeout`` / MySQL ``MAX_EXECUTION_TIME`` hint + ``read_timeout``）+ ``cur.fetchmany`` 行数上限，双限流；
    - 错误统一封到 :class:`ExecResult.error`，不抛。
 
 2. :func:`detect_sentinel_risks` — 给 SQL 找"潜在 sentinel 列"。算法：
@@ -51,6 +51,66 @@ from context_manager.view_fallthrough import (
 )
 
 log = get_logger("api.executor")
+
+
+# Per-statement wall-clock budget for interactive queries (2026-10-30).
+# Applied on every execute_sql dispatch:
+# - PostgreSQL-compatible backends: session-level ``SET statement_timeout``
+#   (connections are created per call and closed afterwards, so no pool
+#   pollution). 0 disables.
+# - MySQL backend: ``MAX_EXECUTION_TIME`` optimizer hint on SELECT plus a
+#   client-side ``read_timeout`` as the only reliable backstop (some managed
+#   MySQL instances silently ignore the hint — verified in production).
+# On timeout the error is normalised to a ``QUERY_TIMEOUT:`` prefix so the
+# fetch-data skill can tell "too much data" apart from "broken SQL" and
+# rewrite the query instead of retrying it verbatim.
+# Default 45s sits *below* the blocking-pool governor's 60s
+# (QWENPAW_DATA_BLOCKING_SQL_TIMEOUT_SECONDS) so the two budgets are layered:
+# the statement is cancelled first and the error type the caller sees is
+# deterministic (QUERY_TIMEOUT, not a 504 BLOCKING_IO_TIMEOUT race).
+SQL_STATEMENT_TIMEOUT_MS = max(0, int(os.environ.get("QP_SQL_STATEMENT_TIMEOUT_MS", "45000")))
+
+
+def _timeout_marker(exc: Exception, backend: str) -> str | None:
+    """Normalise timeout-like failures to a ``QUERY_TIMEOUT:`` message.
+
+    Returns ``None`` for non-timeout errors so the original message is kept.
+    """
+    msg = str(exc)
+    code = getattr(exc, "args", (None,))[0]
+    if (
+        code == 3024  # MySQL: query execution was interrupted (MAX_EXECUTION_TIME)
+        or "max execution time" in msg.lower()
+        or "statement timeout" in msg.lower()
+        or "query_canceled" in msg.lower()
+        or "timed out" in msg.lower()  # pymysql 2013: "... (timed out)"
+    ):
+        return (
+            f"QUERY_TIMEOUT: statement exceeded {SQL_STATEMENT_TIMEOUT_MS}ms and was "
+            f"canceled ({backend}). The query scans more data than an interactive "
+            f"query can afford — narrow the time window, add filters, or use a "
+            f"pre-aggregated metric; do NOT retry the same SQL verbatim. "
+            f"Original: {msg[:200]}"
+        )
+    return None
+
+
+def _mysql_with_timeout_hint(sql: str) -> str:
+    """Prefix a ``MAX_EXECUTION_TIME`` optimizer hint to a top-level SELECT.
+
+    Only rewrites statements that *start* with SELECT (the guard upstream only
+    allows read-only statements anyway); anything else is returned unchanged.
+    """
+    if SQL_STATEMENT_TIMEOUT_MS <= 0:
+        return sql
+    if re.match(r"(?is)^\s*SELECT", sql):
+        return re.sub(
+            r"(?is)^\s*SELECT",
+            f"SELECT /*+ MAX_EXECUTION_TIME({SQL_STATEMENT_TIMEOUT_MS}) */",
+            sql,
+            count=1,
+        )
+    return sql
 
 
 # ---------------------------------------------------------------------- #
@@ -285,6 +345,10 @@ def _execute_sql_via_psycopg(
             autocommit=True,
             connect_timeout=5,
         ) as conn, conn.cursor() as cur:
+            # Per-connection statement budget; connections are per-call so the
+            # session-level setting cannot leak into other queries.
+            if SQL_STATEMENT_TIMEOUT_MS > 0:
+                cur.execute(f"SET statement_timeout = {SQL_STATEMENT_TIMEOUT_MS}")
             cur.execute(sql)
             cols = [d.name for d in (cur.description or [])]
             rows = cur.fetchmany(max_rows + 1)
@@ -292,16 +356,23 @@ def _execute_sql_via_psycopg(
             total = len(rows)
             rows = rows[:max_rows]
             row_count = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else total
-        return ExecResult(
+        result = ExecResult(
             sql=sql, columns=cols, rows=[list(r) for r in rows],
             row_count=row_count, truncated=truncated,
             elapsed_ms=(time.time() - t0) * 1000,
         )
     except Exception as exc:
-        return ExecResult(
-            sql=sql, error=str(exc),
+        marker = _timeout_marker(exc, "psycopg")
+        result = ExecResult(
+            sql=sql, error=marker or str(exc),
             elapsed_ms=(time.time() - t0) * 1000,
         )
+    log.info(
+        "exec[psycopg] ds=%s elapsed=%.0fms rows=%s truncated=%s err=%s | sql=%.80s",
+        datasource_id, result.elapsed_ms, result.row_count, result.truncated,
+        (result.error or "")[:120], re.sub(r"\s+", " ", sql).strip(),
+    )
+    return result
 
 
 def _execute_sql_via_pymysql(
@@ -321,6 +392,15 @@ def _execute_sql_via_pymysql(
         kwargs = resolve_mysql_connect_kwargs(datasource_id=datasource_id or None)
     except (ValueError, RuntimeError) as exc:
         return ExecResult(sql=sql, error=str(exc), elapsed_ms=(time.time() - t0) * 1000)
+    # Server-side budget via optimizer hint (honoured by stock MySQL) plus a
+    # client-side read_timeout as the only reliable backstop — some managed
+    # MySQL instances silently strip/ignore the hint (verified in production).
+    kwargs.setdefault(
+        "read_timeout",
+        SQL_STATEMENT_TIMEOUT_MS / 1000 if SQL_STATEMENT_TIMEOUT_MS > 0 else None,
+    )
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    hinted = _mysql_with_timeout_hint(sql)
     try:
         import pymysql
 
@@ -331,13 +411,13 @@ def _execute_sql_via_pymysql(
         )
         try:
             with conn.cursor() as cur:
-                cur.execute(sql)
+                cur.execute(hinted)
                 cols = [d[0] for d in (cur.description or [])]
                 rows = cur.fetchmany(max_rows + 1)
                 truncated = len(rows) > max_rows
                 total = len(rows)
                 rows = rows[:max_rows]
-                return ExecResult(
+                result = ExecResult(
                     sql=sql, columns=cols, rows=[list(r) for r in rows],
                     row_count=total, truncated=truncated,
                     elapsed_ms=(time.time() - t0) * 1000,
@@ -345,10 +425,17 @@ def _execute_sql_via_pymysql(
         finally:
             conn.close()
     except Exception as exc:
-        return ExecResult(
-            sql=sql, error=str(exc),
+        marker = _timeout_marker(exc, "pymysql")
+        result = ExecResult(
+            sql=sql, error=marker or str(exc),
             elapsed_ms=(time.time() - t0) * 1000,
         )
+    log.info(
+        "exec[pymysql] ds=%s elapsed=%.0fms rows=%s truncated=%s err=%s | sql=%.80s",
+        datasource_id, result.elapsed_ms, result.row_count, result.truncated,
+        (result.error or "")[:120], re.sub(r"\s+", " ", sql).strip(),
+    )
+    return result
 
 
 def _file_db_path(datasource_id: str, expected_type: str) -> Path:
