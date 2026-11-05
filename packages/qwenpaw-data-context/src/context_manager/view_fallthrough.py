@@ -6,63 +6,169 @@
 - ``extract_missing_table_name`` / ``rewrite_dataset_to_physical``：view 未建时按 dataset
   name 回退到物理表重写的纯函数原子。
 """
+
 from __future__ import annotations
 
 import re
+
+import sqlglot
+from sqlglot import exp
+from sqlglot.optimizer.scope import traverse_scope
 
 
 class FallthroughGiveUp(RuntimeError):
     """rewrite_cm_view_to_physical 无法重写：multi-parent / zero-parent / 图里查不到。"""
 
 
-_CM_VIEW_REF_RE = re.compile(r"\bcm_view\.([A-Za-z_][A-Za-z0-9_]*)\b", re.IGNORECASE)
-
-_VIEW_NOT_FOUND_PATTERNS = (
-    re.compile(r"42P01"),
-    re.compile(r"does not exist", re.IGNORECASE),
-    re.compile(r"not found", re.IGNORECASE),
-)
-
-
 def is_view_not_found_error(msg: object) -> bool:
-    """松匹配:PG SQLSTATE 42P01,或常见 'does not exist' / 'not found' 文案。"""
-    if not isinstance(msg, str) or not msg:
+    return isinstance(msg, str) and bool(
+        re.search(
+            r"42P01|does not exist|doesn't exist|not found",
+            msg,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _parse_query(sql: str, dialect: str | None):
+    try:
+        # Legacy callers did not supply a dialect. Retry MySQL only on parse failure.
+        try:
+            statements = sqlglot.parse(sql, read=dialect)
+        except sqlglot.errors.ParseError:
+            if dialect is not None:
+                raise
+            dialect = "mysql"
+            statements = sqlglot.parse(sql, read=dialect)
+        statements = [s for s in statements if s is not None]
+        if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+            raise FallthroughGiveUp("only one SELECT query can be rewritten")
+        scopes = list(traverse_scope(statements[0]))
+        if not scopes:
+            raise FallthroughGiveUp("query scopes could not be resolved")
+        for scope in scopes:
+            _ = scope.selected_sources
+        return statements[0], scopes, dialect
+    except (sqlglot.errors.SqlglotError, ValueError) as exc:
+        raise FallthroughGiveUp("query could not be parsed safely") from exc
+
+
+def rewrite_table_references(sql: str, resolve, *, dialect: str | None = None) -> str:
+    """Resolve physical source nodes once; literals, CTE names and columns stay intact.
+
+    ``resolve(Table)`` returns a target Table or None. Qualified column references
+    retain their binding through an alias when their source table is renamed.
+    """
+    tree, scopes, dialect = _parse_query(sql, dialect)
+    changes = {}
+    for scope in scopes:
+        for _, source in scope.selected_sources.values():
+            if not isinstance(source, exp.Table) or id(source) in changes:
+                continue
+            target = resolve(source)
+            if target is not None and source.parts != target.parts:
+                changes[id(source)] = (source, source.copy(), target)
+    if not changes:
+        return sql
+    for scope in scopes:
+        for column in [*scope.columns, *scope.stars]:
+            if not column.table:
+                continue
+            owner = scope
+            source = None
+            while owner is not None:
+                if column.table in owner.sources:
+                    source = owner.sources[column.table]
+                    break
+                owner = owner.parent
+            change = changes.get(id(source))
+            if change is None:
+                continue
+            table, original, _ = change
+            if column.db and column.db != original.db:
+                continue
+            if column.catalog and column.catalog != original.catalog:
+                continue
+            if not original.alias:
+                table.set("alias", exp.TableAlias(this=original.this.copy()))
+            # Only the qualifier changes; the selected column identifier is preserved.
+            column.set("db", None)
+            column.set("catalog", None)
+    for source, _, target in changes.values():
+        for part in ("this", "db", "catalog"):
+            value = target.args.get(part)
+            source.set(part, value.copy() if value is not None else None)
+    return tree.sql(dialect=dialect)
+
+
+def _physical_table(parent: tuple[str, str]) -> exp.Table:
+    schema, table = parent
+    return exp.Table(
+        this=exp.Identifier(this=table, quoted=True),
+        db=exp.Identifier(this=schema, quoted=True) if schema else None,
+    )
+
+
+def is_direct_table_projection(
+    sql: str, target: exp.Table, *, dialect: str | None = None
+) -> bool:
+    """A filtered/aggregated view cannot safely fall back to its parent table."""
+    if not sql.strip():
+        return True  # Mapping-only datasets have no declared SQL transformation.
+    try:
+        tree, _, _ = _parse_query(sql, dialect)
+        if not isinstance(tree, exp.Select):
+            return False
+        if any(
+            value
+            for key, value in tree.args.items()
+            if key not in {"expressions", "from_"}
+        ):
+            return False
+        source = tree.args.get("from_")
+        source = source.this if source else None
+        if not isinstance(source, exp.Table) or len(tree.expressions) != 1:
+            return False
+        star = tree.expressions[0]
+        if not (isinstance(star, exp.Star) and not any(star.args.values())):
+            return False
+        return tuple(p.name for p in source.parts) == tuple(
+            p.name for p in target.parts
+        )
+    except FallthroughGiveUp:
         return False
-    return any(p.search(msg) for p in _VIEW_NOT_FOUND_PATTERNS)
 
 
-def extract_cm_view_refs(sql: str) -> set[str]:
-    """从 SQL 文本里抓出所有 cm_view.<ident> 引用的 ident 名(去重)。"""
-    return {m.group(1) for m in _CM_VIEW_REF_RE.finditer(sql)}
+def extract_cm_view_refs(sql: str, *, dialect: str | None = None) -> set[str]:
+    _, scopes, _ = _parse_query(sql, dialect)
+    return {
+        source.name
+        for scope in scopes
+        for _, source in scope.selected_sources.values()
+        if isinstance(source, exp.Table) and source.db.casefold() == "cm_view"
+    }
 
 
 def rewrite_cm_view_to_physical(
     sql: str,
     dataset_to_tables: dict[str, list[tuple[str, str]]],
+    *,
+    dialect: str | None = None,
 ) -> str:
-    """把 SQL 里的 cm_view.<name> 重写为对应物理表 <schema>.<name>。
-
-    ``dataset_to_tables[name]`` 是该 dataset CONTAINS_TABLE 出去的 [(schema,table), ...]
-    - 单 parent: 直接 re.sub 替换
-    - 多 / 零 parent / 未知 name: 抛 FallthroughGiveUp,由外层抛回原始错误
-    """
-    refs = extract_cm_view_refs(sql)
+    refs = extract_cm_view_refs(sql, dialect=dialect)
     if not refs:
         raise FallthroughGiveUp("no cm_view refs to rewrite")
-    mapping: dict[str, str] = {}
+    targets = {}
     for name in refs:
-        tables = dataset_to_tables.get(name) or []
-        if len(tables) != 1:
-            raise FallthroughGiveUp(
-                f"dataset {name!r} has {len(tables)} parents; cannot fallthrough"
-            )
-        schema, table = tables[0]
-        mapping[name] = f"{schema}.{table}"
-
-    def _sub(m: "re.Match[str]") -> str:
-        return mapping.get(m.group(1), m.group(0))
-
-    return _CM_VIEW_REF_RE.sub(_sub, sql)
+        parents = dataset_to_tables.get(name) or []
+        if len(parents) != 1:
+            raise FallthroughGiveUp(f"dataset {name!r} has {len(parents)} parents")
+        targets[name] = _physical_table(parents[0])
+    return rewrite_table_references(
+        sql,
+        lambda t: targets.get(t.name) if t.db.casefold() == "cm_view" else None,
+        dialect=dialect,
+    )
 
 
 # ---------------------------------------------------------------------- #
@@ -70,17 +176,17 @@ def rewrite_cm_view_to_physical(
 # ---------------------------------------------------------------------- #
 
 _MISSING_REL_RE = re.compile(
-    r'relation\s+'
-    r'(?:'
-    r'"[^"]*"\."([^"]+)"'           # "schema"."table"
-    r'|'
-    r'"([^"]+)"'                    # "table" (no schema)
-    r'|'
-    r'[A-Za-z_]\w*\.([A-Za-z_]\w*)' # schema.table (bare)
-    r'|'
-    r'([A-Za-z_]\w*)'              # table (bare, no schema, no dots)
-    r')'
-    r'\s+does not exist',
+    r"relation\s+"
+    r"(?:"
+    r'"[^"]*"\."([^"]+)"'  # "schema"."table"
+    r"|"
+    r'"([^"]+)"'  # "table" (no schema)
+    r"|"
+    r"[A-Za-z_]\w*\.([A-Za-z_]\w*)"  # schema.table (bare)
+    r"|"
+    r"([A-Za-z_]\w*)"  # table (bare, no schema, no dots)
+    r")"
+    r"\s+does not exist",
     re.IGNORECASE,
 )
 
@@ -99,36 +205,32 @@ def extract_missing_table_name(error_msg: str) -> str | None:
         return None
     m = _MISSING_REL_RE.search(error_msg)
     if not m:
-        return None
+        mysql = re.search(
+            r"Table ['\"](?:[^'\"]*\.)?([^.'\"]+)['\"] doesn't exist",
+            error_msg,
+            re.IGNORECASE,
+        )
+        duckdb = re.search(
+            r"Table with name ([^\s]+) does not exist", error_msg, re.IGNORECASE
+        )
+        match = mysql or duckdb
+        return match.group(1) if match else None
     # 4 个捕获组，取第一个非 None 的
-    return next((g for g in m.groups() if g is not None), None)
+    name = next((g for g in m.groups() if g is not None), None)
+    return name.rsplit(".", 1)[-1] if name else None
 
 
 def rewrite_dataset_to_physical(
     sql: str,
     name: str,
     parent: tuple[str, str],
+    *,
+    dialect: str | None = None,
 ) -> str:
-    """把 SQL 中对 dataset ``name`` 的引用替换为物理表 ``<schema>.<table>``。
-
-    同时处理 quoted（``"view_xxx"``）和 bare（``view_xxx``）两种写法。
-
-    - ``parent`` 是单个 ``(schema, table)`` 元组
-    - 多 parent / 零 parent 由调用方在传入前检查,这里只负责替换
-    """
-    schema, table = parent
-    replacement = f"{schema}.{table}"
-
-    # quoted identifiers: "name" → schema.table
-    sql = re.sub(
-        r'"' + re.escape(name) + r'"',
-        replacement,
+    """Replace a dataset table reference, excluding CTE aliases and non-table text."""
+    target = _physical_table(parent)
+    return rewrite_table_references(
         sql,
+        lambda t: target if t.name == name else None,
+        dialect=dialect,
     )
-    # bare name with word boundary
-    sql = re.sub(
-        r"\b" + re.escape(name) + r"\b",
-        replacement,
-        sql,
-    )
-    return sql

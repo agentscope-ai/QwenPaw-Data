@@ -40,7 +40,7 @@ dependencies = [
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
   # openai 上限放宽以兼容 QwenPaw 主应用（QwenPaw 要求 openai>=2.0.0,<=2.33.0）
-  "openai>=1.109,<3.30",
+  "openai>=1.109,<3.32",
   "jsonschema>=4.26,<5.0",
   # --- SQL / 元数据 ---
   "sqlglot>=30.0,<31.0",
@@ -52,11 +52,11 @@ dependencies = [
   "dbt-duckdb>=1.10,<2.0",
   # --- 文档解析 ---
   "python-docx>=1.2,<2.0",
-  "pypdf>=6.19,<7.0",
+  "pypdf>=6.21.4,<7.0",
   # --- 工具 ---
   "tqdm>=4.68,<5.0",
   "requests>=2.34.2,<3.0",
-  "certifi>=2023.0,<2027.0",
+  "certifi>=2026.10.18,<2027.0",
   "func-timeout>=4.3,<5.0",
   "oss2>=2.19,<3.0",
   "sqlalchemy>=2.0,<3.0",

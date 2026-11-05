@@ -227,6 +227,20 @@ jobs:
       - name: Install locked runtime dependencies
         run: uv sync --all-packages
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22.0'
+          cache: npm
+          cache-dependency-path: |
+            packages/qwenpaw-data-console/frontend/package-lock.json
+            packages/qwenpaw-data-context/frontend/package-lock.json
+
+      - name: Build and test Console assets
+        run: |
+          python scripts/build_console.py
+          npm run lint --prefix packages/qwenpaw-data-console/frontend
+          npm test --prefix packages/qwenpaw-data-console/frontend
+
       - name: Build all workspace packages
         run: uv build --all-packages --out-dir dist
 
@@ -239,7 +253,10 @@ jobs:
         run: |
           .venv/bin/qwenpaw-data --help
           .venv/bin/python -c \
-            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core'
+            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core, qwenpaw_data.console'
+          .venv/bin/qwenpaw-data-console --help
+          .venv/bin/python -c \
+            'from qwenpaw_data.console import create_app; create_app(host_url="http://127.0.0.1:8766", token="wheel-smoke", bridge_url="http://127.0.0.1:8765")'
 
       - uses: actions/upload-artifact@v7
         with:
@@ -441,6 +458,15 @@ jobs:
         working-directory: packages/qwenpaw-data-context/frontend
         run: npm run sbom
 
+      - name: Audit Console dependencies and generate its SBOM
+        working-directory: packages/qwenpaw-data-console/frontend
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+          # Chat SDK declares antd 6 peers while its design library uses antd 5.
+          # Record the installed inventory; keep install and audit checks intact.
+          node ../../qwenpaw-data-context/frontend/scripts/generate-sbom.mjs --legacy-peer-deps
+
       - name: Upload SBOMs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -449,3 +475,4 @@ jobs:
             python.cdx.json
             python-licenses.json
             packages/qwenpaw-data-context/frontend/frontend.cdx.json
+            packages/qwenpaw-data-console/frontend/frontend.cdx.json

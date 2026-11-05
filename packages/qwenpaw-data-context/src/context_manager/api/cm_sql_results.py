@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import itertools
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -19,7 +20,12 @@ from .executor import ExecResult
 
 SQL_PREVIEW_ROWS = 20
 SQL_DOWNLOAD_MAX_ROWS = 10_000
-SQL_DOWNLOAD_TTL_SECONDS = 24 * 3600
+# Result-cache TTL (seconds). Kept at the historical 24h default; override via
+# QP_SQL_RESULT_CACHE_TTL_SECONDS when freshness matters more than re-exec cost
+# (e.g. interactive chat over fast-moving business data).
+SQL_DOWNLOAD_TTL_SECONDS = int(
+    os.environ.get("QP_SQL_RESULT_CACHE_TTL_SECONDS", str(24 * 3600))
+)
 CM_LOCAL_BASE_URL = "http://127.0.0.1:8765"
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -38,12 +44,19 @@ class SqlCacheEntry:
     file_path: Path
     created_at: float
     ttl: float
+    touched: bool = False
 
     def is_expired(self) -> bool:
         return time.time() - self.created_at > self.ttl
 
     def touch(self) -> None:
+        # Renew at most once per entry (total lifetime <= 2x TTL). Unbounded
+        # renewal used to keep serving stale rows as if they were fresh for
+        # as long as the query stayed popular.
+        if self.touched or self.is_expired():
+            return
         self.created_at = time.time()
+        self.touched = True
 
     def expires_in_seconds(self) -> int:
         return max(0, int(self.created_at + self.ttl - time.time()))
@@ -56,11 +69,11 @@ class SqlResultCache:
         self._store: dict[str, SqlCacheEntry] = {}
 
     @staticmethod
-    def _make_key(sql: str, max_rows: int) -> str:
-        return f"{sql.strip()}||max_rows={max_rows}"
+    def _make_key(sql: str, max_rows: int, datasource_id: str = "") -> str:
+        return repr((datasource_id, sql.strip(), max_rows))
 
-    def get(self, sql: str, max_rows: int) -> SqlCacheEntry | None:
-        key = self._make_key(sql, max_rows)
+    def get(self, sql: str, max_rows: int, *, datasource_id: str = "") -> SqlCacheEntry | None:
+        key = self._make_key(sql, max_rows, datasource_id)
         entry = self._store.get(key)
         if entry is None:
             return None
@@ -78,8 +91,10 @@ class SqlResultCache:
         download_url: str | None,
         file_path: Path,
         ttl: float = SQL_DOWNLOAD_TTL_SECONDS,
+        *,
+        datasource_id: str = "",
     ) -> SqlCacheEntry:
-        key = self._make_key(sql, max_rows)
+        key = self._make_key(sql, max_rows, datasource_id)
         entry = SqlCacheEntry(
             key=key,
             result=result,

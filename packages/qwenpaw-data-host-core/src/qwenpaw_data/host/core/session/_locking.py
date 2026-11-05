@@ -47,19 +47,23 @@ def file_lock(path: Path):
             if fcntl is not None:
                 fcntl.flock(fd, fcntl.LOCK_EX)
             elif msvcrt is not None:
-                if os.fstat(fd).st_size == 0:
-                    os.write(fd, b"\0")
+                # Windows can lock beyond EOF. Initializing a byte before
+                # locking races with another worker already holding that byte.
                 os.lseek(fd, 0, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
             else:  # pragma: no cover - all supported platforms provide one
                 raise RuntimeError("No process file-lock implementation available")
-            yield
+            try:
+                yield
+            finally:
+                # Only release after acquisition succeeded. Always close the
+                # descriptor, even when acquisition or release fails.
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                elif msvcrt is not None:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         finally:
-            if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            elif msvcrt is not None:
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
             os.close(fd)
 
 

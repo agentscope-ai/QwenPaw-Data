@@ -1,0 +1,84 @@
+.actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.actionButton {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+
+  &:hover,
+  &:focus-visible {
+    color: #1677ff;
+    background: rgb(22 119 255 / 9%);
+    outline: none;
+  }
+}
+
+.dark .actionButton {
+  color: #7890ad;
+
+  &:hover,
+  &:focus-visible {
+    color: #eef6ff;
+    background: rgb(255 255 255 / 10%);
+  }
+}
+
+.deleteButton {
+  &:hover,
+  &:focus-visible {
+    color: #dc2626;
+    background: rgb(220 38 38 / 9%);
+  }
+}
+
+.dark .deleteButton {
+  &:hover,
+  &:focus-visible {
+    color: #fda4af;
+    background: rgb(244 63 94 / 14%);
+  }
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.deleteCopy {
+  margin: 0;
+  color: #334155;
+  line-height: 1.7;
+}
+
+.warning {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  color: #92400e;
+  font-size: 13px;
+  background: #fffbeb;
+  border-radius: 6px;
+}
+
+.error {
+  margin-top: 10px;
+  color: #dc2626;
+  font-size: 13px;
+}
