@@ -31,6 +31,19 @@ updates:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
 
+  - package-ecosystem: "npm"
+    directory: "/packages/qwenpaw-data-console/frontend"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+    groups:
+      console-minor-and-patch:
+        update-types: ["minor", "patch"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
