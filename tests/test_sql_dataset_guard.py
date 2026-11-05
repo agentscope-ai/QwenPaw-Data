@@ -27,7 +27,7 @@ def seed(monkeypatch, records):
 
 
 def validate(sql, names=None):
-    guard.validate_dataset_sql(
+    return guard.validate_dataset_sql(
         sql=sql,
         dataset_names=names or ["retail"],
         datasource_id="econ",
@@ -198,3 +198,116 @@ async def test_mcp_forwards_explicit_and_metadata_scope(monkeypatch):
         b["dataset_names"] == ["retail"] and b["datasource_id"] == "econ"
         for b in captured
     )
+
+
+@pytest.mark.parametrize("table", ["retail", "main.retail", "cm_view.retail"])
+def test_logical_dataset_resolved_before_physical_scope_check(monkeypatch, table):
+    seed(monkeypatch, [{"name": "retail", "parents": "main.econ_observations"}])
+    resolved = validate(f"SELECT * FROM {table}")
+    assert guard.extract_physical_tables(resolved, dialect="duckdb") == {
+        ("main", "econ_observations")
+    }
+
+
+def test_logical_dataset_cannot_cross_schema_or_choose_multiple_parents(monkeypatch):
+    seed(monkeypatch, [{"name": "retail", "parents": "main.econ_observations"}])
+    with pytest.raises(HTTPException):
+        validate("SELECT * FROM other.retail")
+    seed(monkeypatch, [{"name": "retail", "parents": ["main.a", "main.b"]}])
+    with pytest.raises(HTTPException) as raised:
+        validate("SELECT * FROM retail")
+    assert raised.value.detail["code"] == "SQL_DATASET_AMBIGUOUS"
+    validate("SELECT * FROM main.a JOIN main.b ON true")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM main.econ_observations WHERE year > 2020",
+        "SELECT sum(value) FROM main.econ_observations",
+        "SELECT value AS renamed FROM main.econ_observations",
+    ],
+)
+def test_dataset_transformations_cannot_be_silently_dropped(monkeypatch, sql):
+    seed(
+        monkeypatch,
+        [{"name": "retail", "parents": "main.econ_observations", "sql": sql}],
+    )
+    with pytest.raises(HTTPException) as raised:
+        validate("SELECT * FROM retail")
+    assert raised.value.detail["code"] == "SQL_DATASET_REWRITE_UNSAFE"
+    validate("SELECT sum(value) FROM main.econ_observations")
+
+
+def test_plain_projection_can_be_resolved(monkeypatch):
+    seed(
+        monkeypatch,
+        [
+            {
+                "name": "retail",
+                "parents": "main.econ_observations",
+                "sql": "SELECT * FROM main.econ_observations",
+            }
+        ],
+    )
+    assert "econ_observations" in validate("SELECT * FROM retail")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["cm_execute_sql", "cm_execute_sql_stream"])
+@pytest.mark.parametrize("stale_cache", [False, True])
+async def test_both_routes_execute_resolved_sql_without_fallthrough(
+    monkeypatch, endpoint, stale_cache
+):
+    from context_manager.api import cm_api
+    from context_manager.api.cm_models import ExecuteSqlRequest
+    from context_manager.api.executor import ExecResult
+
+    seed(monkeypatch, [{"name": "retail", "parents": "main.econ_observations"}])
+    calls = []
+
+    def execute(sql, **kwargs):
+        assert kwargs["allow_fallthrough"] is False
+        assert guard.extract_physical_tables(sql, dialect="duckdb") == {
+            ("main", "econ_observations")
+        }
+        calls.append("execute")
+        return ExecResult(sql=sql)
+
+    class IO:
+        async def run(self, pool, operation, fn, *args, **kwargs):
+            if operation == "context.session.ensure":
+                return SimpleNamespace(scope={}), "session"
+            if operation == "context.datasource.resolve":
+                return "econ"
+            if operation == "sql.dataset_scope.validate":
+                calls.append("validate")
+                return fn(*args, **kwargs)
+            if operation == "sql.cache.get":
+                assert calls == ["validate"]
+                assert "econ_observations" in args[0]
+                return (
+                    SimpleNamespace(result=ExecResult(sql="SELECT * FROM outside"))
+                    if stale_cache
+                    else None
+                )
+            return fn(*args, **kwargs)
+
+    async def execute_async(sql, **kwargs):
+        return execute(sql, **kwargs)
+
+    monkeypatch.setattr(cm_api, "_driver", lambda _: object())
+    monkeypatch.setattr(cm_api, "execute_sql_async", execute_async)
+    monkeypatch.setattr(cm_api, "topology_execute_sql", execute)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(blocking_io=IO()))
+    )
+    response = await getattr(cm_api, endpoint)(
+        ExecuteSqlRequest(sql="SELECT * FROM retail", dataset_names=["retail"]), request
+    )
+    if endpoint.endswith("stream"):
+        chunks = [chunk async for chunk in response.body_iterator]
+        assert any("done" in str(chunk) for chunk in chunks)
+    else:
+        assert response.exec_status == "empty"
+    assert calls == ["validate", "execute"]

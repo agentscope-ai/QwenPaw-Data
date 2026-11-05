@@ -13,6 +13,10 @@ from fastapi import HTTPException
 import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer.scope import Scope, traverse_scope
+from context_manager.view_fallthrough import (
+    is_direct_table_projection,
+    rewrite_table_references,
+)
 
 from .semantic_store import neo4j_session
 from .datasource_active_api import load_datasource_config
@@ -118,9 +122,10 @@ def validate_dataset_sql(
     datasource_id: str,
     driver,
     dialect: str | None = None,
-) -> None:
+) -> str:
+    """Resolve logical table references and return SQL validated for this scope."""
     if dataset_names is None:
-        return
+        return sql
     names = list(dict.fromkeys(n.strip() for n in dataset_names if n.strip()))
     if not names or not datasource_id:
         _reject(
@@ -135,7 +140,8 @@ def validate_dataset_sql(
             records = session.run(
                 """MATCH (ds:Dataset)
                 WHERE ds.datasource_id = $datasource_id AND ds.name IN $names
-                RETURN ds.name AS name, ds.parents AS parents""",
+                RETURN ds.name AS name, ds.parents AS parents,
+                       ds.sql AS sql, ds.filter_summary AS filter_summary""",
                 datasource_id=datasource_id,
                 names=names,
             ).data()
@@ -156,13 +162,23 @@ def validate_dataset_sql(
         )
     allowed: set[tuple[str, ...]] = set()
     mappings: dict[str, set[tuple[str, ...]]] = {}
+    physical_identifiers: dict[tuple[str, ...], exp.Table] = {}
+    unsafe_aliases: set[str] = set()
     try:
         for record in records:
             parents = _parents(record.get("parents") or []) or [record["name"]]
-            targets = {
-                _table_name(sqlglot.parse_one(p, into=exp.Table, read=dialect))
-                for p in parents
-            }
+            parsed = [
+                sqlglot.parse_one(p, into=exp.Table, read=dialect) for p in parents
+            ]
+            targets = {_table_name(table) for table in parsed}
+            physical_identifiers.update({_table_name(table): table for table in parsed})
+            if record.get("filter_summary") or any(
+                not is_direct_table_projection(
+                    record.get("sql") or "", table, dialect=dialect
+                )
+                for table in parsed
+            ):
+                unsafe_aliases.add(record["name"].casefold())
             old = mappings.setdefault(record["name"], targets)
             if old != targets:
                 _reject(
@@ -181,6 +197,52 @@ def validate_dataset_sql(
                 "message": "Dataset physical table mapping is invalid.",
             },
         ) from exc
+
+    # Resolve only confirmed, single-parent logical datasets in this scope.
+    # Preserve already-physical names and explicit schemas outside the mapping.
+    def resolve(table):
+        reference = _table_name(table)
+        if reference in allowed or (
+            len(reference) == 1 and sum(a[-1] == reference[0] for a in allowed) == 1
+        ):
+            return None
+        matches = [
+            targets
+            for name, targets in mappings.items()
+            if name.casefold() == reference[-1]
+        ]
+        if not matches:
+            return None
+        if reference[-1] in unsafe_aliases:
+            _reject(
+                "SQL_DATASET_REWRITE_UNSAFE",
+                "Dataset has SQL transformations or filters; use explicit physical SQL preserving its definition.",
+            )
+        targets = set.union(*matches)
+        if len(targets) != 1:
+            _reject(
+                "SQL_DATASET_AMBIGUOUS",
+                "Logical dataset has no unique physical table; use confirmed physical names.",
+            )
+        target = next(iter(targets))
+        if len(reference) > 1 and reference[:-1] not in (target[:-1], ("cm_view",)):
+            return None
+        return physical_identifiers[target]
+
+    # Validate syntax/source kinds before rewriting; parsing failure never bypasses scope.
+    extract_physical_tables(sql, dialect=dialect)
+    try:
+        sql = rewrite_table_references(sql, resolve, dialect=dialect)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "SQL_SCOPE_UNPARSED",
+                "message": "Logical SQL could not be resolved safely.",
+            },
+        ) from exc
     tables = extract_physical_tables(sql, dialect=dialect)
     # An unqualified source may refer to a qualified registered table. An
     # explicit schema must match; do not allow other_schema.same_table.
@@ -197,3 +259,4 @@ def validate_dataset_sql(
             tables=sorted(bad),
             allowed_tables=sorted(".".join(t) for t in allowed),
         )
+    return sql

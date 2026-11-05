@@ -46,6 +46,7 @@ from context_manager.view_fallthrough import (
     extract_cm_view_refs,
     extract_missing_table_name,
     is_view_not_found_error,
+    is_direct_table_projection,
     rewrite_cm_view_to_physical,
     rewrite_dataset_to_physical,
 )
@@ -570,14 +571,17 @@ def _execute_sql_via_odps_akless(
         )
 
 
-def _resolve_dataset_parents(names: set[str]) -> dict[str, list[tuple[str, str]]]:
+def _resolve_dataset_parents(
+    names: set[str], *, datasource_id: str, dialect: str | None = None,
+) -> dict[str, list[tuple[str, str]]]:
     """查每个 dataset name 对应的 :Dataset)-[:CONTAINS_TABLE]->(:Table) 物理表列表。
 
     返回 {name: [(schema, table), ...]}; 找不到的 name 返回空 list,由 rewrite 端判断。
     """
-    if not names:
+    if not names or not datasource_id:
         return {}
     from neo4j import GraphDatabase  # 局部 import,避免循环依赖与启动期开销
+    from sqlglot import exp
 
     out: dict[str, list[tuple[str, str]]] = {n: [] for n in names}
     driver = GraphDatabase.driver(
@@ -586,12 +590,25 @@ def _resolve_dataset_parents(names: set[str]) -> dict[str, list[tuple[str, str]]
     try:
         cypher = (
             "UNWIND $names AS n "
-            "MATCH (d:Dataset {name: n})-[:CONTAINS_TABLE]->(t:Table) "
-            "RETURN n AS name, t.schema AS schema, t.name AS table"
+            "MATCH (d:Dataset {name: n, datasource_id: $datasource_id})-[:CONTAINS_TABLE]->(t:Table) "
+            "RETURN DISTINCT n AS name, t.schema AS schema, t.name AS table, "
+            "d.sql AS sql, d.filter_summary AS filter_summary"
         )
+        unsafe = set()
         with driver.session(database=CFG.neo4j_database) as s:
-            for rec in s.run(cypher, names=list(names)):
-                out[rec["name"]].append((rec["schema"], rec["table"]))
+            for rec in s.run(cypher, names=list(names), datasource_id=datasource_id):
+                schema, table = rec["schema"] or "", rec["table"]
+                target = exp.Table(
+                    this=exp.to_identifier(table),
+                    db=exp.to_identifier(schema) if schema else None,
+                )
+                if rec.get("filter_summary") or not is_direct_table_projection(
+                    rec.get("sql") or "", target, dialect=dialect,
+                ):
+                    unsafe.add(rec["name"])
+                out[rec["name"]].append((schema, table))
+        for name in unsafe:
+            out[name] = []
     finally:
         driver.close()
     return out
@@ -602,6 +619,7 @@ def execute_sql(
     *,
     max_rows: int = 200,
     datasource_id: str = "",
+    allow_fallthrough: bool = True,
 ) -> ExecResult:
     """执行只读 SQL。后端由当前数据源 ``_datasource_type`` 决定，凭证一律来自 semantic_config.db。
 
@@ -675,38 +693,38 @@ def execute_sql(
     # 2) View 未建: materialize 还没跑 / 跑失败 / 新 import 后还没触发，
     #    agent 写 SELECT ... FROM view_xxx 报 "does not exist"。
     #    从错误消息提取表名，查图匹配 :Dataset，单 parent 时改写为物理表重试。
-    if first.error and is_view_not_found_error(first.error):
+    if allow_fallthrough and first.error and is_view_not_found_error(first.error):
         rewritten: str | None = None
+        dialect = {
+            "direct": "postgres", "pymysql_direct": "mysql", "duckdb_direct": "duckdb",
+            "sqlite_direct": "sqlite", "odps_akless": "hive",
+        }.get(backend)
 
         # 路径 1: cm_view.<name> legacy 前缀
-        _LEGACY_CM_VIEW_PREFIX = "cm_view."
-        if _LEGACY_CM_VIEW_PREFIX in sql_clean.lower():
-            try:
-                refs = extract_cm_view_refs(sql_clean)
-                parents = _resolve_dataset_parents(refs)
-                rewritten = rewrite_cm_view_to_physical(sql_clean, parents)
-            except FallthroughGiveUp as exc:
-                log.info("view_fallthrough=skipped reason=%s", exc)
-                return first
-
-        # 路径 2: 裸名 view_xxx（view 未建）
-        if rewritten is None:
-            missing_name = extract_missing_table_name(first.error)
-            if missing_name:
-                parents = _resolve_dataset_parents({missing_name})
-                tables = parents.get(missing_name) or []
-                if len(tables) == 1:
+        try:
+            refs = extract_cm_view_refs(sql_clean, dialect=dialect)
+            if refs:
+                parents = _resolve_dataset_parents(
+                    refs, datasource_id=active_ds, dialect=dialect,
+                )
+                rewritten = rewrite_cm_view_to_physical(sql_clean, parents, dialect=dialect)
+            else:
+                missing_name = extract_missing_table_name(first.error)
+                if missing_name:
+                    parents = _resolve_dataset_parents(
+                        {missing_name}, datasource_id=active_ds, dialect=dialect,
+                    )
+                    tables = parents.get(missing_name) or []
+                    if len(tables) != 1:
+                        raise FallthroughGiveUp(f"dataset {missing_name!r} has {len(tables)} parents")
                     rewritten = rewrite_dataset_to_physical(
-                        sql_clean, missing_name, tables[0],
+                        sql_clean, missing_name, tables[0], dialect=dialect,
                     )
-                else:
-                    log.info(
-                        "view_fallthrough=skipped reason=dataset '%s' has %d parents; cannot fallthrough",
-                        missing_name, len(tables),
-                    )
-                    return first
+        except Exception:
+            log.info("view_fallthrough=skipped; original query error retained", exc_info=True)
+            return first
 
-        if rewritten is not None:
+        if rewritten is not None and rewritten != sql_clean:
             log.info("view_fallthrough=true original_error=%s", first.error[:200])
             retry = _dispatch(rewritten)
             if retry.error:
@@ -933,6 +951,7 @@ async def execute_sql_async(
     max_rows: int = 200,
     datasource_id: str = "",
     governor: BlockingIOGovernor | None = None,
+    allow_fallthrough: bool = True,
 ) -> ExecResult:
     """Run :func:`execute_sql` in the SQL thread pool (non-blocking for asyncio)."""
     if governor is not None:
@@ -943,6 +962,7 @@ async def execute_sql_async(
             sql,
             max_rows=max_rows,
             datasource_id=datasource_id,
+            allow_fallthrough=allow_fallthrough,
         )
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
@@ -951,6 +971,7 @@ async def execute_sql_async(
             sql,
             max_rows=max_rows,
             datasource_id=datasource_id,
+            allow_fallthrough=allow_fallthrough,
         ),
     )
 

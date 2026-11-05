@@ -79,12 +79,22 @@ the DataBridge MCP forwards it to both the normal SQL API contract and its
 streaming equivalent. REST callers may supply `dataset_names` directly.
 
 Before cache lookup or execution, DataBridge resolves each dataset on that
-datasource and checks physical SQL table references against its `parents` mapping
-(or its own name when no mapping exists). CTEs and subqueries use SQL scopes;
+datasource. Confirmed single-parent logical references (bare, `cm_view` or the
+registered physical schema) are rewritten using SQL syntax trees; multi-parent
+datasets must be queried by confirmed physical names. Declared dataset filters or
+SQL transformations cannot be dropped by this rewrite. The rewritten SQL is checked
+against the selected datasets' `parents` mappings (or their own names when no
+mapping exists), then used for both cache lookup and execution. Scoped execution
+does not retry through the legacy view-not-found fallback, and cached results
+whose executed SQL differs from the confirmed SQL are ignored. CTEs and subqueries use SQL scopes;
 an explicitly qualified table must match the registered schema. Missing or
 ambiguous datasets, graph failures, unsupported statements/table functions and
 unparseable SQL are rejected. Omitting `dataset_names` preserves unscoped behavior;
 an explicitly empty list is rejected. Cache entries are isolated by datasource.
+
+Unscoped view-not-found retries also use SQL syntax trees and resolve dataset
+parents only on the active datasource. They preserve aliases, literals and column
+identifiers; unresolved or ambiguous mappings retain the original query error.
 
 This is a table correctness guard, not an authorization boundary. It does not
 check columns, metric meanings, dates or regional scope. Existing connector
