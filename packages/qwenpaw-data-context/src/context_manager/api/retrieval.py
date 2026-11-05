@@ -526,6 +526,8 @@ def expand_subgraph(
     OPTIONAL MATCH (m)-[cd:ANALYZED_BY]->(dim:Dimension)
     OPTIONAL MATCH (dim)-[mc:MAPS_TO_COLUMN|MAPS_TO_DATASET_COLUMN]->(dim_col)
       WHERE dim_col:Column OR dim_col:DatasetColumn
+    // DatasetColumn 不带物理表名；经 DERIVED_FROM 找到宿主物理 Column 才有
+    OPTIONAL MATCH (dim_col)-[:DERIVED_FROM]->(phys_col:Column)
 
     // 派生
     OPTIONAL MATCH (m)-[df:DERIVED_FROM]->(parent:Metric)
@@ -537,7 +539,8 @@ def expand_subgraph(
     RETURN
       m  AS metric, dom AS domain,
       collect(DISTINCT {f: f, t: t, col: col, role: uc.role}) AS formula_rows,
-      collect(DISTINCT {dim: dim, col: dim_col, expr: mc.expr, filter: mc.filter,
+      collect(DISTINCT {dim: dim, col: dim_col, phys_col: phys_col,
+                         expr: mc.expr, filter: mc.filter,
                          binding_type: mc.binding_type}) AS drill_rows,
       collect(DISTINCT {parent: parent, role: df.role, relation_type: df.relation_type}) AS derived_rows,
       collect(DISTINCT {cal: cal, col: cal_col}) AS caliber_rows
@@ -662,12 +665,23 @@ def expand_subgraph(
                 )
             if dim_props.get("key") not in seen_dim:
                 seen_dim.add(dim_props.get("key"))
+                _dc_props = dict(r["col"]) if r.get("col") else {}
+                # DatasetColumn 节点没有 table 属性,物理表名经 DERIVED_FROM
+                # 落到物理 Column 上才有;Column 节点自带 table。
+                _phys = dict(r["phys_col"]) if r.get("phys_col") else {}
+                _col_table = str(_dc_props.get("table") or _phys.get("table") or "")
                 raw["drill_dims"].append(
                     {
                         "key": dim_props.get("key"),
                         "name": dim_props.get("name"),
                         "aliases": dim_props.get("aliases") or [],
                         "dimension_type": dim_props.get("dimension_type") or "OLAP维度",
+                        # 物理列映射：dim -[MAPS_TO_DATASET_COLUMN|MAPS_TO_COLUMN]-> 列。
+                        # 模型写 SQL 需要物理列名；只渲染中文名会让模型凭语义猜列
+                        # （如把「地区」写成 region），实测必然 Unknown column。
+                        "column": str(_dc_props.get("name") or ""),
+                        "column_table": _col_table,
+                        "expr": str(r.get("expr") or ""),
                     }
                 )
 

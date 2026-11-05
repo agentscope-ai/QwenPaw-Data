@@ -67,6 +67,12 @@ class CommonFilter(BaseModel):
 class DrillDimension(BaseModel):
     name: str
     relationship: str = ""
+    # 维度绑定的物理列（dataset 表里的真实列名）与所属物理表。
+    # schema_prompt 渲染可下钻维度时带上它们，模型才不会凭中文语义猜列名。
+    column: str = ""
+    column_table: str = ""
+    # 原始绑定表达式（select(...)），保留给需要口径细节的调用方。
+    expr: str = ""
 
 
 # ---------------------------------------------------------------------- #

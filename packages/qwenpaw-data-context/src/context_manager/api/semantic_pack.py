@@ -179,6 +179,9 @@ def _build_drill_dimensions(expanded: dict[str, Any], cap: int) -> list[DrillDim
         out.append(DrillDimension(
             name=name,
             relationship=dim_type,
+            column=str(dr.get("column") or ""),
+            column_table=str(dr.get("column_table") or ""),
+            expr=str(dr.get("expr") or ""),
         ))
         if len(out) >= cap:
             break
@@ -442,8 +445,24 @@ def render_schema_prompt(
             parts.append("  相关列:")
             parts.extend(col_lines)
         if m.drill_dimensions:
-            dim_names = ", ".join(d.name for d in m.drill_dimensions)
+            # 维度连同物理列一起渲染：模型写 SQL 时需要「地区 → region_name」
+            # 这类映射，只给中文名会诱导它按语义猜列（Unknown column 的主因）。
+            # 有 column 的渲染成「维度(列)」；无绑定的维度退回纯名字，保持兼容。
+            mapped = [d for d in m.drill_dimensions if d.column]
+            dim_names = ", ".join(
+                f"{d.name}({d.column})" if d.column else d.name
+                for d in m.drill_dimensions
+            )
             parts.append(f"  可下钻维度: {dim_names}")
+            # 带物理表的映射行，跨数据集下钻时模型才能定位列的宿主表。
+            table_lines = [
+                f"  · {d.name} → {d.column_table}.{d.column}"
+                for d in mapped
+                if d.column_table
+            ]
+            if table_lines:
+                parts.append("  维度列映射:")
+                parts.extend(table_lines)
         if m.common_filters:
             cf = "; ".join(c.description for c in m.common_filters if c.description)
             if cf:
