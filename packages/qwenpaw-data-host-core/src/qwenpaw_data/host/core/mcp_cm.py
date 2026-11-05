@@ -138,4 +138,9 @@ def inject_datasource_metadata(
         tool_input = dict(raw_input)
 
     tool_input["metadata"] = {"datasource_id": datasource_id}
+    # Only trusted request context supplies this scope, never model arguments.
+    if request_context.get("dataset_names") is not None:
+        tool_input["metadata"]["dataset_names"] = request_context["dataset_names"]
+        if tool_name.rsplit("__", 1)[-1] == "execute_sql":
+            tool_input["dataset_names"] = request_context["dataset_names"]
     tool_call.input = json.dumps(tool_input, ensure_ascii=False)

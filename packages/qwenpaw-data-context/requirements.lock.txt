@@ -39,7 +39,7 @@ attrs==26.1.0
     #   referencing
 babel==2.18.0
     # via agate
-certifi==2026.6.17
+certifi==2026.10.23
     # via
     #   -r requirements.txt
     #   httpcore
@@ -175,7 +175,7 @@ metricflow==0.213.0
     # via dbt-core
 more-itertools==10.8.0
     # via metricflow
-msgpack==1.2.1
+msgpack==1.2.4
     # via mashumaro
 multidict==6.9.1
     # via
@@ -245,7 +245,7 @@ pymysql==1.2.0
     # via -r requirements.txt
 pyodps==0.13.0
     # via -r requirements.txt
-pypdf==6.20.1
+pypdf==6.21.4
     # via -r requirements.txt
 python-dateutil==2.9.0.post0
     # via

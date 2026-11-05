@@ -56,11 +56,11 @@ class SqlResultCache:
         self._store: dict[str, SqlCacheEntry] = {}
 
     @staticmethod
-    def _make_key(sql: str, max_rows: int) -> str:
-        return f"{sql.strip()}||max_rows={max_rows}"
+    def _make_key(sql: str, max_rows: int, datasource_id: str = "") -> str:
+        return repr((datasource_id, sql.strip(), max_rows))
 
-    def get(self, sql: str, max_rows: int) -> SqlCacheEntry | None:
-        key = self._make_key(sql, max_rows)
+    def get(self, sql: str, max_rows: int, *, datasource_id: str = "") -> SqlCacheEntry | None:
+        key = self._make_key(sql, max_rows, datasource_id)
         entry = self._store.get(key)
         if entry is None:
             return None
@@ -78,8 +78,10 @@ class SqlResultCache:
         download_url: str | None,
         file_path: Path,
         ttl: float = SQL_DOWNLOAD_TTL_SECONDS,
+        *,
+        datasource_id: str = "",
     ) -> SqlCacheEntry:
-        key = self._make_key(sql, max_rows)
+        key = self._make_key(sql, max_rows, datasource_id)
         entry = SqlCacheEntry(
             key=key,
             result=result,

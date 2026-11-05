@@ -149,3 +149,11 @@ server {
 - `src/i18n`：国际化文案
 
 应用代码中的 UI 组件应优先从 `@/design` 引入。这里封装了 `@agentscope-ai/design`、Ant Design Pro Table，以及项目内统一表格行为。不要在业务页面里直接从 `antd` 或 `@ant-design/*` 引入组件，除非封装层暂时没有提供对应能力。
+
+## Packaged Console deployment
+
+`python scripts/build_console.py` builds this UI with `--mode console` into
+the `qwenpaw-data-console` wheel, mounted at `/databridge/`. This mode reads
+no checkout `.env`; the local portal supplies routing and authentication
+settings through `/console-config.js`. Standalone builds keep their existing
+root routing and session-token authentication. No source rewriting is needed.

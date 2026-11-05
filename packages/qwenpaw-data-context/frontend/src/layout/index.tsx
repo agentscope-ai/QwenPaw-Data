@@ -1,3 +1,4 @@
+import { getConsoleConfig } from '@/services/consoleConfig';
 import { useMemo, Suspense } from 'react';
 import { Outlet, Link, useLocation, useMatches, useSearchParams } from 'react-router';
 import { ProLayout } from '@/design';
@@ -93,7 +94,7 @@ export default function Layout() {
         <div className={styles.brandHeader}>
           <img
             className={styles.logoWordmark}
-            src="/qwenpaw-data-wordmark.png?v=20260711b"
+            src={`${import.meta.env.BASE_URL}qwenpaw-data-wordmark.png?v=20260711b`}
             alt="QwenPaw-Data"
           />
         </div>
@@ -133,6 +134,7 @@ export default function Layout() {
       }}
       headerContentRender={() => <></>}
       actionsRender={() => [
+        ...(getConsoleConfig()?.console_url ? [<a key="console" href={getConsoleConfig()?.console_url}>返回分析</a>] : []),
         <ModelConfigButton key="model-config" />,
         <LanguageSwitcher key="language" />,
       ]}

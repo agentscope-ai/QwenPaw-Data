@@ -44,6 +44,7 @@ from ..permission import ConfirmationHandler, deny_confirmation
 from ..utils.msg import user_msg
 from .mcp_client_log import log_mcp_client_event
 from .tool_diagnostics import log_awaiting_tool_calls
+from .middleware.tool_timeout import ToolTimeoutMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class QwenPawDataAgent(Agent):
                 ),
             )
 
-        middlewares = (middlewares or []) + self._build_middlewares()
+        middlewares = [ToolTimeoutMiddleware()] + (middlewares or []) + self._build_middlewares()
 
         super().__init__(
             name=name,
