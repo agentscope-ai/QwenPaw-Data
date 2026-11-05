@@ -22,6 +22,7 @@ from qwenpaw_data.host.core.cm_client import (
     resolve_cm_base_url,
 )
 from qwenpaw_data.host.core.mcp_cm import is_cm_mcp_tool_name
+from qwenpaw_data.host.core.sql_results import save_sql_result
 
 logger = logging.getLogger(__name__)
 
@@ -189,4 +190,8 @@ async def materialize_execute_sql_result(
     )
     payload["file_path"] = str(model_dest)
     del payload["download_url"]
+    try:
+        payload["result_id"] = save_sql_result(payload, artifact_dir=artifact_dir, csv_path=dest)
+    except (OSError, ValueError) as exc:
+        raise SqlArtifactError("could not register SQL result reference", phase="write") from exc
     return json.dumps(payload, ensure_ascii=False)

@@ -24,8 +24,10 @@ function authenticationConfigured(env: Record<string, string>): boolean {
 }
 
 export default defineConfig(({ mode }) => {
+  const consoleBuild = mode === 'console';
   const repoRoot = path.resolve(import.meta.dirname, '../../..');
-  const env = loadEnv(mode, repoRoot, '');
+  // Console release builds are independent of the publisher's private .env.
+  const env = consoleBuild ? {} : loadEnv(mode, repoRoot, '');
   const serviceBaseUrl = env.VITE_API_BASE_URL || env.SERVICE_BASE_URL || 'http://localhost:8765';
   const allowedHosts = [
     'localhost',
@@ -37,9 +39,16 @@ export default defineConfig(({ mode }) => {
   ];
 
   return {
-    envDir: repoRoot,
+    base: consoleBuild ? '/databridge/' : '/',
+    envDir: consoleBuild ? false : repoRoot,
     plugins: [
       react(),
+      ...(consoleBuild ? [{
+        name: 'qwenpaw-data-console-config',
+        transformIndexHtml() {
+          return [{ tag: 'script', attrs: { src: '/console-config.js' }, injectTo: 'head-prepend' as const }];
+        },
+      }] : []),
       {
         name: 'qwenpaw-data-public-frontend-auth-guard',
         configResolved(config) {

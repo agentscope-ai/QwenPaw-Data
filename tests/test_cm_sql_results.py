@@ -40,3 +40,14 @@ def test_old_import_contract_path_is_compatible() -> None:
     from context_manager.contracts.import_models import ImportRequest
 
     assert OldImportRequest is ImportRequest
+
+
+def test_sql_cache_does_not_cross_datasources(tmp_path: Path) -> None:
+    cache = cm_sql_results.SqlResultCache()
+    path = tmp_path / "result.csv"
+    path.write_text("value\n1\n")
+    result = ExecResult(sql="SELECT * FROM t", columns=["value"], rows=[[1]], row_count=1)
+    cache.put(result.sql, 10, result, "success", "/result.csv", path, datasource_id="a")
+    assert cache.get(result.sql, 10, datasource_id="a") is not None
+    assert cache.get(result.sql, 10, datasource_id="b") is None
+    assert cache.get(result.sql, 10) is None

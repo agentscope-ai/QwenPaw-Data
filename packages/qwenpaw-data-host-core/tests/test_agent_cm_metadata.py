@@ -86,3 +86,16 @@ def test_inject_handles_malformed_input() -> None:
     assert json.loads(tool_call.input) == {
         "metadata": {"datasource_id": "mysql-abc123"},
     }
+
+
+def test_dataset_scope_is_trusted_and_cannot_be_widened_by_model():
+    agent = _make_agent()
+    agent._request_context["dataset_names"] = ["econ_observations"]
+    call = _tool_call("mcp__context-manager__execute_sql", json.dumps({
+        "sql": "SELECT * FROM wrong", "dataset_names": ["wrong"],
+        "metadata": {"dataset_names": ["wrong"]},
+    }))
+    agent._inject_datasource_metadata(call)
+    data = json.loads(call.input)
+    assert data["dataset_names"] == ["econ_observations"]
+    assert data["metadata"]["dataset_names"] == ["econ_observations"]

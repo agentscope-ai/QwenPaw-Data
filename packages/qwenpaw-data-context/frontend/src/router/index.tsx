@@ -1,4 +1,5 @@
 import React from 'react';
+import { getContextBasePath } from '@/services/consoleConfig';
 import Layout from '@/layout/index';
 import {
   hasConfiguredModelApiKey,
@@ -236,6 +237,6 @@ const router = createBrowserRouter([
       },
     ],
   },
-]);
+], { basename: getContextBasePath() });
 
 export default router;

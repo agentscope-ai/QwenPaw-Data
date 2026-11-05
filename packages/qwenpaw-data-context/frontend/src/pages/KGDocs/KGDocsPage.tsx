@@ -1,3 +1,4 @@
+import { getConsoleConfig } from "@/services/consoleConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Modal, Table, type TableProps } from "@/design";
 import {
@@ -275,7 +276,7 @@ export default function KGDocsPage() {
                 window.open(
                   record.download_url,
                   "_blank",
-                  "noopener,noreferrer",
+                  getConsoleConfig()?.auth_mode === "portal" ? "noopener" : "noopener,noreferrer",
                 )
               }
             >
