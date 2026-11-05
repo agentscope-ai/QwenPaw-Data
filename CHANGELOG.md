@@ -19,6 +19,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Retain the graph completed during a reply in Agent/CLI execution metadata,
+  without leaking its completion into subsequent graph-free replies.
 - Propagate main-agent cancellation to the Host so stopped runs finish as canceled
   and the same session can accept a follow-up request.
 - Apply tool deadlines to spawned agents and drain their event tasks and streams
