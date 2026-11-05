@@ -278,9 +278,13 @@ export default function DataConnectionPage() {
       okButtonProps: { danger: true },
       cancelText: t("common.cancel"),
       onOk: async () => {
-        await deleteDataSource(record.datasource_id);
-        message.success(t("dataConnection.deleteSuccess"));
-        await reloadConnections();
+        try {
+          await deleteDataSource(record.datasource_id);
+          message.success(t("dataConnection.deleteSuccess"));
+          await reloadConnections();
+        } catch {
+          // API 错误由响应拦截器统一提示
+        }
       },
     });
   };

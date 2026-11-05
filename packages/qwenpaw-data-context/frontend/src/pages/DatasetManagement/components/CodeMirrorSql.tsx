@@ -9,8 +9,8 @@ interface CodeMirrorSqlProps {
     placeholder?: string;
     /** 是否可编辑，false 时为只读模式 */
     editable?: boolean;
-    /** 受控模式下的值 */
-    value?: string;
+    /** 受控模式下的值；null 会被归一为空串（后端 sql_content 可能为 null） */
+    value?: string | null;
     /** 值变化时的回调 */
     onChange?: (value: string) => void;
     /** 编辑器高度，默认 200px */
@@ -39,7 +39,9 @@ const CodeMirrorSql: React.FC<CodeMirrorSqlProps> = ({
 
     // 判断是否为受控模式：当外部传入了 value prop 时为受控模式
     const isControlled = value !== undefined;
-    const currentValue = isControlled ? value : internalValue;
+    // Form.Item 会把表单值原样传下来，后端 sql_content 可能为 null；
+    // CodeMirror 对非字符串 value 会直接 throw，这里统一归一成空串
+    const currentValue = isControlled ? (value ?? '') : internalValue;
 
     const handleChange = (val: string) => {
         // 非受控模式更新内部状态
