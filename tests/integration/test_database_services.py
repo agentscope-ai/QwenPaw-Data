@@ -95,8 +95,11 @@ def test_mysql_server_honors_generated_timeout_hint(monkeypatch, prefix) -> None
         read_timeout=3,
     )
     with connection, connection.cursor() as cursor:
-        # SLEEP alone returns 1 on interruption; WHERE makes it a statement error.
-        sql = prefix + "SELECT value FROM (SELECT 1 AS value) AS t WHERE SLEEP(2) = 0"
+        # A real table scan is required: MySQL may constant-fold a derived SELECT
+        # and turn an interrupted SLEEP predicate into an empty successful result.
+        cursor.execute("CREATE TEMPORARY TABLE timeout_probe (value INT)")
+        cursor.execute("INSERT INTO timeout_probe VALUES (1)")
+        sql = prefix + "SELECT value FROM timeout_probe WHERE SLEEP(2) = 0"
         with pytest.raises(pymysql.err.OperationalError) as raised:
             cursor.execute(executor._mysql_with_timeout_hint(sql))
         assert raised.value.args[0] == 3024
