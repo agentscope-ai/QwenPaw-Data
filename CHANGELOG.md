@@ -27,6 +27,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   different databases from sharing results.
 - Resolve logical dataset tables through SQL syntax trees before scoped execution;
   preserve literals, CTEs and column bindings and scope legacy fallback by datasource.
+- Restore Ant Design static dialogs and notifications on React 19, and normalize
+  null SQL content in the dataset editor instead of crashing.
 
 ### Changed
 
