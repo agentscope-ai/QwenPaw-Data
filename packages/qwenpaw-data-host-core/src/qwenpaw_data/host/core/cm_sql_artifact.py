@@ -8,12 +8,13 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Iterable
 from urllib.parse import urlparse
 
 import httpx
 
+from qwenpaw_data.host.core.artifact_paths import model_visible_path
 from qwenpaw_data.host.core.cm_client import (
     API_TOKEN_ENV,
     CLIENT_API_TOKEN_ENV,
@@ -21,6 +22,7 @@ from qwenpaw_data.host.core.cm_client import (
     resolve_cm_base_url,
 )
 from qwenpaw_data.host.core.mcp_cm import is_cm_mcp_tool_name
+from qwenpaw_data.host.core.sql_results import save_sql_result
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +123,7 @@ async def materialize_execute_sql_result(
     result_text: str,
     *,
     artifact_dir: Path | str,
-    model_artifact_dir: Path | str | None = None,
+    model_artifact_dir: PurePath | str | None = None,
     access_token: str | None = None,
     transport: httpx.BaseTransport | None = None,
     log_context: SqlArtifactLogContext | None = None,
@@ -184,8 +186,12 @@ async def materialize_execute_sql_result(
     model_dest = (
         dest.resolve()
         if model_artifact_dir is None
-        else Path(model_artifact_dir) / relative_path
+        else model_visible_path(model_artifact_dir).joinpath(*relative_path.parts)
     )
     payload["file_path"] = str(model_dest)
     del payload["download_url"]
+    try:
+        payload["result_id"] = save_sql_result(payload, artifact_dir=artifact_dir, csv_path=dest)
+    except (OSError, ValueError) as exc:
+        raise SqlArtifactError("could not register SQL result reference", phase="write") from exc
     return json.dumps(payload, ensure_ascii=False)

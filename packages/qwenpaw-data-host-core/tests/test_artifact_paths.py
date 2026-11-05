@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,6 +11,35 @@ from qwenpaw_data.host.core.orchestration.state import (
     RuntimeStateManager,
     _validate_business_view_html,
 )
+
+
+@pytest.mark.parametrize(
+    "model_root,expected",
+    [
+        (
+            PurePosixPath("/workspace/artifacts/session-1"),
+            "/workspace/artifacts/session-1",
+        ),
+        (
+            PureWindowsPath("/workspace/artifacts/session-1"),
+            "/workspace/artifacts/session-1",
+        ),
+        (
+            PureWindowsPath("C:/workspace/artifacts/session-1"),
+            r"C:\workspace\artifacts\session-1",
+        ),
+        (
+            PureWindowsPath("//server/share/artifacts/session-1"),
+            r"\\server\share\artifacts\session-1",
+        ),
+    ],
+)
+def test_model_path_namespace_is_independent_of_host(tmp_path, model_root, expected):
+    context = ArtifactPathContext(tmp_path, model_root)
+    assert context.model_artifact_dir == expected
+    assert (
+        context.resolve_ref(expected + "/data.csv").host_path == tmp_path / "data.csv"
+    )
 
 
 def test_business_view_html_allows_chartless_shared_template(
@@ -182,9 +211,7 @@ async def test_update_subtask_validates_files_transactionally(
 
     node = runtime.get_current_in_progress_node()
     assert failed.state is ToolResultState.ERROR
-    failed_text = "".join(
-        getattr(block, "text", "") for block in failed.content
-    )
+    failed_text = "".join(getattr(block, "text", "") for block in failed.content)
     assert "graph/node/missing.csv" in failed_text
     assert str(base_dir) not in failed_text
     assert node is not None
@@ -221,18 +248,14 @@ async def test_update_subtask_validates_files_transactionally(
         files=[
             {
                 "name": "empty.csv",
-                "path": (
-                    "/workspace/artifacts/session-1/graph/./node/empty.csv"
-                ),
+                "path": ("/workspace/artifacts/session-1/graph/./node/empty.csv"),
                 "mime_type": "text/csv",
             },
         ],
     )
 
     assert completed.state is not ToolResultState.ERROR
-    assert runtime._graph_nodes()[0].output.files[0].path == (
-        "graph/node/empty.csv"
-    )
+    assert runtime._graph_nodes()[0].output.files[0].path == ("graph/node/empty.csv")
     assert runtime.artifacts[0].path == "graph/node/empty.csv"
     assert runtime.artifacts[0].size_bytes == 0
     notify.assert_awaited_once()
@@ -287,9 +310,7 @@ async def test_update_subtask_rejects_static_images_in_html_artifacts(
     )
 
     assert rejected.state is ToolResultState.ERROR
-    rejected_text = "".join(
-        getattr(block, "text", "") for block in rejected.content
-    )
+    rejected_text = "".join(getattr(block, "text", "") for block in rejected.content)
     assert "must not contain <img> tags" in rejected_text
     assert "ECharts" in rejected_text
     node = runtime.get_current_in_progress_node()

@@ -98,15 +98,11 @@ class SQLPreferencesStore:
                 default_provider_id=(
                     None if active is None else active.default_provider_id
                 ),
-                default_model_id=(
-                    None if active is None else active.default_model_id
-                ),
+                default_model_id=(None if active is None else active.default_model_id),
                 light_provider_id=(
                     None if active is None else active.light_provider_id
                 ),
-                light_model_id=(
-                    None if active is None else active.light_model_id
-                ),
+                light_model_id=(None if active is None else active.light_model_id),
             )
 
     async def upsert_provider(
@@ -164,9 +160,7 @@ class SQLPreferencesStore:
             provider_id, model_id, source=source, name=name
         )
         async with self._sessions() as db:
-            row = await db.get(
-                UserProviderModelRow, (user_id, provider_id, model_id)
-            )
+            row = await db.get(UserProviderModelRow, (user_id, provider_id, model_id))
             now = utcnow()
             if row is None:
                 db.add(
@@ -196,13 +190,9 @@ class SQLPreferencesStore:
         model_id: str,
     ) -> None:
         async with self._sessions() as db:
-            row = await db.get(
-                UserProviderModelRow, (user_id, provider_id, model_id)
-            )
+            row = await db.get(UserProviderModelRow, (user_id, provider_id, model_id))
             if row is None:
-                raise LookupError(
-                    f"model config not found: {provider_id}/{model_id}"
-                )
+                raise LookupError(f"model config not found: {provider_id}/{model_id}")
             await db.delete(row)
             await db.commit()
 
@@ -387,6 +377,7 @@ class SQLSessionStore:
     async def list(
         self,
         *,
+        user_id: str | None = None,
         search_text: str | None = None,
         status: str | None = None,
         datasource_id: str | None = None,
@@ -405,6 +396,8 @@ class SQLSessionStore:
             q = select(SessionRow, has_active).where(
                 SessionRow.deleted_at.is_(None),
             )
+            if user_id is not None:
+                q = q.where(SessionRow.user_id == user_id)
             if search_text:
                 q = q.where(SessionRow.title.contains(search_text))
             if datasource_id:
@@ -464,6 +457,7 @@ def _chat_from_row(row: ChatRow) -> Chat:
         plan=row.plan,
         artifact_comments=list(row.artifact_comments_json or []),
         attachments=list(row.attachments_json or []),
+        dataset_names=list(row.dataset_names_json or []),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -481,6 +475,7 @@ def _apply_chat(row: ChatRow, chat: Chat) -> None:
     row.plan = chat.plan
     row.artifact_comments_json = list(chat.artifact_comments)
     row.attachments_json = list(chat.attachments)
+    row.dataset_names_json = list(chat.dataset_names)
     row.updated_at = chat.updated_at
 
 
@@ -511,6 +506,7 @@ class SQLChatStore:
                     plan=chat.plan,
                     artifact_comments_json=list(chat.artifact_comments),
                     attachments_json=list(chat.attachments),
+        dataset_names_json=list(chat.dataset_names),
                     created_at=chat.created_at,
                     updated_at=chat.updated_at,
                 )
@@ -567,9 +563,7 @@ class SQLChatStore:
     async def list_active(self) -> list[Chat]:
         async with self._sessions() as db:
             rows = (
-                await db.scalars(
-                    select(ChatRow).where(ChatRow.status.in_(ACTIVE))
-                )
+                await db.scalars(select(ChatRow).where(ChatRow.status.in_(ACTIVE)))
             ).all()
             return [_chat_from_row(r) for r in rows]
 
@@ -802,11 +796,7 @@ class SQLSettlementStore:
         db: AsyncSession, user_id: str, card_id: str, *, session_id: str
     ) -> SettlementCardRow:
         row = await db.get(SettlementCardRow, card_id)
-        if (
-            row is None
-            or row.session_id != session_id
-            or row.user_id != user_id
-        ):
+        if row is None or row.session_id != session_id or row.user_id != user_id:
             raise LookupError(f"settlement card not found: {card_id}")
         return row
 
@@ -1058,9 +1048,7 @@ class SQLFeedbackStore:
                         FeedbackRow.chat_id == chat_id,
                         FeedbackRow.kind.in_(("like", "dislike")),
                     )
-                    .order_by(
-                        FeedbackRow.created_at.desc(), FeedbackRow.id.desc()
-                    )
+                    .order_by(FeedbackRow.created_at.desc(), FeedbackRow.id.desc())
                 )
             ).all()
         )

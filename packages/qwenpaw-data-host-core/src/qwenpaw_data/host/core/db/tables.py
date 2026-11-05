@@ -74,6 +74,7 @@ class ChatRow(UserIdColumn, Base):
         JSON, nullable=False, default=list
     )
     attachments_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    dataset_names_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

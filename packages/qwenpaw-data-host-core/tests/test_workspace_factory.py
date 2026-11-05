@@ -302,6 +302,10 @@ async def test_docker_initialize_uses_public_hook_and_restores_host_mcp(
         "Authorization": "Bearer runtime-client-secret",
     }
     assert json.loads(mcp_path.read_text(encoding="utf-8")) == host_specs
+    # Session-scoped gateway clients need defaults as well as the legacy file.
+    assert [client.name for client in workspace.default_mcps] == ["databridge"]
+    default = workspace.default_mcps[0].model_dump(mode="json")
+    assert default["mcp_config"] == observed[0]["mcp_config"]
 
 
 def test_container_mcp_specs_does_not_leak_token_to_remote_endpoint(
@@ -327,3 +331,20 @@ def test_container_mcp_specs_does_not_leak_token_to_remote_endpoint(
     assert remote_specs[0]["mcp_config"]["headers"] == {
         "X-Existing": "preserved",
     }
+
+
+@pytest.mark.asyncio
+async def test_scoped_mcp_declarations_override_workspace_defaults(paths):
+    from agentscope.mcp import MCPClient
+    shared = MCPClient(name="shared", is_stateful=False, mcp_config={"type": "http_mcp", "url": "http://127.0.0.1:8000/mcp"}).model_dump(mode="json")
+    private = {**shared, "name": "private"}
+    paths.workspace.mkdir(parents=True, exist_ok=True)
+    paths.mcp_config_file.write_text(json.dumps({"version": 2, "mcps": {"": {"": [shared], "private-session": [private], "disabled-session": []}}}))
+    workspace = create_local_workspace(paths)
+    try:
+        await workspace.initialize()
+        assert [c.name for c in await workspace.list_mcps(session_id="new-session")] == ["shared"]
+        assert [c.name for c in await workspace.list_mcps(session_id="private-session")] == ["private"]
+        assert await workspace.list_mcps(session_id="disabled-session") == []
+    finally:
+        await workspace.close()

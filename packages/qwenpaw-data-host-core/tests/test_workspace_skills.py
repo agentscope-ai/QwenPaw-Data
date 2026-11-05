@@ -242,6 +242,12 @@ async def test_local_workspace_loads_existing_mcp(
     try:
         await workspace.initialize()
         mcps = await workspace.list_mcps()
+        first = await workspace.list_mcps(session_id="analysis-one")
+        second = await workspace.list_mcps(session_id="analysis-two")
+        assert [client.name for client in first] == ["context-manager"]
+        assert [client.name for client in second] == ["context-manager"]
+        assert first[0] is not second[0]
+        assert first[0] is not mcps[0]
     finally:
         close = getattr(workspace, "close", None)
         if callable(close):

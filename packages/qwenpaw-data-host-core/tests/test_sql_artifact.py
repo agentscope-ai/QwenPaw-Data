@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 
 import httpx
@@ -47,9 +47,32 @@ def _handler(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_root,expected",
+    [
+        (
+            Path("/workspace/artifacts/ses_1"),
+            "/workspace/artifacts/ses_1/data/raw/54814f8b.csv",
+        ),
+        (
+            PurePosixPath("/workspace/artifacts/ses_1"),
+            "/workspace/artifacts/ses_1/data/raw/54814f8b.csv",
+        ),
+        (
+            PureWindowsPath("/workspace/artifacts/ses_1"),
+            "/workspace/artifacts/ses_1/data/raw/54814f8b.csv",
+        ),
+        (
+            PureWindowsPath("C:/workspace/artifacts/ses_1"),
+            r"C:\workspace\artifacts\ses_1\data\raw\54814f8b.csv",
+        ),
+    ],
+)
 async def test_materialize_writes_csv_and_rewrites_to_file_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    model_root,
+    expected,
 ) -> None:
     monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
     captured: list[httpx.Request] = []
@@ -58,7 +81,7 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
     rewritten = await materialize_execute_sql_result(
         _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
         artifact_dir=artifact_dir,
-        model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+        model_artifact_dir=model_root,
         access_token="tok-user",
         transport=httpx.MockTransport(_handler(captured)),
     )
@@ -66,7 +89,7 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
     payload = json.loads(rewritten)
     dest = artifact_dir / "data" / "raw" / "54814f8b.csv"
     assert dest.read_bytes() == b"day,dau\n"
-    assert payload["file_path"] == "/workspace/artifacts/ses_1/data/raw/54814f8b.csv"
+    assert payload["file_path"] == expected
     assert "download_url" not in payload
     assert payload["rows"] == [[1]]
     assert len(captured) == 1

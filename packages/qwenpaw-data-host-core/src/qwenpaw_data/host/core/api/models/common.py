@@ -27,3 +27,9 @@ class DatasourceOptionSchema(ApiModel):
     status: str
     description: str = ""
     recommended: bool = False
+
+
+class DatasetOptionSchema(ApiModel):
+    id: str
+    name: str
+    description: str = ""

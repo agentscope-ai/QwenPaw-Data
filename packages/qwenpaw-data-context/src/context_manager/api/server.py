@@ -660,6 +660,8 @@ def create_app() -> FastAPI:
 
     # 先注册 body limit，再注册认证与 CORS；Starlette 后注册的中间件在外层，
     # 因此大请求仍须先通过认证，413 响应也会带正确的 CORS 头。
+    from ..runtime_model_binding import RuntimeModelBindingMiddleware
+    app.add_middleware(RuntimeModelBindingMiddleware)
     app.add_middleware(RequestBodyLimitMiddleware)
     app.add_middleware(ResourceBudgetMiddleware)
 
@@ -754,6 +756,7 @@ def create_app() -> FastAPI:
         governor = getattr(app.state, "blocking_io", None)
         return {
             "status": "ok",
+            "runtime_model_bindings": True,
             "event_loop_lag_ms": getattr(app.state, "event_loop_lag_ms", 0),
             "event_loop_max_lag_ms": getattr(app.state, "event_loop_max_lag_ms", 0),
             "sync_route_workers": getattr(app.state, "sync_route_workers", 0),

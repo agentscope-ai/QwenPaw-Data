@@ -149,9 +149,7 @@ class JSONPreferencesStore:
         doc = await asyncio.to_thread(self._read, user_id)
         key = f"{provider_id}/{model_id}"
         if key not in doc["models"]:
-            raise LookupError(
-                f"model config not found: {provider_id}/{model_id}"
-            )
+            raise LookupError(f"model config not found: {provider_id}/{model_id}")
         del doc["models"][key]
         await asyncio.to_thread(self._write, user_id, doc)
 
@@ -284,6 +282,7 @@ class JSONSessionStore:
     async def list(
         self,
         *,
+        user_id: str | None = None,
         search_text: str | None = None,
         status: str | None = None,
         datasource_id: str | None = None,
@@ -297,6 +296,8 @@ class JSONSessionStore:
         sessions = await asyncio.to_thread(self._scan_sessions)
         selected: list[tuple[Session, bool]] = []
         for session in sessions:
+            if user_id is not None and session.identity.user_id != user_id:
+                continue
             if session.deleted_at is not None:
                 continue
             if search_text and search_text not in session.title:
@@ -312,7 +313,9 @@ class JSONSessionStore:
                 continue
             selected.append((session, active))
         if sort == "chat_count_desc":
-            selected.sort(key=lambda p: (p[0].chat_count, p[0].updated_at), reverse=True)
+            selected.sort(
+                key=lambda p: (p[0].chat_count, p[0].updated_at), reverse=True
+            )
         elif sort == "updated_asc":
             selected.sort(key=lambda p: p[0].updated_at)
         else:
@@ -381,6 +384,7 @@ def _chat_to_dict(chat: Chat) -> dict[str, Any]:
         "plan": chat.plan,
         "artifact_comments": list(chat.artifact_comments),
         "attachments": list(chat.attachments),
+        "dataset_names": list(chat.dataset_names),
         "created_at": _dt_to_json(chat.created_at),
         "updated_at": _dt_to_json(chat.updated_at),
     }
@@ -408,6 +412,7 @@ def _chat_from_dict(data: dict[str, Any]) -> Chat:
         plan=data.get("plan"),
         artifact_comments=data.get("artifact_comments") or [],
         attachments=data.get("attachments") or [],
+        dataset_names=data.get("dataset_names") or [],
         created_at=_dt_from_json(data["created_at"]),
         updated_at=_dt_from_json(data["updated_at"]),
     )
@@ -759,11 +764,7 @@ class JSONSettlementStore:
         self, user_id: str, card_id: str, *, session_id: str
     ) -> dict[str, Any]:
         doc = await asyncio.to_thread(self._read, self._card_path(card_id))
-        if (
-            doc is None
-            or doc["user_id"] != user_id
-            or doc["session_id"] != session_id
-        ):
+        if doc is None or doc["user_id"] != user_id or doc["session_id"] != session_id:
             raise LookupError(f"settlement card not found: {card_id}")
         return doc
 
@@ -802,9 +803,7 @@ class JSONSettlementStore:
     ) -> list[dict[str, Any]]:
         docs = await asyncio.to_thread(self._scan)
         docs = [
-            d
-            for d in docs
-            if d["user_id"] == user_id and d["session_id"] == session_id
+            d for d in docs if d["user_id"] == user_id and d["session_id"] == session_id
         ]
         if status is not None:
             docs = [d for d in docs if d["status"] == status]

@@ -16,6 +16,7 @@ from qwenpaw_data.host.core.algo.biztrace.transformer import BizTraceTransformer
 from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
 from qwenpaw_data.host.core.algo.settlement import SettlementManager, SettlementSettings
 from qwenpaw_data.host.core.domain.chat import Chat
+from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.orchestration.tools import PLAN_TOOL_NAMES
 from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
@@ -107,11 +108,23 @@ class ChatRuntime:
         """Enqueue steer text and wait until it is injected into the agent."""
         await self._executor.steer(text, artifact_comments)
 
-    async def run(self, chat_id: str, *, identity: Identity) -> None:
+    async def run(
+        self,
+        chat_id: str,
+        *,
+        identity: Identity,
+        runtime_config: UserRuntimeConfig | None = None,
+        context_model_header: str | None = None,
+    ) -> None:
         registry = get_runtime_registry()
         registry.register(chat_id, self)
         try:
-            await self._run(chat_id, identity=identity)
+            await self._run(
+                chat_id,
+                identity=identity,
+                runtime_config=runtime_config,
+                context_model_header=context_model_header,
+            )
         finally:
             await self._executor.stop()
             registry.unregister(chat_id)
@@ -125,7 +138,14 @@ class ChatRuntime:
         await self._executor.stop()
         await self._finished.wait()
 
-    async def _run(self, chat_id: str, *, identity: Identity) -> None:
+    async def _run(
+        self,
+        chat_id: str,
+        *,
+        identity: Identity,
+        runtime_config: UserRuntimeConfig | None = None,
+        context_model_header: str | None = None,
+    ) -> None:
         chat = await self.chats.get(chat_id)
         if chat.status != "running":
             raise ValueError(f"chat not runnable: {chat.status}")
@@ -150,10 +170,25 @@ class ChatRuntime:
                 "datasource_id": chat.datasource_id,
                 "user_id": chat.identity.user_id,
             }
+            if runtime_config is not None:
+                from ..providers.factory import build_model
+
+                host.model = build_model(runtime_config.default)
+                if host._agent is not None:
+                    host._agent.model = host.model
             agent = await host.get_agent(
                 mode="agent",
                 request_context=request_context,
             )
+            if runtime_config is not None:
+                from ..api.models.runtime_models import MODEL_BINDING_HEADER
+
+                for client in getattr(agent.toolkit, "_qwenpaw_context_clients", []):
+                    await client.set_runtime_headers(
+                        {MODEL_BINDING_HEADER: context_model_header}
+                        if context_model_header
+                        else {}
+                    )
             self._agent = agent
             self._run_context = RunContext(
                 session_id=chat.session_id,
@@ -163,7 +198,10 @@ class ChatRuntime:
                 identity=identity,
                 request_context=request_context,
             )
-            await self._load_runtime_config(identity)
+            if runtime_config is not None:
+                self._run_context.user_runtime_config = runtime_config
+            else:
+                await self._load_runtime_config(identity)
             if _followup_enabled():
                 await self._start_followup(chat, envelope)
             if _biztrace_enabled():

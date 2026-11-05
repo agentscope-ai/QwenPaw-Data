@@ -104,6 +104,27 @@ async def test_add_get_save_roundtrip(backend: Backend) -> None:
     assert again.completed_at is not None
 
 
+async def test_dataset_context_roundtrip(backend: Backend) -> None:
+    chat = Chat.start(
+        session_id="datasets",
+        identity=Identity.anonymous(),
+        sequence=1,
+        datasource_id="sales-db",
+        text="daily sales",
+        dataset_names=["sales"],
+    )
+    await backend.chats.add(chat)
+    restored = await backend.chats.get(chat.id)
+    assert restored.dataset_names == ["sales"]
+    from qwenpaw_data.host.core.runtime.turn import TurnInput, compose_agent_input
+
+    turn = TurnInput.from_chat(restored)
+    assert turn.dataset_names == ["sales"]
+    assert "sales" in compose_agent_input(
+        turn.user_input, None, None, dataset_names=turn.dataset_names
+    )
+
+
 async def test_add_conflicts_on_duplicate(backend: Backend) -> None:
     chat = await _add_chat(backend)
     with pytest.raises(RuntimeError, match="CONFLICT"):
@@ -544,7 +565,9 @@ async def test_settlement_add_and_list_desc(settlement_backend) -> None:
     store = settlement_backend
     first = await _add_card(store)
     await asyncio.sleep(0.01)
-    second = await _add_card(store, type="dimension_def", fields={"dimension_name": "渠道"})
+    second = await _add_card(
+        store, type="dimension_def", fields={"dimension_name": "渠道"}
+    )
 
     cards = await store.list_by_session("local", "sess1")
     assert [c["id"] for c in cards] == [second["id"], first["id"]]
@@ -618,21 +641,43 @@ async def test_settlement_delete_if_unconfirmed(settlement_backend) -> None:
     store = settlement_backend
     card = await _add_card(store)
 
-    assert await store.delete_if_unconfirmed(
-        "other", card["id"], session_id="sess1"
-    ) is False
-    assert await store.delete_if_unconfirmed(
-        "local", card["id"], session_id="sess2"
-    ) is False
-    assert await store.delete_if_unconfirmed(
-        "local", card["id"], session_id="sess1"
-    ) is True
-    assert await store.delete_if_unconfirmed(
-        "local", card["id"], session_id="sess1"
-    ) is False
+    assert (
+        await store.delete_if_unconfirmed("other", card["id"], session_id="sess1")
+        is False
+    )
+    assert (
+        await store.delete_if_unconfirmed("local", card["id"], session_id="sess2")
+        is False
+    )
+    assert (
+        await store.delete_if_unconfirmed("local", card["id"], session_id="sess1")
+        is True
+    )
+    assert (
+        await store.delete_if_unconfirmed("local", card["id"], session_id="sess1")
+        is False
+    )
 
     confirmed = await _add_card(store)
     await store.confirm("local", confirmed["id"], session_id="sess1")
-    assert await store.delete_if_unconfirmed(
-        "local", confirmed["id"], session_id="sess1"
-    ) is False
+    assert (
+        await store.delete_if_unconfirmed("local", confirmed["id"], session_id="sess1")
+        is False
+    )
+
+
+async def test_session_owner_filter_precedes_pagination(backend):
+    for index, owner in enumerate(("alice", "bob", "alice", "bob")):
+        session = Session.create(
+            identity=Identity(user_id=owner),
+            title=f"Item {index}",
+            datasource_id="sales",
+        )
+        await backend.sessions.add(session)
+    rows, total = await backend.sessions.list(user_id="alice", page=1, page_size=1)
+    assert total == 2 and len(rows) == 1
+    assert rows[0][0].identity.user_id == "alice"
+    second, total = await backend.sessions.list(user_id="alice", page=2, page_size=1)
+    assert total == 2 and second[0][0].id != rows[0][0].id
+    assert second[0][0].identity.user_id == "alice"
+    assert await backend.sessions.list(user_id="unknown") == ([], 0)

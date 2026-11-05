@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class ProviderRegistry:
 class ActiveModel:
     provider_id: str
     model_id: str
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str
     chat_model: str
     name: str

@@ -58,6 +58,7 @@ async def list_sessions(
     _ = identity
     try:
         items, total = await state.sessions.list(
+            user_id=identity.user_id,
             search_text=search_text,
             status=status,
             datasource_id=datasource_id,
@@ -72,9 +73,7 @@ async def list_sessions(
             raise http from exc
         raise
     return {
-        "items": [
-            session_to_schema(s, has_active_chat=a) for s, a in items
-        ],
+        "items": [session_to_schema(s, has_active_chat=a) for s, a in items],
         "total": total,
     }
 

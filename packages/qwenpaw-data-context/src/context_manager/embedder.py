@@ -65,7 +65,13 @@ def _embedder_openai_client():
     embed_base_url = store.embed_base_url or CFG.embed_openai_base_url
 
     if not embed_api_key and not embed_base_url:
-        return get_openai_client()
+        # Embeddings belong to the index, never to a per-analysis model.
+        from .runtime_model_binding import llm_binding
+        token = llm_binding.set(None)
+        try:
+            return get_openai_client()
+        finally:
+            llm_binding.reset(token)
 
     kw: dict = {
         "api_key": embed_api_key or store.llm_api_key or CFG.openai_api_key or "sk-none",

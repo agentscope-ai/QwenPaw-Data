@@ -6,6 +6,110 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add PostgreSQL/MySQL statement limits with separate database and client-read
+  timeout errors, and bound SQL cache renewal to prevent indefinitely stale results.
+- Add opt-in dataset-scoped SQL validation before execution and cache lookup,
+  using physical table mappings from the selected datasource's semantic catalog.
+- Bound complete Host tool calls with a configurable timeout and cooperative
+  cancellation on main and child agents.
+- Persist session-local SQL result references so downstream tools can load query
+  metadata and verify CSV integrity without copying preview rows through the model.
+
+### Fixed
+
+- Propagate main-agent cancellation to the Host so stopped runs finish as canceled
+  and the same session can accept a follow-up request.
+- Apply tool deadlines to spawned agents and drain their event tasks and streams
+  on cancellation, timeout, or early stream closure before releasing the spawn slot.
+- Isolate SQL result cache entries by datasource to prevent identical queries on
+  different databases from sharing results.
+- Resolve logical dataset tables through SQL syntax trees before scoped execution;
+  preserve literals, CTEs and column bindings and scope legacy fallback by datasource.
+
+### Changed
+
+- Include metric-scoped dimension column bindings in schema prompts, preserving
+  multiple mappings and leaving unresolved/composite physical columns unasserted.
+- Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6
+  together, including the Rolldown configuration migration.
+- Schedule grouped Dependabot minor/patch updates for directly declared
+  dependencies monthly with one open version PR per ecosystem. Plan major upgrades
+  manually while keeping security updates eligible independently of the routine
+  version-update filter.
+
+## [Console 0.3.3] - 2026-11-05
+
+### Added
+
+- Add `qwenpaw-data-console`: a reusable loopback portal with prebuilt chat and
+  DataBridge UIs, runtime branding, server-side API credentials and replayable
+  Host event streams. Domain applications can install the wheel and supply
+  configuration instead of copying frontend source.
+- Support a Console deployment mode in the DataBridge frontend, with subpath
+  routing and portal authentication configured without source rewriting.
+- Publish Console independently with a `console-vX.Y.Z` tag; existing engine
+  package versions and coordinated release tags remain unchanged.
+
+### Security
+
+- Serve Console assets through Starlette's root-confined static file handler,
+  with encoded traversal and symlink-escape regression tests.
+- Audit both packaged frontend dependency inventories and refresh vulnerable
+  frontend dependencies.
+
+## [0.3.3] - Unreleased
+
+### Fixed
+
+- Keep chat event streams open until their terminal response is available, even
+  when the completed or failed chat status has already been saved.
+
+### Changed
+
+- Support Neo4j Python driver 6.x and OpenAI Python SDK 3.x while retaining
+  dependency ranges compatible with supported earlier driver/SDK versions.
+- Refresh Python and Context frontend dependencies, including i18next 26,
+  TypeScript 5.9, and the compatible ESLint 9 tooling.
+- Reduce Dependabot noise with weekly grouped updates, two open version PRs
+  per ecosystem, and targeted deferrals for incompatible major upgrades.
+- Update GitHub Actions checkout to v7.
+
+## [0.3.2] - 2026-10-16
+
+### Added
+
+- Native console capability discovery and ephemeral per-turn model bindings for
+  the standalone QwenPaw Data app 1.0.3 on stable QwenPaw 2.2.2.
+- Dataset discovery filtered by datasource, with selected datasets persisted
+  in chats and included in agent input.
+- Readable session display codes and names.
+
+### Fixed
+
+- Include SQLAlchemy in the standalone Context requirements, matching the
+  package dependencies used by database adapters.
+- Workspace MCP defaults are available to native analysis sessions.
+- Later turns pick up model changes while retaining conversation memory.
+- Linux sandbox artifact paths retain POSIX separators on Windows hosts in
+  agent/subagent prompts and SQL artifact responses. Native Windows host paths
+  retain drive and UNC semantics.
+
+### Security
+
+- Refresh Python and frontend dependency locks to address the release audit
+  findings, and raise affected direct dependency floors where compatible with
+  the stable Host. Audit the standalone Context lock in CI and remove obsolete
+  sqlparse audit exceptions now that both locks resolve its patched release.
+- Session reads, mutations, streams, attachments, and scheduled runs enforce
+  the trusted caller's user identity. The embedding Host binds this identity
+  to its authenticated user, workspace, and app.
+- Per-turn model credentials are excluded from persisted chat/request data.
+
+Host vNext delegation, durable submissions, capability execution, and artifact
+contracts remain on the separate vNext branch.
+
 ## [0.3.1] - 2026-09-10
 
 ### Added
@@ -200,7 +304,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.2.0...v0.2.4

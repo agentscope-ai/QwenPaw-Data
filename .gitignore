@@ -227,6 +227,7 @@ tempCodeRunnerFile.py
 .qwenpaw-data.secret/
 
 # Frontend
+/packages/qwenpaw-data-console/src/qwenpaw_data/console/static/
 node_modules/
 npm-debug.log*
 yarn-debug.log*

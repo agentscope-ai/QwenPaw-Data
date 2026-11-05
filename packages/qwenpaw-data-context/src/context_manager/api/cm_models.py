@@ -64,9 +64,24 @@ class CommonFilter(BaseModel):
     sql_fragment: str = ""
 
 
+class DrillDimensionBinding(BaseModel):
+    """A binding in the current metric's dataset scope; no inferred identifiers."""
+    column: str = ""
+    column_table: str = ""
+    dataset: str = ""
+    dataset_column: str = ""
+    expr: str = ""
+    filter: str = ""
+
+
 class DrillDimension(BaseModel):
     name: str
     relationship: str = ""
+    # Singular fields are populated only when one binding is unambiguous.
+    column: str = ""
+    column_table: str = ""
+    expr: str = ""
+    bindings: list[DrillDimensionBinding] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------- #
@@ -251,6 +266,10 @@ class SearchEventResponse(BaseModel):
 class ExecuteSqlRequest(BaseModel):
     session_ref: Optional[str] = None
     sql: str
+    dataset_names: Optional[list[str]] = Field(
+        None, max_length=1000,
+        description="Optional dataset scope on the selected datasource. When supplied, SQL may only reference their physical tables; unresolved scopes are rejected.",
+    )
     datasource_id: Optional[str] = Field(
         None,
         description="数据源标识（如 oltp_primary / warehouse_odps）。"

@@ -7,8 +7,8 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
-from contextlib import suppress
-from pathlib import Path
+from contextlib import aclosing
+from pathlib import Path, PurePath
 from typing import Any
 
 from agentscope.agent import Agent, ReActConfig
@@ -27,6 +27,7 @@ from agentscope.event import (
     UserConfirmResultEvent,
 )
 from agentscope.message import Msg, TextBlock, ToolResultState
+from agentscope.middleware import MiddlewareBase
 from agentscope.permission import (
     PermissionBehavior,
     PermissionContext,
@@ -37,9 +38,11 @@ from agentscope.skill import Skill, SkillLoaderBase
 from agentscope.state import AgentState
 from agentscope.tool import ToolBase, ToolChunk, Toolkit
 
+from ..artifact_paths import model_visible_path
 from ..mcp_cm import inject_datasource_metadata
 from ..orchestration.state import RuntimeStateManager
 from .middleware.sql_artifact import SqlArtifactMiddleware
+from .middleware.tool_timeout import ToolTimeoutMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +53,16 @@ MAX_CONCURRENT = 4
 MAX_TOTAL_SPAWNS = 20
 SUPPORTED_ROLES = ("data_fetcher",)
 
-DATA_FETCHER_TOOL_NAMES = frozenset({
-    "Bash",
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-})
+DATA_FETCHER_TOOL_NAMES = frozenset(
+    {
+        "Bash",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+    }
+)
 ROLE_SKILL_NAMES = {
     "data_fetcher": frozenset({"fetch-data"}),
 }
@@ -125,26 +130,30 @@ def _trace_append(trace_log: list[dict[str, Any]], entry: dict[str, Any]) -> Non
 
 def _build_environment_section(
     *,
-    workspace_dir: Path | None,
-    artifacts_root: Path | None,
+    workspace_dir: PurePath | None,
+    artifacts_root: PurePath | None,
     session_id: str | None,
     graph_id: str | None,
     node_id: str | None,
 ) -> str:
-    workspace_text = str(workspace_dir) if workspace_dir else "(unknown)"
-    artifacts_text = str(artifacts_root) if artifacts_root else "(unknown)"
+    workspace_text = (
+        str(model_visible_path(workspace_dir)) if workspace_dir else "(unknown)"
+    )
+    artifacts_text = (
+        str(model_visible_path(artifacts_root)) if artifacts_root else "(unknown)"
+    )
     if session_id and graph_id and node_id:
         artifact_dir = str(
-            Path(artifacts_text) / session_id / graph_id / node_id,
+            model_visible_path(artifacts_text) / session_id / graph_id / node_id,
         )
         file_ref = f"{graph_id}/{node_id}/<filename>"
         artifact_scope = "当前节点"
     elif session_id:
-        artifact_dir = str(Path(artifacts_text) / session_id)
+        artifact_dir = str(model_visible_path(artifacts_text) / session_id)
         file_ref = "<filename>"
         artifact_scope = "当前会话"
     else:
-        artifact_dir = str(Path(artifacts_text) / "<session_id>")
+        artifact_dir = str(model_visible_path(artifacts_text) / "<session_id>")
         file_ref = "<filename>"
         artifact_scope = "当前会话"
 
@@ -166,8 +175,8 @@ def _build_sub_prompt(
     builtin_tool_names: Sequence[str],
     mcp_tool_names: Sequence[str],
     *,
-    workspace_dir: Path | None = None,
-    artifacts_root: Path | None = None,
+    workspace_dir: PurePath | None = None,
+    artifacts_root: PurePath | None = None,
     session_id: str | None = None,
     graph_id: str | None = None,
     node_id: str | None = None,
@@ -322,8 +331,8 @@ class SpawnSubagent(ToolBase):
         workspace_mcps: Sequence[Any],
         workspace_skills: Sequence[Any],
         parent_agent_getter: Callable[[], Any] | None = None,
-        workspace_dir: Path | str | None = None,
-        artifacts_root: Path | str | None = None,
+        workspace_dir: PurePath | str | None = None,
+        artifacts_root: PurePath | str | None = None,
         host_artifact_dir: Path | str | None = None,
         session_id_getter: Callable[[], str | None] | None = None,
         request_context_getter: Callable[[], dict[str, Any]] | None = None,
@@ -335,8 +344,12 @@ class SpawnSubagent(ToolBase):
         self._workspace_mcps = list(workspace_mcps)
         self._workspace_skills = list(workspace_skills)
         self._parent_agent_getter = parent_agent_getter
-        self._workspace_dir = _as_path(workspace_dir)
-        self._artifacts_root = _as_path(artifacts_root)
+        self._workspace_dir = (
+            model_visible_path(workspace_dir) if workspace_dir else None
+        )
+        self._artifacts_root = (
+            model_visible_path(artifacts_root) if artifacts_root else None
+        )
         self._host_artifact_dir = _as_path(host_artifact_dir)
         self._session_id_getter = session_id_getter or (lambda: None)
         self._request_context_getter = request_context_getter
@@ -380,12 +393,11 @@ class SpawnSubagent(ToolBase):
             self._spawn_count += 1
 
         async with self._semaphore:
-            async for chunk in self._run_subagent(
-                task=task,
-                role=role,
-                context=context,
-            ):
-                yield chunk
+            async with aclosing(
+                self._run_subagent(task=task, role=role, context=context),
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
 
     async def _run_subagent(
         self,
@@ -416,9 +428,7 @@ class SpawnSubagent(ToolBase):
         node_id = current_node.id if current_node else None
         graph_id = self._rs.current_graph_id
         upstream_outputs = (
-            self._rs.get_upstream_outputs(node_id)
-            if node_id is not None
-            else {}
+            self._rs.get_upstream_outputs(node_id) if node_id is not None else {}
         )
         session_id = _as_text(self._session_id_getter())
         workspace_tools = self._tools_for_role(role)
@@ -443,9 +453,7 @@ class SpawnSubagent(ToolBase):
             graph_id=graph_id,
             node_id=node_id,
         )
-        agent_name = (
-            f"subagent-{role}-{node_id or 'free'}-{uuid.uuid4().hex[:4]}"
-        )
+        agent_name = f"subagent-{role}-{node_id or 'free'}-{uuid.uuid4().hex[:4]}"
 
         try:
             parent_permission_context = getattr(
@@ -461,7 +469,7 @@ class SpawnSubagent(ToolBase):
                 parent_permission_context = parent_permission_context.model_copy(
                     deep=True,
                 )
-            middlewares = []
+            middlewares: list[MiddlewareBase] = [ToolTimeoutMiddleware()]
             if (
                 self._host_artifact_dir is not None
                 and self._artifacts_root is not None
@@ -484,7 +492,10 @@ class SpawnSubagent(ToolBase):
                     permission_context=parent_permission_context,
                 ),
                 offloader=getattr(parent_agent, "offloader", self._workspace),
-                react_config=ReActConfig(max_iters=MAX_ITERS),
+                react_config=ReActConfig(
+                    max_iters=MAX_ITERS,
+                    interruption_raise_cancelled_error=True,
+                ),
                 request_context=self._request_context(parent_agent),
                 cm_mcp_tool_prefixes=self._cm_mcp_tool_prefixes,
             )
@@ -502,14 +513,17 @@ class SpawnSubagent(ToolBase):
             content=[TextBlock(type="text", text=task)],
             role="user",
         )
-        async for chunk in self._stream_subagent(
-            sub_agent=sub_agent,
-            task_msg=task_msg,
-            agent_name=agent_name,
-            graph_id=graph_id,
-            node_id=node_id,
-        ):
-            yield chunk
+        async with aclosing(
+            self._stream_subagent(
+                sub_agent=sub_agent,
+                task_msg=task_msg,
+                agent_name=agent_name,
+                graph_id=graph_id,
+                node_id=node_id,
+            ),
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
 
     def _parent_agent(self) -> Any | None:
         if self._parent_agent_getter is None:
@@ -555,6 +569,7 @@ class SpawnSubagent(ToolBase):
         event_task: asyncio.Task[Any] | None = None
         pending_input: Msg | UserConfirmResultEvent = task_msg
         event_iter: Any = None
+        error_chunk: ToolChunk | None = None
 
         try:
             while True:
@@ -610,31 +625,30 @@ class SpawnSubagent(ToolBase):
                     ],
                 )
         except asyncio.TimeoutError:
-            if event_task is not None and not event_task.done():
-                event_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await event_task
-            if event_iter is not None:
-                await self._close_event_iter(event_iter)
-            yield _text_chunk(
+            error_chunk = _text_chunk(
                 f"Sub-agent 超时（{TIMEOUT_SECONDS}s）",
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
-            return
         except Exception as exc:
-            if event_task is not None and not event_task.done():
-                event_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await event_task
-            if event_iter is not None:
-                await self._close_event_iter(event_iter)
             logger.warning("spawn_subagent: sub-agent execution failed", exc_info=True)
-            yield _text_chunk(
+            error_chunk = _text_chunk(
                 f"Sub-agent 异常: {exc}",
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
+        finally:
+            # Cancellation and generator closure must also drain the child before
+            # releasing the concurrency slot or returning a terminal response.
+            if event_task is not None:
+                if not event_task.done():
+                    event_task.cancel()
+                await asyncio.gather(event_task, return_exceptions=True)
+            if event_iter is not None:
+                await self._close_event_iter(event_iter)
+
+        if error_chunk is not None:
+            yield error_chunk
             return
 
         summary = "".join(text_parts).strip() or "".join(thinking_parts).strip()
@@ -780,4 +794,6 @@ class SpawnSubagent(ToolBase):
         try:
             await aclose()
         except Exception:
-            logger.debug("spawn_subagent: failed to close event iterator", exc_info=True)
+            logger.debug(
+                "spawn_subagent: failed to close event iterator", exc_info=True
+            )

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,6 +17,11 @@ from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
 
 @asynccontextmanager
 async def service_client(tmp_path: Path, monkeypatch, **env: str):
+    # These tests seed chat state explicitly. A real background run could
+    # overwrite it after seeding (and would require Docker/model credentials).
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.api.routers.console.ChatRuntime.run", AsyncMock()
+    )
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
     monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
     monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
@@ -80,7 +86,7 @@ async def _seed_forkable_session(http, app) -> tuple[str, str, str]:
             "followup": {"chat_id": chat_id, "questions": ["按区域拆一下？"]},
         },
     )
-    # Force the background run (which fails without a real model) terminal.
+    # Seed the completed chat that the fork/snapshot operations consume.
     record = await state.chats.get(chat_id)
     if record.status not in ("completed",):
         record.mark_status("completed")

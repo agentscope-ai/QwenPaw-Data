@@ -33,6 +33,7 @@ class Chat:
     updated_at: datetime
     artifact_comments: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[dict[str, Any]] = field(default_factory=list)
+    dataset_names: list[str] = field(default_factory=list)
 
     @classmethod
     def start(
@@ -44,6 +45,7 @@ class Chat:
         datasource_id: str | None,
         text: str,
         artifact_comments: list[dict[str, Any]] | None = None,
+        dataset_names: list[str] | None = None,
         attachments: list[dict[str, Any]] | None = None,
     ) -> Chat:
         refs = list(attachments or [])
@@ -70,6 +72,7 @@ class Chat:
             updated_at=now,
             artifact_comments=list(artifact_comments or []),
             attachments=refs,
+            dataset_names=list(dataset_names or []),
         )
 
     def references_attachment(self, attachment_id: str) -> bool:

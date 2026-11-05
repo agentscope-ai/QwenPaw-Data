@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import time
@@ -140,11 +141,7 @@ class _FilteredMCPClient:
 
     async def list_tools(self) -> list[Any]:
         tools = await self._catalog.list_tools()
-        return [
-            tool
-            for tool in tools
-            if self._predicate(getattr(tool, "name", ""))
-        ]
+        return [tool for tool in tools if self._predicate(getattr(tool, "name", ""))]
 
 
 def _filtered_mcps(
@@ -153,8 +150,7 @@ def _filtered_mcps(
     predicate: Any,
 ) -> list[Any]:
     return [
-        _FilteredMCPClient(client, catalogs[id(client)], predicate)
-        for client in mcps
+        _FilteredMCPClient(client, catalogs[id(client)], predicate) for client in mcps
     ]
 
 
@@ -166,10 +162,9 @@ def _inject_run_header(mcps: list[Any]) -> None:
     The API token is injected only for the recognized CM endpoint and is never
     persisted into the workspace's ``.mcp`` file.
     """
-    api_token = (
-        (os.environ.get("QWENPAW_DATA_CLIENT_API_TOKEN") or "").strip()
-        or (os.environ.get("QWENPAW_DATA_API_TOKEN") or "").strip()
-    )
+    api_token = (os.environ.get("QWENPAW_DATA_CLIENT_API_TOKEN") or "").strip() or (
+        os.environ.get("QWENPAW_DATA_API_TOKEN") or ""
+    ).strip()
     for client in mcps:
         mcp_config = getattr(client, "mcp_config", None)
         if getattr(mcp_config, "type", None) != "http_mcp":
@@ -246,7 +241,13 @@ async def build_qwenpaw_data_toolkit(
             ),
         )
     workspace_tools = list(await workspace.list_tools())
-    workspace_mcps = list(await workspace.list_mcps())
+    if (
+        session_id_getter is not None
+        and "session_id" in inspect.signature(workspace.list_mcps).parameters
+    ):
+        workspace_mcps = list(await workspace.list_mcps(session_id=session_id_getter()))
+    else:
+        workspace_mcps = list(await workspace.list_mcps())
     # Filters URL-confirmed CM MCP clients, raises their timeouts, and records
     # the AgentScope-generated tool-name prefixes used later for call matching.
     cm_mcp_tool_prefixes = prepare_cm_mcp_clients(workspace_mcps)
@@ -258,9 +259,7 @@ async def build_qwenpaw_data_toolkit(
     _inject_run_header(workspace_mcps)
     # One shared discovery catalog per client: plan/agent views and sub-agent
     # toolkits reuse it, so tools/list hits the server once per process.
-    mcp_catalogs = {
-        id(client): _MCPToolCatalog(client) for client in workspace_mcps
-    }
+    mcp_catalogs = {id(client): _MCPToolCatalog(client) for client in workspace_mcps}
     subagent_mcps = _filtered_mcps(
         workspace_mcps,
         mcp_catalogs,
@@ -318,4 +317,9 @@ async def build_qwenpaw_data_toolkit(
         ],
     )
     toolkit._qwenpaw_data_cm_mcp_tool_prefixes = cm_mcp_tool_prefixes
+    toolkit._qwenpaw_context_clients = [
+        client
+        for client in workspace_mcps
+        if is_cm_mcp_config(getattr(client, "mcp_config", None))
+    ]
     return toolkit

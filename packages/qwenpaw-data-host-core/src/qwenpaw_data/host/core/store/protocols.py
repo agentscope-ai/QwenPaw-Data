@@ -119,6 +119,7 @@ class SessionStore(Protocol):
     async def list(
         self,
         *,
+        user_id: str | None = None,
         search_text: str | None = None,
         status: str | None = None,
         datasource_id: str | None = None,
@@ -294,4 +295,3 @@ class SettlementStore(Protocol):
         *,
         session_id: str,
     ) -> bool: ...
-

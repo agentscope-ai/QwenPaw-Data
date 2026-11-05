@@ -9,6 +9,7 @@ from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.safe_name import require_safe_name
+from qwenpaw_data.host.core.utils.session_naming import derive_session_title
 from qwenpaw_data.host.core.utils.time import utcnow
 
 
@@ -73,6 +74,7 @@ class Session:
         datasource_id: str | None,
         has_active_chat: bool,
         artifact_comments: list[dict[str, Any]] | None = None,
+        dataset_names: list[str] | None = None,
         attachments: list[dict[str, Any]] | None = None,
     ) -> Chat:
         if has_active_chat:
@@ -80,6 +82,10 @@ class Session:
         # datasource: bind if a value is given; otherwise keep the session's.
         if datasource_id is not None and datasource_id.strip():
             self.bind_datasource(datasource_id)
+        if dataset_names and not self.datasource_id:
+            raise ValueError("dataset selection requires a datasource")
+        if not self.title.strip():
+            self.title = derive_session_title(text)
         sequence = self.register_chat()
         return Chat.start(
             session_id=self.id,
@@ -88,6 +94,7 @@ class Session:
             datasource_id=self.datasource_id,
             text=text,
             artifact_comments=artifact_comments,
+            dataset_names=dataset_names,
             attachments=attachments,
         )
 

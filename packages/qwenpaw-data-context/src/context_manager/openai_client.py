@@ -21,6 +21,7 @@ log = logging.getLogger("context_manager.openai_client")
 
 def _build_openai_client(
     *, timeout_sec: Optional[float] = None, max_retries: Optional[int] = None,
+    api_key: str | None = None, base_url: str | None = None,
 ) -> OpenAI:
     """构造 OpenAI 客户端。``timeout_sec`` 为 ``None`` 时使用 ``CFG.llm_http_timeout``。
 
@@ -31,8 +32,8 @@ def _build_openai_client(
     from .model_config_store import get_model_config_store
     store = get_model_config_store()
     kw: dict[str, Any] = {
-        "api_key": store.llm_api_key or CFG.openai_api_key or "sk-none",
-        "base_url": store.llm_base_url or CFG.openai_base_url,
+        "api_key": api_key if api_key is not None else store.llm_api_key or CFG.openai_api_key or "sk-none",
+        "base_url": base_url if base_url is not None else store.llm_base_url or CFG.openai_base_url,
         "max_retries": 5 if max_retries is None else max(0, int(max_retries)),
     }
     t = CFG.llm_http_timeout if timeout_sec is None else timeout_sec
@@ -43,14 +44,19 @@ def _build_openai_client(
     return OpenAI(**kw)
 
 
-@lru_cache(maxsize=1)
-def get_openai_client() -> OpenAI:
-    """进程内复用；``LLM_HTTP_TIMEOUT`` 见 ``CFG.llm_http_timeout``。
+@lru_cache(maxsize=32)
+def _cached_client(api_key: str, base_url: str) -> OpenAI:
+    return _build_openai_client(api_key=api_key, base_url=base_url)
 
-    设 ``LLM_HTTP_IGNORE_PROXY=1`` 时为本客户端单独构造 ``httpx.Client(trust_env=False)``，
-    调用兼容 API 时不读取 ``HTTP_PROXY`` / ``HTTPS_PROXY`` 等（其它库仍可按环境走代理）。
-    """
-    return _build_openai_client(timeout_sec=None)
+
+def get_openai_client() -> OpenAI:
+    from .model_config_store import get_model_config_store
+    store = get_model_config_store()
+    return _cached_client(store.llm_api_key or CFG.openai_api_key or "sk-none", store.llm_base_url or CFG.openai_base_url)
+
+
+# Preserve the model-store invalidation API.
+get_openai_client.cache_clear = _cached_client.cache_clear
 
 
 def resolve_llm_model(model: Optional[str] = None) -> str:

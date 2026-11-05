@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import re
 
 import pytest
 
@@ -36,6 +37,7 @@ async def test_session_crud_flow(tmp_path, monkeypatch) -> None:
         assert created.status_code == 200
         session = created.json()["session"]
         assert session["title"] == "销售分析"
+        assert re.fullmatch(r"[0-9A-F]{6}", session["display_code"])
         assert session["status"] == "idle"
         assert session["chat_count"] == 0
         sid = session["id"]

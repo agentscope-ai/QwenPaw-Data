@@ -1,8 +1,10 @@
+import { getConsoleConfig } from "./consoleConfig";
+
 const AUTH_TOKEN_KEY = "qwenpaw_data_auth_token";
 export const AUTH_CHANGE_EVENT = "qwenpaw-data-auth-change";
 
 function getEnvApiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL ?? "";
+  return getConsoleConfig()?.api_base_url ?? import.meta.env.VITE_API_BASE_URL ?? "";
 }
 
 export function getApiUrl(path: string): string {

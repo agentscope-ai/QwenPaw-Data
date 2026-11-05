@@ -6,7 +6,7 @@
    后端可选: data-api-hub HTTP / psycopg 直连数仓 / JDBC / 本地 PG（见 ``SQL_EXEC_BACKEND``）。
    - 拒绝 ``INSERT/UPDATE/DELETE/DDL``（把 SQL 丢到 sqlglot 的 CTE-stripped AST 里检查，
      这里走简单的关键字白名单，已经够用，因为 SQL 是 LLM 出的）；
-   - ``statement_timeout`` + ``cur.fetchmany`` 双限流；
+   - 单条 SQL 执行超时（``QP_SQL_STATEMENT_TIMEOUT_MS``，PG ``statement_timeout`` / MySQL ``MAX_EXECUTION_TIME`` hint + ``read_timeout``）+ ``cur.fetchmany`` 行数上限，双限流；
    - 错误统一封到 :class:`ExecResult.error`，不抛。
 
 2. :func:`detect_sentinel_risks` — 给 SQL 找"潜在 sentinel 列"。算法：
@@ -46,11 +46,74 @@ from context_manager.view_fallthrough import (
     extract_cm_view_refs,
     extract_missing_table_name,
     is_view_not_found_error,
+    is_direct_table_projection,
     rewrite_cm_view_to_physical,
     rewrite_dataset_to_physical,
 )
 
 log = get_logger("api.executor")
+
+
+# Server-side statement limit for PostgreSQL and MySQL. The client read timeout
+# is only a waiting bound; it does not establish that remote work was cancelled.
+# Other backends retain their own existing limits. Zero disables this budget.
+SQL_STATEMENT_TIMEOUT_MS = max(0, int(os.environ.get("QP_SQL_STATEMENT_TIMEOUT_MS", "45000")))
+
+
+def _timeout_marker(exc: Exception, backend: str) -> str | None:
+    """Distinguish confirmed statement timeouts from MySQL transport timeouts."""
+    msg = str(exc)
+    args = getattr(exc, "args", ())
+    code = args[0] if args else None
+    if (backend == "pymysql" and code == 3024) or (
+        backend == "psycopg" and getattr(exc, "sqlstate", None) == "57014"
+        and "statement timeout" in msg.lower()
+    ):
+        return (
+            f"QUERY_TIMEOUT: database reported a statement timeout ({backend}). "
+            "This does not establish excessive data volume. Optimize once without "
+            "changing the requested dates, population, metrics or completeness; "
+            "otherwise report the timeout. Do not retry identical SQL. "
+            f"Original: {msg[:200]}"
+        )
+    if backend == "pymysql" and code == 2013 and "timed out" in msg.lower():
+        return (
+            "SQL_READ_TIMEOUT: the client stopped waiting for MySQL; server-side "
+            "cancellation is not confirmed. Check connectivity and server load; "
+            "do not infer a data gap or retry blindly. "
+            f"Original: {msg[:200]}"
+        )
+    return None
+
+
+def _mysql_with_timeout_hint(sql: str) -> str:
+    """Install one outer SELECT hint, including WITH/UNION and existing hints."""
+    if SQL_STATEMENT_TIMEOUT_MS <= 0:
+        return sql
+    import sqlglot
+    from sqlglot import exp
+
+    try:
+        tree = sqlglot.parse_one(sql, read="mysql")
+        query = tree
+        while isinstance(query, (exp.SetOperation, exp.Subquery)):
+            query = query.this
+        if not isinstance(query, exp.Select):
+            return sql
+        hint = query.args.get("hint")
+        others = [
+            h for h in (hint.expressions if hint else [])
+            if not (isinstance(h, exp.Anonymous) and h.name.upper() == "MAX_EXECUTION_TIME")
+        ]
+        query.set("hint", exp.Hint(expressions=[
+            exp.Anonymous(this="MAX_EXECUTION_TIME", expressions=[exp.Literal.number(SQL_STATEMENT_TIMEOUT_MS)]),
+            *others,
+        ]))
+        return tree.sql(dialect="mysql")
+    except sqlglot.errors.SqlglotError:
+        # The read-only guard remains authoritative. Unsupported SQL still has
+        # the client waiting limit, but no server cancellation is promised.
+        return sql
 
 
 # ---------------------------------------------------------------------- #
@@ -285,6 +348,10 @@ def _execute_sql_via_psycopg(
             autocommit=True,
             connect_timeout=5,
         ) as conn, conn.cursor() as cur:
+            # Per-connection statement budget; connections are per-call so the
+            # session-level setting cannot leak into other queries.
+            if SQL_STATEMENT_TIMEOUT_MS > 0:
+                cur.execute(f"SET statement_timeout = {SQL_STATEMENT_TIMEOUT_MS}")
             cur.execute(sql)
             cols = [d.name for d in (cur.description or [])]
             rows = cur.fetchmany(max_rows + 1)
@@ -292,16 +359,23 @@ def _execute_sql_via_psycopg(
             total = len(rows)
             rows = rows[:max_rows]
             row_count = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else total
-        return ExecResult(
+        result = ExecResult(
             sql=sql, columns=cols, rows=[list(r) for r in rows],
             row_count=row_count, truncated=truncated,
             elapsed_ms=(time.time() - t0) * 1000,
         )
     except Exception as exc:
-        return ExecResult(
-            sql=sql, error=str(exc),
+        marker = _timeout_marker(exc, "psycopg")
+        result = ExecResult(
+            sql=sql, error=marker or str(exc),
             elapsed_ms=(time.time() - t0) * 1000,
         )
+    log.info(
+        "exec[psycopg] ds=%s elapsed=%.0fms rows=%s truncated=%s err=%s | sql=%.80s",
+        datasource_id, result.elapsed_ms, result.row_count, result.truncated,
+        (result.error or "")[:120], re.sub(r"\s+", " ", sql).strip(),
+    )
+    return result
 
 
 def _execute_sql_via_pymysql(
@@ -321,6 +395,12 @@ def _execute_sql_via_pymysql(
         kwargs = resolve_mysql_connect_kwargs(datasource_id=datasource_id or None)
     except (ValueError, RuntimeError) as exc:
         return ExecResult(sql=sql, error=str(exc), elapsed_ms=(time.time() - t0) * 1000)
+    # Preserve a shorter connector limit; a read timeout does not kill the query.
+    if SQL_STATEMENT_TIMEOUT_MS > 0:
+        seconds = SQL_STATEMENT_TIMEOUT_MS / 1000
+        kwargs["read_timeout"] = min(kwargs.get("read_timeout") or seconds, seconds)
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    hinted = _mysql_with_timeout_hint(sql)
     try:
         import pymysql
 
@@ -331,13 +411,13 @@ def _execute_sql_via_pymysql(
         )
         try:
             with conn.cursor() as cur:
-                cur.execute(sql)
+                cur.execute(hinted)
                 cols = [d[0] for d in (cur.description or [])]
                 rows = cur.fetchmany(max_rows + 1)
                 truncated = len(rows) > max_rows
                 total = len(rows)
                 rows = rows[:max_rows]
-                return ExecResult(
+                result = ExecResult(
                     sql=sql, columns=cols, rows=[list(r) for r in rows],
                     row_count=total, truncated=truncated,
                     elapsed_ms=(time.time() - t0) * 1000,
@@ -345,10 +425,17 @@ def _execute_sql_via_pymysql(
         finally:
             conn.close()
     except Exception as exc:
-        return ExecResult(
-            sql=sql, error=str(exc),
+        marker = _timeout_marker(exc, "pymysql")
+        result = ExecResult(
+            sql=sql, error=marker or str(exc),
             elapsed_ms=(time.time() - t0) * 1000,
         )
+    log.info(
+        "exec[pymysql] ds=%s elapsed=%.0fms rows=%s truncated=%s err=%s | sql=%.80s",
+        datasource_id, result.elapsed_ms, result.row_count, result.truncated,
+        (result.error or "")[:120], re.sub(r"\s+", " ", sql).strip(),
+    )
+    return result
 
 
 def _file_db_path(datasource_id: str, expected_type: str) -> Path:
@@ -484,14 +571,17 @@ def _execute_sql_via_odps_akless(
         )
 
 
-def _resolve_dataset_parents(names: set[str]) -> dict[str, list[tuple[str, str]]]:
+def _resolve_dataset_parents(
+    names: set[str], *, datasource_id: str, dialect: str | None = None,
+) -> dict[str, list[tuple[str, str]]]:
     """查每个 dataset name 对应的 :Dataset)-[:CONTAINS_TABLE]->(:Table) 物理表列表。
 
     返回 {name: [(schema, table), ...]}; 找不到的 name 返回空 list,由 rewrite 端判断。
     """
-    if not names:
+    if not names or not datasource_id:
         return {}
     from neo4j import GraphDatabase  # 局部 import,避免循环依赖与启动期开销
+    from sqlglot import exp
 
     out: dict[str, list[tuple[str, str]]] = {n: [] for n in names}
     driver = GraphDatabase.driver(
@@ -500,12 +590,25 @@ def _resolve_dataset_parents(names: set[str]) -> dict[str, list[tuple[str, str]]
     try:
         cypher = (
             "UNWIND $names AS n "
-            "MATCH (d:Dataset {name: n})-[:CONTAINS_TABLE]->(t:Table) "
-            "RETURN n AS name, t.schema AS schema, t.name AS table"
+            "MATCH (d:Dataset {name: n, datasource_id: $datasource_id})-[:CONTAINS_TABLE]->(t:Table) "
+            "RETURN DISTINCT n AS name, t.schema AS schema, t.name AS table, "
+            "d.sql AS sql, d.filter_summary AS filter_summary"
         )
+        unsafe = set()
         with driver.session(database=CFG.neo4j_database) as s:
-            for rec in s.run(cypher, names=list(names)):
-                out[rec["name"]].append((rec["schema"], rec["table"]))
+            for rec in s.run(cypher, names=list(names), datasource_id=datasource_id):
+                schema, table = rec["schema"] or "", rec["table"]
+                target = exp.Table(
+                    this=exp.to_identifier(table),
+                    db=exp.to_identifier(schema) if schema else None,
+                )
+                if rec.get("filter_summary") or not is_direct_table_projection(
+                    rec.get("sql") or "", target, dialect=dialect,
+                ):
+                    unsafe.add(rec["name"])
+                out[rec["name"]].append((schema, table))
+        for name in unsafe:
+            out[name] = []
     finally:
         driver.close()
     return out
@@ -516,6 +619,7 @@ def execute_sql(
     *,
     max_rows: int = 200,
     datasource_id: str = "",
+    allow_fallthrough: bool = True,
 ) -> ExecResult:
     """执行只读 SQL。后端由当前数据源 ``_datasource_type`` 决定，凭证一律来自 semantic_config.db。
 
@@ -589,38 +693,38 @@ def execute_sql(
     # 2) View 未建: materialize 还没跑 / 跑失败 / 新 import 后还没触发，
     #    agent 写 SELECT ... FROM view_xxx 报 "does not exist"。
     #    从错误消息提取表名，查图匹配 :Dataset，单 parent 时改写为物理表重试。
-    if first.error and is_view_not_found_error(first.error):
+    if allow_fallthrough and first.error and is_view_not_found_error(first.error):
         rewritten: str | None = None
+        dialect = {
+            "direct": "postgres", "pymysql_direct": "mysql", "duckdb_direct": "duckdb",
+            "sqlite_direct": "sqlite", "odps_akless": "hive",
+        }.get(backend)
 
         # 路径 1: cm_view.<name> legacy 前缀
-        _LEGACY_CM_VIEW_PREFIX = "cm_view."
-        if _LEGACY_CM_VIEW_PREFIX in sql_clean.lower():
-            try:
-                refs = extract_cm_view_refs(sql_clean)
-                parents = _resolve_dataset_parents(refs)
-                rewritten = rewrite_cm_view_to_physical(sql_clean, parents)
-            except FallthroughGiveUp as exc:
-                log.info("view_fallthrough=skipped reason=%s", exc)
-                return first
-
-        # 路径 2: 裸名 view_xxx（view 未建）
-        if rewritten is None:
-            missing_name = extract_missing_table_name(first.error)
-            if missing_name:
-                parents = _resolve_dataset_parents({missing_name})
-                tables = parents.get(missing_name) or []
-                if len(tables) == 1:
+        try:
+            refs = extract_cm_view_refs(sql_clean, dialect=dialect)
+            if refs:
+                parents = _resolve_dataset_parents(
+                    refs, datasource_id=active_ds, dialect=dialect,
+                )
+                rewritten = rewrite_cm_view_to_physical(sql_clean, parents, dialect=dialect)
+            else:
+                missing_name = extract_missing_table_name(first.error)
+                if missing_name:
+                    parents = _resolve_dataset_parents(
+                        {missing_name}, datasource_id=active_ds, dialect=dialect,
+                    )
+                    tables = parents.get(missing_name) or []
+                    if len(tables) != 1:
+                        raise FallthroughGiveUp(f"dataset {missing_name!r} has {len(tables)} parents")
                     rewritten = rewrite_dataset_to_physical(
-                        sql_clean, missing_name, tables[0],
+                        sql_clean, missing_name, tables[0], dialect=dialect,
                     )
-                else:
-                    log.info(
-                        "view_fallthrough=skipped reason=dataset '%s' has %d parents; cannot fallthrough",
-                        missing_name, len(tables),
-                    )
-                    return first
+        except Exception:
+            log.info("view_fallthrough=skipped; original query error retained", exc_info=True)
+            return first
 
-        if rewritten is not None:
+        if rewritten is not None and rewritten != sql_clean:
             log.info("view_fallthrough=true original_error=%s", first.error[:200])
             retry = _dispatch(rewritten)
             if retry.error:
@@ -847,6 +951,7 @@ async def execute_sql_async(
     max_rows: int = 200,
     datasource_id: str = "",
     governor: BlockingIOGovernor | None = None,
+    allow_fallthrough: bool = True,
 ) -> ExecResult:
     """Run :func:`execute_sql` in the SQL thread pool (non-blocking for asyncio)."""
     if governor is not None:
@@ -857,6 +962,7 @@ async def execute_sql_async(
             sql,
             max_rows=max_rows,
             datasource_id=datasource_id,
+            allow_fallthrough=allow_fallthrough,
         )
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
@@ -865,6 +971,7 @@ async def execute_sql_async(
             sql,
             max_rows=max_rows,
             datasource_id=datasource_id,
+            allow_fallthrough=allow_fallthrough,
         ),
     )
 

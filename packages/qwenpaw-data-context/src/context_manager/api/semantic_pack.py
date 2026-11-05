@@ -22,6 +22,7 @@ from ..runtime.relevance import (
 from .cm_models import (
     CommonFilter,
     DrillDimension,
+    DrillDimensionBinding,
     EventCard,
     KnowledgeNote,
     MetricCandidate,
@@ -179,6 +180,10 @@ def _build_drill_dimensions(expanded: dict[str, Any], cap: int) -> list[DrillDim
         out.append(DrillDimension(
             name=name,
             relationship=dim_type,
+            column=str(dr.get("column") or ""),
+            column_table=str(dr.get("column_table") or ""),
+            expr=str(dr.get("expr") or ""),
+            bindings=[DrillDimensionBinding(**binding) for binding in dr.get("bindings", [])],
         ))
         if len(out) >= cap:
             break
@@ -442,8 +447,37 @@ def render_schema_prompt(
             parts.append("  相关列:")
             parts.extend(col_lines)
         if m.drill_dimensions:
-            dim_names = ", ".join(d.name for d in m.drill_dimensions)
+            # 维度连同物理列一起渲染：模型写 SQL 时需要「地区 → region_name」
+            # 这类映射，只给中文名会诱导它按语义猜列（Unknown column 的主因）。
+            # 有 column 的渲染成「维度(列)」；无绑定的维度退回纯名字，保持兼容。
+            dim_names = ", ".join(
+                f"{d.name}({d.column})" if d.column else d.name
+                for d in m.drill_dimensions
+            )
             parts.append(f"  可下钻维度: {dim_names}")
+            # 带物理表的映射行，跨数据集下钻时模型才能定位列的宿主表。
+            table_lines = []
+            for dim in m.drill_dimensions:
+                bindings = dim.bindings or [DrillDimensionBinding(
+                    column=dim.column, column_table=dim.column_table, expr=dim.expr,
+                )]
+                for binding in bindings:
+                    if binding.column and binding.column_table:
+                        line = f"  · {dim.name} → {binding.column_table}.{binding.column}"
+                    elif binding.dataset and binding.dataset_column:
+                        line = f"  · {dim.name} → 数据集列 {binding.dataset}.{binding.dataset_column}（物理列未唯一确认）"
+                    else:
+                        continue
+                    if binding.dataset:
+                        line += f"；数据集 {binding.dataset}"
+                    if binding.expr:
+                        line += f"；绑定表达式 {binding.expr}"
+                    if binding.filter:
+                        line += f"；绑定过滤 {binding.filter}"
+                    table_lines.append(line)
+            if table_lines:
+                parts.append("  维度列映射:")
+                parts.extend(table_lines)
         if m.common_filters:
             cf = "; ".join(c.description for c in m.common_filters if c.description)
             if cf:

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing release tag to build and verify
+        description: Existing vX.Y.Z (all packages) or console-vX.Y.Z (Console only) tag
         required: false
         type: string
       publish:
@@ -22,21 +22,34 @@ jobs:
   build:
     name: Build release distributions
     runs-on: ubuntu-latest
+    outputs:
+      publish_matrix: ${{ steps.scope.outputs.publish_matrix }}
     steps:
-      - name: Validate manual release tag
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+      - name: Select release scope
+        id: scope
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            exit 1
-          fi
+          python - <<'PY'
+          import json
+          import os
+          import re
+          tag = os.environ.get("RELEASE_TAG", "")
+          if tag and not re.fullmatch(r"(?:console-)?v\d+\.\d+\.\d+", tag):
+              raise SystemExit("Unsupported release tag")
+          package = "qwenpaw-data-console" if tag.startswith("console-v") else ""
+          suffixes = ["console"] if package else ["console", "skills", "context", "host-core", "cli"]
+          matrix = [{"project": "qwenpaw-data-" + s, "environment": "pypi-" + s} for s in suffixes]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("package=" + package, file=output)
+              print("publish_matrix=" + json.dumps(matrix), file=output)
+          PY
 
       - name: Require a tag for manual publication
         if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.release_tag == ''
         run: exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
 
@@ -49,16 +62,49 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: uv run python scripts/check_release_versions.py "$RELEASE_TAG"
 
-      - name: Build all publishable packages
-        run: uv build --all-packages --out-dir dist
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22.0'
+          cache: npm
+          cache-dependency-path: |
+            packages/qwenpaw-data-console/frontend/package-lock.json
+            packages/qwenpaw-data-context/frontend/package-lock.json
+
+      - name: Build packaged Console assets
+        run: python scripts/build_console.py
+
+      - name: Build selected publishable packages
+        env:
+          RELEASE_PACKAGE: ${{ steps.scope.outputs.package }}
+        run: |
+          if [[ -n "$RELEASE_PACKAGE" ]]; then
+            uv build --package "$RELEASE_PACKAGE" --out-dir dist
+          else
+            uv build --all-packages --out-dir dist
+          fi
 
       - name: Check package metadata
         run: uvx --from twine==7.0.0 twine check dist/*
 
       - name: Verify distribution set
-        run: uv run python scripts/check_release_versions.py --dist-dir dist
+        env:
+          RELEASE_PACKAGE: ${{ steps.scope.outputs.package }}
+        run: |
+          args=()
+          if [[ -n "$RELEASE_PACKAGE" ]]; then
+            args+=(--package "$RELEASE_PACKAGE")
+          fi
+          uv run python scripts/check_release_versions.py --dist-dir dist "${args[@]}"
 
       - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-qwenpaw-data-console
+          path: dist/qwenpaw_data_console-*
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.package == ''
         with:
           name: python-distributions-qwenpaw-data-skills
           path: dist/qwenpaw_data_skills-*
@@ -66,6 +112,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.package == ''
         with:
           name: python-distributions-qwenpaw-data-context
           path: dist/qwenpaw_data_context-*
@@ -73,6 +120,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.package == ''
         with:
           name: python-distributions-qwenpaw-data-host-core
           path: dist/qwenpaw_data_host_core-*
@@ -80,6 +128,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.package == ''
         with:
           name: python-distributions-qwenpaw-data-cli
           path: dist/qwenpaw_data_cli-*
@@ -94,15 +143,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - project: qwenpaw-data-skills
-            environment: pypi-skills
-          - project: qwenpaw-data-context
-            environment: pypi-context
-          - project: qwenpaw-data-host-core
-            environment: pypi-host-core
-          - project: qwenpaw-data-cli
-            environment: pypi-cli
+        include: ${{ fromJSON(needs.build.outputs.publish_matrix) }}
     environment:
       name: ${{ matrix.environment }}
       url: https://pypi.org/project/${{ matrix.project }}/

@@ -74,6 +74,14 @@ def _headers() -> dict[str, str]:
     )
     if db:
         h["x-neo4j-database"] = db
+    # Read from this MCP call's request, not a process-global preference.
+    try:
+        request = mcp.get_context().request_context.request
+        binding = request.headers.get("x-qwenpaw-model-binding") if request else None
+        if binding:
+            h["x-qwenpaw-model-binding"] = binding
+    except (LookupError, ValueError, AttributeError):
+        pass
     return h
 
 
@@ -374,6 +382,7 @@ async def execute_sql(
     max_rows: int = 2000,
     slow_ms_threshold: float = 8000.0,
     metadata: str = "{}",
+    dataset_names: list[str] | None = None,
 ) -> str:
     """在物理库上执行只读 SELECT 并返回结果。
 
@@ -395,12 +404,18 @@ async def execute_sql(
         max_rows: 行数上限，默认 2000
         slow_ms_threshold: 慢查询阈值（毫秒），默认 8000
         metadata: 由 harness 注入的带外上下文，JSON 对象字符串。支持 datasource_id、session_ref；显式 tool 参数优先于 metadata。LLM 无需填写
+        dataset_names: 可选的已确认数据集范围；harness 可固定此值。仅允许查询这些数据集映射的物理表；解析失败不会执行 SQL。
     """
     body: dict[str, Any] = {
         "sql": sql,
         "max_rows": max_rows,
         "slow_ms_threshold": slow_ms_threshold,
     }
+    scope = _parse_metadata(metadata)
+    if dataset_names is not None:
+        body["dataset_names"] = dataset_names
+    elif "dataset_names" in scope:
+        body["dataset_names"] = scope["dataset_names"]
     ref = _meta_session_ref(metadata, session_ref)
     if ref:
         body["session_ref"] = ref
