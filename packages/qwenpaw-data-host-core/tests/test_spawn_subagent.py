@@ -16,12 +16,15 @@ from agentscope.event import (
     ToolResultTextDeltaEvent,
     UserConfirmResultEvent,
 )
-from agentscope.message import Msg, TextBlock, ToolCallBlock
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultState
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.skill import Skill
 from agentscope.state import AgentState
+from agentscope.tool import Toolkit, ToolResponse
 
 import qwenpaw_data.host.core.agent.spawn_subagent as spawn_module
+from qwenpaw_data.host.core.agent.middleware.sql_artifact import SqlArtifactMiddleware
+from qwenpaw_data.host.core.agent.middleware.tool_timeout import ToolTimeoutMiddleware
 from qwenpaw_data.host.core.agent.spawn_subagent import (
     SpawnSubagent,
     _SubAgent,
@@ -333,9 +336,56 @@ async def test_role_injection_allowlists_tools_and_fetch_skill(
     assert skill_names == {"fetch-data"}
     permission_context = FakeSubAgent.instances[0].kwargs["state"].permission_context
     assert permission_context.mode is PermissionMode.ACCEPT_EDITS
-    sql_middleware = FakeSubAgent.instances[0].kwargs["middlewares"][0]
+    kwargs = FakeSubAgent.instances[0].kwargs
+    timeout_middleware, sql_middleware = kwargs["middlewares"]
+    assert isinstance(timeout_middleware, ToolTimeoutMiddleware)
+    assert isinstance(sql_middleware, SqlArtifactMiddleware)
     assert sql_middleware._host_artifact_dir == tmp_path / "host-artifacts" / "s1"
     assert sql_middleware._model_artifact_dir == tmp_path / "workspace/artifacts/s1"
+    assert kwargs["react_config"].interruption_raise_cancelled_error is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_artifacts", [True, False])
+async def test_spawned_agent_times_out_its_tools(monkeypatch, tmp_path, with_artifacts):
+    stopped = asyncio.Event()
+    responses = []
+
+    async def slow_tool(self, tool_call, state):
+        try:
+            yield ToolResponse(content=[TextBlock(text="partial")])
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    # Exercise the spawned Agent's actual acting middleware chain without an LLM.
+    async def reply_stream(self, inputs=None):
+        responses.extend(
+            [
+                item
+                async for item in self._acting(
+                    ToolCallBlock(id="slow-tool", name="Bash", input="{}"),
+                )
+            ]
+        )
+        yield Msg(name="sub", role="assistant", content="handled tool result")
+
+    monkeypatch.setattr(Toolkit, "call_tool", slow_tool)
+    monkeypatch.setattr(_SubAgent, "reply_stream", reply_stream)
+    monkeypatch.setenv("QWENPAW_DATA_TOOL_TIMEOUT_SECONDS", "0.05")
+    tool = _make_tool(tmp_path)
+    if not with_artifacts:
+        tool._host_artifact_dir = None
+
+    await asyncio.wait_for(_collect(tool, task="query"), 2)
+
+    assert stopped.is_set()
+    assert len(responses) == 1
+    assert responses[0].state == ToolResultState.ERROR
+    error = json.loads(_chunk_text(responses[0]))["error"]
+    assert error["code"] == "TOOL_TIMEOUT"
+    assert error["tool"] == "Bash"
+    assert error["timeout_seconds"] == 0.05
 
 
 @pytest.mark.asyncio
@@ -459,6 +509,109 @@ async def test_timeout(monkeypatch, tmp_path) -> None:
 
     assert chunks[-1].is_last is True
     assert "超时" in _chunk_text(chunks[-1])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cause", ["cancel", "tool_timeout", "child_timeout"])
+async def test_interrupted_spawn_drains_child_before_return(
+    monkeypatch, tmp_path, cause
+):
+    started, stopped = asyncio.Event(), asyncio.Event()
+    child_tasks = []
+
+    class HangingSubAgent(FakeSubAgent):
+        async def reply_stream(self, inputs=None):
+            child_tasks.append(asyncio.current_task())
+            try:
+                started.set()
+                await asyncio.Event().wait()
+                yield TextBlockDeltaEvent(
+                    reply_id="r", block_id="b", delta="late success"
+                )
+            finally:
+                stopped.set()
+
+    monkeypatch.setattr(spawn_module, "_SubAgent", HangingSubAgent)
+    if cause == "child_timeout":
+        monkeypatch.setattr(spawn_module, "TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(spawn_module, "MAX_CONCURRENT", 1)
+    tool = _make_tool(tmp_path)
+
+    async def call():
+        if cause != "tool_timeout":
+            return await _collect(tool, task="query")
+
+        async def handler(**kwargs):
+            async for chunk in tool(task="query"):
+                yield chunk
+
+        return [
+            chunk
+            async for chunk in ToolTimeoutMiddleware(0.1).on_acting(
+                None, {"tool_call": SimpleNamespace(name="spawn_subagent")}, handler
+            )
+        ]
+
+    pending = asyncio.create_task(call())
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        if cause == "cancel":
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        else:
+            chunks = await asyncio.wait_for(pending, 2)
+            assert chunks[-1].state == ToolResultState.ERROR
+            assert all("late success" not in _chunk_text(c) for c in chunks)
+        assert stopped.is_set(), "child generator was left running"
+        assert all(t.done() for t in child_tasks), "child event task was orphaned"
+
+        # The same tool remains usable; cancellation must release its slot.
+        FakeSubAgent.events = [
+            TextBlockDeltaEvent(reply_id="next", block_id="b", delta="done")
+        ]
+        monkeypatch.setattr(spawn_module, "_SubAgent", FakeSubAgent)
+        resumed = await asyncio.wait_for(_collect(tool, task="follow up"), 2)
+        assert resumed[-1].metadata["subagent_event"] == "summary"
+        assert _chunk_text(resumed[-1]) == "done"
+    finally:
+        # Also clean up deliberately failing pre-fix runs.
+        for task in [pending, *child_tasks]:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(pending, *child_tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_closing_spawn_stream_closes_nested_child(monkeypatch, tmp_path):
+    stopped = asyncio.Event()
+    streams = []
+
+    class StreamingSubAgent(FakeSubAgent):
+        def reply_stream(self, inputs=None):
+            async def events():
+                try:
+                    yield TextBlockDeltaEvent(
+                        reply_id="r", block_id="b", delta="partial"
+                    )
+                    await asyncio.Event().wait()
+                finally:
+                    stopped.set()
+
+            stream = events()
+            streams.append(stream)
+            return stream
+
+    monkeypatch.setattr(spawn_module, "_SubAgent", StreamingSubAgent)
+    stream = _make_tool(tmp_path)(task="query")
+    try:
+        assert _chunk_text(await anext(stream)) == "partial"
+        await stream.aclose()
+        assert stopped.is_set(), "closing the outer stream must close the child stream"
+    finally:
+        await stream.aclose()
+        for child in streams:
+            await child.aclose()
 
 
 @pytest.mark.asyncio

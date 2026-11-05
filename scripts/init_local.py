@@ -205,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
                 root / "packages" / "qwenpaw-data-cli",
                 "--editable",
                 root / "packages" / "qwenpaw-data-skills",
+                "--editable",
+                root / "packages" / "qwenpaw-data-console",
             ],
             cwd=root,
         )

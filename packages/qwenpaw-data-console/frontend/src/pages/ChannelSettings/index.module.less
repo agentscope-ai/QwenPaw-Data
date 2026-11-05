@@ -1,0 +1,141 @@
+.content {
+  height: 100%;
+  min-height: 100%;
+  overflow-y: auto;
+  color: #172033;
+  background: #f5f8fc;
+}
+
+.header {
+  display: flex;
+  height: 64px;
+  align-items: center;
+  padding: 9px 32px 9px 16px;
+  background: rgb(255 255 255 / 88%);
+  border-bottom: 1px solid #e7edf5;
+  box-sizing: border-box;
+
+  h1 {
+    margin: 0;
+    color: #172033;
+    font-size: 15px;
+    line-height: 1.2;
+  }
+}
+
+.mobileMenu {
+  display: none;
+  margin-right: 4px;
+}
+
+.backButton {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  place-items: center;
+  margin-right: 4px;
+  color: #617188;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &:hover {
+    color: #172033;
+    background: #f1f5f9;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #91caff;
+    outline-offset: 1px;
+  }
+}
+
+.headerSettings {
+  margin-left: auto;
+}
+
+.main {
+  width: min(1700px, calc(100% - 16px));
+  margin: 0 auto;
+  padding: 34px 0 60px;
+}
+
+.intro {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 22px;
+}
+
+.loading {
+  display: flex;
+  min-height: 280px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #8090a7;
+}
+
+.sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.section {
+  flex: 1 1 300px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 22px;
+  background: rgb(255 255 255 / 92%);
+  border: 1px solid #e5ecf5;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgb(42 66 101 / 5%);
+  box-sizing: border-box;
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 18px;
+
+  > span {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    color: #1677ff;
+    background: #eaf3ff;
+    border-radius: 9px;
+  }
+
+  h3 {
+    margin: 0;
+    color: #243147;
+    font-size: 16px;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: #8291a6;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding-inline: 12px;
+  }
+
+  .mobileMenu {
+    display: inline-flex;
+  }
+
+  .main {
+    width: calc(100% - 24px);
+    padding: 20px 0 40px;
+  }
+}

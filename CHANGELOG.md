@@ -6,6 +6,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add opt-in dataset-scoped SQL validation before execution and cache lookup,
+  using physical table mappings from the selected datasource's semantic catalog.
+- Bound complete Host tool calls with a configurable timeout and cooperative
+  cancellation on main and child agents.
+- Persist session-local SQL result references so downstream tools can load query
+  metadata and verify CSV integrity without copying preview rows through the model.
+
+### Fixed
+
+- Apply tool deadlines to spawned agents and drain their event tasks and streams
+  on cancellation, timeout, or early stream closure before releasing the spawn slot.
+- Isolate SQL result cache entries by datasource to prevent identical queries on
+  different databases from sharing results.
+
 ### Changed
 
 - Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6
@@ -14,6 +30,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dependencies monthly with one open version PR per ecosystem. Plan major upgrades
   manually while keeping security updates eligible independently of the routine
   version-update filter.
+
+## [Console 0.3.3] - 2026-11-05
+
+### Added
+
+- Add `qwenpaw-data-console`: a reusable loopback portal with prebuilt chat and
+  DataBridge UIs, runtime branding, server-side API credentials and replayable
+  Host event streams. Domain applications can install the wheel and supply
+  configuration instead of copying frontend source.
+- Support a Console deployment mode in the DataBridge frontend, with subpath
+  routing and portal authentication configured without source rewriting.
+- Publish Console independently with a `console-vX.Y.Z` tag; existing engine
+  package versions and coordinated release tags remain unchanged.
+
+### Security
+
+- Serve Console assets through Starlette's root-confined static file handler,
+  with encoded traversal and symlink-escape regression tests.
+- Audit both packaged frontend dependency inventories and refresh vulnerable
+  frontend dependencies.
 
 ## [0.3.3] - Unreleased
 
