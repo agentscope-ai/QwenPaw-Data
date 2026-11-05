@@ -42,12 +42,55 @@ def test_old_import_contract_path_is_compatible() -> None:
     assert OldImportRequest is ImportRequest
 
 
+def test_sql_cache_touch_renews_at_most_once() -> None:
+    """A popular query must not renew its TTL forever (stale rows served as fresh)."""
+    cache = cm_sql_results.SqlResultCache()
+    result = ExecResult(sql="SELECT 1", columns=["value"], rows=[[1]], row_count=1)
+    cache.put("SELECT 1", 10, result, "success", None, Path("x.csv"), ttl=1000)
+    key = cache._make_key("SELECT 1", 10)
+    e = cache._store[key]
+    first_created = e.created_at
+
+    e.touch()
+    assert e.touched
+    assert e.created_at >= first_created  # renewed once
+    renewed = e.created_at
+
+    e.touch()
+    assert e.created_at == renewed  # second touch is a no-op
+
+
 def test_sql_cache_does_not_cross_datasources(tmp_path: Path) -> None:
     cache = cm_sql_results.SqlResultCache()
     path = tmp_path / "result.csv"
     path.write_text("value\n1\n")
-    result = ExecResult(sql="SELECT * FROM t", columns=["value"], rows=[[1]], row_count=1)
+    result = ExecResult(
+        sql="SELECT * FROM t", columns=["value"], rows=[[1]], row_count=1
+    )
     cache.put(result.sql, 10, result, "success", "/result.csv", path, datasource_id="a")
     assert cache.get(result.sql, 10, datasource_id="a") is not None
     assert cache.get(result.sql, 10, datasource_id="b") is None
     assert cache.get(result.sql, 10) is None
+
+
+def test_popular_cache_eventually_expires_and_cannot_revive(monkeypatch, tmp_path):
+    clock = [0.0]
+    monkeypatch.setattr(cm_sql_results.time, "time", lambda: clock[0])
+    path = tmp_path / "data.csv"
+    path.write_text("a\n1\n")
+    cache = cm_sql_results.SqlResultCache()
+    result = ExecResult(sql="SELECT 1")
+    entry = cache.put(
+        result.sql, 10, result, "success", None, path, ttl=10, datasource_id="a"
+    )
+    for now in [9, 15, 18]:
+        clock[0] = now
+        assert cache.get(result.sql, 10, datasource_id="a") is entry
+        entry.touch()
+    clock[0] = 20
+    entry.touch()
+    assert cache.get(result.sql, 10, datasource_id="a") is None
+    expired = cache.put(result.sql, 10, result, "success", None, path, ttl=10)
+    clock[0] = 31
+    expired.touch()
+    assert expired.is_expired()

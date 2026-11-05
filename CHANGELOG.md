@@ -8,6 +8,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add PostgreSQL/MySQL statement limits with separate database and client-read
+  timeout errors, and bound SQL cache renewal to prevent indefinitely stale results.
 - Add opt-in dataset-scoped SQL validation before execution and cache lookup,
   using physical table mappings from the selected datasource's semantic catalog.
 - Bound complete Host tool calls with a configurable timeout and cooperative
