@@ -17,6 +17,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Propagate main-agent cancellation to the Host so stopped runs finish as canceled
+  and the same session can accept a follow-up request.
 - Apply tool deadlines to spawned agents and drain their event tasks and streams
   on cancellation, timeout, or early stream closure before releasing the spawn slot.
 - Isolate SQL result cache entries by datasource to prevent identical queries on

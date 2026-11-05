@@ -65,7 +65,9 @@ class QwenPawDataAgent(Agent):
         offloader: Offloader | None = None,
         model_config: ModelConfig = ModelConfig(),
         context_config: ContextConfig = ContextConfig(),
-        react_config: ReActConfig = ReActConfig(max_iters=100),
+        react_config: ReActConfig = ReActConfig(
+            max_iters=100, interruption_raise_cancelled_error=True,
+        ),
         *,
         runtime_state: RuntimeStateManager | None = None,
         request_context: dict[str, Any] | None = None,
