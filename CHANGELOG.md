@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add opt-in dataset-scoped SQL validation before execution and cache lookup,
+  using physical table mappings from the selected datasource's semantic catalog.
+- Bound complete Host tool calls with a configurable timeout and cooperative
+  cancellation on main and child agents.
+- Persist session-local SQL result references so downstream tools can load query
+  metadata and verify CSV integrity without copying preview rows through the model.
+
+### Fixed
+
+- Isolate SQL result cache entries by datasource to prevent identical queries on
+  different databases from sharing results.
+
 ### Changed
 
 - Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6
