@@ -491,6 +491,101 @@ def resolve_column(
 # ---------------------------------------------------------------------- #
 # 子图扩展（一次性把 metric 周边的 §6.2 全套结构拉回来）
 # ---------------------------------------------------------------------- #
+def _resolve_drill_dimensions(drill_rows: list, formula_rows: list) -> list[dict]:
+    """Keep metric-scoped bindings, with matching physical names and stable order."""
+    dataset_keys = {r.get("dataset_key") for r in formula_rows if r.get("dataset_key")}
+    datasets = {r.get("dataset") for r in formula_rows if r.get("dataset")}
+    tables = {
+        (str(r["t"].get("schema") or ""), str(r["t"].get("name") or ""))
+        for r in formula_rows
+        if r.get("t")
+    }
+    dims: dict[str, dict] = {}
+    grouped: dict[tuple, list] = {}
+    for row in drill_rows:
+        dim = dict(row.get("dim") or {})
+        key = str(dim.get("key") or "")
+        if not key:
+            continue
+        dims.setdefault(
+            key,
+            {
+                "key": key,
+                "name": dim.get("name"),
+                "aliases": dim.get("aliases") or [],
+                "dimension_type": dim.get("dimension_type") or "OLAP维度",
+                "column": "",
+                "column_table": "",
+                "expr": "",
+                "bindings": [],
+            },
+        )
+        col = dict(row.get("col") or {})
+        if not col:
+            continue
+        physical = dict(row.get("phys_col") or {}) or col
+        if row.get("dataset_key") and dataset_keys:
+            in_scope = row["dataset_key"] in dataset_keys
+        elif row.get("dataset") and datasets:
+            in_scope = row["dataset"] in datasets
+        else:
+            in_scope = (
+                str(physical.get("schema") or ""),
+                str(physical.get("table") or ""),
+            ) in tables
+        if not in_scope:
+            continue
+        binding_key = (
+            key,
+            str(col.get("key") or col.get("name") or ""),
+            str(row.get("dataset_key") or row.get("dataset") or ""),
+            str(row.get("expr") or ""),
+            str(row.get("filter") or ""),
+        )
+        grouped.setdefault(binding_key, []).append(row)
+
+    for binding_key, rows in sorted(grouped.items()):
+        row = rows[0]
+        col = dict(row["col"])
+        is_dataset_col = bool(row.get("dataset")) or str(col.get("key", "")).startswith(
+            "dscol:"
+        )
+        physicals = {
+            (
+                str(p.get("schema") or ""),
+                str(p.get("table") or ""),
+                str(p.get("name") or ""),
+            )
+            for r in rows
+            for p in [dict(r.get("phys_col") or {}) if is_dataset_col else col]
+            if p.get("table") and p.get("name")
+        }
+        binding = {
+            "column": "",
+            "column_table": "",
+            "dataset": str(row.get("dataset") or ""),
+            "dataset_column": str(col.get("name") or "") if is_dataset_col else "",
+            "expr": str(row.get("expr") or ""),
+            "filter": str(row.get("filter") or ""),
+        }
+        # Multiple inputs or composite columns are lineage, not a direct column map.
+        if len(physicals) == 1 and not col.get("composite"):
+            schema, table, name = next(iter(physicals))
+            binding.update(
+                column=name, column_table=f"{schema}.{table}" if schema else table
+            )
+        dim = dims[binding_key[0]]
+        if binding not in dim["bindings"]:
+            dim["bindings"].append(binding)
+    for dim in dims.values():
+        if len(dim["bindings"]) == 1:
+            binding = dim["bindings"][0]
+            dim.update(
+                {field: binding[field] for field in ("column", "column_table", "expr")}
+            )
+    return [dims[key] for key in sorted(dims)]
+
+
 def expand_subgraph(
     driver: Driver,
     metric_key: str,
@@ -518,7 +613,8 @@ def expand_subgraph(
 
     // 公式 → 表 → 列（USES_COLUMN 同时匹配 Column 和 DatasetColumn）
     OPTIONAL MATCH (m)-[hf:HAS_FORMULA]->(f:Formula)
-    OPTIONAL MATCH (f)-[:OF_VIEW]->(:Dataset)-[:CONTAINS_TABLE]->(t:Table)
+    OPTIONAL MATCH (f)-[:OF_VIEW]->(formula_ds:Dataset)
+    OPTIONAL MATCH (formula_ds)-[:CONTAINS_TABLE]->(t:Table)
     OPTIONAL MATCH (f)-[uc:USES_COLUMN]->(col)
       WHERE col:Column OR col:DatasetColumn
 
@@ -528,6 +624,7 @@ def expand_subgraph(
       WHERE dim_col:Column OR dim_col:DatasetColumn
     // DatasetColumn 不带物理表名；经 DERIVED_FROM 找到宿主物理 Column 才有
     OPTIONAL MATCH (dim_col)-[:DERIVED_FROM]->(phys_col:Column)
+    OPTIONAL MATCH (dim_ds:Dataset)-[:HAS_COLUMN]->(dim_col)
 
     // 派生
     OPTIONAL MATCH (m)-[df:DERIVED_FROM]->(parent:Metric)
@@ -538,8 +635,10 @@ def expand_subgraph(
 
     RETURN
       m  AS metric, dom AS domain,
-      collect(DISTINCT {f: f, t: t, col: col, role: uc.role}) AS formula_rows,
+      collect(DISTINCT {f: f, t: t, col: col, role: uc.role,
+                        dataset: formula_ds.name, dataset_key: formula_ds.key}) AS formula_rows,
       collect(DISTINCT {dim: dim, col: dim_col, phys_col: phys_col,
+                         dataset: dim_ds.name, dataset_key: dim_ds.key,
                          expr: mc.expr, filter: mc.filter,
                          binding_type: mc.binding_type}) AS drill_rows,
       collect(DISTINCT {parent: parent, role: df.role, relation_type: df.relation_type}) AS derived_rows,
@@ -633,11 +732,9 @@ def expand_subgraph(
 
     # drill dims
     if include_drill:
-        seen_dim: set[str] = set()
         for r in rec["drill_rows"] or []:
             if not r or not r.get("dim"):
                 continue
-            dim_props = dict(r["dim"])
             dim_key = add_node(r["dim"], "Dimension")
             add_edge(metric_key_actual, dim_key, "ANALYZED_BY")
             if r.get("col"):
@@ -663,27 +760,9 @@ def expand_subgraph(
                         "binding_type": r.get("binding_type") or "",
                     },
                 )
-            if dim_props.get("key") not in seen_dim:
-                seen_dim.add(dim_props.get("key"))
-                _dc_props = dict(r["col"]) if r.get("col") else {}
-                # DatasetColumn 节点没有 table 属性,物理表名经 DERIVED_FROM
-                # 落到物理 Column 上才有;Column 节点自带 table。
-                _phys = dict(r["phys_col"]) if r.get("phys_col") else {}
-                _col_table = str(_dc_props.get("table") or _phys.get("table") or "")
-                raw["drill_dims"].append(
-                    {
-                        "key": dim_props.get("key"),
-                        "name": dim_props.get("name"),
-                        "aliases": dim_props.get("aliases") or [],
-                        "dimension_type": dim_props.get("dimension_type") or "OLAP维度",
-                        # 物理列映射：dim -[MAPS_TO_DATASET_COLUMN|MAPS_TO_COLUMN]-> 列。
-                        # 模型写 SQL 需要物理列名；只渲染中文名会让模型凭语义猜列
-                        # （如把「地区」写成 region），实测必然 Unknown column。
-                        "column": str(_dc_props.get("name") or ""),
-                        "column_table": _col_table,
-                        "expr": str(r.get("expr") or ""),
-                    }
-                )
+        raw["drill_dims"] = _resolve_drill_dimensions(
+            rec["drill_rows"] or [], rec["formula_rows"] or [],
+        )
 
     # derived
     if include_derived:

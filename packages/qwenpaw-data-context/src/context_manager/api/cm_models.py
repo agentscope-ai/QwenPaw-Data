@@ -64,15 +64,24 @@ class CommonFilter(BaseModel):
     sql_fragment: str = ""
 
 
+class DrillDimensionBinding(BaseModel):
+    """A binding in the current metric's dataset scope; no inferred identifiers."""
+    column: str = ""
+    column_table: str = ""
+    dataset: str = ""
+    dataset_column: str = ""
+    expr: str = ""
+    filter: str = ""
+
+
 class DrillDimension(BaseModel):
     name: str
     relationship: str = ""
-    # 维度绑定的物理列（dataset 表里的真实列名）与所属物理表。
-    # schema_prompt 渲染可下钻维度时带上它们，模型才不会凭中文语义猜列名。
+    # Singular fields are populated only when one binding is unambiguous.
     column: str = ""
     column_table: str = ""
-    # 原始绑定表达式（select(...)），保留给需要口径细节的调用方。
     expr: str = ""
+    bindings: list[DrillDimensionBinding] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------- #

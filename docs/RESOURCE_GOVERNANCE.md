@@ -84,6 +84,13 @@ check columns, metric meanings, dates or regional scope. Existing connector
 read-only and resource controls continue to apply. Upgrade both Host and
 DataBridge when enabling it; old MCP servers do not support `dataset_names`.
 
+Context packs separately expose dimension `bindings` scoped to the metric's
+formula datasets. Each includes a physical table/column pair when uniquely known,
+the dataset column, expression and filter. Multiple bindings remain separate;
+singular compatibility fields are populated only for one binding. Missing or
+composite lineage is not represented as a confirmed physical column. These hints
+help SQL generation and do not replace runtime column validation.
+
 ## Blocking I/O and event-loop safety
 
 QwenPaw Data uses two explicit boundaries for synchronous libraries:
