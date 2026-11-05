@@ -16,7 +16,9 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from starlette.background import BackgroundTask
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.staticfiles import StaticFiles
 
 from .config import ConsoleConfig
 
@@ -60,6 +62,7 @@ def create_app(
         raise ValueError(
             "Console assets missing; install the built wheel or run scripts/build_console.py in QwenPaw-Data"
         )
+    chat_assets = StaticFiles(directory=frontend, follow_symlink=False)
     origin = urlsplit(host_url)
     if (
         origin.scheme != "http"
@@ -91,6 +94,7 @@ def create_app(
             raise ValueError(
                 "DataBridge assets missing; install the built Console wheel or run scripts/build_console.py"
             )
+        bridge_assets = StaticFiles(directory=bridge_frontend, follow_symlink=False)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -245,14 +249,21 @@ def create_app(
         return RedirectResponse("/databridge/")
 
     @app.get("/databridge/{path:path}")
-    async def bridge_page(path):
-        if not bridge_url or path.startswith("api/"):
+    async def bridge_page(path, request: Request):
+        if (
+            not bridge_url
+            or path.startswith("api/")
+            or "\\" in path
+            or ".." in path.split("/")
+        ):
             raise HTTPException(404)
-        candidate = (bridge_frontend / path).resolve()
-        if not candidate.is_relative_to(bridge_frontend):
-            raise HTTPException(404)
-        if candidate.is_file():
-            return FileResponse(candidate)
+        # StaticFiles checks real paths against its root, including symlinks.
+        # Keep request-derived paths out of direct filesystem operations.
+        try:
+            return await bridge_assets.get_response(path, request.scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
         if path.startswith("assets/") or Path(path).suffix:
             raise HTTPException(404)
         return FileResponse(bridge_frontend / "index.html")
@@ -316,12 +327,18 @@ def create_app(
         app.include_router(router)
 
     @app.get("/{path:path}")
-    async def frontend_file(path):
-        if path.startswith(("api/", "portal/")):
+    async def frontend_file(path, request: Request):
+        if (
+            path.startswith(("api/", "portal/"))
+            or "\\" in path
+            or ".." in path.split("/")
+        ):
             raise HTTPException(404)
-        candidate = (frontend / path).resolve()
-        if candidate.is_relative_to(frontend) and candidate.is_file():
-            return FileResponse(candidate)
+        try:
+            return await chat_assets.get_response(path, request.scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
         if path == "" or path == "console" or path.startswith("console/"):
             return FileResponse(frontend / "index.html")
         raise HTTPException(404)

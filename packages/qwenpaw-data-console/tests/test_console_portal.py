@@ -1,4 +1,5 @@
 import json
+import os
 
 import httpx
 import pytest
@@ -427,3 +428,58 @@ def test_no_bridge_and_no_external_access(frontend):
         assert client.get("/databridge/").status_code == 404
     with TestClient(app, client=("192.0.2.10", 12345)) as client:
         assert client.get("/console").status_code == 403
+
+
+@pytest.mark.parametrize("prefix", ["", "/databridge"])
+def test_static_paths_cannot_escape_asset_root(tmp_path, frontend, bridge_frontend, prefix):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("outside-asset-root")
+    app = create_app(
+        host_url="http://127.0.0.1:8766",
+        token="token",
+        frontend=frontend,
+        bridge_url="http://127.0.0.1:8765",
+        bridge_frontend=bridge_frontend,
+    )
+    with TestClient(app) as client:
+        for path in (
+            "/%2e%2e/secret.txt",
+            "/assets/%2e%2e/%2e%2e/secret.txt",
+            "/%2e%2e%5csecret.txt",
+            "/%252e%252e/secret.txt",
+            "/" + secret.as_posix().replace("/", "%2f"),
+        ):
+            response = client.get(prefix + path)
+            assert response.status_code == 404, path
+            assert "outside-asset-root" not in response.text
+        assert client.get(prefix + "/assets/app.js").status_code == 200
+
+
+@pytest.mark.parametrize("prefix", ["", "/databridge"])
+def test_static_symlinks_cannot_expose_sibling_directory(
+    tmp_path, frontend, bridge_frontend, prefix
+):
+    root = bridge_frontend if prefix else frontend
+    # A shared string prefix does not make this a child of the assets directory.
+    sibling = root.with_name(root.name + "-private")
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("outside-asset-root")
+    try:
+        (root / "assets/external").symlink_to(sibling, target_is_directory=True)
+        (root / "secret.txt").symlink_to(sibling / "secret.txt")
+    except OSError:
+        if os.name == "nt":
+            pytest.skip("Windows runner does not permit symlink creation")
+        raise
+    app = create_app(
+        host_url="http://127.0.0.1:8766",
+        token="token",
+        frontend=frontend,
+        bridge_url="http://127.0.0.1:8765",
+        bridge_frontend=bridge_frontend,
+    )
+    with TestClient(app) as client:
+        for path in ("/assets/external/secret.txt", "/secret.txt"):
+            response = client.get(prefix + path)
+            assert response.status_code == 404
+            assert "outside-asset-root" not in response.text
