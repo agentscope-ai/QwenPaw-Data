@@ -64,9 +64,24 @@ class CommonFilter(BaseModel):
     sql_fragment: str = ""
 
 
+class DrillDimensionBinding(BaseModel):
+    """A binding in the current metric's dataset scope; no inferred identifiers."""
+    column: str = ""
+    column_table: str = ""
+    dataset: str = ""
+    dataset_column: str = ""
+    expr: str = ""
+    filter: str = ""
+
+
 class DrillDimension(BaseModel):
     name: str
     relationship: str = ""
+    # Singular fields are populated only when one binding is unambiguous.
+    column: str = ""
+    column_table: str = ""
+    expr: str = ""
+    bindings: list[DrillDimensionBinding] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------- #

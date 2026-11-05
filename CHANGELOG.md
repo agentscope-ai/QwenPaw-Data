@@ -28,6 +28,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Include metric-scoped dimension column bindings in schema prompts, preserving
+  multiple mappings and leaving unresolved/composite physical columns unasserted.
 - Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6
   together, including the Rolldown configuration migration.
 - Schedule grouped Dependabot minor/patch updates for directly declared

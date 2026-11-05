@@ -66,6 +66,13 @@ trusted current session root, not an arbitrary model-selected directory.
 
 ## Dataset-scoped SQL
 
+Context packs separately expose dimension `bindings` scoped to the metric's
+formula datasets. Each includes a physical table/column pair when uniquely known,
+the dataset column, expression and filter. Multiple bindings remain separate;
+singular compatibility fields are populated only for one binding. Missing or
+composite lineage is not represented as a confirmed physical column. These hints
+help SQL generation and do not replace runtime column validation.
+
 Host applications may set `request_context={"datasource_id": "...",
 "dataset_names": ["confirmed_dataset"]}`. Host overrides model-supplied scope;
 the DataBridge MCP forwards it to both the normal SQL API contract and its
