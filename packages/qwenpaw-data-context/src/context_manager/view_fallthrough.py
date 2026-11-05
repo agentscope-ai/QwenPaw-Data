@@ -104,6 +104,34 @@ def extract_missing_table_name(error_msg: str) -> str | None:
     return next((g for g in m.groups() if g is not None), None)
 
 
+def _qualified_name_res(name: str) -> list["re.Pattern[str]"]:
+    """Patterns for qualified references to name in SQL.
+
+    Covers db.name where any segment may be bare, backtick-quoted or
+    double-quoted, plus the bare quoted name form. A bare-name
+    substitution would turn db.name into the illegal three-part
+    db.schema.table (MySQL 1064), so qualified references must be
+    replaced whole, before the bare-name pass runs.
+    """
+    esc = re.escape(name)
+    bt = chr(96)  # backtick
+    dq = chr(34)  # double quote
+    ident = "[A-Za-z_][A-Za-z0-9_$]*"
+    seg = "(?:" + ident + "|" + bt + "[^" + bt + "]+" + bt + "|" + dq + "[^" + dq + "]+" + dq + ")"
+    # 整段限定引用。用 lookahead 而非词边界收尾:闭引号被贪心吞掉后整体仍然
+    # 成立,避免回溯丢掉右引号、留下游离的引号字符。
+    return [
+        re.compile(
+            "(?<![\\w.$])" + seg + "\\s*\\.\\s*(?:"
+            + bt + "?" + esc + bt + "?|" + dq + esc + dq
+            + ")(?=$|[^A-Za-z0-9_$])",
+            re.IGNORECASE,
+        ),
+        # 裸引号形式:name 带引号整体替换,避免裸名替换产出
+        # 反引号包裹的 schema.table(库名被包进单个引号标识符,MySQL 1146)。
+        re.compile(bt + esc + bt + "|" + dq + esc + dq, re.IGNORECASE),
+    ]
+
 def rewrite_dataset_to_physical(
     sql: str,
     name: str,
@@ -119,6 +147,11 @@ def rewrite_dataset_to_physical(
     schema, table = parent
     replacement = f"{schema}.{table}"
 
+    # 限定引用（db.name / `db`.`name` / "db"."name"）优先匹配：整段替换为
+    # schema.table，避免裸名替换把 "db.name" 变成 "db.schema.table" 三段式
+    # 非法标识符（MySQL 1064）。
+    for pat in _qualified_name_res(name):
+        sql = pat.sub(replacement, sql)
     # quoted identifiers: "name" → schema.table
     sql = re.sub(
         r'"' + re.escape(name) + r'"',
