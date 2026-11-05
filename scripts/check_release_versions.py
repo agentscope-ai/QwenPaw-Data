@@ -28,14 +28,16 @@ def project_versions() -> dict[str, str]:
 
 
 def normalize_tag(tag: str) -> str:
-    value = tag.removeprefix("v")
+    value = tag.removeprefix("console-").removeprefix("v")
     if not re.fullmatch(r"\d+\.\d+\.\d+", value):
         raise ValueError(f"release tag must be vMAJOR.MINOR.PATCH: {tag!r}")
     return value
 
 
-def validate_versions(expected: str | None) -> str:
+def validate_versions(expected: str | None, package: str | None = None) -> str:
     versions = project_versions()
+    if package:
+        versions = {package: versions[package]}
     unique = set(versions.values())
     if len(unique) != 1:
         details = ", ".join(f"{name}={version}" for name, version in versions.items())
@@ -46,7 +48,7 @@ def validate_versions(expected: str | None) -> str:
     return version
 
 
-def validate_distributions(dist_dir: Path, version: str) -> None:
+def validate_distributions(dist_dir: Path, version: str, package: str | None = None) -> None:
     expected_names = {
         "qwenpaw-data-console",
         "qwenpaw-data-cli",
@@ -54,6 +56,8 @@ def validate_distributions(dist_dir: Path, version: str) -> None:
         "qwenpaw-data-host-core",
         "qwenpaw-data-skills",
     }
+    if package:
+        expected_names = {package}
     found: dict[str, set[str]] = {}
     for path in dist_dir.iterdir():
         match = DIST_NAME.match(path.name)
@@ -75,7 +79,8 @@ def validate_distributions(dist_dir: Path, version: str) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", nargs="?", help="Release tag, for example v0.1.0")
+    parser.add_argument("tag", nargs="?", help="Release tag: vX.Y.Z or console-vX.Y.Z")
+    parser.add_argument("--package", choices=["qwenpaw-data-console"], help="Validate only the Console distribution")
     parser.add_argument("--dist-dir", type=Path, help="Validate built wheels and sdists")
     return parser.parse_args(argv)
 
@@ -83,10 +88,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        package = args.package
+        if args.tag and args.tag.startswith("console-"):
+            package = "qwenpaw-data-console"
         expected = normalize_tag(args.tag) if args.tag else None
-        version = validate_versions(expected)
+        version = validate_versions(expected, package)
         if args.dist_dir:
-            validate_distributions(args.dist_dir.resolve(), version)
+            validate_distributions(args.dist_dir.resolve(), version, package)
     except (OSError, ValueError) as exc:
         print(f"release validation failed: {exc}", file=sys.stderr)
         return 1

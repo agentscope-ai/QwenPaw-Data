@@ -15,6 +15,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   manually while keeping security updates eligible independently of the routine
   version-update filter.
 
+## [Console 0.3.3] - 2026-11-05
+
 ### Added
 
 - Add `qwenpaw-data-console`: a reusable loopback portal with prebuilt chat and
@@ -23,6 +25,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configuration instead of copying frontend source.
 - Support a Console deployment mode in the DataBridge frontend, with subpath
   routing and portal authentication configured without source rewriting.
+- Publish Console independently with a `console-vX.Y.Z` tag; existing engine
+  package versions and coordinated release tags remain unchanged.
+
+### Security
+
+- Serve Console assets through Starlette's root-confined static file handler,
+  with encoded traversal and symlink-escape regression tests.
+- Audit both packaged frontend dependency inventories and refresh vulnerable
+  frontend dependencies.
 
 ## [0.3.3] - Unreleased
 

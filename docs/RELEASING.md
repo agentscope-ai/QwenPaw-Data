@@ -31,6 +31,27 @@ Trusted Publisher before the first release. Manual workflow dispatch runs the
 build checks by default and publishes only when its `publish` input is enabled
 together with an existing `release_tag`.
 
+### Console-only releases
+
+A `console-vX.Y.Z` tag selects only `qwenpaw-data-console`. The same workflow
+validates that package's version, builds its two prebuilt UIs and wheel/sdist,
+and publishes only through `pypi-console`. Other package versions and PyPI
+releases remain unchanged. Use this path for the initial Console 0.3.3 release;
+the existing coordinated `v0.3.3` tag must not be moved or reused.
+
+Before tagging the reviewed default-branch commit, run:
+
+```bash
+python scripts/build_console.py
+uv build --package qwenpaw-data-console --out-dir dist-console
+uv run python scripts/check_release_versions.py console-v0.3.3 --dist-dir dist-console
+uvx --from twine==7.0.0 twine check dist-console/*
+```
+
+The release tag determines the publication scope; manual dispatch accepts the
+same tag. A Console-only distribution check rejects artifacts for other
+packages. Existing `vX.Y.Z` releases retain the coordinated all-package path.
+
 Console release wheels and sdists must contain both prebuilt UIs. The build
 hook rejects missing assets; CI installs the wheels and verifies the packaged
 portal without using frontend source directories. Configure the new

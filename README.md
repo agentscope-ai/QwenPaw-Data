@@ -134,9 +134,10 @@ management UI, with prebuilt assets in its Python wheel. Domain applications
 supply branding and questions through `ConsoleConfig`; Host, skills and data
 registration stay independent. See [Console setup and development](packages/qwenpaw-data-console/README.md).
 
-The new Console package is not yet published. For this checkout, run
+Console can be released independently from the engine packages. Its wheel
+includes both UIs, so end users do not need Node.js. From a source checkout, run
 `python scripts/build_console.py` before building its wheel or starting an
-editable install. The existing packages remain on the 0.3.3 release train.
+editable install.
 
 ### Installing from PyPI
 
@@ -145,6 +146,7 @@ The Python packages are published on PyPI:
 ```bash
 pip install qwenpaw-data-cli        # `qwenpaw-data` command + host runtime
 pip install qwenpaw-data-context    # DataBridge backend as a library
+pip install qwenpaw-data-console    # Chat and DataBridge UIs + local API gateway
 ```
 
 `pip install qwenpaw-data-cli` suits platform integrations that already run a
