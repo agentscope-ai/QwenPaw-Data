@@ -15,6 +15,7 @@ resolution-markers = [
 [manifest]
 members = [
     "qwenpaw-data-cli",
+    "qwenpaw-data-console",
     "qwenpaw-data-context",
     "qwenpaw-data-host-core",
     "qwenpaw-data-skills",
@@ -3418,6 +3419,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "qwenpaw-data-console"
+version = "0.3.3"
+source = { editable = "packages/qwenpaw-data-console" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115,<1.0" },
+    { name = "httpx", specifier = ">=0.28,<0.29" },
+    { name = "uvicorn", specifier = ">=0.30,<1.0" },
+]
+
+[[package]]
 name = "qwenpaw-data-context"
 version = "0.3.3"
 source = { editable = "packages/qwenpaw-data-context" }
@@ -3563,6 +3581,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "qwenpaw-data-cli" },
+    { name = "qwenpaw-data-console" },
     { name = "qwenpaw-data-context" },
     { name = "qwenpaw-data-host-core", extra = ["service"] },
     { name = "qwenpaw-data-skills" },
@@ -3576,6 +3595,7 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3,<10.0" },
     { name = "pytest-asyncio", specifier = ">=0.24,<2.0" },
     { name = "qwenpaw-data-cli", editable = "packages/qwenpaw-data-cli" },
+    { name = "qwenpaw-data-console", editable = "packages/qwenpaw-data-console" },
     { name = "qwenpaw-data-context", editable = "packages/qwenpaw-data-context" },
     { name = "qwenpaw-data-host-core", extras = ["service"], editable = "packages/qwenpaw-data-host-core" },
     { name = "qwenpaw-data-skills", editable = "packages/qwenpaw-data-skills" },

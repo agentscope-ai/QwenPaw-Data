@@ -49,6 +49,17 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: uv run python scripts/check_release_versions.py "$RELEASE_TAG"
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22.0'
+          cache: npm
+          cache-dependency-path: |
+            packages/qwenpaw-data-console/frontend/package-lock.json
+            packages/qwenpaw-data-context/frontend/package-lock.json
+
+      - name: Build packaged Console assets
+        run: python scripts/build_console.py
+
       - name: Build all publishable packages
         run: uv build --all-packages --out-dir dist
 
@@ -57,6 +68,13 @@ jobs:
 
       - name: Verify distribution set
         run: uv run python scripts/check_release_versions.py --dist-dir dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-qwenpaw-data-console
+          path: dist/qwenpaw_data_console-*
+          if-no-files-found: error
+          retention-days: 7
 
       - uses: actions/upload-artifact@v7
         with:
@@ -95,6 +113,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - project: qwenpaw-data-console
+            environment: pypi-console
           - project: qwenpaw-data-skills
             environment: pypi-skills
           - project: qwenpaw-data-context

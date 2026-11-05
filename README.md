@@ -127,6 +127,17 @@ assets/                    # branding and documentation assets
 
 ## Quick Start: Clone to the First Data Task
 
+### Browser Console
+
+`qwenpaw-data-console` provides a reusable local chat portal and the DataBridge
+management UI, with prebuilt assets in its Python wheel. Domain applications
+supply branding and questions through `ConsoleConfig`; Host, skills and data
+registration stay independent. See [Console setup and development](packages/qwenpaw-data-console/README.md).
+
+The new Console package is not yet published. For this checkout, run
+`python scripts/build_console.py` before building its wheel or starting an
+editable install. The existing packages remain on the 0.3.3 release train.
+
 ### Installing from PyPI
 
 The Python packages are published on PyPI:

@@ -15,6 +15,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   manually while keeping security updates eligible independently of the routine
   version-update filter.
 
+### Added
+
+- Add `qwenpaw-data-console`: a reusable loopback portal with prebuilt chat and
+  DataBridge UIs, runtime branding, server-side API credentials and replayable
+  Host event streams. Domain applications can install the wheel and supply
+  configuration instead of copying frontend source.
+- Support a Console deployment mode in the DataBridge frontend, with subpath
+  routing and portal authentication configured without source rewriting.
+
 ## [0.3.3] - Unreleased
 
 ### Fixed

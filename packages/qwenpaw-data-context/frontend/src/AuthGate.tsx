@@ -9,10 +9,13 @@ import {
   setAuthToken,
 } from "@/services/config";
 
+import { buildAuthHeaders } from "@/services/authHeaders";
+import { getConsoleConfig } from "@/services/consoleConfig";
+
 type GateState = "loading" | "open" | "locked" | "error";
 
 async function authRequired(): Promise<boolean> {
-  const response = await fetch(getApiUrl("/auth/status"));
+  const response = await fetch(getApiUrl("/auth/status"), { headers: buildAuthHeaders() });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const payload = (await response.json()) as { required?: unknown };
   if (typeof payload.required !== "boolean") {
@@ -62,11 +65,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const onAuthChange = () => {
-      if (!getApiToken()) setState("locked");
+      if (getConsoleConfig()?.auth_mode === "portal") void bootstrap();
+      else if (!getApiToken()) setState("locked");
     };
     window.addEventListener(AUTH_CHANGE_EVENT, onAuthChange);
     return () => window.removeEventListener(AUTH_CHANGE_EVENT, onAuthChange);
-  }, []);
+  }, [bootstrap]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
