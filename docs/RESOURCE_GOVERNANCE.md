@@ -43,6 +43,11 @@ and returns `TOOL_TIMEOUT`. External cancellation propagates normally. Cancellat
 is cooperative: connector-side statement/process limits remain necessary for
 remote work or blocking libraries. This is not a whole-turn or model deadline.
 
+Spawned agents use the same tool deadline, including SQL artifact handling, and
+propagate cancellation. Cancelling or closing a spawn stream drains its pending
+child event task and closes the child stream before releasing the concurrency
+slot. The same cleanup runs before returning a child timeout or execution error.
+
 Materialized SQL responses retain `file_path` and additionally return `result_id`.
 Downstream Python tools can resolve it without asking the model to copy rows,
 counts, or status fields:
