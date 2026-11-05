@@ -53,64 +53,66 @@ from context_manager.view_fallthrough import (
 log = get_logger("api.executor")
 
 
-# Per-statement wall-clock budget for interactive queries (2026-10-30).
-# Applied on every execute_sql dispatch:
-# - PostgreSQL-compatible backends: session-level ``SET statement_timeout``
-#   (connections are created per call and closed afterwards, so no pool
-#   pollution). 0 disables.
-# - MySQL backend: ``MAX_EXECUTION_TIME`` optimizer hint on SELECT plus a
-#   client-side ``read_timeout`` as the only reliable backstop (some managed
-#   MySQL instances silently ignore the hint — verified in production).
-# On timeout the error is normalised to a ``QUERY_TIMEOUT:`` prefix so the
-# fetch-data skill can tell "too much data" apart from "broken SQL" and
-# rewrite the query instead of retrying it verbatim.
-# Default 45s sits *below* the blocking-pool governor's 60s
-# (QWENPAW_DATA_BLOCKING_SQL_TIMEOUT_SECONDS) so the two budgets are layered:
-# the statement is cancelled first and the error type the caller sees is
-# deterministic (QUERY_TIMEOUT, not a 504 BLOCKING_IO_TIMEOUT race).
+# Server-side statement limit for PostgreSQL and MySQL. The client read timeout
+# is only a waiting bound; it does not establish that remote work was cancelled.
+# Other backends retain their own existing limits. Zero disables this budget.
 SQL_STATEMENT_TIMEOUT_MS = max(0, int(os.environ.get("QP_SQL_STATEMENT_TIMEOUT_MS", "45000")))
 
 
 def _timeout_marker(exc: Exception, backend: str) -> str | None:
-    """Normalise timeout-like failures to a ``QUERY_TIMEOUT:`` message.
-
-    Returns ``None`` for non-timeout errors so the original message is kept.
-    """
+    """Distinguish confirmed statement timeouts from MySQL transport timeouts."""
     msg = str(exc)
-    code = getattr(exc, "args", (None,))[0]
-    if (
-        code == 3024  # MySQL: query execution was interrupted (MAX_EXECUTION_TIME)
-        or "max execution time" in msg.lower()
-        or "statement timeout" in msg.lower()
-        or "query_canceled" in msg.lower()
-        or "timed out" in msg.lower()  # pymysql 2013: "... (timed out)"
+    args = getattr(exc, "args", ())
+    code = args[0] if args else None
+    if (backend == "pymysql" and code == 3024) or (
+        backend == "psycopg" and getattr(exc, "sqlstate", None) == "57014"
+        and "statement timeout" in msg.lower()
     ):
         return (
-            f"QUERY_TIMEOUT: statement exceeded {SQL_STATEMENT_TIMEOUT_MS}ms and was "
-            f"canceled ({backend}). The query scans more data than an interactive "
-            f"query can afford — narrow the time window, add filters, or use a "
-            f"pre-aggregated metric; do NOT retry the same SQL verbatim. "
+            f"QUERY_TIMEOUT: database reported a statement timeout ({backend}). "
+            "This does not establish excessive data volume. Optimize once without "
+            "changing the requested dates, population, metrics or completeness; "
+            "otherwise report the timeout. Do not retry identical SQL. "
+            f"Original: {msg[:200]}"
+        )
+    if backend == "pymysql" and code == 2013 and "timed out" in msg.lower():
+        return (
+            "SQL_READ_TIMEOUT: the client stopped waiting for MySQL; server-side "
+            "cancellation is not confirmed. Check connectivity and server load; "
+            "do not infer a data gap or retry blindly. "
             f"Original: {msg[:200]}"
         )
     return None
 
 
 def _mysql_with_timeout_hint(sql: str) -> str:
-    """Prefix a ``MAX_EXECUTION_TIME`` optimizer hint to a top-level SELECT.
-
-    Only rewrites statements that *start* with SELECT (the guard upstream only
-    allows read-only statements anyway); anything else is returned unchanged.
-    """
+    """Install one outer SELECT hint, including WITH/UNION and existing hints."""
     if SQL_STATEMENT_TIMEOUT_MS <= 0:
         return sql
-    if re.match(r"(?is)^\s*SELECT", sql):
-        return re.sub(
-            r"(?is)^\s*SELECT",
-            f"SELECT /*+ MAX_EXECUTION_TIME({SQL_STATEMENT_TIMEOUT_MS}) */",
-            sql,
-            count=1,
-        )
-    return sql
+    import sqlglot
+    from sqlglot import exp
+
+    try:
+        tree = sqlglot.parse_one(sql, read="mysql")
+        query = tree
+        while isinstance(query, (exp.SetOperation, exp.Subquery)):
+            query = query.this
+        if not isinstance(query, exp.Select):
+            return sql
+        hint = query.args.get("hint")
+        others = [
+            h for h in (hint.expressions if hint else [])
+            if not (isinstance(h, exp.Anonymous) and h.name.upper() == "MAX_EXECUTION_TIME")
+        ]
+        query.set("hint", exp.Hint(expressions=[
+            exp.Anonymous(this="MAX_EXECUTION_TIME", expressions=[exp.Literal.number(SQL_STATEMENT_TIMEOUT_MS)]),
+            *others,
+        ]))
+        return tree.sql(dialect="mysql")
+    except sqlglot.errors.SqlglotError:
+        # The read-only guard remains authoritative. Unsupported SQL still has
+        # the client waiting limit, but no server cancellation is promised.
+        return sql
 
 
 # ---------------------------------------------------------------------- #
@@ -392,13 +394,10 @@ def _execute_sql_via_pymysql(
         kwargs = resolve_mysql_connect_kwargs(datasource_id=datasource_id or None)
     except (ValueError, RuntimeError) as exc:
         return ExecResult(sql=sql, error=str(exc), elapsed_ms=(time.time() - t0) * 1000)
-    # Server-side budget via optimizer hint (honoured by stock MySQL) plus a
-    # client-side read_timeout as the only reliable backstop — some managed
-    # MySQL instances silently strip/ignore the hint (verified in production).
-    kwargs.setdefault(
-        "read_timeout",
-        SQL_STATEMENT_TIMEOUT_MS / 1000 if SQL_STATEMENT_TIMEOUT_MS > 0 else None,
-    )
+    # Preserve a shorter connector limit; a read timeout does not kill the query.
+    if SQL_STATEMENT_TIMEOUT_MS > 0:
+        seconds = SQL_STATEMENT_TIMEOUT_MS / 1000
+        kwargs["read_timeout"] = min(kwargs.get("read_timeout") or seconds, seconds)
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     hinted = _mysql_with_timeout_hint(sql)
     try:

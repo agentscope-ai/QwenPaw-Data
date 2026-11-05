@@ -84,6 +84,23 @@ check columns, metric meanings, dates or regional scope. Existing connector
 read-only and resource controls continue to apply. Upgrade both Host and
 DataBridge when enabling it; old MCP servers do not support `dataset_names`.
 
+## PostgreSQL and MySQL statement limits
+
+`QP_SQL_STATEMENT_TIMEOUT_MS` defaults to 45,000 ms (`0` disables). PostgreSQL
+uses a per-connection `statement_timeout`; MySQL receives an outer SELECT
+`MAX_EXECUTION_TIME` hint, including WITH and UNION queries, plus a client read
+timeout. Existing shorter connector read limits are preserved. These settings
+do not add statement limits to DuckDB, SQLite or ODPS.
+
+A database-reported statement timeout returns `QUERY_TIMEOUT`. A MySQL client
+read timeout returns `SQL_READ_TIMEOUT` and does not imply remote cancellation.
+Neither proves excessive data volume. Query optimization must preserve the
+requested analytical scope; a client must not silently shorten the date range.
+
+`QP_SQL_RESULT_CACHE_TTL_SECONDS` sets the result-cache TTL (default 86,400).
+A live cache entry can renew once, so repeated hits cannot extend its lifetime
+beyond twice the TTL. Expired entries cannot be revived by a touch.
+
 ## Blocking I/O and event-loop safety
 
 QwenPaw Data uses two explicit boundaries for synchronous libraries:

@@ -53,7 +53,7 @@ class SqlCacheEntry:
         # Renew at most once per entry (total lifetime <= 2x TTL). Unbounded
         # renewal used to keep serving stale rows as if they were fresh for
         # as long as the query stayed popular.
-        if self.touched:
+        if self.touched or self.is_expired():
             return
         self.created_at = time.time()
         self.touched = True
