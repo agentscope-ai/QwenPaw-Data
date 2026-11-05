@@ -21,6 +21,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on cancellation, timeout, or early stream closure before releasing the spawn slot.
 - Isolate SQL result cache entries by datasource to prevent identical queries on
   different databases from sharing results.
+- Resolve logical dataset tables through SQL syntax trees before scoped execution;
+  preserve literals, CTEs and column bindings and scope legacy fallback by datasource.
 
 ### Changed
 

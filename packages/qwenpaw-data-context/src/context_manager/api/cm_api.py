@@ -1861,11 +1861,12 @@ async def cm_execute_sql(req: ExecuteSqlRequest, request: Request) -> ExecuteSql
     )
 
     if req.dataset_names is not None:
-        await request.app.state.blocking_io.run(
+        resolved_sql = await request.app.state.blocking_io.run(
             BlockingPool.GRAPH, "sql.dataset_scope.validate", validate_dataset_sql,
             sql=req.sql, dataset_names=req.dataset_names,
             datasource_id=ds_id, driver=driver,
         )
+        req = req.model_copy(update={"sql": resolved_sql})
 
     max_rows = current_request_budget().cap_sql_rows(req.max_rows)
 
@@ -1881,6 +1882,12 @@ async def cm_execute_sql(req: ExecuteSqlRequest, request: Request) -> ExecuteSql
     download_url: Optional[str] = None
     expires_in: Optional[int] = None
 
+    if (
+        cached
+        and req.dataset_names is not None
+        and cached.result.sql.strip().rstrip(";") != req.sql.strip().rstrip(";")
+    ):
+        cached = None
     if cached:
         log.debug("SQL cache hit: %s...", req.sql[:60])
         cached.touch()
@@ -1895,6 +1902,7 @@ async def cm_execute_sql(req: ExecuteSqlRequest, request: Request) -> ExecuteSql
             req.sql, max_rows=max_rows,
             datasource_id=ds_id,
             governor=request.app.state.blocking_io,
+            allow_fallthrough=req.dataset_names is None,
         )
         exec_status = "success"
         if raw.error:
@@ -1986,11 +1994,12 @@ async def cm_execute_sql_stream(req: ExecuteSqlRequest, request: Request):
         driver=driver, domain=(session.scope or {}).get("domain") or "",
     )
     if req.dataset_names is not None:
-        await request.app.state.blocking_io.run(
+        resolved_sql = await request.app.state.blocking_io.run(
             BlockingPool.GRAPH, "sql.dataset_scope.validate", validate_dataset_sql,
             sql=req.sql, dataset_names=req.dataset_names,
             datasource_id=ds_id, driver=driver,
         )
+        req = req.model_copy(update={"sql": resolved_sql})
 
     max_rows = current_request_budget().cap_sql_rows(req.max_rows)
 
@@ -2015,6 +2024,12 @@ async def cm_execute_sql_stream(req: ExecuteSqlRequest, request: Request):
         download_url: Optional[str] = None
         expires_in: Optional[int] = None
 
+        if (
+            cached
+            and req.dataset_names is not None
+            and cached.result.sql.strip().rstrip(";") != req.sql.strip().rstrip(";")
+        ):
+            cached = None
         if cached:
             cached.touch()
             raw = cached.result
@@ -2031,6 +2046,7 @@ async def cm_execute_sql_stream(req: ExecuteSqlRequest, request: Request):
                     req.sql,
                     max_rows=max_rows,
                     datasource_id=ds_id,
+                    allow_fallthrough=req.dataset_names is None,
                 ),
                 name="cm-sql-stream",
             )
