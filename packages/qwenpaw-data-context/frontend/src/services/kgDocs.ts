@@ -1,3 +1,4 @@
+import { getConsoleConfig } from "./consoleConfig";
 import { buildAuthHeaders } from "./authHeaders";
 import { clearAuthToken, getApiUrl } from "./config";
 import { request } from "./request";
@@ -50,8 +51,9 @@ async function parseEnvelope<T>(
 
   if (response.status === 401) {
     clearAuthToken();
-    if (window.location.pathname !== "/login") {
-      window.location.href = "/login";
+    const entry = getConsoleConfig()?.base_path || "/login";
+    if (window.location.pathname !== entry) {
+      window.location.href = entry;
     }
     throw new Error("Not authenticated");
   }

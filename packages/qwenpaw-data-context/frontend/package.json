@@ -41,7 +41,7 @@
     "path-to-regexp": "^8.3.1",
     "dompurify": "^3.4.17",
     "postcss": "^8.5.23",
-    "decode-uri-component": "^0.5.0"
+    "decode-uri-component": "^0.5.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

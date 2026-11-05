@@ -1,11 +1,13 @@
 import { message } from '@/design';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { transformKeysToSnake } from '@/utils';
-import { clearAuthToken, getApiToken } from '@/services/config';
+import { clearAuthToken } from '@/services/config';
+import { buildAuthHeaders } from '@/services/authHeaders';
+import { getConsoleConfig } from '@/services/consoleConfig';
 
 // 创建axios实例
 const axiosInstance: AxiosInstance = axios.create({
-  baseURL: SERVICE_BASE_URL,
+  baseURL: getConsoleConfig()?.api_base_url ?? SERVICE_BASE_URL,
   timeout: 100000,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -30,9 +32,8 @@ export const request = {
 // 请求拦截器
 request.interceptors.request.use(
   (config) => {
-    const token = getApiToken();
-    if (token && !config.headers.has('Authorization')) {
-      config.headers.set('Authorization', `Bearer ${token}`);
+    for (const [name, value] of Object.entries(buildAuthHeaders())) {
+      if (!config.headers.has(name)) config.headers.set(name, value);
     }
 
     if (config.params) {
