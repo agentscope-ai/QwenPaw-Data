@@ -7,7 +7,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
-from contextlib import suppress
+from contextlib import aclosing
 from pathlib import Path, PurePath
 from typing import Any
 
@@ -27,6 +27,7 @@ from agentscope.event import (
     UserConfirmResultEvent,
 )
 from agentscope.message import Msg, TextBlock, ToolResultState
+from agentscope.middleware import MiddlewareBase
 from agentscope.permission import (
     PermissionBehavior,
     PermissionContext,
@@ -41,6 +42,7 @@ from ..artifact_paths import model_visible_path
 from ..mcp_cm import inject_datasource_metadata
 from ..orchestration.state import RuntimeStateManager
 from .middleware.sql_artifact import SqlArtifactMiddleware
+from .middleware.tool_timeout import ToolTimeoutMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -391,12 +393,11 @@ class SpawnSubagent(ToolBase):
             self._spawn_count += 1
 
         async with self._semaphore:
-            async for chunk in self._run_subagent(
-                task=task,
-                role=role,
-                context=context,
-            ):
-                yield chunk
+            async with aclosing(
+                self._run_subagent(task=task, role=role, context=context),
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
 
     async def _run_subagent(
         self,
@@ -468,7 +469,7 @@ class SpawnSubagent(ToolBase):
                 parent_permission_context = parent_permission_context.model_copy(
                     deep=True,
                 )
-            middlewares = []
+            middlewares: list[MiddlewareBase] = [ToolTimeoutMiddleware()]
             if (
                 self._host_artifact_dir is not None
                 and self._artifacts_root is not None
@@ -491,7 +492,10 @@ class SpawnSubagent(ToolBase):
                     permission_context=parent_permission_context,
                 ),
                 offloader=getattr(parent_agent, "offloader", self._workspace),
-                react_config=ReActConfig(max_iters=MAX_ITERS),
+                react_config=ReActConfig(
+                    max_iters=MAX_ITERS,
+                    interruption_raise_cancelled_error=True,
+                ),
                 request_context=self._request_context(parent_agent),
                 cm_mcp_tool_prefixes=self._cm_mcp_tool_prefixes,
             )
@@ -509,14 +513,17 @@ class SpawnSubagent(ToolBase):
             content=[TextBlock(type="text", text=task)],
             role="user",
         )
-        async for chunk in self._stream_subagent(
-            sub_agent=sub_agent,
-            task_msg=task_msg,
-            agent_name=agent_name,
-            graph_id=graph_id,
-            node_id=node_id,
-        ):
-            yield chunk
+        async with aclosing(
+            self._stream_subagent(
+                sub_agent=sub_agent,
+                task_msg=task_msg,
+                agent_name=agent_name,
+                graph_id=graph_id,
+                node_id=node_id,
+            ),
+        ) as stream:
+            async for chunk in stream:
+                yield chunk
 
     def _parent_agent(self) -> Any | None:
         if self._parent_agent_getter is None:
@@ -562,6 +569,7 @@ class SpawnSubagent(ToolBase):
         event_task: asyncio.Task[Any] | None = None
         pending_input: Msg | UserConfirmResultEvent = task_msg
         event_iter: Any = None
+        error_chunk: ToolChunk | None = None
 
         try:
             while True:
@@ -617,31 +625,30 @@ class SpawnSubagent(ToolBase):
                     ],
                 )
         except asyncio.TimeoutError:
-            if event_task is not None and not event_task.done():
-                event_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await event_task
-            if event_iter is not None:
-                await self._close_event_iter(event_iter)
-            yield _text_chunk(
+            error_chunk = _text_chunk(
                 f"Sub-agent 超时（{TIMEOUT_SECONDS}s）",
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
-            return
         except Exception as exc:
-            if event_task is not None and not event_task.done():
-                event_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await event_task
-            if event_iter is not None:
-                await self._close_event_iter(event_iter)
             logger.warning("spawn_subagent: sub-agent execution failed", exc_info=True)
-            yield _text_chunk(
+            error_chunk = _text_chunk(
                 f"Sub-agent 异常: {exc}",
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
+        finally:
+            # Cancellation and generator closure must also drain the child before
+            # releasing the concurrency slot or returning a terminal response.
+            if event_task is not None:
+                if not event_task.done():
+                    event_task.cancel()
+                await asyncio.gather(event_task, return_exceptions=True)
+            if event_iter is not None:
+                await self._close_event_iter(event_iter)
+
+        if error_chunk is not None:
+            yield error_chunk
             return
 
         summary = "".join(text_parts).strip() or "".join(thinking_parts).strip()
