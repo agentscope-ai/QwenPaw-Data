@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-05
+
 ### Added
 
 - Add PostgreSQL/MySQL statement limits with separate database and client-read
@@ -34,6 +36,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Release CLI, Host, Context, Skills and Console together at 0.3.4; require
+  the matching 0.3.4 minimum for CLI → Host and Host → Skills dependencies.
+- Read the Host runtime version from installed package metadata.
 - Include metric-scoped dimension column bindings in schema prompts, preserving
   multiple mappings and leaving unresolved/composite physical columns unasserted.
 - Upgrade the Context frontend build toolchain to Vite 8 and React plugin 6
@@ -63,7 +68,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Audit both packaged frontend dependency inventories and refresh vulnerable
   frontend dependencies.
 
-## [0.3.3] - Unreleased
+## [0.3.3] - 2026-10-16
 
 ### Fixed
 

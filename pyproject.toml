@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-workspace"
-version = "0.3.3"
+version = "0.3.4"
 description = "QwenPaw-Data monorepo workspace."
 readme = "README.md"
 license = "Apache-2.0"
@@ -47,7 +47,7 @@ dev = [
   "qwenpaw-data-context>=0.3,<0.4",
   "qwenpaw-data-host-core[service]>=0.3,<0.4",
   "qwenpaw-data-cli>=0.3,<0.4",
-  "qwenpaw-data-skills>=0.3,<0.4",
+  "qwenpaw-data-skills>=0.3.4,<0.4",
 ]
 
 [tool.uv.sources]
