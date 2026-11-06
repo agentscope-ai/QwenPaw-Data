@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-console"
-version = "0.3.3"
+version = "0.3.4"
 description = "Reusable local chat portal and DataBridge management UI for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"

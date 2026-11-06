@@ -6,17 +6,27 @@ releases are intended to remain API compatible within the same minor line.
 
 ## Release compatibility
 
-The four engine Python distributions are released as one coordinated `0.3.x` line.
-Consumers should keep `qwenpaw-data-skills`, `qwenpaw-data-context`,
-`qwenpaw-data-host-core`, and `qwenpaw-data-cli` on the same minor version.
-Consumers that run the engine service must install
-`qwenpaw-data-host-core[service]>=0.3,<0.4`.
+The coordinated `0.3.4` release includes all five Python distributions. Install
+matching patch versions for an integration tested as a set:
 
-The optional `qwenpaw-data-console` package can also be released independently
-with a `console-vX.Y.Z` tag, without republishing the four engine distributions.
-Console 0.3.3 is validated against Host and DataBridge 0.3.3; its prebuilt wheel
-does not require Node.js on the consumer's machine. Coordinated `vX.Y.Z` releases
-continue to validate aligned versions and publish all five distributions.
+| Package | Coordinated version | Notes |
+| --- | --- | --- |
+| `qwenpaw-data-cli` | 0.3.4 | Requires Host 0.3.4 or newer within 0.3.x |
+| `qwenpaw-data-host-core[service]` | 0.3.4 | Requires Skills 0.3.4 or newer within 0.3.x |
+| `qwenpaw-data-context` | 0.3.4 | Use `[duckdb]` when connecting DuckDB datasets |
+| `qwenpaw-data-skills` | 0.3.4 | Packaged analytical methods |
+| `qwenpaw-data-console` | 0.3.4 | Bundles both UIs; consumers do not need Node.js |
+
+Dataset-scoped SQL and persisted SQL result references require the 0.3.4 Host
+and DataBridge together. Scope enforcement remains opt-in; tools must still
+validate columns, periods, regions and economic definitions. These runtime
+checks do not guarantee a model will choose the right tool or produce correct
+analysis without domain validation.
+
+The optional Console can also be released independently with a
+`console-vX.Y.Z` tag. Console 0.3.3 remains the previously validated pairing for
+Host and DataBridge 0.3.3; coordinated `vX.Y.Z` releases align and publish all
+five distributions.
 
 ## Validated environments
 
