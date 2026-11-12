@@ -1,12 +1,12 @@
 import {
   CloudUploadOutlined,
-  DeleteOutlined,
-  DownOutlined,
+  CopyOutlined,
   PlusOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Button, Input } from '@agentscope-ai/design';
+import { Button, Dropdown, Input } from '@agentscope-ai/design';
+import Markdown from '@agentscope-ai/chat/lib/Markdown';
 import {
   Alert,
   Empty,
@@ -14,77 +14,154 @@ import {
   Segmented,
   Spin,
   Switch,
+  Table,
   Tag,
+  Tooltip,
   message,
+  type TableColumnsType,
 } from 'antd';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   skillHubApi,
   type AgentSkill,
-  type PoolSkill,
+  type AgentSkillDetail,
+  type SkillRevision,
+  type SkillRevisionDetail,
 } from '@/features/console/api/skills';
 import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
-import { buildNewConsoleSessionPath } from '@/features/console/model/sessionNavigation';
+import RouteDrawer from '@/features/console/components/RouteDrawer';
+import { useAppI18n } from '@/i18n';
+import type { MessageKey } from '@/i18n/locales';
 import styles from './index.module.less';
 
-type SkillView = 'agent' | 'pool';
+type SkillSourceFilter = 'builtin' | 'custom';
+type SkillPreviewMode = 'rendered' | 'source';
+type SkillEditorMode = 'create' | 'edit';
+
+interface SkillEditorTarget {
+  mode: SkillEditorMode;
+  name?: string;
+}
+
+const EMPTY_SKILL_DOCUMENT = '---\nname: \ndescription: \n---\n\n';
+
+const ORIGIN_LABEL_KEYS: Record<string, MessageKey> = {
+  create: 'skills.originCreate',
+  install: 'skills.originInstall',
+  import: 'skills.originImport',
+  manual_edit: 'skills.originManualEdit',
+  evolution_accept: 'skills.originEvolution',
+  revert: 'skills.originRevert',
+};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function matchesSearch(skill: PoolSkill | AgentSkill, query: string): boolean {
+function matchesSearch(skill: AgentSkill, query: string): boolean {
   if (!query) return true;
-  return [skill.name, skill.description, skill.source]
-    .some((value) => value.toLocaleLowerCase().includes(query));
+  return [skill.name, skill.description, skill.group].some((value) =>
+    value.toLocaleLowerCase().includes(query),
+  );
 }
 
-function sourceLabel(source: string): string {
-  return source === 'builtin' ? '内置' : '自定义';
+function stripSkillFrontmatter(content: string): string {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
+  if (lines[0]?.trim() !== '---') return content;
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+  return end < 0
+    ? content
+    : lines
+        .slice(end + 1)
+        .join('\n')
+        .trimStart();
+}
+
+function replaceFrontmatterName(content: string, name: string): string | null {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
+  if (lines[0]?.trim() !== '---') return null;
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+  if (end < 0) return null;
+  const front = lines.slice(1, end);
+  const nameIndex = front.findIndex((line) => /^name\s*:/.test(line));
+  if (nameIndex >= 0) front[nameIndex] = `name: ${name}`;
+  else front.unshift(`name: ${name}`);
+  return ['---', ...front, '---', ...lines.slice(end + 1)].join('\n');
+}
+
+function formatRevisionTime(value: string, language: 'zh' | 'en'): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
 }
 
 export default function SkillsHubPage() {
-  const navigate = useNavigate();
+  const { t, language } = useAppI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [view, setView] = useState<SkillView>('agent');
+  const previewAbortRef = useRef<AbortController | null>(null);
+  const historyAbortRef = useRef<AbortController | null>(null);
+  const revisionAbortRef = useRef<AbortController | null>(null);
+  const historyGenerationRef = useRef(0);
   const [query, setQuery] = useState('');
-  const [poolSkills, setPoolSkills] = useState<PoolSkill[]>([]);
   const [agentSkills, setAgentSkills] = useState<AgentSkill[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [builtinExpanded, setBuiltinExpanded] = useState(false);
-  const [customExpanded, setCustomExpanded] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState<SkillSourceFilter>('builtin');
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const [previewDetail, setPreviewDetail] = useState<AgentSkillDetail | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<SkillPreviewMode>('rendered');
+  const [editorTarget, setEditorTarget] = useState<SkillEditorTarget | null>(null);
+  const [editorName, setEditorName] = useState('');
+  const [editorContent, setEditorContent] = useState(EMPTY_SKILL_DOCUMENT);
+  const [editorBaseContent, setEditorBaseContent] = useState('');
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [historyName, setHistoryName] = useState<string | null>(null);
+  const [revisions, setRevisions] = useState<SkillRevision[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [revisionDetail, setRevisionDetail] = useState<SkillRevisionDetail | null>(null);
+  const [revisionLoading, setRevisionLoading] = useState(false);
+  const [reverting, setReverting] = useState(false);
 
   const fetchSkills = useCallback(async () => {
-    const [poolResponse, agentResponse] = await Promise.all([
-      skillHubApi.listPool(),
-      skillHubApi.listAgent(),
-    ]);
-    setPoolSkills(poolResponse.skills);
+    const agentResponse = await skillHubApi.listAgent();
     setAgentSkills(agentResponse.skills);
     setLoadError(null);
   }, []);
 
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = 'Skills Hub · QwenPaw Data';
+    document.title = `${t('skills.title')} · QwenPaw Data`;
     void fetchSkills()
       .catch((error) => setLoadError(errorMessage(error)))
       .finally(() => setLoading(false));
     return () => {
       document.title = previousTitle;
     };
-  }, [fetchSkills]);
+  }, [fetchSkills, t]);
+
+  useEffect(
+    () => () => {
+      historyGenerationRef.current += 1;
+      previewAbortRef.current?.abort();
+      historyAbortRef.current?.abort();
+      revisionAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -97,290 +174,527 @@ export default function SkillsHubPage() {
     }
   }, [fetchSkills]);
 
-  const installedNames = useMemo(
-    () => new Set(agentSkills.map((skill) => skill.name)),
-    [agentSkills],
-  );
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleAgentSkills = useMemo(
+  const visibleSkills = useMemo(
     () => agentSkills.filter((skill) => matchesSearch(skill, normalizedQuery)),
     [agentSkills, normalizedQuery],
   );
-  const visiblePoolSkills = useMemo(
-    () => poolSkills.filter((skill) => matchesSearch(skill, normalizedQuery)),
-    [normalizedQuery, poolSkills],
+  const visibleBuiltinSkills = useMemo(
+    () => visibleSkills.filter((skill) => skill.source === 'builtin'),
+    [visibleSkills],
   );
-  const visibleAgentBuiltinSkills = useMemo(
-    () => visibleAgentSkills.filter((skill) => skill.source === 'builtin'),
-    [visibleAgentSkills],
+  const visibleCustomSkills = useMemo(
+    () => visibleSkills.filter((skill) => skill.source !== 'builtin'),
+    [visibleSkills],
   );
-  const visibleAgentCustomSkills = useMemo(
-    () => visibleAgentSkills.filter((skill) => skill.source !== 'builtin'),
-    [visibleAgentSkills],
-  );
-  const visiblePoolBuiltinSkills = useMemo(
-    () => visiblePoolSkills.filter((skill) => skill.source === 'builtin'),
-    [visiblePoolSkills],
-  );
-  const visiblePoolCustomSkills = useMemo(
-    () => visiblePoolSkills.filter((skill) => skill.source !== 'builtin'),
-    [visiblePoolSkills],
-  );
-  const runAction = useCallback(async (
-    key: string,
-    action: () => Promise<unknown>,
-    success: string,
-  ) => {
-    setPendingAction(key);
-    try {
-      await action();
-      await fetchSkills();
-      message.success(success);
-    } catch (error) {
-      message.error(`操作失败：${errorMessage(error)}`);
-    } finally {
-      setPendingAction(null);
-    }
-  }, [fetchSkills]);
+  const visibleSourceSkills =
+    sourceFilter === 'builtin' ? visibleBuiltinSkills : visibleCustomSkills;
 
-  const importZip = useCallback(async (file: File) => {
-    if (!file.name.toLocaleLowerCase().endsWith('.zip')) {
-      message.warning('请选择 ZIP 格式的 Skill 包');
+  const runAction = useCallback(
+    async (key: string, action: () => Promise<unknown>, success: string) => {
+      setPendingAction(key);
+      try {
+        await action();
+        await fetchSkills();
+        message.success(success);
+      } catch (error) {
+        message.error(t('common.operationFailed', { message: errorMessage(error) }));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [fetchSkills, t],
+  );
+
+  const importZip = useCallback(
+    async (file: File) => {
+      if (!file.name.toLocaleLowerCase().endsWith('.zip')) {
+        message.warning(t('skills.zipRequired'));
+        return;
+      }
+      setUploading(true);
+      try {
+        const { imported } = await skillHubApi.importAgent(file);
+        await fetchSkills();
+        message.success(t('skills.imported', { count: imported.length }));
+      } catch (error) {
+        message.error(t('skills.importFailed', { message: errorMessage(error) }));
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    },
+    [fetchSkills, t],
+  );
+
+  const closePreview = useCallback(() => {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    setPreviewName(null);
+    setPreviewDetail(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+  }, []);
+
+  const closeEditor = useCallback(() => {
+    setEditorTarget(null);
+    setEditorName('');
+    setEditorContent(EMPTY_SKILL_DOCUMENT);
+    setEditorBaseContent('');
+    setEditorLoading(false);
+    setEditorSaving(false);
+    setEditorError(null);
+  }, []);
+
+  const closeHistory = useCallback(() => {
+    historyGenerationRef.current += 1;
+    historyAbortRef.current?.abort();
+    historyAbortRef.current = null;
+    revisionAbortRef.current?.abort();
+    revisionAbortRef.current = null;
+    setHistoryName(null);
+    setRevisions([]);
+    setHistoryError(null);
+    setHistoryLoading(false);
+    setRevisionDetail(null);
+    setRevisionLoading(false);
+    setReverting(false);
+  }, []);
+
+  const openPreview = useCallback((name: string) => {
+    previewAbortRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+    setEditorTarget(null);
+    setPreviewName(name);
+    setPreviewDetail(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    setPreviewMode('rendered');
+
+    void skillHubApi
+      .getAgent(name, 'default', controller.signal)
+      .then((skill) => {
+        if (!controller.signal.aborted) setPreviewDetail(skill);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setPreviewError(errorMessage(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreviewLoading(false);
+      });
+  }, []);
+
+  const openCreate = useCallback(() => {
+    closePreview();
+    setEditorTarget({ mode: 'create' });
+    setEditorName('');
+    setEditorContent(EMPTY_SKILL_DOCUMENT);
+    setEditorBaseContent('');
+    setEditorLoading(false);
+    setEditorError(null);
+  }, [closePreview]);
+
+  const openEdit = useCallback(
+    (name: string) => {
+      closePreview();
+      const controller = new AbortController();
+      previewAbortRef.current = controller;
+      setEditorTarget({ mode: 'edit', name });
+      setEditorName(name);
+      setEditorContent(EMPTY_SKILL_DOCUMENT);
+      setEditorBaseContent('');
+      setEditorError(null);
+      setEditorLoading(true);
+      void skillHubApi
+        .getAgent(name, 'default', controller.signal)
+        .then((skill) => {
+          if (controller.signal.aborted) return;
+          setEditorName(skill.name);
+          setEditorContent(skill.content);
+          setEditorBaseContent(skill.content);
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted) setEditorError(errorMessage(error));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setEditorLoading(false);
+        });
+    },
+    [closePreview],
+  );
+
+  const loadHistory = useCallback((name: string) => {
+    historyAbortRef.current?.abort();
+    revisionAbortRef.current?.abort();
+    const controller = new AbortController();
+    historyAbortRef.current = controller;
+    setRevisions([]);
+    setRevisionDetail(null);
+    setHistoryError(null);
+    setHistoryLoading(true);
+    void skillHubApi
+      .listRevisions(name, 'default', controller.signal)
+      .then((response) => {
+        if (!controller.signal.aborted) setRevisions(response.revisions);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setHistoryError(errorMessage(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoading(false);
+      });
+  }, []);
+
+  const openHistory = useCallback(
+    (name: string) => {
+      closePreview();
+      setEditorTarget(null);
+      historyGenerationRef.current += 1;
+      setHistoryName(name);
+      loadHistory(name);
+    },
+    [closePreview, loadHistory],
+  );
+
+  const openRevision = useCallback(
+    (revisionNo: number) => {
+      if (!historyName) return;
+      revisionAbortRef.current?.abort();
+      const controller = new AbortController();
+      revisionAbortRef.current = controller;
+      setRevisionDetail(null);
+      setRevisionLoading(true);
+      void skillHubApi
+        .getRevision(historyName, revisionNo, 'default', controller.signal)
+        .then((detail) => {
+          if (!controller.signal.aborted) setRevisionDetail(detail);
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted) {
+            message.error(t('skills.revisionFailed', { message: errorMessage(error) }));
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setRevisionLoading(false);
+        });
+    },
+    [historyName, t],
+  );
+
+  const revertRevision = useCallback(
+    async (revisionNo: number) => {
+      if (!historyName) return;
+      const historyGeneration = historyGenerationRef.current;
+      const targetName = historyName;
+      setReverting(true);
+      try {
+        await skillHubApi.revertRevision(targetName, revisionNo);
+        if (historyGenerationRef.current === historyGeneration) {
+          message.success(t('skills.reverted', { revision: revisionNo }));
+          loadHistory(targetName);
+        }
+        await fetchSkills();
+      } catch (error) {
+        if (historyGenerationRef.current === historyGeneration) {
+          message.error(t('common.operationFailed', { message: errorMessage(error) }));
+        }
+      } finally {
+        if (historyGenerationRef.current === historyGeneration) {
+          setReverting(false);
+        }
+      }
+    },
+    [fetchSkills, historyName, loadHistory, t],
+  );
+
+  const changeEditorName = useCallback(
+    (value: string) => {
+      if (editorTarget?.mode === 'edit') return;
+      setEditorName(value);
+      setEditorContent((current) => replaceFrontmatterName(current, value) ?? current);
+    },
+    [editorTarget?.mode],
+  );
+
+  const saveEditor = useCallback(async () => {
+    if (!editorTarget) return;
+    const name = editorName.trim();
+    if (!name) {
+      message.warning(t('skills.nameRequired'));
       return;
     }
-    setUploading(true);
-    try {
-      const { imported } = await skillHubApi.importPool(file);
-      await fetchSkills();
-      message.success(`已导入 ${imported.length} 个 Skill`);
-    } catch (error) {
-      message.error(`导入失败：${errorMessage(error)}`);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!editorContent.trim()) {
+      message.warning(t('skills.contentRequired'));
+      return;
     }
-  }, [fetchSkills]);
+    const content = replaceFrontmatterName(editorContent, name);
+    if (content === null) {
+      message.warning(t('skills.frontmatterRequired'));
+      return;
+    }
+    setEditorSaving(true);
+    try {
+      if (editorTarget.mode === 'create') {
+        await skillHubApi.createAgent(name, content);
+        message.success(t('skills.created', { name }));
+      } else {
+        const currentName = editorTarget.name;
+        if (!currentName) throw new Error(t('skills.nameRequired'));
+        if (name !== currentName) {
+          message.warning(t('skills.renameForbidden'));
+          return;
+        }
+        await skillHubApi.saveAgent(currentName, content, editorBaseContent);
+        message.success(t('skills.saved', { name }));
+      }
+      closeEditor();
+      try {
+        await fetchSkills();
+      } catch (error) {
+        setLoadError(errorMessage(error));
+      }
+    } catch (error) {
+      message.error(t('common.operationFailed', { message: errorMessage(error) }));
+    } finally {
+      setEditorSaving(false);
+    }
+  }, [closeEditor, editorBaseContent, editorContent, editorName, editorTarget, fetchSkills, t]);
 
-  const visibleSkills = view === 'agent' ? visibleAgentSkills : visiblePoolSkills;
-  const visibleBuiltinCount = view === 'agent'
-    ? visibleAgentBuiltinSkills.length
-    : visiblePoolBuiltinSkills.length;
-  const visibleCustomCount = view === 'agent'
-    ? visibleAgentCustomSkills.length
-    : visiblePoolCustomSkills.length;
-  const showBuiltinSkills = builtinExpanded || Boolean(normalizedQuery);
-  const showCustomSkills = customExpanded || Boolean(normalizedQuery);
+  const copyPreviewSource = useCallback(async () => {
+    if (!previewDetail?.content) return;
+    try {
+      await navigator.clipboard.writeText(previewDetail.content);
+      message.success(t('skills.sourceCopied'));
+    } catch {
+      message.error(t('skills.copyFailed'));
+    }
+  }, [previewDetail, t]);
 
-  const renderAgentCards = (skills: AgentSkill[]) => skills.map((skill) => {
-    const actionKey = `agent:${skill.name}`;
-    const actionLoading = pendingAction === actionKey;
-    const isBuiltin = skill.source === 'builtin';
-    return (
-      <article className={styles.skillCard} key={skill.name}>
-        <div className={styles.cardTopRow}>
-          <span className={styles.skillIcon}><ThunderboltOutlined /></span>
-          <div className={styles.titleRow}>
-            <h3 title={skill.name}>{skill.name}</h3>
-            <Tag color={isBuiltin ? 'blue' : 'default'}>
-              {sourceLabel(skill.source)}
-            </Tag>
-          </div>
-          <span className={`${styles.status} ${skill.enabled ? styles.statusEnabled : ''}`}>
-            <i />{skill.enabled ? '已启用' : '已停用'}
+  const originLabel = useCallback(
+    (origin: string) => {
+      const key = ORIGIN_LABEL_KEYS[origin];
+      return key ? t(key) : origin;
+    },
+    [t],
+  );
+
+  const editorRetryName = editorTarget?.name ?? null;
+
+  const skillColumns: TableColumnsType<AgentSkill> = [
+    {
+      title: t('skills.name'),
+      dataIndex: 'name',
+      width: 260,
+      align: 'left',
+      render: (_, skill) => (
+        <div className={styles.skillIdentity}>
+          <span className={styles.skillIcon}>
+            <ThunderboltOutlined />
           </span>
+          <div>
+            <strong title={skill.name}>{skill.name}</strong>
+          </div>
         </div>
-        <p className={styles.description}>{skill.description || '暂无描述'}</p>
-        <div className={styles.metaRow}>
-          <span>安装来源</span>
-          <strong>{skill.installed_from || skill.source}</strong>
-        </div>
-        <footer className={styles.cardFooter}>
-          <label>
+      ),
+    },
+    {
+      title: t('skills.type'),
+      dataIndex: 'source',
+      width: 100,
+      align: 'left',
+      render: (source: string) => (
+        <span className={styles.sourceCell}>
+          {source === 'builtin' ? t('skills.builtin') : t('skills.custom')}
+        </span>
+      ),
+    },
+    {
+      title: t('skills.tableDescription'),
+      dataIndex: 'description',
+      align: 'left',
+      render: (description: string) => (
+        <span className={styles.descriptionCell}>{description || t('skills.noDescription')}</span>
+      ),
+    },
+    {
+      title: t('skills.group'),
+      dataIndex: 'group',
+      width: 160,
+      align: 'left',
+      render: (group: string) => (
+        <span className={styles.metaCell}>{group || t('skills.custom')}</span>
+      ),
+    },
+    {
+      title: t('skills.status'),
+      width: 150,
+      align: 'left',
+      render: (_, skill) => {
+        const actionKey = `agent:${skill.name}`;
+        return (
+          <label className={styles.statusControl}>
             <Switch
               size="small"
               checked={skill.enabled}
-              loading={actionLoading}
-              onChange={(enabled) => void runAction(
-                actionKey,
-                () => skillHubApi.setAgentEnabled(skill.name, enabled),
-                enabled ? `${skill.name} 已启用` : `${skill.name} 已停用`,
-              )}
-            />
-            <span>{skill.enabled ? '运行中' : '禁用中'}</span>
-          </label>
-          {!isBuiltin ? (
-            <Popconfirm
-              title="卸载这个 Skill？"
-              description="只删除 Agent 副本，Skill Pool 中的来源不受影响。"
-              okText="卸载"
-              cancelText="取消"
-              onConfirm={() => runAction(
-                actionKey,
-                () => skillHubApi.uninstallAgent(skill.name),
-                `${skill.name} 已从 Agent 卸载`,
-              )}
-            >
-              <Button
-                danger
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                loading={actionLoading}
-              >
-                卸载
-              </Button>
-            </Popconfirm>
-          ) : null}
-        </footer>
-      </article>
-    );
-  });
-
-  const renderPoolCards = (skills: PoolSkill[]) => skills.map((skill) => {
-    const installed = installedNames.has(skill.name);
-    const actionKey = `pool:${skill.name}`;
-    const actionLoading = pendingAction === actionKey;
-    const deletable = !skill.protected && skill.source !== 'builtin';
-    return (
-      <article className={styles.skillCard} key={skill.name}>
-        <div className={styles.cardTopRow}>
-          <span className={styles.skillIcon}><ThunderboltOutlined /></span>
-          <div className={styles.titleRow}>
-            <h3 title={skill.name}>{skill.name}</h3>
-            <Tag color={skill.source === 'builtin' ? 'blue' : 'default'}>
-              {sourceLabel(skill.source)}
-            </Tag>
-          </div>
-          <span className={`${styles.status} ${installed ? styles.statusEnabled : ''}`}>
-            <i />{installed ? '已安装' : '未安装'}
-          </span>
-        </div>
-        <p className={styles.description}>{skill.description || '暂无描述'}</p>
-        <div className={styles.metaRow}>
-          <span>分组</span>
-          <strong>{skill.group || 'custom'}</strong>
-        </div>
-        <footer className={styles.cardFooter}>
-          <span className={styles.poolHint}>
-            {skill.protected ? '系统保护' : '用户导入'}
-          </span>
-          <div>
-            {deletable ? (
-              <Popconfirm
-                title="从 Skill Pool 删除？"
-                description="已安装到 Agent 的副本不会被同时删除。"
-                okText="删除"
-                cancelText="取消"
-                onConfirm={() => runAction(
+              loading={pendingAction === actionKey}
+              onChange={(enabled) =>
+                void runAction(
                   actionKey,
-                  () => skillHubApi.deletePool(skill.name),
-                  `${skill.name} 已从 Skill Pool 删除`,
-                )}
-              >
+                  () => skillHubApi.setAgentEnabled(skill.name, enabled),
+                  enabled
+                    ? t('skills.enableSuccess', { name: skill.name })
+                    : t('skills.disableSuccess', { name: skill.name }),
+                )
+              }
+            />
+            <span>{skill.enabled ? t('skills.active') : t('skills.inactive')}</span>
+          </label>
+        );
+      },
+    },
+    {
+      title: t('skills.actions'),
+      key: 'actions',
+      width: 260,
+      fixed: 'right',
+      align: 'left',
+      render: (_, skill) => {
+        const actionKey = `agent:${skill.name}`;
+        const actionLoading = pendingAction === actionKey;
+        const isBuiltin = skill.source === 'builtin';
+        return (
+          <div className={styles.tableActions}>
+            <Button type="text" size="small" onClick={() => openPreview(skill.name)}>
+              {t('skills.preview')}
+            </Button>
+            <Button type="text" size="small" onClick={() => openHistory(skill.name)}>
+              {t('skills.history')}
+            </Button>
+            <Tooltip title={isBuiltin ? t('skills.builtinReadonly') : undefined}>
+              <span>
                 <Button
-                  danger
                   type="text"
                   size="small"
-                  icon={<DeleteOutlined />}
-                  loading={actionLoading}
+                  disabled={isBuiltin}
+                  onClick={() => openEdit(skill.name)}
                 >
-                  删除
+                  {t('common.edit')}
+                </Button>
+              </span>
+            </Tooltip>
+            {!isBuiltin ? (
+              <Popconfirm
+                title={t('skills.uninstallTitle')}
+                description={t('skills.uninstallDescription')}
+                okText={t('skills.uninstall')}
+                cancelText={t('common.cancel')}
+                onConfirm={() =>
+                  runAction(
+                    actionKey,
+                    () => skillHubApi.uninstallAgent(skill.name),
+                    t('skills.uninstalled', { name: skill.name }),
+                  )
+                }
+              >
+                <Button danger type="text" size="small" loading={actionLoading}>
+                  {t('skills.uninstall')}
                 </Button>
               </Popconfirm>
             ) : null}
-            <Button
-              type={installed ? 'default' : 'primary'}
-              size="small"
-              icon={<PlusOutlined />}
-              disabled={installed}
-              loading={actionLoading}
-              onClick={() => void runAction(
-                actionKey,
-                () => skillHubApi.installAgent(skill.name),
-                `${skill.name} 已安装到 Agent`,
-              )}
-            >
-              {installed ? '已安装' : '安装到 Agent'}
-            </Button>
           </div>
-        </footer>
-      </article>
-    );
-  });
+        );
+      },
+    },
+  ];
 
   return (
     <div className={styles.content}>
-      <ConsoleRouteHeader
-        parentLabel="工作空间"
-        title="Skills Hub"
-        onParentClick={() => navigate(buildNewConsoleSessionPath())}
-      />
+      <ConsoleRouteHeader title={t('skills.title')} description={t('skills.description')} />
 
       <main className={styles.main}>
-        <section className={styles.toolbar} aria-label="Skill 筛选与操作">
-          <Segmented<SkillView>
-            value={view}
+        <section className={styles.toolbar} aria-label={t('skills.filterActions')}>
+          <Segmented<SkillSourceFilter>
+            className={styles.sourceTabs}
+            aria-label={t('skills.typeFilter')}
+            value={sourceFilter}
             options={[
-              { value: 'agent', label: `Agent Skills · ${agentSkills.length}` },
-              { value: 'pool', label: `Skill Pool · ${poolSkills.length}` },
+              {
+                value: 'builtin',
+                label: `${t('skills.builtinGroup')}（${visibleBuiltinSkills.length}）`,
+              },
+              {
+                value: 'custom',
+                label: `${t('skills.customGroup')}（${visibleCustomSkills.length}）`,
+              },
             ]}
-            onChange={(value) => {
-              setView(value);
-              setBuiltinExpanded(false);
-              setCustomExpanded(true);
-            }}
+            onChange={setSourceFilter}
           />
-          <span className={styles.toolbarDescription}>
-            从 Skill Pool 安装能力到默认 Agent，并按需启用或停用。
-          </span>
           <Input.Search
             allowClear
             className={styles.search}
-            placeholder="搜索 Skill 名称或描述"
+            placeholder={t('skills.search')}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
           <Button
+            aria-label={t('common.refresh')}
+            title={t('common.refresh')}
             icon={<ReloadOutlined />}
             loading={refreshing}
             onClick={() => void refresh()}
+          />
+          <input
+            ref={fileInputRef}
+            className={styles.fileInput}
+            type="file"
+            accept=".zip,application/zip"
+            onChange={(event) => {
+              const [file] = Array.from(event.target.files ?? []);
+              if (file) void importZip(file);
+            }}
+          />
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                { key: 'create', icon: <PlusOutlined />, label: t('skills.create') },
+                {
+                  key: 'upload-zip',
+                  icon: <CloudUploadOutlined />,
+                  label: t('skills.importZip'),
+                  disabled: uploading,
+                },
+              ],
+              onClick: ({ key }: { key: string }) => {
+                if (key === 'create') openCreate();
+                if (key === 'upload-zip') fileInputRef.current?.click();
+              },
+            }}
           >
-            刷新
-          </Button>
-          {view === 'pool' ? (
-            <>
-              <input
-                ref={fileInputRef}
-                className={styles.fileInput}
-                type="file"
-                accept=".zip,application/zip"
-                onChange={(event) => {
-                  const [file] = Array.from(event.target.files ?? []);
-                  if (file) void importZip(file);
-                }}
-              />
-              <Button
-                type="primary"
-                icon={<CloudUploadOutlined />}
-                loading={uploading}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                导入 ZIP
-              </Button>
-            </>
-          ) : null}
+            <Button type="primary" icon={<PlusOutlined />} loading={uploading}>
+              {t('skills.addSkill')}
+            </Button>
+          </Dropdown>
         </section>
 
         {loading ? (
-          <div className={styles.state}><Spin /><span>正在加载 Skills…</span></div>
+          <div className={styles.state}>
+            <Spin />
+            <span>{t('skills.loading')}</span>
+          </div>
         ) : null}
         {!loading && loadError ? (
           <Alert
             showIcon
             type="error"
-            message="Skills 加载失败"
+            message={t('skills.loadFailed')}
             description={loadError}
-            action={<Button size="small" onClick={() => void refresh()}>重试</Button>}
+            action={
+              <Button size="small" onClick={() => void refresh()}>
+                {t('common.retry')}
+              </Button>
+            }
           />
         ) : null}
 
@@ -388,77 +702,289 @@ export default function SkillsHubPage() {
           <div className={styles.empty}>
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={normalizedQuery
-                ? '没有匹配的 Skill'
-                : view === 'agent'
-                  ? '默认 Agent 尚未安装 Skill'
-                  : 'Skill Pool 为空'}
+              description={normalizedQuery ? t('skills.noMatch') : t('skills.agentEmpty')}
             />
           </div>
         ) : null}
 
         {!loading && !loadError && visibleSkills.length ? (
-          <section className={styles.skillCollection} aria-label={view === 'agent' ? 'Agent Skills' : 'Skill Pool'}>
-            {visibleBuiltinCount ? (
-              <div className={styles.skillGroup}>
-                <button
-                  className={styles.groupToggle}
-                  type="button"
-                  aria-expanded={showBuiltinSkills}
-                  onClick={() => setBuiltinExpanded((expanded) => !expanded)}
-                >
-                  <div>
-                    <strong>
-                      内置 Skill<span className={styles.groupCount}>（{visibleBuiltinCount}）</span>
-                    </strong>
-                    <span>系统预置能力</span>
-                  </div>
-                  <span className={styles.groupToggleMeta}>
-                    <span>{showBuiltinSkills ? '收起' : '展开'}</span>
-                    <DownOutlined className={showBuiltinSkills ? styles.groupToggleExpanded : ''} />
-                  </span>
-                </button>
-                {showBuiltinSkills ? (
-                  <div className={styles.skillGrid}>
-                    {view === 'agent'
-                      ? renderAgentCards(visibleAgentBuiltinSkills)
-                      : renderPoolCards(visiblePoolBuiltinSkills)}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {visibleCustomCount ? (
-              <div className={styles.skillGroup}>
-                <button
-                  className={styles.groupToggle}
-                  type="button"
-                  aria-expanded={showCustomSkills}
-                  onClick={() => setCustomExpanded((expanded) => !expanded)}
-                >
-                  <div>
-                    <strong>
-                      自定义 Skill<span className={styles.groupCount}>（{visibleCustomCount}）</span>
-                    </strong>
-                    <span>用户导入与安装的能力</span>
-                  </div>
-                  <span className={styles.groupToggleMeta}>
-                    <span>{showCustomSkills ? '收起' : '展开'}</span>
-                    <DownOutlined className={showCustomSkills ? styles.groupToggleExpanded : ''} />
-                  </span>
-                </button>
-                {showCustomSkills ? (
-                  <div className={styles.skillGrid}>
-                    {view === 'agent'
-                      ? renderAgentCards(visibleAgentCustomSkills)
-                      : renderPoolCards(visiblePoolCustomSkills)}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+          <section className={styles.skillCollection} aria-label={t('skills.agentSkills')}>
+            <Table<AgentSkill>
+              className={styles.table}
+              rowKey="name"
+              columns={skillColumns}
+              dataSource={[...visibleSourceSkills]}
+              pagination={false}
+              sticky
+              scroll={{ x: 1080 }}
+              locale={{
+                emptyText: (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('skills.noMatch')} />
+                ),
+              }}
+            />
           </section>
         ) : null}
       </main>
+
+      <RouteDrawer
+        width={640}
+        placement="right"
+        title={
+          previewName ? `${previewName} · ${t('skills.previewTitle')}` : t('skills.previewTitle')
+        }
+        open={Boolean(previewName)}
+        destroyOnHidden
+        onClose={closePreview}
+        classNames={{ body: styles.previewDrawerBody }}
+        extra={
+          <Button
+            type="text"
+            size="small"
+            icon={<CopyOutlined />}
+            disabled={!previewDetail?.content}
+            onClick={() => void copyPreviewSource()}
+          >
+            {t('skills.copySource')}
+          </Button>
+        }
+      >
+        {previewLoading ? (
+          <div className={styles.previewState}>
+            <Spin />
+            <span>{t('skills.loadingPreview')}</span>
+          </div>
+        ) : null}
+        {!previewLoading && previewError ? (
+          <Alert
+            showIcon
+            type="error"
+            message={t('skills.previewFailed')}
+            description={previewError}
+            action={
+              previewName ? (
+                <Button size="small" onClick={() => openPreview(previewName)}>
+                  {t('common.retry')}
+                </Button>
+              ) : null
+            }
+          />
+        ) : null}
+        {!previewLoading && !previewError && previewDetail ? (
+          <div className={styles.skillPreview}>
+            <div className={styles.previewMeta}>
+              <div>
+                <strong>{previewDetail.name}</strong>
+                <Tag color={previewDetail.source === 'builtin' ? 'blue' : 'default'}>
+                  {previewDetail.source === 'builtin' ? t('skills.builtin') : t('skills.custom')}
+                </Tag>
+                <Tag color={previewDetail.enabled ? 'success' : 'default'}>
+                  {previewDetail.enabled ? t('common.enabled') : t('common.disabled')}
+                </Tag>
+              </div>
+              <p>{previewDetail.description || t('skills.noDescription')}</p>
+            </div>
+            <Segmented<SkillPreviewMode>
+              block
+              value={previewMode}
+              options={[
+                { value: 'rendered', label: t('skills.rendered') },
+                { value: 'source', label: t('skills.source') },
+              ]}
+              onChange={setPreviewMode}
+            />
+            <div className={styles.previewContent}>
+              {previewMode === 'rendered' ? (
+                <Markdown
+                  className={styles.previewMarkdown}
+                  content={stripSkillFrontmatter(previewDetail.content)}
+                  baseFontSize={13}
+                  baseLineHeight={1.7}
+                />
+              ) : (
+                <pre className={styles.previewSource}>{previewDetail.content}</pre>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </RouteDrawer>
+
+      <RouteDrawer
+        width={720}
+        placement="right"
+        title={
+          historyName ? `${historyName} · ${t('skills.historyTitle')}` : t('skills.historyTitle')
+        }
+        open={Boolean(historyName)}
+        destroyOnHidden
+        onClose={closeHistory}
+        classNames={{ body: styles.previewDrawerBody }}
+      >
+        {historyLoading ? (
+          <div className={styles.previewState}>
+            <Spin />
+            <span>{t('skills.loadingHistory')}</span>
+          </div>
+        ) : null}
+        {!historyLoading && historyError ? (
+          <Alert
+            showIcon
+            type="error"
+            message={t('skills.historyFailed')}
+            description={historyError}
+            action={
+              historyName ? (
+                <Button size="small" onClick={() => loadHistory(historyName)}>
+                  {t('common.retry')}
+                </Button>
+              ) : null
+            }
+          />
+        ) : null}
+        {!historyLoading && !historyError && !revisions.length ? (
+          <div className={styles.empty}>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('skills.historyEmpty')} />
+          </div>
+        ) : null}
+        {!historyLoading && !historyError && revisions.length ? (
+          <div className={styles.historyLayout}>
+            <div className={styles.revisionList}>
+              {revisions.map((revision, index) => (
+                <article
+                  className={`${styles.revisionItem} ${
+                    revisionDetail?.revision_no === revision.revision_no
+                      ? styles.revisionItemActive
+                      : ''
+                  }`}
+                  key={revision.revision_no}
+                  onClick={() => openRevision(revision.revision_no)}
+                >
+                  <div className={styles.revisionHead}>
+                    <strong>{t('skills.revisionLabel', { revision: revision.revision_no })}</strong>
+                    <Tag color={index === 0 ? 'blue' : 'default'}>
+                      {originLabel(revision.origin)}
+                    </Tag>
+                    {index === 0 ? <Tag color="success">{t('skills.revisionCurrent')}</Tag> : null}
+                    <span>{formatRevisionTime(revision.created_at, language)}</span>
+                  </div>
+                  {revision.note ? <p>{revision.note}</p> : null}
+                  {index > 0 ? (
+                    <Popconfirm
+                      title={t('skills.revertTitle')}
+                      description={t('skills.revertDescription')}
+                      okText={t('skills.revert')}
+                      cancelText={t('common.cancel')}
+                      onConfirm={() => revertRevision(revision.revision_no)}
+                    >
+                      <Button
+                        size="small"
+                        loading={reverting}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {t('skills.revert')}
+                      </Button>
+                    </Popconfirm>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+            <div className={styles.revisionDetail}>
+              {revisionLoading ? (
+                <div className={styles.previewState}>
+                  <Spin />
+                  <span>{t('skills.loadingRevision')}</span>
+                </div>
+              ) : null}
+              {!revisionLoading && !revisionDetail ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={t('skills.revisionHint')}
+                />
+              ) : null}
+              {!revisionLoading && revisionDetail ? (
+                <div className={styles.revisionFiles}>
+                  {revisionDetail.files.map((file) => (
+                    <section key={file.relative_path}>
+                      <header>{file.relative_path}</header>
+                      <pre className={styles.previewSource}>{file.content}</pre>
+                    </section>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </RouteDrawer>
+
+      <RouteDrawer
+        width={720}
+        placement="right"
+        title={t(editorTarget?.mode === 'edit' ? 'skills.editorEdit' : 'skills.editorCreate')}
+        open={Boolean(editorTarget)}
+        destroyOnHidden
+        onClose={closeEditor}
+        classNames={{ body: styles.editorDrawerBody }}
+        footer={
+          <div className={styles.editorFooter}>
+            <Button onClick={closeEditor}>{t('common.cancel')}</Button>
+            <Button
+              type="primary"
+              loading={editorSaving}
+              disabled={editorLoading || Boolean(editorError)}
+              onClick={() => void saveEditor()}
+            >
+              {t('common.save')}
+            </Button>
+          </div>
+        }
+      >
+        {editorLoading ? (
+          <div className={styles.previewState}>
+            <Spin />
+            <span>{t('skills.loadingPreview')}</span>
+          </div>
+        ) : null}
+        {!editorLoading && editorError ? (
+          <Alert
+            showIcon
+            type="error"
+            message={t('skills.previewFailed')}
+            description={editorError}
+            action={
+              editorRetryName ? (
+                <Button size="small" onClick={() => openEdit(editorRetryName)}>
+                  {t('common.retry')}
+                </Button>
+              ) : null
+            }
+          />
+        ) : null}
+        {!editorLoading && !editorError && editorTarget ? (
+          <div className={styles.editorForm}>
+            <label className={styles.editorField}>
+              <span>{t('skills.name')}</span>
+              <Input
+                value={editorName}
+                disabled={editorTarget.mode === 'edit'}
+                placeholder={t('skills.namePlaceholder')}
+                onChange={(event) => changeEditorName(event.target.value)}
+              />
+              {editorTarget.mode === 'edit' ? (
+                <span className={styles.editorHint}>{t('skills.renameForbidden')}</span>
+              ) : null}
+            </label>
+            <label className={`${styles.editorField} ${styles.editorContent}`}>
+              <span>{t('skills.content')}</span>
+              <Input.TextArea
+                value={editorContent}
+                spellCheck={false}
+                placeholder={t('skills.contentPlaceholder')}
+                onChange={(event) => setEditorContent(event.target.value)}
+              />
+            </label>
+          </div>
+        ) : null}
+      </RouteDrawer>
     </div>
   );
 }

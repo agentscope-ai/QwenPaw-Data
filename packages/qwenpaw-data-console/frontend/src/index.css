@@ -1,3 +1,18 @@
+@import '@qwenpaw-data/ui-tokens/tokens.css';
+@import '@qwenpaw-data/ui-tokens/components.css';
+
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 100 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/google-sans-flex-latin-variable.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -6,13 +21,15 @@ html,
 body,
 #root {
   width: 100%;
-  min-width: 0;
+  min-width: max(1280px, var(--qwenpaw-data-layout-min-width));
   height: 100%;
   min-height: 100%;
 }
 
 body {
   margin: 0;
+  background: var(--qwenpaw-data-ambient-background);
+  font-family: var(--qwenpaw-data-font-family);
 }
 
 button,
@@ -22,5 +39,49 @@ select {
   font: inherit;
 }
 
-/* Keep unavailable upstream management links hidden despite component layout rules. */
-[hidden] { display: none !important; }
+/* Keep text badges visually centered regardless of locale/font metrics. */
+.ant-tag,
+.ant-badge-status-text {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ant-tag {
+  justify-content: center;
+  line-height: 1;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-modal-title,
+:root[data-qwenpaw-data-theme='dark'] .ant-drawer-title {
+  color: var(--qwenpaw-data-color-text) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-modal-body,
+:root[data-qwenpaw-data-theme='dark'] .ant-modal-confirm-content {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-segmented .ant-segmented-item-selected,
+:root[data-qwenpaw-data-theme='dark'] .ant-segmented .ant-segmented-thumb {
+  background: var(--qwenpaw-data-color-loading-surface) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-table-wrapper .ant-table-thead > tr > th,
+:root[data-qwenpaw-data-theme='dark'] table > thead > tr > th {
+  color: var(--qwenpaw-data-color-text) !important;
+  background: var(--qwenpaw-data-color-fill-secondary) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-alert {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-alert .ant-alert-message {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-alert .ant-alert-description {
+  color: var(--qwenpaw-data-color-text-secondary);
+}

@@ -9,22 +9,39 @@
 }
 
 .main {
+  display: flex;
   width: 100%;
   min-width: calc(var(--console-route-content-min-width) + 48px);
   max-width: calc(var(--console-route-content-max-width) + 48px);
   min-height: 0;
   flex: 1;
-  margin: 0 auto;
-  padding: 34px 24px 60px;
-  overflow-y: auto;
+  flex-direction: column;
+  margin: 24px auto 0;
+  padding: 0 24px 24px;
+  overflow: hidden;
   box-sizing: border-box;
   overscroll-behavior: contain;
+}
+
+.actionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .tableActions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  flex-shrink: 0;
   min-height: 32px;
 }
 
@@ -32,16 +49,44 @@
   margin-top: 16px;
 }
 
-.tableCard {
+.tableSummary {
+  min-height: 20px;
   margin-top: 12px;
+  color: var(--console-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: left;
+}
+
+.tableCard {
+  min-height: 0;
+  flex: 1;
+  margin-top: 8px;
   overflow: hidden;
-  background: var(--console-route-card-background);
-  border: 0;
-  border-radius: 14px;
-  box-shadow: var(--console-route-card-shadow-large);
 
   :global(.ant-table-cell) {
     vertical-align: middle;
+  }
+
+  :global(.ant-table-wrapper),
+  :global(.ant-spin-nested-loading),
+  :global(.ant-spin-container),
+  :global(.ant-table),
+  :global(.ant-table-container) {
+    height: 100%;
+    min-height: 0;
+  }
+
+  :global(.ant-table-content) {
+    height: 100%;
+    overflow: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  :global(.ant-table-thead) {
+    position: sticky;
+    z-index: 2;
+    top: 0;
   }
 
   :global(.ant-table-thead > tr > th) {
@@ -85,6 +130,20 @@
   color: #52637a;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.channelCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #52637a;
+}
+
+.channelCellDisabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ant-color-text-disabled);
 }
 
 .messageCell {
@@ -138,11 +197,44 @@
   width: 112px;
 }
 
-.fieldHint {
-  margin-top: 6px;
-  color: #91a0b2;
-  font-size: 12px;
-  line-height: 1.5;
+.cronForm {
+  :global(.ant-form-item-label > label) {
+    width: 100%;
+    max-width: 100%;
+    white-space: nowrap;
+  }
+}
+
+.formLabel {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.formLabelText {
+  flex: none;
+  white-space: nowrap;
+}
+
+.formLabelDescription {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--qwenpaw-data-color-text-quaternary);
+  font-size: 14px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.largeTextArea,
+.largeTextArea :global(textarea.ant-input) {
+  border-radius: 18px !important;
 }
 
 .drawerFooter {
@@ -150,11 +242,15 @@
   justify-content: flex-end;
 }
 
+.grayedOut {
+  filter: grayscale(100%);
+}
+
 @media (max-width: 768px) {
   .main {
     width: 100%;
     min-width: 0;
-    padding: 20px 16px 60px;
+    padding: 0 16px 60px;
   }
 
   .tableActions > :global(.ant-space) {

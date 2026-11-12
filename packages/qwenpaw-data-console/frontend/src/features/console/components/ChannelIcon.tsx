@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
-import { MessageOutlined } from '@ant-design/icons';
+import { MessageTwoTone } from '@ant-design/icons';
 
 interface ChannelIconProps {
   channel: string;
@@ -36,12 +36,7 @@ const LETTER_COLORS: Record<string, string> = {
 
 const DEFAULT_COLOR = '#7a91ad';
 
-export default function ChannelIcon({
-  channel,
-  className,
-  style,
-  size = 22,
-}: ChannelIconProps) {
+export default function ChannelIcon({ channel, className, style, size = 22 }: ChannelIconProps) {
   const url = CHANNEL_ICON_URLS[channel];
   const [failed, setFailed] = useState(false);
 
@@ -61,7 +56,7 @@ export default function ChannelIcon({
 
   // Channels without a logo (e.g. console): use a generic message icon.
   if (!url) {
-    return <MessageOutlined className={className} style={style} />;
+    return <MessageTwoTone className={className} style={style} />;
   }
 
   // Logo failed to load: fall back to a letter avatar.

@@ -1,15 +1,24 @@
 import { request, requestFile } from '@/services/request';
+import { answerToolConfirmation } from './toolConfirmation';
+import { getRuntimeSettings, updateRuntimeSettings } from './runtimeSettings';
+import { parseSessionArtifacts } from '../model/artifacts/sessionArtifacts';
+import type { LineDiffResult } from '../model/compare/lineDiff';
 import type {
   ArtifactAccessPurpose,
+  ArtifactComment,
+  ArtifactShare,
   ActiveModels,
   AskUserQuestionToolResult,
   AttachmentRef,
+  ComparisonResult,
+  CompareRecommendationItem,
   ConsoleChat,
   ConsoleSession,
   DatasourceOption,
+  DatasetOption,
   ModelProvider,
+  PatchConsoleSessionRequest,
   ProviderModel,
-  RuntimeSettings,
   SessionSnapshot,
   TraceResponse,
 } from './types';
@@ -26,14 +35,12 @@ function queryString(params: Record<string, string | number | null | undefined>)
 }
 
 export const dataConsoleApi = {
+  answerToolConfirmation,
   getModelProviders() {
     return request<{ providers: ModelProvider[] }>('/preferences/providers');
   },
 
-  updateModelProvider(
-    providerId: string,
-    body: { api_key?: string; base_url?: string | null },
-  ) {
+  updateModelProvider(providerId: string, body: { api_key?: string; base_url?: string | null }) {
     return request<{ provider: ModelProvider }>(
       `/preferences/providers/${encodeURIComponent(providerId)}`,
       { method: 'PUT', body: JSON.stringify(body) },
@@ -41,10 +48,9 @@ export const dataConsoleApi = {
   },
 
   clearModelProvider(providerId: string) {
-    return request<{ ok: boolean }>(
-      `/preferences/providers/${encodeURIComponent(providerId)}`,
-      { method: 'DELETE' },
-    );
+    return request<{ ok: boolean }>(`/preferences/providers/${encodeURIComponent(providerId)}`, {
+      method: 'DELETE',
+    });
   },
 
   getProviderModels(providerId: string) {
@@ -59,6 +65,7 @@ export const dataConsoleApi = {
     body: {
       source: 'extra' | 'override';
       name?: string | null;
+      context_size?: number | null;
       thinking_enabled?: boolean | null;
       generate_kwargs?: Record<string, unknown> | null;
     },
@@ -92,22 +99,15 @@ export const dataConsoleApi = {
     });
   },
 
-  getRuntimeSettings() {
-    return request<{ runtime_settings: RuntimeSettings }>(
-      '/preferences/runtime-settings',
-    );
-  },
-
-  updateRuntimeSettings(body: Partial<RuntimeSettings>) {
-    return request<{ runtime_settings: RuntimeSettings }>(
-      '/preferences/runtime-settings',
-      { method: 'PUT', body: JSON.stringify(body) },
-    );
-  },
+  getRuntimeSettings,
+  updateRuntimeSettings,
 
   createSession(body: {
-    title?: string | null;
-    datasource_id?: string | null;
+    title?: string | null; // Display title for the new session.
+    datasource_id?: string | null; // Optional datasource for an analysis session.
+    agent_id?: string; // Agent implementation; review creates an isolated review session.
+    parent_session_id?: string | null; // Source session whose work the review agent reads.
+    enable_clarification?: boolean; // false: skip ask-user questions for chats opened in this session.
   }) {
     return request<{ session: ConsoleSession }>('/sessions', {
       method: 'POST',
@@ -115,20 +115,37 @@ export const dataConsoleApi = {
     });
   },
 
-  listSessions(params: {
-    search_text?: string;
-    status?: 'idle' | 'running';
-    datasource_id?: string;
-    sort?: 'updated_desc' | 'updated_asc' | 'chat_count_desc';
-    page?: number;
-    page_size?: number;
-  } = {}) {
-    return request<{ items: ConsoleSession[]; total: number }>(
-      `/sessions${queryString(params)}`,
-    );
+  listSessions(
+    params: {
+      session_id?: string;
+      search_text?: string;
+      status?: 'idle' | 'running';
+      datasource_id?: string;
+      channel?: string;
+      sort?: 'updated_desc' | 'updated_asc' | 'chat_count_desc';
+      page?: number;
+      page_size?: number;
+      min_chat_count?: number;
+    } = {},
+    signal?: AbortSignal,
+  ) {
+    return request<{ items: ConsoleSession[]; total: number }>(`/sessions${queryString(params)}`, {
+      signal,
+    });
   },
 
-  updateSession(sessionId: string, body: { title: string }) {
+  getSession(sessionId: string) {
+    return request<{ session: ConsoleSession }>(`/sessions/${sessionId}`);
+  },
+
+  async getSessionArtifacts(sessionId: string, signal?: AbortSignal) {
+    const result = await request<unknown>(`/sessions/${encodeURIComponent(sessionId)}/artifacts`, {
+      signal,
+    });
+    return parseSessionArtifacts(result, sessionId);
+  },
+
+  updateSession(sessionId: string, body: PatchConsoleSessionRequest) {
     return request<{ session: ConsoleSession }>(`/sessions/${sessionId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -141,8 +158,18 @@ export const dataConsoleApi = {
     });
   },
 
-  getSnapshot(sessionId: string) {
-    return request<SessionSnapshot>(`/sessions/${sessionId}/snapshot`);
+  forkSession(sessionId: string, chatId: string) {
+    return request<{ session: ConsoleSession }>(`/sessions/${sessionId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+  },
+
+  getSnapshot(sessionId: string, signal?: AbortSignal, beforeSequence?: number) {
+    return request<SessionSnapshot>(
+      `/sessions/${sessionId}/snapshot${queryString({ limit: 15, before_sequence: beforeSequence })}`,
+      { signal },
+    );
   },
 
   editPlan(
@@ -156,11 +183,29 @@ export const dataConsoleApi = {
     );
   },
 
+  uploadAttachment(sessionId: string, file: File) {
+    const body = new FormData();
+    body.append('session_id', sessionId);
+    body.append('file', file);
+    return request<{ attachment: AttachmentRef }>('/console/upload', {
+      method: 'POST',
+      body,
+    });
+  },
+
+  deleteAttachment(attachmentId: string) {
+    return request<void>(`/console/attachments/${encodeURIComponent(attachmentId)}`, {
+      method: 'DELETE',
+    });
+  },
+
   createChat(body: {
     session_id: string;
     text: string;
-    datasource_id: string;
-    attachments?: AttachmentRef[] | null;
+    datasource_id?: string | null;
+    dataset_names?: string[] | null;
+    attachment_ids?: string[];
+    artifact_comments?: ArtifactComment[];
   }) {
     return request<{ chat: ConsoleChat }>('/console/chat', {
       method: 'POST',
@@ -175,11 +220,11 @@ export const dataConsoleApi = {
     );
   },
 
-  steer(sessionId: string, chatId: string, text: string) {
-    return request<void>(
-      `/sessions/${sessionId}/chats/${chatId}/steer`,
-      { method: 'POST', body: JSON.stringify({ text }) },
-    );
+  steer(sessionId: string, chatId: string, text: string, artifactComments: ArtifactComment[] = []) {
+    return request<void>(`/sessions/${sessionId}/chats/${chatId}/steer`, {
+      method: 'POST',
+      body: JSON.stringify({ text, artifact_comments: artifactComments }),
+    });
   },
 
   answerClarification(
@@ -191,7 +236,8 @@ export const dataConsoleApi = {
     },
   ) {
     return request<{ chat: ConsoleChat }>(
-      `/sessions/${sessionId}/chats/${chatId}/clarification/answer`, {
+      `/sessions/${sessionId}/chats/${chatId}/clarification/answer`,
+      {
         method: 'POST',
         body: JSON.stringify(body),
       },
@@ -206,6 +252,13 @@ export const dataConsoleApi = {
   ) {
     return request<TraceResponse>(
       `/sessions/${sessionId}/chats/${chatId}/trace${queryString({ view })}`,
+      { signal },
+    );
+  },
+
+  listDatasets(datasourceId: string, signal?: AbortSignal) {
+    return request<{ items: DatasetOption[] }>(
+      `/datasets${queryString({ datasource_id: datasourceId })}`,
       { signal },
     );
   },
@@ -242,22 +295,101 @@ export const dataConsoleApi = {
   },
 
   clearFeedbackReaction(sessionId: string, chatId: string) {
-    return request<void>(
-      `/sessions/${sessionId}/chats/${chatId}/feedback/reaction`,
-      { method: 'DELETE' },
-    );
+    return request<void>(`/sessions/${sessionId}/chats/${chatId}/feedback/reaction`, {
+      method: 'DELETE',
+    });
   },
 
-  getWorkspaceFile(
-    sessionId: string,
-    relativePath: string,
-    purpose: ArtifactAccessPurpose,
-  ) {
+  getWorkspaceFile(sessionId: string, relativePath: string, purpose: ArtifactAccessPurpose) {
     return requestFile(
       `/sessions/${sessionId}/files/access${queryString({
         path: relativePath,
         purpose,
       })}`,
     );
+  },
+
+  /**
+   * Generic two-document comparison over artifact-dir-relative paths. Pure
+   * read: it returns a verdict without persisted review/evidence records and never
+   * writes a file, so the compare config panel can compare any two documents
+   * (a GT against a draft, or two drafts) without a report-reproduction run.
+   */
+  compareWorkspaceFiles(
+    sessionId: string,
+    body: {
+      target_path: string; // Current file, relative to the artifact directory.
+      reference_path: string; // Selected reference in the same artifact directory.
+      tolerance?: number; // Relative numeric tolerance; backend default is 0.001.
+    },
+  ) {
+    return request<ComparisonResult>(`/sessions/${sessionId}/files/compare`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /**
+   * Generic line-by-line diff over artifact-dir-relative paths (vscode-style).
+   * Pure read: returns aligned rows plus intra-line highlight spans and never
+   * writes a file, so any two same-family documents can be compared.
+   */
+  diffWorkspaceFiles(sessionId: string, body: { target_path: string; reference_path: string }) {
+    return request<LineDiffResult>(`/sessions/${sessionId}/files/diff`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /**
+   * LLM compare recommendations for the picker: send the candidates and the
+   * document being previewed, get back 0-3 valid same-family pairs. Degrades to
+   * an empty list when no model is configured or the call fails.
+   */
+  fetchCompareRecommendations(
+    sessionId: string,
+    body: {
+      current_path?: string | null;
+      candidates: Array<{ path: string; name: string }>;
+    },
+  ) {
+    return request<{ recommendations: CompareRecommendationItem[] }>(
+      `/sessions/${sessionId}/files/compare/recommendations`,
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  },
+
+  /**
+   * Upload a local document into the session artifact dir (`uploads/`) so the
+   * compare picker can pair it like any workspace file. Returns the
+   * artifact-dir-relative path.
+   */
+  uploadWorkspaceFile(sessionId: string, file: File) {
+    const body = new FormData();
+    body.append('file', file);
+    return request<{ path: string }>(`/sessions/${sessionId}/files/upload`, {
+      method: 'POST',
+      body,
+    });
+  },
+
+  shareWorkspaceFile(sessionId: string, relativePath: string) {
+    return request<ArtifactShare>(`/sessions/${sessionId}/files/share`, {
+      method: 'POST',
+      body: JSON.stringify({ path: relativePath }),
+    });
+  },
+
+  reportBehaviorEvent(body: {
+    kind: 'trace_view' | 'segment_toggle' | 'session_revisit';
+    session_id: string;
+    chat_id?: string | null;
+    target_id?: string;
+    payload?: Record<string, unknown>;
+  }) {
+    return request<{ ok: boolean }>('/console/events', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   },
 };

@@ -9,12 +9,34 @@ export interface CronSchedule {
   timezone: string;
 }
 
+export const CRON_CHANNELS = ['console', 'feishu', 'dingtalk', 'wecom', 'wechat'] as const;
+export type CronChannel = (typeof CRON_CHANNELS)[number];
+export const CRON_IM_CHANNELS = ['feishu', 'dingtalk', 'wecom', 'wechat'] as const;
+
+export function isCronChannel(channel: string): channel is CronChannel {
+  return (CRON_CHANNELS as readonly string[]).includes(channel);
+}
+
+export function isCronImChannel(channel: string): boolean {
+  return (CRON_IM_CHANNELS as readonly string[]).includes(channel);
+}
+
+export interface CronTarget {
+  external_key: string;
+  target_type: string;
+  display_name: string;
+  last_active_at: string;
+}
+
 export interface CronJob {
   id: string;
   name: string;
   enabled: boolean;
   message: string;
   datasource_id: string;
+  channel: string;
+  session_id: string | null;
+  target_external_key: string | null;
   schedule: CronSchedule;
   created_at: string;
   updated_at: string;
@@ -25,6 +47,9 @@ export interface CronJobWriteBody {
   enabled: boolean;
   message: string;
   datasource_id: string;
+  channel: string;
+  session_id?: string | null;
+  target_external_key?: string | null;
   schedule: CronSchedule;
 }
 
@@ -32,17 +57,33 @@ export interface CronJobDraft {
   name: string;
   message: string;
   datasource_id: string;
+  channel?: string;
+  session_id?: string | null;
+}
+
+export interface CronJobListParams {
+  keyword?: string;
+  enabled?: boolean;
+  channel?: string;
 }
 
 export const cronApi = {
-  listJobs() {
-    return request<{ jobs: CronJob[]; count: number }>('/cron/jobs');
+  listJobs(params?: CronJobListParams, signal?: AbortSignal) {
+    const search = new URLSearchParams();
+    if (params) {
+      if (params.keyword) search.set('keyword', params.keyword);
+      if (params.enabled !== undefined) search.set('enabled', params.enabled.toString());
+      if (params.channel) search.set('channel', params.channel);
+    }
+    const query = search.toString();
+    return request<{ jobs: CronJob[]; count: number }>(
+      `/cron/jobs${query ? `?${query}` : ''}`,
+      signal ? { signal } : {},
+    );
   },
 
   getJob(jobId: string) {
-    return request<{ job: CronJob }>(
-      `/cron/jobs/${encodeURIComponent(jobId)}`,
-    );
+    return request<{ job: CronJob }>(`/cron/jobs/${encodeURIComponent(jobId)}`);
   },
 
   createJob(body: CronJobWriteBody) {
@@ -53,40 +94,38 @@ export const cronApi = {
   },
 
   replaceJob(jobId: string, body: CronJobWriteBody) {
-    return request<{ job: CronJob }>(
-      `/cron/jobs/${encodeURIComponent(jobId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify(body),
-      },
-    );
+    return request<{ job: CronJob }>(`/cron/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
   },
 
   deleteJob(jobId: string) {
-    return request<{ ok: boolean }>(
-      `/cron/jobs/${encodeURIComponent(jobId)}`,
-      { method: 'DELETE' },
-    );
+    return request<{ ok: boolean }>(`/cron/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'DELETE',
+    });
   },
 
   pauseJob(jobId: string) {
-    return request<{ job: CronJob }>(
-      `/cron/jobs/${encodeURIComponent(jobId)}/pause`,
-      { method: 'POST' },
-    );
+    return request<{ job: CronJob }>(`/cron/jobs/${encodeURIComponent(jobId)}/pause`, {
+      method: 'POST',
+    });
   },
 
   resumeJob(jobId: string) {
-    return request<{ job: CronJob }>(
-      `/cron/jobs/${encodeURIComponent(jobId)}/resume`,
-      { method: 'POST' },
-    );
+    return request<{ job: CronJob }>(`/cron/jobs/${encodeURIComponent(jobId)}/resume`, {
+      method: 'POST',
+    });
   },
 
   runJob(jobId: string) {
-    return request<{ ok: boolean; job: CronJob }>(
-      `/cron/jobs/${encodeURIComponent(jobId)}/run`,
-      { method: 'POST' },
-    );
+    return request<{ ok: boolean; job: CronJob }>(`/cron/jobs/${encodeURIComponent(jobId)}/run`, {
+      method: 'POST',
+    });
+  },
+
+  listTargets(channel: string) {
+    const search = new URLSearchParams({ channel });
+    return request<{ targets: CronTarget[]; count: number }>(`/cron/targets?${search.toString()}`);
   },
 };

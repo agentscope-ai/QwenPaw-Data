@@ -1,20 +1,22 @@
-import { MenuOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { Button, Input } from '@agentscope-ai/design';
-import { SparkLeftArrowLine } from '@agentscope-ai/icons';
 import { Alert, Form, Space, Spin, Switch, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   channelConfigApi,
   type ChannelConfigResponse,
   type ChannelKey,
+  type DingTalkConfig,
+  type FeishuConfig,
   type TestResult,
+  type WechatConfig,
+  type WecomConfig,
 } from '@/features/console/api/channelConfig';
 import ChannelIcon from '@/features/console/components/ChannelIcon';
-import ConsoleSettingsMenu from '@/features/console/components/ConsoleSettingsMenu';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
 import QrcodeAuthBlock from '@/features/console/components/QrcodeAuthBlock';
 import SecretInput from '@/features/console/components/SecretInput';
-import { useConsoleLayout } from '@/layouts/ConsoleLayout/context';
+import { useAppI18n } from '@/i18n';
 import styles from './index.module.less';
 
 function errorMessage(error: unknown): string {
@@ -22,13 +24,15 @@ function errorMessage(error: unknown): string {
 }
 
 /** Masked secret field: empty in the UI means "don't change", filled means override. */
-function secretPlaceholder(masked: string | null | undefined): string {
-  return masked ? `已配置（${masked}），留空不修改` : '请输入';
+function secretPlaceholder(
+  masked: string | null | undefined,
+  t: ReturnType<typeof useAppI18n>['t'],
+): string {
+  return masked ? t('channel.secretConfigured', { masked }) : t('channel.secretPlaceholder');
 }
 
 export default function ChannelSettingsPage() {
-  const navigate = useNavigate();
-  const { openMobileNav } = useConsoleLayout();
+  const { t } = useAppI18n();
   const [config, setConfig] = useState<ChannelConfigResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [savingKey, setSavingKey] = useState<ChannelKey | null>(null);
@@ -47,24 +51,19 @@ export default function ChannelSettingsPage() {
 
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = 'Channel Configuration · QwenPaw Data';
+    document.title = `${t('channel.title')} · QwenPaw Data`;
     void load();
     return () => {
       document.title = previousTitle;
     };
-  }, [load]);
+  }, [load, t]);
 
-  const updateChannel = async (
-    channel: ChannelKey,
-    payload: Record<string, unknown>,
-  ) => {
+  const updateChannel = async (channel: ChannelKey, payload: Record<string, unknown>) => {
     setSavingKey(channel);
     try {
       const { config: updated } = await channelConfigApi.update(channel, payload);
-      setConfig((prev) =>
-        prev ? { ...prev, [channel]: updated as never } : prev,
-      );
-      message.success('配置已保存，channel 已重连');
+      setConfig((prev) => (prev ? { ...prev, [channel]: updated as never } : prev));
+      message.success(t('channel.saved'));
     } catch (e) {
       message.error(errorMessage(e));
     } finally {
@@ -90,74 +89,67 @@ export default function ChannelSettingsPage() {
 
   return (
     <div className={styles.content}>
-      <header className={styles.header}>
-        <Button
-          className={styles.mobileMenu}
-          type="text"
-          icon={<MenuOutlined />}
-          aria-label="打开导航"
-          onClick={openMobileNav}
-        />
-        <button
-          className={styles.backButton}
-          type="button"
-          aria-label="返回上一页"
-          title="返回上一页"
-          onClick={() => navigate(-1)}
-        >
-          <SparkLeftArrowLine size={18} />
-        </button>
-        <h1>Channel Configuration</h1>
-        <ConsoleSettingsMenu className={styles.headerSettings} />
-      </header>
+      <ConsoleRouteHeader title={t('channel.title')} />
 
       <main className={styles.main}>
         <div className={styles.intro}>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-            刷新
-          </Button>
+          <Button
+            aria-label={t('common.refresh')}
+            title={t('common.refresh')}
+            icon={<ReloadOutlined />}
+            onClick={() => void load()}
+          />
         </div>
 
         {loading ? (
-          <div className={styles.loading}><Spin /><span>正在加载 channel 配置…</span></div>
+          <div className={styles.loading}>
+            <Spin />
+            <span>{t('channel.loading')}</span>
+          </div>
         ) : null}
 
         {!loading && config ? (
           <div className={styles.sections}>
-            <FeishuCard
-              config={config.feishu}
-              saving={savingKey === 'feishu'}
-              testing={testingKey === 'feishu'}
-              onSave={(p) => updateChannel('feishu', p)}
-              onTest={() => testChannel('feishu')}
-            />
-            <DingTalkCard
-              config={config.dingtalk}
-              saving={savingKey === 'dingtalk'}
-              testing={testingKey === 'dingtalk'}
-              onSave={(p) => updateChannel('dingtalk', p)}
-              onTest={() => testChannel('dingtalk')}
-            />
-            <WecomCard
-              config={config.wecom}
-              saving={savingKey === 'wecom'}
-              testing={testingKey === 'wecom'}
-              onSave={(p) => updateChannel('wecom', p)}
-              onTest={() => testChannel('wecom')}
-            />
-            <WechatCard
-              config={config.wechat}
-              saving={savingKey === 'wechat'}
-              testing={testingKey === 'wechat'}
-              onSave={(p) => updateChannel('wechat', p)}
-              onTest={() => testChannel('wechat')}
-            />
+            {config.feishu ? (
+              <FeishuCard
+                config={config.feishu}
+                saving={savingKey === 'feishu'}
+                testing={testingKey === 'feishu'}
+                onSave={(p) => updateChannel('feishu', p)}
+                onTest={() => testChannel('feishu')}
+              />
+            ) : null}
+            {config.dingtalk ? (
+              <DingTalkCard
+                config={config.dingtalk}
+                saving={savingKey === 'dingtalk'}
+                testing={testingKey === 'dingtalk'}
+                onSave={(p) => updateChannel('dingtalk', p)}
+                onTest={() => testChannel('dingtalk')}
+              />
+            ) : null}
+            {config.wecom ? (
+              <WecomCard
+                config={config.wecom}
+                saving={savingKey === 'wecom'}
+                testing={testingKey === 'wecom'}
+                onSave={(p) => updateChannel('wecom', p)}
+                onTest={() => testChannel('wecom')}
+              />
+            ) : null}
+            {config.wechat ? (
+              <WechatCard
+                config={config.wechat}
+                saving={savingKey === 'wechat'}
+                testing={testingKey === 'wechat'}
+                onSave={(p) => updateChannel('wechat', p)}
+                onTest={() => testChannel('wechat')}
+              />
+            ) : null}
           </div>
         ) : null}
 
-        {!loading && !config ? (
-          <Alert type="info" message="暂无 channel 配置" />
-        ) : null}
+        {!loading && !config ? <Alert type="info" message={t('channel.empty')} /> : null}
       </main>
     </div>
   );
@@ -171,15 +163,18 @@ interface CardProps<T> {
   onTest: () => void;
 }
 
-function FeishuCard(props: CardProps<ChannelConfigResponse['feishu']>) {
+function FeishuCard(props: CardProps<FeishuConfig>) {
   const [form] = Form.useForm();
+  const { t } = useAppI18n();
   return (
-    <section className={styles.section}>
+    <section className={`${styles.section} qwenpaw-data-card-primary`}>
       <div className={styles.sectionHeading}>
-        <span><ChannelIcon channel="feishu" size={22} /></span>
+        <span>
+          <ChannelIcon channel="feishu" size={22} />
+        </span>
         <div>
           <h3>飞书 Feishu</h3>
-          <p>App ID 与 Secret 来自飞书开放平台；保存后 host-core 自动重连。</p>
+          <p>{t('channel.feishuDescription')}</p>
         </div>
       </div>
       <Form
@@ -193,31 +188,31 @@ function FeishuCard(props: CardProps<ChannelConfigResponse['feishu']>) {
         }}
         onFinish={(v) => props.onSave(v)}
       >
-        <Form.Item label="启用" name="enabled" valuePropName="checked">
+        <Form.Item label={t('channel.enable')} name="enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item label="流式回复" name="streaming_enabled" valuePropName="checked">
+        <Form.Item label={t('channel.streaming')} name="streaming_enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
         <Form.Item label="App ID" name="app_id">
           <Input placeholder="cli_xxx" />
         </Form.Item>
         <Form.Item label="App Secret" name="app_secret">
-          <SecretInput placeholder={secretPlaceholder(props.config.app_secret)} />
+          <SecretInput placeholder={secretPlaceholder(props.config.app_secret, t)} />
         </Form.Item>
         <Form.Item label="Encrypt Key" name="encrypt_key">
-          <SecretInput placeholder={secretPlaceholder(props.config.encrypt_key)} />
+          <SecretInput placeholder={secretPlaceholder(props.config.encrypt_key, t)} />
         </Form.Item>
         <Form.Item label="Verification Token" name="verification_token">
-          <SecretInput placeholder={secretPlaceholder(props.config.verification_token)} />
+          <SecretInput placeholder={secretPlaceholder(props.config.verification_token, t)} />
         </Form.Item>
         <Form.Item>
           <Space>
             <Button type="primary" htmlType="submit" loading={props.saving}>
-              保存
+              {t('channel.save')}
             </Button>
             <Button loading={props.testing} onClick={props.onTest}>
-              测试
+              {t('channel.test')}
             </Button>
           </Space>
         </Form.Item>
@@ -226,15 +221,18 @@ function FeishuCard(props: CardProps<ChannelConfigResponse['feishu']>) {
   );
 }
 
-function DingTalkCard(props: CardProps<ChannelConfigResponse['dingtalk']>) {
+function DingTalkCard(props: CardProps<DingTalkConfig>) {
   const [form] = Form.useForm();
+  const { t } = useAppI18n();
   return (
-    <section className={styles.section}>
+    <section className={`${styles.section} qwenpaw-data-card-primary`}>
       <div className={styles.sectionHeading}>
-        <span><ChannelIcon channel="dingtalk" size={22} /></span>
+        <span>
+          <ChannelIcon channel="dingtalk" size={22} />
+        </span>
         <div>
           <h3>钉钉 DingTalk</h3>
-          <p>Client ID 与 Secret 来自钉钉开发者后台；保存后 host-core 自动重连。</p>
+          <p>{t('channel.dingtalkDescription')}</p>
         </div>
       </div>
       <Form
@@ -246,20 +244,20 @@ function DingTalkCard(props: CardProps<ChannelConfigResponse['dingtalk']>) {
         }}
         onFinish={(v) => props.onSave(v)}
       >
-        <Form.Item label="启用" name="enabled" valuePropName="checked">
+        <Form.Item label={t('channel.enable')} name="enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item label="流式回复" name="streaming_enabled" valuePropName="checked">
+        <Form.Item label={t('channel.streaming')} name="streaming_enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
         <Form.Item label="Client ID" name="client_id">
           <Input placeholder="dingxxx" />
         </Form.Item>
         <Form.Item label="Client Secret" name="client_secret">
-          <SecretInput placeholder={secretPlaceholder(props.config.client_secret)} />
+          <SecretInput placeholder={secretPlaceholder(props.config.client_secret, t)} />
         </Form.Item>
         <Form.Item label="Card Template ID" name="card_template_id">
-          <Input placeholder="流式卡片模板 ID（可选）" />
+          <Input placeholder={t('channel.cardTemplatePlaceholder')} />
         </Form.Item>
         <Form.Item label="Card Template Key" name="card_template_key">
           <Input placeholder="content" />
@@ -267,10 +265,10 @@ function DingTalkCard(props: CardProps<ChannelConfigResponse['dingtalk']>) {
         <Form.Item>
           <Space>
             <Button type="primary" htmlType="submit" loading={props.saving}>
-              保存
+              {t('channel.save')}
             </Button>
             <Button loading={props.testing} onClick={props.onTest}>
-              测试
+              {t('channel.test')}
             </Button>
           </Space>
         </Form.Item>
@@ -279,15 +277,18 @@ function DingTalkCard(props: CardProps<ChannelConfigResponse['dingtalk']>) {
   );
 }
 
-function WecomCard(props: CardProps<ChannelConfigResponse['wecom']>) {
+function WecomCard(props: CardProps<WecomConfig>) {
   const [form] = Form.useForm();
+  const { t } = useAppI18n();
   return (
-    <section className={styles.section}>
+    <section className={`${styles.section} qwenpaw-data-card-primary`}>
       <div className={styles.sectionHeading}>
-        <span><ChannelIcon channel="wecom" size={22} /></span>
+        <span>
+          <ChannelIcon channel="wecom" size={22} />
+        </span>
         <div>
           <h3>企业微信 WeCom</h3>
-          <p>智能机器人 Bot ID 与 Secret；保存后 host-core 自动重连。</p>
+          <p>{t('channel.wecomDescription')}</p>
         </div>
       </div>
       <Form
@@ -299,25 +300,25 @@ function WecomCard(props: CardProps<ChannelConfigResponse['wecom']>) {
         }}
         onFinish={(v) => props.onSave(v)}
       >
-        <Form.Item label="启用" name="enabled" valuePropName="checked">
+        <Form.Item label={t('channel.enable')} name="enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item label="流式回复" name="streaming_enabled" valuePropName="checked">
+        <Form.Item label={t('channel.streaming')} name="streaming_enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
         <Form.Item label="Bot ID" name="bot_id">
-          <Input placeholder="企业微信智能机器人 bot_id" />
+          <Input placeholder={t('channel.wecomBotPlaceholder')} />
         </Form.Item>
         <Form.Item label="Secret" name="secret">
-          <SecretInput placeholder={secretPlaceholder(props.config.secret)} />
+          <SecretInput placeholder={secretPlaceholder(props.config.secret, t)} />
         </Form.Item>
         <Form.Item>
           <Space>
             <Button type="primary" htmlType="submit" loading={props.saving}>
-              保存
+              {t('channel.save')}
             </Button>
             <Button loading={props.testing} onClick={props.onTest}>
-              测试
+              {t('channel.test')}
             </Button>
           </Space>
         </Form.Item>
@@ -326,15 +327,18 @@ function WecomCard(props: CardProps<ChannelConfigResponse['wecom']>) {
   );
 }
 
-function WechatCard(props: CardProps<ChannelConfigResponse['wechat']>) {
+function WechatCard(props: CardProps<WechatConfig>) {
   const [form] = Form.useForm();
+  const { t } = useAppI18n();
   return (
-    <section className={styles.section}>
+    <section className={`${styles.section} qwenpaw-data-card-primary`}>
       <div className={styles.sectionHeading}>
-        <span><ChannelIcon channel="wechat" size={22} /></span>
+        <span>
+          <ChannelIcon channel="wechat" size={22} />
+        </span>
         <div>
           <h3>微信 WeChat</h3>
-          <p>iLink Bot Token 来自微信 iLink Bot 平台；保存后 host-core 自动重连。</p>
+          <p>{t('channel.wechatDescription')}</p>
         </div>
       </div>
       <Form
@@ -346,43 +350,43 @@ function WechatCard(props: CardProps<ChannelConfigResponse['wechat']>) {
         }}
         onFinish={(v) => props.onSave(v)}
       >
-        <Form.Item label="启用" name="enabled" valuePropName="checked">
+        <Form.Item label={t('channel.enable')} name="enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item label="流式回复" name="streaming_enabled" valuePropName="checked">
+        <Form.Item label={t('channel.streaming')} name="streaming_enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
         <QrcodeAuthBlock
-          label="扫码登录"
-          buttonText="获取微信二维码"
+          label={t('channel.scanLogin')}
+          buttonText={t('channel.getWechatQr')}
           imageAlt="WeChat QR Code"
-          hintText="使用微信扫码授权登录，成功后 Bot Token 自动填入下方"
+          hintText={t('channel.wechatQrHint')}
           channel="wechat"
           successStatus="confirmed"
           successCredentialKey="bot_token"
           pollInterval={2000}
           onSuccess={(credentials) => {
             form.setFieldsValue({ bot_token: credentials.bot_token });
-            message.success('微信登录成功，Bot Token 已填入');
+            message.success(t('channel.wechatLoginSuccess'));
           }}
           onError={(type) => {
             if (type === 'expired') {
-              message.warning('微信二维码已过期，请重新获取');
+              message.warning(t('channel.wechatQrExpired'));
             } else {
-              message.error('微信二维码获取失败，请重试');
+              message.error(t('channel.wechatQrFailed'));
             }
           }}
         />
         <Form.Item label="Bot Token" name="bot_token">
-          <SecretInput placeholder={secretPlaceholder(props.config.bot_token)} />
+          <SecretInput placeholder={secretPlaceholder(props.config.bot_token, t)} />
         </Form.Item>
         <Form.Item>
           <Space>
             <Button type="primary" htmlType="submit" loading={props.saving}>
-              保存
+              {t('channel.save')}
             </Button>
             <Button loading={props.testing} onClick={props.onTest}>
-              测试
+              {t('channel.test')}
             </Button>
           </Space>
         </Form.Item>

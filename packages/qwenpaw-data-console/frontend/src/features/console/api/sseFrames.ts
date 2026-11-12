@@ -6,7 +6,7 @@ export function parseSseFrame(frame: string): ConsoleStreamEvent | null {
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice(5).trimStart())
     .join('\n');
-  return data ? JSON.parse(data) as ConsoleStreamEvent : null;
+  return data ? (JSON.parse(data) as ConsoleStreamEvent) : null;
 }
 
 export function drainSseFrames(

@@ -1,0 +1,689 @@
+// Component-owned styles.
+
+.segmentCard {
+  margin-top: 0;
+}
+
+.segmentCardSurface {
+  margin-top: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--console-line);
+  border-radius: 13px;
+  box-shadow: none;
+}
+
+.segmentHeader {
+  display: grid;
+  width: 100%;
+  align-items: center;
+  padding: 13px 15px;
+  text-align: left;
+  background: #f8fbff;
+  border: 0;
+  cursor: pointer;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+
+  > :global(.anticon) {
+    color: #94a3b8;
+    font-size: var(--text-micro);
+    transition: transform 180ms ease;
+  }
+}
+
+.segmentHeaderCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+
+  strong {
+    color: #24324a;
+    font-size: 12px;
+  }
+
+  span {
+    margin-top: 2px;
+    color: #94a3b8;
+    font-size: var(--text-micro);
+  }
+}
+
+.segmentBody {
+  padding: 8px;
+  border-top: 1px solid var(--console-line);
+}
+
+.segmentSummaryGrid {
+  display: grid;
+  margin-bottom: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+
+  > div {
+    padding: 6px 12px;
+    background: #f8fafc;
+    border: 1px solid var(--console-line);
+    border-radius: 9px;
+  }
+
+  > div > span {
+    color: #64748b;
+    font-size: var(--text-micro);
+    font-weight: 700;
+  }
+}
+
+.keyResult {
+  display: flex;
+  gap: 11px;
+  padding: 6px 12px;
+  background: #f0f7ff;
+  border-left: 3px solid var(--console-primary);
+  border-radius: 3px 9px 9px 3px;
+
+  > div:last-child {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  strong {
+    margin-top: 4px;
+    color: #173965;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: var(--text-micro);
+    line-height: 1.55;
+  }
+}
+
+.inlineArtifact {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--console-line);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: 160ms ease;
+
+  &:hover {
+    border-color: #bfdbfe;
+    box-shadow: var(--console-card-shadow);
+    transform: translateY(-1px);
+  }
+
+  > span:nth-child(2) {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  small {
+    color: #64748b;
+    font-size: var(--text-micro);
+    font-weight: 700;
+  }
+
+  strong {
+    margin-top: 2px;
+    color: #253451;
+    font-size: var(--text-micro);
+  }
+
+  code {
+    margin-top: 2px;
+    color: #94a3b8;
+    font-size: var(--text-micro);
+  }
+
+  > :global(.anticon:last-child) {
+    color: #60a5fa;
+  }
+}
+
+.segmentHeader > :global(.anticon) {
+  font-size: 12px;
+}
+
+.segmentHeaderCopy {
+  strong {
+    font-size: 14px;
+  }
+
+  span {
+    font-size: var(--text-micro);
+  }
+}
+
+.segmentSummaryGrid {
+  > div > span {
+    color: var(--console-text-secondary);
+    font-size: var(--text-micro);
+    font-weight: 700;
+    line-height: 1.6;
+  }
+}
+
+.keyResult {
+  strong {
+    font-size: 14px;
+  }
+
+  p {
+    font-size: 12px;
+  }
+}
+
+.inlineArtifact {
+  small {
+    font-size: var(--text-micro);
+  }
+
+  strong {
+    font-size: 13px;
+  }
+
+  code {
+    font-size: var(--text-micro);
+  }
+
+  > :global(.anticon:last-child) {
+    font-size: 15px;
+  }
+}
+
+.segmentCardSurface {
+  margin-top: 0;
+  overflow: hidden;
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-large);
+  box-shadow: none;
+}
+
+.segmentRibbon {
+  font-family: var(--qwenpaw-data-font-family);
+  font-size: 12px !important;
+  font-weight: 500;
+}
+
+.segmentCollapse {
+  /*
+   * AgentScope Design generates the Collapse root border after the module
+   * stylesheet. This is the integration boundary: the Segment card owns its
+   * surface and must not inherit the generic Collapse chrome.
+   */
+  background: transparent !important;
+  border: 0 !important;
+
+  :global(.ant-collapse-item),
+  :global(.data-runtime-collapse-item) {
+    overflow: hidden;
+    border: 0;
+    border-radius: 0 !important;
+  }
+
+  :global(.ant-collapse-header),
+  :global(.data-runtime-collapse-header) {
+    position: relative;
+    display: block !important;
+    min-height: 44px;
+    padding: 7px 12px !important;
+    background: var(--runtime-surface-important);
+    border-radius: 0 !important;
+  }
+
+  :global(.ant-collapse-item-active > .ant-collapse-header),
+  :global(.data-runtime-collapse-item-active > .data-runtime-collapse-header) {
+    border-radius: 0 !important;
+  }
+
+  :global(.ant-collapse-header-text),
+  :global(.data-runtime-collapse-header-text) {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  :global(.ant-collapse-content),
+  :global(.data-runtime-collapse-content) {
+    border-top: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  :global(.ant-collapse-content-box),
+  :global(.data-runtime-collapse-content-box) {
+    padding: 0 !important;
+  }
+}
+
+.segmentHeader {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 39px;
+  align-items: center;
+  padding: 0 52px 0 0;
+  overflow: visible;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  isolation: isolate;
+  grid-template-columns: minmax(0, max-content) 16px;
+  gap: 0;
+  column-gap: 8px;
+}
+
+.segmentHeaderCopy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  padding-left: 0;
+  align-items: baseline;
+  flex-direction: row;
+  gap: 8px;
+  grid-column: 1;
+  grid-row: 1;
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--console-text);
+    font-size: var(--text-body);
+    font-weight: 400;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    margin-top: 1px;
+    color: var(--console-muted);
+    font-size: var(--text-micro);
+    line-height: 16px;
+  }
+}
+
+.segmentDuration {
+  position: relative;
+  z-index: 1;
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+  line-height: 18px;
+  white-space: nowrap;
+  flex: none;
+}
+
+.segmentBody {
+  padding: 8px;
+  border-top: 0;
+}
+
+.segmentSummaryGrid {
+  display: grid;
+  margin-bottom: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+
+  > div {
+    min-width: 0;
+    padding: 6px 12px;
+    overflow: hidden;
+    background: var(--runtime-surface-neutral);
+    border: 0;
+    border-radius: var(--radius-default);
+  }
+
+  > div > span {
+    font-size: var(--text-micro);
+  }
+}
+
+.segmentBehavior {
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  background: var(--runtime-surface-neutral);
+  border-radius: var(--radius-default);
+
+  > span {
+    color: var(--console-text-secondary);
+    font-size: var(--text-micro);
+    font-weight: 700;
+    line-height: 1.6;
+  }
+}
+
+.keyResult {
+  display: flex;
+  gap: 0;
+  padding: 6px 12px;
+  flex-direction: column;
+  background: var(--runtime-surface-important);
+  border: 0;
+  border-radius: var(--radius-default);
+
+  .keyResultHeader > span {
+    color: var(--console-primary-active);
+    font-size: var(--text-micro);
+    font-weight: 700;
+  }
+}
+
+.keyResultHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.confidenceBadge {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--text-micro);
+  line-height: 20px;
+  cursor: help;
+
+  &[data-confidence-level='high'] {
+    color: color-mix(in srgb, var(--console-success) 60%, var(--console-text));
+    background: var(--console-success-bg);
+    border-color: var(--console-success-border);
+  }
+
+  &[data-confidence-level='medium'] {
+    color: color-mix(in srgb, var(--console-warning) 60%, var(--console-text));
+    background: var(--console-warning-bg);
+    border-color: var(--console-warning-border);
+  }
+
+  &[data-confidence-level='low'] {
+    color: color-mix(in srgb, var(--console-error) 60%, var(--console-text));
+    background: var(--console-error-bg);
+    border-color: var(--console-error-border);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--console-primary);
+    outline-offset: 2px;
+  }
+}
+
+.confidenceSummary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.segmentMarkdown {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+
+  :global(.spark-markdown) {
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  :global(p:first-child),
+  :global(pre:first-child),
+  :global(ul:first-child),
+  :global(ol:first-child) {
+    margin-top: 0;
+  }
+
+  :global(p:last-child),
+  :global(pre:last-child),
+  :global(ul:last-child),
+  :global(ol:last-child) {
+    margin-bottom: 0;
+  }
+
+  :global(ul),
+  :global(ol) {
+    padding-left: 20px;
+  }
+
+  :global(code:not(pre code)) {
+    white-space: break-spaces;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  :global(pre),
+  :global(table) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  :global(table) {
+    display: block;
+  }
+
+  :global(img),
+  :global(video) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  :global(a) {
+    overflow-wrap: anywhere;
+  }
+}
+
+.segmentSummaryGrid,
+.segmentBehavior,
+.keyResult {
+  .segmentMarkdown,
+  .segmentMarkdown :global(*) {
+    color: var(--console-text) !important;
+    font-size: 12px !important;
+  }
+}
+
+.inlineArtifact {
+  display: flex;
+  align-items: stretch;
+  padding: 6px 12px;
+  margin-top: 8px;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--runtime-surface-important);
+  border: 0;
+  cursor: default;
+
+  &:hover {
+    box-shadow: none;
+    transform: none;
+  }
+}
+
+.artifactGroupTitle {
+  color: var(--console-primary-active);
+  font-size: var(--text-micro);
+  font-weight: 700;
+}
+
+.artifactVirtualList {
+  width: 100%;
+
+  :global(.rc-virtual-list-holder) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--console-border) transparent;
+  }
+}
+
+.artifactVirtualItem {
+  box-sizing: border-box;
+  height: 66px;
+  padding-bottom: 6px;
+}
+
+.artifactLoadMore {
+  display: inline-flex !important;
+  align-self: flex-end;
+  align-items: center;
+  height: 22px !important;
+  padding: 0 6px !important;
+  gap: 4px;
+  font-size: var(--text-micro) !important;
+  font-weight: 400 !important;
+  line-height: 22px !important;
+  transform: translateY(-2px);
+}
+
+.collapseChevron {
+  position: relative;
+  z-index: 2;
+  justify-self: start;
+  font-size: 12px;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .segmentCardSurface,
+:global(:root[data-qwenpaw-data-theme='dark']) .segmentHeader {
+  background: var(--qwenpaw-data-color-inset-surface);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .segmentCollapse {
+  :global(.ant-collapse-item),
+  :global(.data-runtime-collapse-item),
+  :global(.ant-collapse-header),
+  :global(.data-runtime-collapse-header) {
+    background: var(--qwenpaw-data-color-inset-surface) !important;
+  }
+
+  :global(.ant-collapse-content),
+  :global(.data-runtime-collapse-content) {
+    background: var(--qwenpaw-data-color-form-surface) !important;
+  }
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .segmentHeaderCopy strong,
+:global(:root[data-qwenpaw-data-theme='dark']) .inlineArtifact strong {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .segmentSummaryGrid > div,
+:global(:root[data-qwenpaw-data-theme='dark']) .inlineArtifact {
+  background: var(--qwenpaw-data-color-fill-tertiary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .keyResult {
+  background: var(--qwenpaw-data-color-primary-bg);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .keyResult strong,
+:global(:root[data-qwenpaw-data-theme='dark']) .keyResult p {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+.segmentGroup {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trajectoryToggle {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: var(--console-text-secondary);
+  font: inherit;
+  font-size: var(--text-micro);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  flex-wrap: wrap;
+
+  &:hover,
+  &[aria-expanded='true'] {
+    color: var(--console-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--console-primary);
+    outline-offset: 2px;
+  }
+}
+
+.trajectoryHint {
+  color: var(--console-primary);
+}
+
+.timingTotals {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 16px;
+  font-size: 12px;
+
+  strong {
+    text-align: right;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+}
+
+.trajectoryClock {
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+}
+
+.trajectoryChevron {
+  font-size: 10px;
+  transition: transform 180ms ease;
+}
+
+.trajectoryChevronOpen {
+  transform: rotate(180deg);
+}
+
+.trajectoryEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 2px;
+}
+
+.trajectoryEmpty {
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+}
+
+.segmentTerminalEvent {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trajectoryChevron {
+    transition: none;
+  }
+}

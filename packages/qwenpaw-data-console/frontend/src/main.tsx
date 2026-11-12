@@ -6,7 +6,7 @@ import { bootstrapHostAuth } from './services/auth';
 
 async function bootstrap() {
   try {
-    if (!await bootstrapHostAuth()) return;
+    if (!(await bootstrapHostAuth())) return;
   } catch (error) {
     console.error('Unable to initialize Host authentication.', error);
   }

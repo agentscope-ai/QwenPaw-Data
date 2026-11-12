@@ -1,72 +1,16 @@
 .content {
+  --qwenpaw-data-card-hover-shadow: none;
   height: 100%;
   min-height: 100%;
   overflow-y: auto;
   color: #172033;
-  background: #f5f8fc;
-}
-
-.header {
-  display: flex;
-  height: 64px;
-  align-items: center;
-  padding: 9px 32px 9px 16px;
-  background: rgb(255 255 255 / 88%);
-  border-bottom: 1px solid #e7edf5;
-  box-sizing: border-box;
-
-  h1 {
-    margin: 0;
-    color: #172033;
-    font-size: 15px;
-    line-height: 1.2;
-  }
-}
-
-.mobileMenu {
-  display: none;
-  margin-right: 4px;
-}
-
-.backButton {
-  display: inline-grid;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  padding: 0;
-  place-items: center;
-  margin-right: 4px;
-  color: #617188;
   background: transparent;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-
-  &:hover {
-    color: #172033;
-    background: #f1f5f9;
-  }
-
-  &:focus-visible {
-    outline: 2px solid #91caff;
-    outline-offset: 1px;
-  }
-}
-
-.headerSettings {
-  margin-left: auto;
 }
 
 .main {
-  width: min(1080px, calc(100% - 48px));
-  margin: 0 auto;
-  padding: 34px 0 60px;
-}
-
-.intro {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 22px;
+  width: min(1440px, calc(100% - 48px));
+  margin: 24px auto 0;
+  padding: 0 0 60px;
 }
 
 .loading {
@@ -86,27 +30,14 @@
 
 .section {
   padding: 22px;
-  background: rgb(255 255 255 / 92%);
-  border: 1px solid #e5ecf5;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgb(42 66 101 / 5%);
 }
 
 .sectionHeading {
   display: flex;
-  align-items: flex-start;
-  gap: 11px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   margin-bottom: 18px;
-
-  > span {
-    display: grid;
-    width: 34px;
-    height: 34px;
-    place-items: center;
-    color: #1677ff;
-    background: #eaf3ff;
-    border-radius: 9px;
-  }
 
   h3 {
     margin: 0;
@@ -115,15 +46,54 @@
   }
 
   p {
-    margin: 4px 0 0;
+    margin: 0;
     color: #8291a6;
     font-size: 12px;
   }
 }
 
-.providerGrid {
+.sectionHeadingWithAction {
+  position: relative;
+  padding-right: 48px;
+}
+
+.sectionHeadingAction {
+  position: absolute;
+  top: -6px;
+  right: 0;
+}
+
+.providerStatus {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  line-height: 18px;
+}
+
+.modelConfigurationSection {
+  min-width: 0;
+}
+
+.modelSetupGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+  align-items: start;
+  grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.6fr);
+  gap: 24px;
+}
+
+.modelSetupColumn {
+  min-width: 0;
+}
+
+.modelListColumn {
+  padding-left: 24px;
+  border-left: 1px solid #e8edf4;
+}
+
+.providerGrid,
+.modelProviderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 14px;
 }
 
@@ -141,6 +111,8 @@
   }
 
   > footer {
+    justify-content: flex-end;
+    gap: 8px;
     margin-top: 14px;
   }
 }
@@ -148,35 +120,19 @@
 .providerIdentity {
   display: flex;
   min-width: 0;
-  align-items: center;
-  gap: 10px;
-
-  > div {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-  }
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 
   strong {
     color: #243147;
     font-size: 14px;
   }
 
-  span:not(.providerIcon) {
+  span {
     color: #8a99ad;
     font-size: 11px;
   }
-}
-
-.providerIcon {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  place-items: center;
-  color: #1677ff;
-  background: #eaf3ff;
-  border-radius: 9px;
 }
 
 .providerFields {
@@ -196,12 +152,6 @@
   }
 }
 
-.modelProviderGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
 .modelProviderCard {
   min-width: 0;
   padding: 16px;
@@ -218,8 +168,9 @@
     > div {
       display: flex;
       min-width: 0;
-      flex-direction: column;
-      gap: 2px;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 4px 10px;
     }
 
     strong {
@@ -236,19 +187,22 @@
 
 .modelList {
   display: grid;
-  max-height: 360px;
+  max-height: 470px;
   margin-top: 14px;
   overflow-y: auto;
-  gap: 8px;
+  padding-right: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
 }
 
 .modelRow {
   display: flex;
   min-width: 0;
-  align-items: center;
-  justify-content: space-between;
+  min-height: 118px;
+  align-items: stretch;
+  flex-direction: column;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 12px;
   background: #fff;
   border: 1px solid #edf1f6;
   border-radius: 9px;
@@ -299,8 +253,41 @@
 
 .modelActions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.modelThinking {
+  display: inline-flex;
   flex: none;
   align-items: center;
+  gap: 7px;
+  color: #7b8ba2;
+  font-size: 12px;
+}
+
+.modelActionButtons {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
+  white-space: nowrap;
+
+  > button {
+    flex-shrink: 0;
+  }
+}
+
+.modelResetButton {
+  // Reserve the loading icon's space before the request starts.
+  width: 84px;
 }
 
 .modelEditor {
@@ -320,6 +307,23 @@
   }
 }
 
+.modelEditorSwitch {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  grid-template-columns: 1fr auto;
+}
+
+.contextSizeInput {
+  width: 100%;
+  overflow: hidden;
+}
+
+.modelEditor label > .contextSizeHint {
+  font-weight: 400;
+  line-height: 1.6;
+}
+
 .settingsForm {
   display: grid;
   align-items: end;
@@ -335,32 +339,71 @@
   }
 }
 
+.runtimeForm {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
 .formActions {
   display: flex;
+  justify-content: flex-end;
   align-items: flex-end;
   padding-bottom: 1px;
 }
 
+:global(:root[data-qwenpaw-data-theme='dark']) .content {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sectionHeading h3,
+:global(:root[data-qwenpaw-data-theme='dark']) .providerIdentity strong,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelProviderCard header strong,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelSummary strong {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sectionHeading p,
+:global(:root[data-qwenpaw-data-theme='dark']) .providerIdentity span,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelProviderCard header span,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelSummary code,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelThinking,
+:global(:root[data-qwenpaw-data-theme='dark']) .providerFields label > span,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelEditor label > span {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .providerCard,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelProviderCard,
+:global(:root[data-qwenpaw-data-theme='dark']) .modelRow {
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .modelListColumn {
+  border-color: var(--qwenpaw-data-color-border-secondary);
+}
+
 @media (max-width: 960px) {
-  .providerGrid,
-  .modelProviderGrid,
+  .modelSetupGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .modelListColumn {
+    padding-top: 22px;
+    padding-left: 0;
+    border-top: 1px solid #e8edf4;
+    border-left: 0;
+  }
+
   .settingsForm {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
-  .header {
-    padding-inline: 12px;
-  }
-
-  .mobileMenu {
-    display: inline-flex;
-  }
-
   .main {
     width: calc(100% - 24px);
-    padding-top: 22px;
+    padding-top: 0;
   }
 
   .section {
@@ -371,5 +414,141 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+}
+
+.compressionConfiguration {
+  .settingTitle,
+  .footer,
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .settingTitle {
+    font-weight: 500;
+  }
+  .settingTitle > :last-child {
+    width: 94px;
+  }
+  .hint {
+    color: var(--qwenpaw-data-color-text-secondary, #8291a6);
+    margin: 24px 0 16px;
+    line-height: 1.65;
+    font-size: 12px;
+  }
+  .footer {
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--qwenpaw-data-color-text-secondary, #8291a6);
+  }
+  .actions {
+    justify-content: flex-end;
+    margin-left: auto;
+    gap: 8px;
+  }
+  .validation {
+    color: var(--ant-color-error, #cf1322);
+  }
+}
+
+.activeModelForm {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: stretch;
+  gap: 18px;
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.sessionModelSettings,
+.dataBridgeSettings {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--qwenpaw-data-color-border-secondary, #e5e7eb);
+  border-radius: 12px;
+}
+
+.sessionModelSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dataBridgeSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sessionModelSettings .sectionHeading,
+.dataBridgeSettings .sectionHeading {
+  margin-bottom: 0;
+}
+
+.semanticModelGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  flex: 1;
+}
+
+.semanticModelCard {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--qwenpaw-data-color-border-secondary, #e5e7eb);
+  border-radius: 10px;
+
+  h4 {
+    margin: 0;
+    font-size: 14px;
+  }
+}
+
+.modelTestAction {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.rebuildSettings {
+  display: grid;
+  gap: 12px;
+  margin-top: auto;
+  color: var(--qwenpaw-data-color-text-secondary, #8291a6);
+  font-size: 12px;
+}
+
+.returnButton {
+  margin-bottom: 16px;
+}
+
+@media (max-width: 960px) {
+  .activeModelForm {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .semanticModelGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rebuildActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+
+  > * {
+    flex: none;
   }
 }

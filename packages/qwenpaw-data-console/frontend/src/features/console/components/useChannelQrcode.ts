@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { channelConfigApi } from "../api/channelConfig";
-import type { ChannelKey } from "../api/channelConfig";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { channelConfigApi } from '../api/channelConfig';
+import type { ChannelKey } from '../api/channelConfig';
 
 export interface ChannelQrcodeConfig {
   /** Channel name used in the API path, e.g. "wechat" */
@@ -18,7 +18,7 @@ export interface ChannelQrcodeConfig {
   /** Called when authorization succeeds with the credentials map */
   onSuccess: (credentials: Record<string, string>) => void;
   /** Called when QR code fetch fails, polling detects expiry, or backend reports failure */
-  onError: (type: "fetch" | "expired" | "fail") => void;
+  onError: (type: 'fetch' | 'expired' | 'fail') => void;
 }
 
 export interface ChannelQrcodeState {
@@ -33,12 +33,10 @@ export interface ChannelQrcodeState {
  * Generic hook for channel QR-code-based authorization.
  *
  * Handles: fetch QR code → display → poll status → auto-fill credentials.
- * Ported from QwenPaw's useChannelQrcode; adapted to the DataPaw
+ * Ported from QwenPaw's useChannelQrcode; adapted to the QwenPawData
  * channelConfig API.
  */
-export function useChannelQrcode(
-  config: ChannelQrcodeConfig,
-): ChannelQrcodeState {
+export function useChannelQrcode(config: ChannelQrcodeConfig): ChannelQrcodeState {
   const {
     channel,
     successStatus,
@@ -50,7 +48,7 @@ export function useChannelQrcode(
     onError,
   } = config;
 
-  const [qrcodeImg, setQrcodeImg] = useState("");
+  const [qrcodeImg, setQrcodeImg] = useState('');
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const confirmedRef = useRef(false);
@@ -66,7 +64,7 @@ export function useChannelQrcode(
 
   const reset = useCallback(() => {
     stopPoll();
-    setQrcodeImg("");
+    setQrcodeImg('');
     confirmedRef.current = false;
     pollCountRef.current = 0;
     startTimeRef.current = 0;
@@ -78,7 +76,7 @@ export function useChannelQrcode(
     try {
       const data = await channelConfigApi.getQrcode(channel);
       if (!data.qrcode_img) {
-        onError("fetch");
+        onError('fetch');
         return;
       }
       setQrcodeImg(data.qrcode_img);
@@ -92,43 +90,34 @@ export function useChannelQrcode(
       const schedulePoll = () => {
         pollRef.current = setTimeout(async () => {
           // Check wall-clock timeout first
-          if (
-            pollTimeout &&
-            Date.now() - startTimeRef.current >= pollTimeout
-          ) {
-            setQrcodeImg("");
-            onError("expired");
+          if (pollTimeout && Date.now() - startTimeRef.current >= pollTimeout) {
+            setQrcodeImg('');
+            onError('expired');
             return;
           }
           // Check max poll count (failsafe)
           if (maxPollCount && pollCountRef.current >= maxPollCount) {
-            setQrcodeImg("");
-            onError("expired");
+            setQrcodeImg('');
+            onError('expired');
             return;
           }
           pollCountRef.current++;
 
           try {
-            const result = await channelConfigApi.getQrcodeStatus(
-              channel,
-              pollToken,
-            );
-            if (
-              result.status === successStatus &&
-              result.credentials[successCredentialKey]
-            ) {
+            const result = await channelConfigApi.getQrcodeStatus(channel, pollToken);
+            if (result.status === successStatus && result.credentials[successCredentialKey]) {
               if (confirmedRef.current) return;
               confirmedRef.current = true;
-              setQrcodeImg("");
+              setQrcodeImg('');
               onSuccess(result.credentials);
               return;
-            } else if (result.status === "expired") {
-              setQrcodeImg("");
-              onError("expired");
+            } else if (result.status === 'expired') {
+              setQrcodeImg('');
+              onError('expired');
               return;
-            } else if (result.status === "fail") {
-              setQrcodeImg("");
-              onError("fail");
+            } else if (result.status === 'fail') {
+              setQrcodeImg('');
+              onError('fail');
               return;
             }
           } catch (error) {
@@ -140,7 +129,7 @@ export function useChannelQrcode(
       };
       schedulePoll();
     } catch {
-      onError("fetch");
+      onError('fetch');
     } finally {
       setLoading(false);
     }

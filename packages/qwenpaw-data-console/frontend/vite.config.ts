@@ -1,6 +1,6 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type ProxyOptions } from 'vite';
+import { defineConfig, type ProxyOptions, type UserConfig } from 'vite';
 
 const gateway: ProxyOptions = {
   target: 'http://127.0.0.1:18768', changeOrigin: true,
@@ -16,20 +16,53 @@ const gateway: ProxyOptions = {
   },
 };
 
-export default defineConfig({
-  // Release assets must not embed machine-local .env values.
-  envDir: false,
-  plugins: [react()],
-  resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
-  css: { preprocessorOptions: { less: { javascriptEnabled: true } } },
-  server: {
-    host: '127.0.0.1', port: 18769, strictPort: true,
-    proxy: {
-      '/console-config.js': gateway,
-      '/api': gateway,
-      '/portal': gateway,
-      '/databridge': gateway,
+export default defineConfig((): UserConfig => {
+  const repoRoot = path.resolve(__dirname, '../../..');
+
+  return {
+    envDir: repoRoot,
+    plugins: [react()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
+        '@qwenpaw-data/ui-tokens': path.resolve(__dirname, '../../qwenpaw-data-ui-tokens/src'),
+        'react/jsx-dev-runtime': path.resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js'),
+        'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
+        react: path.resolve(__dirname, 'node_modules/react/index.js'),
+      },
+      dedupe: ['react', 'react-dom'],
     },
-  },
-  build: { outDir: 'dist', sourcemap: false, minify: 'terser' },
+    css: {
+      preprocessorOptions: {
+        less: {
+          javascriptEnabled: true,
+        },
+      },
+    },
+    server: {
+      host: '127.0.0.1',
+      port: 18769,
+      strictPort: true,
+      proxy: {
+        '/console-config.js': gateway,
+        '/api': gateway,
+        '/portal': gateway,
+        '/databridge': gateway,
+      },
+    },
+    build: {
+      outDir: 'dist',
+      sourcemap: false,
+      minify: 'terser',
+      rollupOptions: {
+        output: {
+          entryFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'assets/[name]-[hash][extname]',
+          // Let Rollup keep shared style initialization in dependency order.
+          // Isolating chat alone creates a cycle with the entry's antd-style exports.
+        },
+      },
+      cssCodeSplit: false,
+    },
+  };
 });
