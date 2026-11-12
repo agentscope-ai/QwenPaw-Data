@@ -8,8 +8,8 @@ Usage: scripts/start_local.sh [options]
 Start the recommended local full-stack runtime:
   local Neo4j, DataBridge API, and DataBridge frontend
 
-Existing listeners on DataBridge frontend port 3000 and the configured DataBridge
-API port are stopped first.
+The launcher exits if the DataBridge frontend or API port is already in use;
+it never stops an existing listener.
 
 Options:
   --context-host HOST         Bind host for DataBridge service. Default: 127.0.0.1
@@ -83,7 +83,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-shutdown_port() {
+check_port_available() {
   local label="$1"
   local port="$2"
   local pids
@@ -98,28 +98,15 @@ shutdown_port() {
     return
   fi
 
-  echo "Stopping existing ${label} listener on port ${port}: ${pids//$'\n'/ }"
-  kill -TERM ${pids} >/dev/null 2>&1 || true
-  sleep 1
-
-  pids="$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true)"
-  if [[ -n "${pids}" ]]; then
-    echo "Force stopping ${label} listener on port ${port}: ${pids//$'\n'/ }" >&2
-    kill -KILL ${pids} >/dev/null 2>&1 || true
-    sleep 0.2
-  fi
-
-  if lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "Failed to release ${label} port ${port}." >&2
-    exit 1
-  fi
+  echo "${label} port ${port} is already in use by process(es): ${pids//$'\n'/ }. Stop them explicitly or choose another port." >&2
+  exit 1
 }
 
 cd "${repo_root}"
 
-shutdown_port "DataBridge API" "${context_port}"
+check_port_available "DataBridge API" "${context_port}"
 if [[ "${skip_frontend}" != "1" ]]; then
-  shutdown_port "DataBridge frontend" "${context_frontend_port}"
+  check_port_available "DataBridge frontend" "${context_frontend_port}"
 fi
 
 context_cmd=(

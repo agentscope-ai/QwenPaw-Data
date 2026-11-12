@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
+import socket
+import subprocess
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,3 +74,29 @@ def test_powershell_entrypoints_are_present() -> None:
         path = ROOT / "scripts" / name
         assert path.is_file()
         assert "@args" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("lsof") is None, reason="requires lsof")
+def test_start_local_does_not_stop_existing_listener(tmp_path: Path) -> None:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        result = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "scripts" / "start_local.sh"),
+                "--context-port",
+                str(port),
+                "--skip-frontend",
+            ],
+            env={**os.environ, "QWENPAW_DATA_ENV_FILE": str(tmp_path / "missing.env")},
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert f"port {port} is already in use" in result.stderr
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
+            pass
