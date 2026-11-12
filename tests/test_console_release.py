@@ -21,8 +21,8 @@ CONSOLE_VERSION = tomllib.loads(
     ("tag", "expected"),
     [
         ("console-v0.3.3", ["console"]),
-        ("v0.3.4", ["console", "skills", "context", "host-core", "cli"]),
-        ("", ["console", "skills", "context", "host-core", "cli"]),
+        ("v0.4.0", ["console", "skills", "auth", "tracing", "context", "host-core", "cli"]),
+        ("", ["console", "skills", "auth", "tracing", "context", "host-core", "cli"]),
     ],
 )
 def test_publication_scope(tag, expected, tmp_path):
@@ -68,3 +68,38 @@ def test_console_release_rejects_wrong_version():
     )
     assert result.returncode == 1
     assert "does not match" in result.stderr
+
+
+@pytest.mark.parametrize("missing", [None, "auth", "tracing"])
+def test_full_release_requires_all_seven_packages(tmp_path, missing):
+    suffixes = ["console", "skills", "auth", "tracing", "context", "host-core", "cli"]
+    for suffix in suffixes:
+        if suffix == missing:
+            continue
+        name = "qwenpaw_data_" + suffix.replace("-", "_")
+        (tmp_path / f"{name}-{CONSOLE_VERSION}-py3-none-any.whl").touch()
+        (tmp_path / f"{name}-{CONSOLE_VERSION}.tar.gz").touch()
+    result = subprocess.run(
+        [sys.executable, "scripts/check_release_versions.py", "--dist-dir", str(tmp_path)],
+        cwd=ROOT, text=True, capture_output=True,
+    )
+    assert result.returncode == (0 if missing is None else 1), result.stderr
+    if missing is not None:
+        assert "distribution set mismatch" in result.stderr
+
+
+@pytest.mark.parametrize("suffix", ["auth", "tracing"])
+def test_console_release_rejects_new_engine_distributions(tmp_path, suffix):
+    for name in (
+        f"qwenpaw_data_console-{CONSOLE_VERSION}-py3-none-any.whl",
+        f"qwenpaw_data_console-{CONSOLE_VERSION}.tar.gz",
+        f"qwenpaw_data_{suffix}-{CONSOLE_VERSION}-py3-none-any.whl",
+    ):
+        (tmp_path / name).touch()
+    result = subprocess.run(
+        [sys.executable, "scripts/check_release_versions.py", f"console-v{CONSOLE_VERSION}",
+         "--dist-dir", str(tmp_path)],
+        cwd=ROOT, text=True, capture_output=True,
+    )
+    assert result.returncode == 1
+    assert "distribution set mismatch" in result.stderr

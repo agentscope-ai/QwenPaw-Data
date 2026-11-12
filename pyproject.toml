@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-workspace"
-version = "0.3.4"
+version = "0.4.0"
 description = "QwenPaw-Data monorepo workspace."
 readme = "README.md"
 license = "Apache-2.0"
@@ -36,18 +36,22 @@ members = [
   "packages/qwenpaw-data-host-core",
   "packages/qwenpaw-data-cli",
   "packages/qwenpaw-data-skills",
+  "packages/qwenpaw-data-auth",
+  "packages/qwenpaw-data-tracing",
 ]
 
 [dependency-groups]
 dev = [
-  "qwenpaw-data-console>=0.3,<0.4",
+  "qwenpaw-data-console>=0.4,<0.5",
   "pytest>=9.0.3,<10.0",
   "pytest-asyncio>=0.24,<2.0",
   "httpx>=0.28,<0.29",
-  "qwenpaw-data-context>=0.3,<0.4",
-  "qwenpaw-data-host-core[service]>=0.3,<0.4",
-  "qwenpaw-data-cli>=0.3,<0.4",
-  "qwenpaw-data-skills>=0.3.4,<0.4",
+  "qwenpaw-data-context>=0.4,<0.5",
+  "qwenpaw-data-host-core[service]>=0.4,<0.5",
+  "qwenpaw-data-cli>=0.4,<0.5",
+  "qwenpaw-data-skills[analysis]>=0.4,<0.5",
+  "qwenpaw-data-auth>=0.4,<0.5",
+  "qwenpaw-data-tracing>=0.4,<0.5",
 ]
 
 [tool.uv.sources]
@@ -56,6 +60,8 @@ qwenpaw-data-context = { workspace = true }
 qwenpaw-data-host-core = { workspace = true }
 qwenpaw-data-cli = { workspace = true }
 qwenpaw-data-skills = { workspace = true }
+qwenpaw-data-auth = { workspace = true }
+qwenpaw-data-tracing = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -13,10 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _tracked_paths() -> list[Path]:
     output = subprocess.check_output(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=ROOT,
     )
-    return [ROOT / item.decode() for item in output.split(b"\0") if item]
+    return [
+        ROOT / item.decode()
+        for item in output.split(b"\0")
+        if item and not item.decode().startswith(".uv-tmp/")
+    ]
 
 
 def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
@@ -26,6 +30,14 @@ def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
         "alibaba" + "-inc.com",
         "gitlab." + "alibaba",
         "tao" + "bao",
+        "art" + "lab.",
+        "anpm." + "alibaba",
+        "yuque" + ".com",
+        "hub.docker." + "alibaba",
+        "ali" + "buc",
+        "normandy" + "-auth",
+        "odps_" + "buc",
+        "odps_" + "internal",
     )
     binary_suffixes = {
         ".docx",
@@ -43,10 +55,21 @@ def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
         ".xls",
         ".xlsx",
     }
+    excluded_components = {
+        "dab_" + "tools",
+        "data_" + "agent_bench",
+        "data-" + "agent-bench",
+        ".aone" + "ci",
+        "app-" + "meta",
+    }
     failures: list[str] = []
     for path in _tracked_paths():
         relative = path.relative_to(ROOT).as_posix().lower()
-        if any(marker in relative for marker in markers):
+        if (
+            set(relative.split("/")) & excluded_components
+            or path.name == "test_dab_" + "s2.py"
+            or any(marker in relative for marker in markers)
+        ):
             failures.append(relative)
             continue
         if path.suffix.lower() in binary_suffixes:

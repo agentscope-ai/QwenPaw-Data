@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_PROJECTS = tuple(sorted((ROOT / "packages").glob("*/pyproject.toml")))
 DIST_NAME = re.compile(
-    r"^(?P<name>qwenpaw[-_]data(?:[-_](?:cli|console|context|host[-_]core|skills)))"
+    r"^(?P<name>qwenpaw[-_]data(?:[-_](?:cli|console|context|host[-_]core|skills|auth|tracing)))"
     r"-(?P<version>\d+\.\d+\.\d+)(?:-|\.)",
 )
 
@@ -55,6 +55,8 @@ def validate_distributions(dist_dir: Path, version: str, package: str | None = N
         "qwenpaw-data-context",
         "qwenpaw-data-host-core",
         "qwenpaw-data-skills",
+        "qwenpaw-data-auth",
+        "qwenpaw-data-tracing",
     }
     if package:
         expected_names = {package}
