@@ -76,7 +76,7 @@ def test_restart_does_not_restore_revoked_membership_or_disabled_user(tmp_path):
         conn.commit()
     cfg = bootstrap_local(cfg)
     with TestClient(create_app(cfg), base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
-        assert client.get("/api/auth/me").status_code == 403
+        assert client.get("/api/auth/me").status_code == 401
     with get_db(cfg.control_plane_dsn) as conn:
         assert query_one(conn, "SELECT count(*) AS n FROM role_bindings")["n"] == 0
 

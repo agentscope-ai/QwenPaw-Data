@@ -3,9 +3,28 @@ from __future__ import annotations
 import pytest
 from qwenpaw_data_auth import ControlPlaneReader
 from qwenpaw_data_auth.breakglass import consume_raw_cypher_grant, raw_query_digest
+from qwenpaw_data_auth.config import AuthConfig
 from qwenpaw_data_auth.database import get_db, query_one
 from qwenpaw_data_auth.provision_backend import configured_provision_backends
 from conftest import PASSWORD, bootstrap_and_onboard, login, seed_user
+
+
+@pytest.fixture
+def multi_config(tmp_path):
+    # This suite uses HTTP loopback and explicitly provisions a loopback graph.
+    # Production defaults retain secure cookies and an empty endpoint allowlist.
+    return AuthConfig(
+        home=tmp_path / "multi",
+        mode="multi-user",
+        secret_keys=["test-signing-key"],
+        service_secret="test-machine-key",
+        cm_base_url="",
+        platform_bootstrap_token="test-bootstrap-key",
+        cors_allowed_origins=["http://localhost:3000"],
+        authorization_redirect_origins=["http://localhost:3000"],
+        cookie_secure=False,
+        workspace_endpoint_allowed_hosts=["127.0.0.1"],
+    )
 
 
 def test_platform_bootstrap_is_once_and_onboarding_atomic(multi_client):
@@ -141,10 +160,12 @@ def test_join_request_cross_tenant_denied_and_cancel(multi_client):
     seed_user(cfg, user_id="foreign", tenant_id="t2", username="foreign", workspace_id="foreign-ws", role="tenant_admin")
     with get_db(cfg.control_plane_dsn) as conn:
         conn.execute("UPDATE workspaces SET join_open=1")
+        conn.execute("INSERT INTO workspaces (id, tenant_id, name, join_open, instance_status) VALUES ('w2', 't1', 'Open', 1, 'ready')")
         conn.commit()
     login(multi_client)
     assert multi_client.post("/api/access-requests", json={"target_type": "workspace", "target_id": "foreign-ws"}).status_code == 404
-    response = multi_client.post("/api/access-requests", json={"target_type": "workspace", "target_id": "w1"})
+    response = multi_client.post("/api/access-requests", json={"target_type": "workspace", "target_id": "w2"})
+    assert response.status_code == 201
     request_id = response.json()["id"]
     assert multi_client.post(f"/api/access-requests/{request_id}/cancel").status_code == 200
     assert multi_client.post(f"/api/access-requests/{request_id}/cancel").status_code == 404
