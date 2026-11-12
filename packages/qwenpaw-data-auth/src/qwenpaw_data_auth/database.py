@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, Optional
@@ -88,6 +89,7 @@ _TS_DEFAULT = _utcnow_iso()
 # per-table ``WITH`` kwarg). Scoping via ``info`` keeps the hook from touching
 # unrelated tables created in the same process.
 _HOLO_ROW = {"info": {"holo_orientation": "row"}}
+_ddl_hologres: ContextVar[bool | None] = ContextVar("auth_ddl_hologres", default=None)
 
 
 def _target_is_hologres() -> bool:
@@ -97,6 +99,9 @@ def _target_is_hologres() -> bool:
     不认，DDL 会报 ``unrecognized parameter "orientation"``。据 QWENPAW_DATA_DB_URL 的
     host 自动判定：只有 Hologres 才注入行存子句，真 PG 走默认编译。
     """
+    selected = _ddl_hologres.get()
+    if selected is not None:
+        return selected
     return "hologres.aliyuncs.com" in os.environ.get("QWENPAW_DATA_DB_URL", "")
 
 
@@ -571,14 +576,11 @@ _HOLO_ADDITIVE_COLUMNS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def _migrate_holo_columns(engine: Engine) -> None:
-    """Add columns that ``create_all`` will not attach to an existing Hologres table.
-
-    Hologres rejects DML after DDL on the same session (``UPDATE in ddl
-    transaction is not supported``), including a pooled connection that just
-    ran ``create_all``. Only ALTER here.
-    """
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+def _migrate_columns(conn, sqlite: bool) -> None:  # noqa: ANN001
+    """Backfill legacy columns on an already-initialized SQL database."""
+    if sqlite:
+        raise ValueError("SQLite migrations are handled in the SQLite transaction")
+    if _target_is_hologres():
         for table, column, definition in _HOLO_ADDITIVE_COLUMNS:
             existing = {
                 row[0]
@@ -593,6 +595,12 @@ def _migrate_holo_columns(engine: Engine) -> None:
             if existing and column not in existing:
                 conn.exec_driver_sql(
                     f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                )
+    else:
+        for table, columns in _LEGACY_MIGRATIONS.items():
+            for name, definition in columns.items():
+                conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {definition}"
                 )
 
 
@@ -611,13 +619,29 @@ def _reject_duplicates(conn, query: str, message: str) -> None:  # noqa: ANN001
 
 def init_schema(dsn: str = "") -> None:
     engine = _get_engine(dsn)
+    if engine.dialect.name == "postgresql":
+        is_hologres = "hologres.aliyuncs.com" in (engine.url.host or "").lower()
+        token = _ddl_hologres.set(is_hologres)
+        try:
+            if is_hologres:
+                metadata.create_all(engine)
+                # Hologres rejects DML after DDL in the same transaction.
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                    _migrate_columns(conn, False)
+            else:
+                with engine.begin() as conn:
+                    conn.exec_driver_sql("SELECT pg_advisory_xact_lock(716234019)")
+                    metadata.create_all(conn)
+                    _migrate_columns(conn, False)
+        finally:
+            _ddl_hologres.reset(token)
+        return
+
     metadata.create_all(engine)
 
     # SQLite-only one-time hygiene (column back-fills, de-dup, and the
-    # uniqueness indexes that must be built after de-dup). Hologres also
-    # back-fills missing columns: create_all will not ALTER existing tables.
+    # uniqueness indexes that must be built after de-dup).
     if engine.dialect.name != "sqlite":
-        _migrate_holo_columns(engine)
         return
 
     with engine.begin() as conn:
