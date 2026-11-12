@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,7 +28,7 @@ from qwenpaw_data.host.core.algo.biztrace.models import (
 )
 from qwenpaw_data.host.core.algo.biztrace.presentation import CAPTIONS, PresentationBuilder
 from qwenpaw_data.host.core.algo.biztrace.settings import CONVERTER_QUEUE_SIZE
-from qwenpaw_data.host.core.algo.biztrace.tools import canonical_tool_name
+from qwenpaw_data.host.core.algo.biztrace.tools import ASK_USER_QUESTION, canonical_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +49,6 @@ _FAILED_STATES: dict[str, str] = {
     "denied": "denied_note",
 }
 
-# Agent-produced HintBlocks are wrapped so the LLM does not treat them as user text.
-_SYSTEM_REMINDER_RE = re.compile(
-    r"\A\s*<system-reminder>\s*(.*?)\s*</system-reminder>\s*\Z",
-    re.DOTALL | re.IGNORECASE,
-)
-
 RowSink = Callable[[BizEvent], Awaitable[None]]
 EventSink = Callable[[BizEvent], Awaitable[None]]
 
@@ -65,7 +58,7 @@ class _PendingRow:
     """A row waiting for its card before it can be written."""
 
     event: BizEvent
-    card: asyncio.Task[Presentation]
+    card: asyncio.Task[Presentation | None]
     first_row: bool
 
 
@@ -91,7 +84,7 @@ class _PendingTool:
     parts: list[str] = field(default_factory=list)
     tool_input: Any = None
     orchestration: OrchestrationInfo | None = None
-    card: asyncio.Task[Presentation] | None = None
+    card: asyncio.Task[Presentation | None] | None = None
     started_at: float = 0.0
     ended_at: float = 0.0
     output_parts: list[str] = field(default_factory=list)
@@ -252,9 +245,7 @@ class BizTraceConverter:
                 try:
                     await self.on_event(event)
                 except Exception:
-                    logger.exception(
-                        "Post-emit hook failed for %s", event.event_id
-                    )
+                    logger.exception("Post-emit hook failed for %s", event.event_id)
 
     # -- ingestion --------------------------------------------------------- #
 
@@ -306,9 +297,7 @@ class BizTraceConverter:
             if isinstance(block, dict) and block.get("type") == "text"
         ]
         text = "\n".join(str(block.get("text") or "") for block in blocks)
-        block_id = next(
-            (str(block["id"]) for block in blocks if block.get("id")), ""
-        )
+        block_id = next((str(block["id"]) for block in blocks if block.get("id")), "")
         event_id = block_id or f"{message_id}:0"
         at = _timestamp(payload.get("timestamp")) or time()
         self._emit(
@@ -355,37 +344,24 @@ class BizTraceConverter:
     def _on_hint(self, payload: dict[str, Any], at: float) -> None:
         """A hint arrives complete in one event, so it is written immediately.
 
-        Only Host steer (``source="steer"``) is user guidance. Every other
-        HintBlock is an agent reminder and lands as ordinary assistant text.
+        Only Host steer (``source="steer"``) is user guidance. Agent reminders
+        (``<system-reminder>``, interaction-strategy, …) stay out of BizTrace.
         """
+        if _as_str(payload.get("source")) != "steer":
+            return
         block_id = str(payload.get("block_id") or "")
         hint = payload.get("hint")
-        source = _as_str(payload.get("source"))
-        content = _hint_text(hint)
-        if source == "steer":
-            event = BizEvent(
-                event_id=block_id or f"hint:{payload.get('id')}",
-                kind="hint",
-                parent_msg_id=_as_str(payload.get("reply_id")),
-                block_id=block_id or None,
-                content=content,
-                source=source,
-                started_at=at,
-                ended_at=at,
-            )
-            self._emit(event, self._card(event, hint=hint))
-            return
         event = BizEvent(
             event_id=block_id or f"hint:{payload.get('id')}",
-            kind="assistant_text",
+            kind="hint",
             parent_msg_id=_as_str(payload.get("reply_id")),
             block_id=block_id or None,
-            content=_unwrap_system_reminder(content),
-            source=source,
+            content=_hint_text(hint),
+            source="steer",
             started_at=at,
             ended_at=at,
         )
-        self._emit(event)
+        self._emit(event, self._card(event, hint=hint))
 
     # -- tool calls -------------------------------------------------------- #
 
@@ -433,9 +409,7 @@ class BizTraceConverter:
             )
             self._tools[tool_call_id] = pending
 
-    def _on_tool_result_text_delta(
-        self, payload: dict[str, Any], at: float
-    ) -> None:
+    def _on_tool_result_text_delta(self, payload: dict[str, Any], at: float) -> None:
         metadata = payload.get("metadata") or {}
         subagent_event = metadata.get("subagent_event")
         if subagent_event:
@@ -507,7 +481,26 @@ class BizTraceConverter:
             if note_key is not None and raw_state != "error"
             else None
         )
-        self._emit(result, self._card(result, call_card=call_card, note=note))
+        # Blank the ask call first so the frontend merge sees an empty call
+        # body and keeps only the result. Result-then-blank would concatenate
+        # and then lose: empty || alreadyConcatenated stays concatenated.
+        if (
+            pending is not None
+            and canonical_tool_name(pending.tool_name) == ASK_USER_QUESTION
+        ):
+            self._emit(
+                self._tool_use_event(pending, status="done"),
+                self._blank_ask_card(pending.tool_input),
+            )
+        self._emit(
+            result,
+            self._card(
+                result,
+                call_card=call_card,
+                note=note,
+                call_input=pending.tool_input if pending is not None else None,
+            ),
+        )
 
     def _tool_use_event(self, pending: _PendingTool, *, status: str) -> BizEvent:
         return BizEvent(
@@ -547,12 +540,8 @@ class BizTraceConverter:
 
     # -- orchestration ----------------------------------------------------- #
 
-    def _parse_orchestration(
-        self, pending: _PendingTool
-    ) -> OrchestrationInfo | None:
-        category = ORCHESTRATION_CATEGORIES.get(
-            canonical_tool_name(pending.tool_name)
-        )
+    def _parse_orchestration(self, pending: _PendingTool) -> OrchestrationInfo | None:
+        category = ORCHESTRATION_CATEGORIES.get(canonical_tool_name(pending.tool_name))
         if category is None:
             return None
         self.stats.orchestration_events += 1
@@ -577,8 +566,7 @@ class BizTraceConverter:
             graph_id=graph_id,
             node_id=node_id,
             node_name=self._plan_nodes.get(node_id or ""),
-            summary=_as_str(payload.get("summary"))
-            or _as_str(payload.get("outcome")),
+            summary=_as_str(payload.get("summary")) or _as_str(payload.get("outcome")),
         )
         if category != "TaskStateUpdate":
             return info
@@ -741,7 +729,10 @@ class BizTraceConverter:
             ended_at=at,
         )
         call_card = pending.card
-        self._emit(event, self._card(event, call_card=call_card))
+        self._emit(
+            event,
+            self._card(event, call_card=call_card, call_input=pending.tool_input),
+        )
 
     def _close_subagent(self, state: _SubagentState) -> None:
         self._flush_subagent_thinking(state)
@@ -774,26 +765,39 @@ class BizTraceConverter:
 
     # -- emission ---------------------------------------------------------- #
 
+    def _blank_ask_card(self, tool_input: Any) -> asyncio.Task[Presentation | None]:
+        """Rewrite the ask call card with an empty body once the result exists."""
+
+        async def build() -> Presentation:
+            return self.presenter.blank_ask_call(tool_input)
+
+        return asyncio.create_task(build())
+
     def _card(
         self,
         event: BizEvent,
         *,
-        call_card: asyncio.Task[Presentation] | None = None,
+        call_card: asyncio.Task[Presentation | None] | None = None,
         note: str | None = None,
         hint: Any = None,
-    ) -> asyncio.Task[Presentation]:
+        call_input: Any = None,
+    ) -> asyncio.Task[Presentation | None]:
         """Schedule the card so independent cards are produced in parallel."""
 
-        async def build() -> Presentation:
+        async def build() -> Presentation | None:
             base = await call_card if call_card is not None else None
             return await self.presenter.build(
-                event, call_card=base, note=note, hint=hint
+                event,
+                call_card=base,
+                note=note,
+                hint=hint,
+                call_input=call_input,
             )
 
         return asyncio.create_task(build())
 
     def _emit(
-        self, event: BizEvent, card: asyncio.Task[Presentation] | None = None
+        self, event: BizEvent, card: asyncio.Task[Presentation | None] | None = None
     ) -> None:
         previous_seq = self._seq_by_event.get(event.event_id)
         first_row = previous_seq is None
@@ -838,12 +842,6 @@ def _hint_text(hint: Any) -> str:
         for block in hint
         if isinstance(block, dict) and block.get("type") == "text"
     )
-
-
-def _unwrap_system_reminder(text: str) -> str:
-    """Drop ``<system-reminder>`` tags when an agent hint was wrapped for the LLM."""
-    match = _SYSTEM_REMINDER_RE.match(text)
-    return match.group(1).strip() if match else text
 
 
 def _tool_output(pending: _PendingTool | None) -> Any:

@@ -34,13 +34,24 @@ from qwenpaw_data.host.core.algo.followup.settings import (
 _RATIO_HINTS = ("人均", "日均", "月均", "均值", "平均", "率", "占比")
 _COUNT_HINTS = ("个数", "人数", "次数", "用户数", "客户数")
 _TIME_HINTS = ("日期", "月份", "年份", "周", "时间", "date", "month")
-_STOPWORDS = ("帮我", "查询", "查看", "看看", "一下", "我需要", "我想", "的", "了", "请")
+_STOPWORDS = (
+    "帮我",
+    "查询",
+    "查看",
+    "看看",
+    "一下",
+    "我需要",
+    "我想",
+    "的",
+    "了",
+    "请",
+)
 _PUNCT_RE = re.compile(r"[\s\W_]+", re.UNICODE)
 
 _W_BOUND = 0.40
 _W_SQL = 0.30
 _W_TARGETED = 0.15
-# search_context is scoped to the user's own query, so what it returns is mildly
+# A graph search is scoped to the user's own wording, so what it returns is mildly
 # relevant even without an anchor binding, unlike a domain-wide listing.
 _W_CTX_BOUND = 0.10
 _W_RECENCY = 0.10
@@ -154,9 +165,7 @@ def select_anchor(metrics: list[EntityEvidence], user_input: str) -> str:
     count_query = any(hint in user_input for hint in _COUNT_HINTS)
 
     def score(metric: EntityEvidence) -> tuple[float, int]:
-        lexical = max(
-            dice(name, user_input) for name in (metric.name, *metric.aliases)
-        )
+        lexical = max(dice(name, user_input) for name in (metric.name, *metric.aliases))
         type_prior = 0.0
         if ratio_query:
             type_prior += _ANCHOR_TYPE_BONUS if _is_ratio(metric.name) else 0.0
@@ -258,9 +267,9 @@ def rank_entities(
             for evidence in pool.values()
         ]
         scored.sort(key=lambda record: record.relevance, reverse=True)
-        return tuple(
-            record for record in scored if record.relevance >= min_relevance
-        )[:cap]
+        return tuple(record for record in scored if record.relevance >= min_relevance)[
+            :cap
+        ]
 
     ranked_dimensions = rank(dimensions, max_dimensions)
     # Granularity gate: once a run has looked at daily numbers, offering to
@@ -309,9 +318,7 @@ def attribute_entities(text: str, snapshot: SignalSnapshot) -> list[str]:
 
     for name in names:
         lowered = name.casefold()
-        if lowered in folded and not any(
-            lowered in seen.casefold() for seen in found
-        ):
+        if lowered in folded and not any(lowered in seen.casefold() for seen in found):
             found.append(name)
 
     for alias, canonical in snapshot.alias_map().items():

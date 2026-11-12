@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-cli"
-version = "0.3.4"
+version = "0.4.0"
 description = "Standalone command-line interface for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-  "qwenpaw-data-host-core>=0.3.4,<0.4",
+  "qwenpaw-data-host-core>=0.4,<0.5",
   "python-dotenv>=1.2.2,<2.0",
 ]
 
@@ -40,6 +40,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qwenpaw_data"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"../../LICENSE" = "qwenpaw_data/cli/LICENSE"
+"../../NOTICE" = "qwenpaw_data/cli/NOTICE"
 
 [tool.hatch.build.targets.sdist.force-include]
 "../../LICENSE" = "LICENSE"

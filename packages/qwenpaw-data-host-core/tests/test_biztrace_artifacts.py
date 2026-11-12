@@ -84,9 +84,7 @@ def test_only_query_scripts_and_final_products_reach_a_card() -> None:
     assert not is_displayable_artifact(
         kind="other", role="supporting", relative_path="scripts/x.py"
     )
-    assert not is_displayable_artifact(
-        kind="report", role="final", relative_path=None
-    )
+    assert not is_displayable_artifact(kind="report", role="final", relative_path=None)
 
 
 def test_a_proposal_resolves_only_when_one_file_fits() -> None:
@@ -98,12 +96,10 @@ def test_a_proposal_resolves_only_when_one_file_fits() -> None:
     assert resolve_artifact("summary.md", files) is None
 
 
-def _label(name: str, description: str, kind: str = "", role: str = "") -> (
-    ArtifactProposal
-):
-    return ArtifactProposal(
-        name=name, description=description, kind=kind, role=role
-    )
+def _label(
+    name: str, description: str, kind: str = "", role: str = ""
+) -> ArtifactProposal:
+    return ArtifactProposal(name=name, description=description, kind=kind, role=role)
 
 
 def test_verification_needs_both_the_write_and_the_listing() -> None:

@@ -14,6 +14,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from qwenpaw_data.host.core.algo.biztrace.artifact_links import ArtifactLinker
 from qwenpaw_data.host.core.algo.biztrace.converter import BizTraceConverter
 from qwenpaw_data.host.core.algo.biztrace.linking import build_linker
 from qwenpaw_data.host.core.algo.biztrace.llm import StructuredLLM
@@ -24,12 +25,15 @@ from qwenpaw_data.host.core.algo.biztrace.models import (
     Segment,
 )
 from qwenpaw_data.host.core.algo.biztrace.presentation import Linker, PresentationBuilder
+from qwenpaw_data.host.core.algo.biztrace.scoring import SegmentScoring
 from qwenpaw_data.host.core.algo.biztrace.segmentation import (
     ContinuityJudge,
     SegmentAssembler,
+    SegmentClassifier,
     SegmentExtractor,
 )
 from qwenpaw_data.host.core.algo.biztrace.settings import (
+    CLASSIFY_TIMEOUT_SECONDS,
     EXTRACT_TIMEOUT_SECONDS,
     FLUSH_BUDGET_SECONDS,
     JUDGE_TIMEOUT_SECONDS,
@@ -42,9 +46,11 @@ from qwenpaw_data.host.core.algo.biztrace.workspace_index import (
     ArtifactVerifier,
     WorkspaceLister,
 )
+from qwenpaw_data.host.core.tracing.adapters import tracer_end
 
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
+    from qwenpaw_data.host.core.algo.evaluation.grader import SegmentGrader
 
 logger = logging.getLogger(__name__)
 
@@ -115,18 +121,27 @@ class BizTracePipeline:
         presenter: PresentationBuilder,
         settings: BizTraceSettings,
         judge_llm: StructuredLLM | None = None,
+        classify_llm: StructuredLLM | None = None,
         extract_llm: StructuredLLM | None = None,
+        confidence_grader: SegmentGrader | None = None,
         lister: WorkspaceLister | None = None,
         linker: Linker | None = None,
+        artifact_linker: ArtifactLinker | None = None,
         biz_event_callback: BizEventCallback | None = None,
         segment_callback: SegmentCallback | None = None,
+        tracer: Any,
     ) -> None:
         self.session_id = session_id
         self.store = store
         self.settings = settings
         self.biz_event_callback = biz_event_callback
         self.segment_callback = segment_callback
+        self._tracer = tracer
+        self._artifact_linker = artifact_linker
         self._artifacts = ArtifactFileIndex()
+        verifier = ArtifactVerifier(lister)
+        self.scoring = SegmentScoring(confidence_grader)
+        self._verifier = verifier
 
         self.converter = BizTraceConverter(
             presenter=presenter,
@@ -137,8 +152,8 @@ class BizTracePipeline:
         self.assembler = (
             self._build_assembler(
                 judge_llm=judge_llm,
+                classify_llm=classify_llm,
                 extract_llm=extract_llm,
-                lister=lister,
                 linker=linker,
             )
             if settings.trace2segment_enabled
@@ -155,8 +170,8 @@ class BizTracePipeline:
         self,
         *,
         judge_llm: StructuredLLM | None,
+        classify_llm: StructuredLLM | None,
         extract_llm: StructuredLLM | None,
-        lister: WorkspaceLister | None,
         linker: Linker | None,
     ) -> SegmentAssembler:
         return SegmentAssembler(
@@ -164,13 +179,17 @@ class BizTracePipeline:
             judge=ContinuityJudge(
                 llm=judge_llm, lang=self.settings.segment_prompt_lang
             ),
+            classifier=SegmentClassifier(
+                llm=classify_llm, lang=self.settings.segment_prompt_lang
+            ),
             extractor=SegmentExtractor(
                 llm=extract_llm,
                 lang=self.settings.segment_prompt_lang,
-                verifier=ArtifactVerifier(lister),
+                verifier=self._verifier,
                 linker=linker,
             ),
             on_row=self._write_segment,
+            scoring=self.scoring,
             on_segment=self._publish_segment,
             on_judge_log=self.store.append_judge,
             max_span=self.settings.segment_max_span,
@@ -181,10 +200,11 @@ class BizTracePipeline:
     # -- lifecycle --------------------------------------------------------- #
 
     def start(self) -> None:
-        """Spin up the converter workers and the segmentation worker."""
-        self.converter.start()
-        if self.assembler is not None and self._segment_worker is None:
-            self._segment_worker = asyncio.create_task(self._segment_loop())
+        """Spin up converter/segment workers on the biztrace root, then restore caller context."""
+        with self._tracer:
+            self.converter.start()
+            if self.assembler is not None and self._segment_worker is None:
+                self._segment_worker = asyncio.create_task(self._segment_loop())
 
     def agent_files(self, start_seq: int, end_seq: int) -> dict[str, str]:
         """Files whose producing tool_result seq falls in ``[start_seq, end_seq]``."""
@@ -197,6 +217,8 @@ class BizTracePipeline:
             files = (entry.get("payload") or {}).get("files") or {}
             if isinstance(files, dict):
                 self._artifacts.note_delta(files)
+            if self._artifact_linker is not None:
+                self._artifact_linker.invalidate()
             return
         if kind == "agent_event":
             payload = entry.get("payload")
@@ -216,11 +238,17 @@ class BizTracePipeline:
         if self._closed:
             return
         self._closed = True
+        # Last cards and the session-end segment run here. Attach the biztrace
+        # root so those calls are children, then restore the reply span.
         try:
-            await self.converter.aclose()
-        except Exception:
-            logger.exception("BizTrace conversion failed to flush")
-        await self._close_segments()
+            with self._tracer:
+                try:
+                    await self.converter.aclose()
+                except Exception:
+                    logger.exception("BizTrace conversion failed to flush")
+                await self._close_segments()
+        finally:
+            tracer_end(self._tracer)
 
     async def _close_segments(self) -> None:
         if self.assembler is None:
@@ -309,6 +337,8 @@ def build_pipeline(
     settings: BizTraceSettings | None = None,
     lister: WorkspaceLister | None = None,
     chat_model: ChatModelBase | None = None,
+    confidence_grader: SegmentGrader | None = None,
+    tracer: Any,
 ) -> BizTracePipeline | None:
     """Assemble a started pipeline, or None when BizTrace is switched off.
 
@@ -331,10 +361,12 @@ def build_pipeline(
         datasource_id=datasource_id,
         access_token=access_token,
     )
+    artifact_linker = ArtifactLinker(session_id=session_id, lister=lister)
     presenter = PresentationBuilder(
         llm=_client(chat_model, timeout=PRESENTATION_TIMEOUT_SECONDS),
         lang=config.segment_prompt_lang,
         linker=linker,
+        artifact_linker=artifact_linker.link,
     )
     pipeline = BizTracePipeline(
         session_id=session_id,
@@ -344,11 +376,15 @@ def build_pipeline(
         presenter=presenter,
         settings=config,
         judge_llm=_client(chat_model, timeout=JUDGE_TIMEOUT_SECONDS),
+        classify_llm=_client(chat_model, timeout=CLASSIFY_TIMEOUT_SECONDS),
         extract_llm=_client(chat_model, timeout=EXTRACT_TIMEOUT_SECONDS),
+        confidence_grader=confidence_grader,
         lister=lister,
         linker=linker,
+        artifact_linker=artifact_linker,
         biz_event_callback=biz_event_callback,
         segment_callback=segment_callback,
+        tracer=tracer,
     )
     pipeline.start()
     return pipeline

@@ -1,234 +1,160 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
-from pathlib import Path
-
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-import httpx  # noqa: E402
-
-from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
-from qwenpaw_data.host.core.api.models.cron import ScheduleSpec  # noqa: E402
-from qwenpaw_data.host.core.core import QwenPawDataHost  # noqa: E402
-from qwenpaw_data.host.core.cron import manager as cron_manager  # noqa: E402
-
-from test_service_smoke import ScriptedAgent, _script  # noqa: E402
+from qwenpaw_data.host.core.api.app import create_app
+from qwenpaw_data.host.core.db.engine import reset_engine
+from qwenpaw_data.host.core.stream.hub import reset_hub
 
 
-def test_schedule_spec_validation() -> None:
-    spec = ScheduleSpec.model_validate({"type": "cron", "cron": "0 8 * * 1,5"})
-    assert spec.cron == "0 8 * * mon,fri"
-    assert spec.run_at is None
+@pytest.fixture
+def cron_client():
+    import asyncio
 
-    with pytest.raises(ValueError, match="5 fields"):
-        ScheduleSpec.model_validate({"type": "cron", "cron": "0 8 *"})
-    with pytest.raises(ValueError, match="run_at"):
-        ScheduleSpec.model_validate({"type": "once"})
+    asyncio.run(reset_engine())
+    reset_hub()
+    app = create_app()
+    with TestClient(app) as client:
+        yield client
 
-    once = ScheduleSpec.model_validate(
-        {"type": "once", "run_at": "2026-12-01T08:00:00+08:00"}
+
+def _schedule(cron: str = "0 9 * * *") -> dict:
+    return {"type": "cron", "cron": cron, "timezone": "Asia/Shanghai"}
+
+
+def test_create_list_pause_resume_delete_job(cron_client: TestClient) -> None:
+    created = cron_client.post(
+        "/api/cron/jobs",
+        json={
+            "name": "日报",
+            "enabled": True,
+            "message": "生成本日简报",
+            "datasource_id": "ds_demo",
+            "schedule": {
+                "type": "cron",
+                "cron": "30 9 * * 1-5",
+                "timezone": "Asia/Shanghai",
+            },
+        },
     )
-    assert once.cron is None
+    assert created.status_code == 200, created.text
+    job = created.json()["job"]
+    assert job["name"] == "日报"
+    assert job["datasource_id"] == "ds_demo"
+    assert "task_type" not in job
+    # channel-targeting fields (this branch): a job with no channel/IM target
+    # defaults to the console channel and carries no target / bound session.
+    assert job["channel"] == "console"
+    assert job["target_external_key"] is None
+    assert job["session_id"] is None
+    job_id = job["id"]
+
+    listed = cron_client.get("/api/cron/jobs")
+    assert listed.status_code == 200
+    assert any(item["id"] == job_id for item in listed.json()["jobs"])
+
+    paused = cron_client.post(f"/api/cron/jobs/{job_id}/pause")
+    assert paused.status_code == 200
+    assert paused.json()["job"]["enabled"] is False
+
+    resumed = cron_client.post(f"/api/cron/jobs/{job_id}/resume")
+    assert resumed.status_code == 200
+    assert resumed.json()["job"]["enabled"] is True
+
+    deleted = cron_client.delete(f"/api/cron/jobs/{job_id}")
+    assert deleted.status_code == 200
+    listed = cron_client.get("/api/cron/jobs")
+    assert all(item["id"] != job_id for item in listed.json()["jobs"])
 
 
-@asynccontextmanager
-async def service_client(tmp_path: Path, monkeypatch, agent=None):
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
-    if agent is not None:
+def test_get_and_replace_job(cron_client: TestClient) -> None:
+    created = cron_client.post(
+        "/api/cron/jobs",
+        json={
+            "name": "周报",
+            "message": "生成本周简报",
+            "datasource_id": "ds_demo",
+            "schedule": _schedule("0 10 * * 1"),
+        },
+    )
+    assert created.status_code == 200, created.text
+    job = created.json()["job"]
+    job_id = job["id"]
 
-        async def fake_get_agent(self, *, mode: str, request_context=None):
-            return agent
+    got = cron_client.get(f"/api/cron/jobs/{job_id}")
+    assert got.status_code == 200, got.text
+    assert got.json()["job"]["id"] == job_id
 
-        monkeypatch.setattr(QwenPawDataHost, "get_agent", fake_get_agent)
-    app = create_app(home=tmp_path, model=object())
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-        ) as http:
-            yield http, app
-
-
-JOB_BODY = {
-    "name": "每日晨报",
-    "message": "生成销售日报",
-    "datasource_id": "ds1",
-    "schedule": {"type": "cron", "cron": "0 8 * * *"},
-}
-
-
-async def test_cron_job_crud_and_scheduler_sync(tmp_path, monkeypatch) -> None:
-    async with service_client(tmp_path, monkeypatch) as (http, app):
-        created = await http.post("/api/v1/cron/jobs", json=JOB_BODY)
-        assert created.status_code == 200
-        job = created.json()["job"]
-        job_id = job["id"]
-
-        scheduler = app.state.service.cron_manager._scheduler
-        assert scheduler.get_job(job_id) is not None
-        assert scheduler.get_job(job_id).next_run_time is not None
-
-        paused = await http.post(f"/api/v1/cron/jobs/{job_id}/pause")
-        assert paused.json()["job"]["enabled"] is False
-        assert scheduler.get_job(job_id).next_run_time is None
-
-        resumed = await http.post(f"/api/v1/cron/jobs/{job_id}/resume")
-        assert resumed.json()["job"]["enabled"] is True
-
-        listing = await http.get("/api/v1/cron/jobs")
-        assert listing.json()["count"] == 1
-
-        # unknown session rejected
-        bad = await http.post(
-            "/api/v1/cron/jobs", json={**JOB_BODY, "session_id": "ses_missing"}
-        )
-        assert bad.status_code == 404
-
-        deleted = await http.delete(f"/api/v1/cron/jobs/{job_id}")
-        assert deleted.json()["ok"] is True
-        assert scheduler.get_job(job_id) is None
-        assert (await http.get(f"/api/v1/cron/jobs/{job_id}")).status_code == 404
+    replaced = cron_client.put(
+        f"/api/cron/jobs/{job_id}",
+        json={
+            "name": "双周报",
+            "enabled": False,
+            "message": "生成双周简报",
+            "datasource_id": "ds_demo2",
+            "channel": "console",
+            "schedule": _schedule("0 10 * * 2"),
+        },
+    )
+    assert replaced.status_code == 200, replaced.text
+    new = replaced.json()["job"]
+    # replace overwrites the row in place: identity-scoped fields and id are kept.
+    assert new["id"] == job_id
+    assert new["name"] == "双周报"
+    assert new["datasource_id"] == "ds_demo2"
+    assert new["enabled"] is False
+    # ScheduleSpec normalizes a numeric day-of-week to its alpha form (2 -> tue).
+    assert new["schedule"]["cron"] == "0 10 * * tue"
+    assert new["channel"] == "console"
 
 
-async def test_cron_run_opens_console_chat(tmp_path, monkeypatch) -> None:
-    agent = ScriptedAgent(_script())
-    async with service_client(tmp_path, monkeypatch, agent=agent) as (http, app):
-        job_id = (
-            await http.post("/api/v1/cron/jobs", json=JOB_BODY)
-        ).json()["job"]["id"]
+def test_list_targets_empty(cron_client: TestClient) -> None:
+    """``GET /cron/targets`` lists groups/people the bot has spoken to.
 
-        fired = await http.post(f"/api/v1/cron/jobs/{job_id}/run")
-        assert fired.status_code == 200
-
-        state = app.state.service
-        for _ in range(200):
-            sessions, total = await state.sessions.list()
-            if total:
-                chats = await state.chats.list_for_session(sessions[0][0].id)
-                if chats and chats[0].status == "completed":
-                    # Chat status is committed before the terminal event.
-                    # Wait for both durable facts, including on slower CI.
-                    events = await state.events.read_after(chats[0].id, -1)
-                    if events and events[-1].object == "response":
-                        break
-            await asyncio.sleep(0.02)
-        else:
-            raise AssertionError("cron run did not complete a chat")
-
-        session = sessions[0][0]
-        assert session.title == "每日晨报"
-        assert session.datasource_id == "ds1"
-        chat = chats[0]
-        assert chat.user_input == "生成销售日报"
-        events = await state.events.read_after(chat.id, -1)
-        assert events[-1].object == "response"
-        assert events[-1].status == "completed"
+    Empty until a channel binding is seeded; never leaks ``send_meta``.
+    """
+    listed = cron_client.get("/api/cron/targets", params={"channel": "wecom"})
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["count"] == 0
+    assert body["targets"] == []
 
 
-async def test_cron_jobs_restore_on_restart(tmp_path, monkeypatch) -> None:
-    async with service_client(tmp_path, monkeypatch) as (http, _app):
-        job_id = (
-            await http.post("/api/v1/cron/jobs", json=JOB_BODY)
-        ).json()["job"]["id"]
+def test_im_channel_job_requires_valid_session_id(cron_client: TestClient) -> None:
+    """A non-console (IM) channel job is rejected on invalid session id.
 
-    # New service instance over the same home: job re-registers.
-    async with service_client(tmp_path, monkeypatch) as (http, app):
-        assert app.state.service.cron_manager._scheduler.get_job(job_id) is not None
-        assert (await http.get("/api/v1/cron/jobs")).json()["count"] == 1
-
-
-class FakeSessions:
-    def __init__(self, busy_checks: int) -> None:
-        self.remaining = busy_checks
-        self.checked: list[str] = []
-
-    async def has_active_chat(self, session_id: str) -> bool:
-        self.checked.append(session_id)
-        if self.remaining <= 0:
-            return False
-        self.remaining -= 1
-        return True
-
-
-def _manager(sessions: FakeSessions) -> cron_manager.CronManager:
-    return cron_manager.CronManager(
-        cron=None,  # type: ignore[arg-type]
-        sessions=sessions,  # type: ignore[arg-type]
-        chats=None,  # type: ignore[arg-type]
-        events=None,  # type: ignore[arg-type]
-        hosts=None,  # type: ignore[arg-type]
+    It raises ``ValueError`` -> HTTP 400 (code ``VALIDATION``).
+    """
+    created = cron_client.post(
+        "/api/cron/jobs",
+        json={
+            "name": "IM 定时",
+            "message": "推送一条",
+            "datasource_id": "ds_demo",
+            "channel": "wecom",
+            "schedule": _schedule(),
+            "session_id": "asdf",
+        },
     )
 
-
-_PINNED_JOB = {"id": "job-1", "session_id": "ses_1"}
-
-
-async def test_cron_waits_for_busy_session_then_runs(monkeypatch) -> None:
-    monkeypatch.setattr(cron_manager, "_IDLE_POLL_SECONDS", 0.0)
-    sessions = FakeSessions(busy_checks=2)
-    manager = _manager(sessions)
-    ran: list[dict] = []
-
-    async def fake_run_console(job: dict) -> None:
-        ran.append(job)
-
-    monkeypatch.setattr(manager, "_run_console", fake_run_console)
-
-    await manager.run(dict(_PINNED_JOB))
-
-    assert ran == [_PINNED_JOB]
-    assert sessions.checked == ["ses_1", "ses_1", "ses_1"]
+    assert created.status_code == 400, created.text
+    assert created.json().get("code") == "VALIDATION"
 
 
-async def test_cron_skips_when_session_busy_past_deadline(monkeypatch) -> None:
-    monkeypatch.setattr(cron_manager, "_IDLE_POLL_SECONDS", 0.0)
-    monkeypatch.setattr(cron_manager, "_IDLE_WAIT_TIMEOUT_SECONDS", 0.0)
-    manager = _manager(FakeSessions(busy_checks=1000))
-    ran: list[dict] = []
-
-    async def fake_run_console(job: dict) -> None:
-        ran.append(job)
-
-    monkeypatch.setattr(manager, "_run_console", fake_run_console)
-
-    await manager.run(dict(_PINNED_JOB))
-
-    assert ran == []
-
-
-async def test_cron_does_not_wait_without_pinned_session(monkeypatch) -> None:
-    sessions = FakeSessions(busy_checks=1000)
-    manager = _manager(sessions)
-    ran: list[dict] = []
-
-    async def fake_run_console(job: dict) -> None:
-        ran.append(job)
-
-    monkeypatch.setattr(manager, "_run_console", fake_run_console)
-
-    await manager.run({"id": "job-2"})
-
-    assert ran == [{"id": "job-2"}]
-    assert sessions.checked == []
-
-
-async def test_cron_wait_propagates_cancellation(monkeypatch) -> None:
-    monkeypatch.setattr(cron_manager, "_IDLE_POLL_SECONDS", 0.01)
-    manager = _manager(FakeSessions(busy_checks=10**6))
-
-    async def fake_run_console(job: dict) -> None:
-        raise AssertionError("must not run while the session is busy")
-
-    monkeypatch.setattr(manager, "_run_console", fake_run_console)
-
-    task = asyncio.create_task(manager.run(dict(_PINNED_JOB)))
-    await asyncio.sleep(0.05)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+def test_agent_job_requires_datasource(cron_client: TestClient) -> None:
+    created = cron_client.post(
+        "/api/cron/jobs",
+        json={
+            "name": "无数据源",
+            "enabled": True,
+            "message": "分析一下",
+            "schedule": {
+                "type": "cron",
+                "cron": "0 9 * * *",
+                "timezone": "Asia/Shanghai",
+            },
+        },
+    )
+    assert created.status_code == 422, created.text

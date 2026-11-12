@@ -3,10 +3,7 @@ from __future__ import annotations
 
 import json
 
-from qwenpaw_data.host.core.api.models.stream_objects import (
-    StreamObject,
-    dump_stream_object,
-)
+from qwenpaw_data.host.core.api.models.stream_objects import StreamObject, dump_stream_object
 
 
 def format_sse(obj: StreamObject) -> str:

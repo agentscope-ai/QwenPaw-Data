@@ -8,16 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from qwenpaw_data.host.core.algo.biztrace.models import BizTrace
 from qwenpaw_data.host.core.algo.biztrace.pipeline import BizTracePipeline
 from qwenpaw_data.host.core.algo.biztrace.presentation import PresentationBuilder
 from qwenpaw_data.host.core.algo.biztrace.settings import BizTraceSettings
 from qwenpaw_data.host.core.algo.biztrace.store import BizTraceStore, build_store_paths
+from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
+from qwenpaw_data.tracing.runtime.host.chat import ChatTracer
 
-TRACE_EVENTS = (
-    Path(__file__).resolve().parents[3] / "assets" / "trace_events.jsonl"
-)
+TRACE_EVENTS = Path(__file__).resolve().parents[3] / "assets" / "trace_events.jsonl"
 
 
 def _entries() -> list[dict[str, Any]]:
@@ -43,6 +42,11 @@ def _pipeline(tmp_path: Path, *, published: list[dict[str, Any]]) -> BizTracePip
         presenter=PresentationBuilder(),
         settings=settings,
         biz_event_callback=biz_event_callback,
+        tracer=ChatTracer(
+            session=BaseSessionTracer(user_id="u1", session_id="ses-1"),
+            chat_id="chat-" + "ab" * 16,
+            step="biztrace",
+        ),
     )
 
 

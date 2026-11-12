@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from qwenpaw_data.host.core.algo.followup.graph_signals import parse_graph_query
 from qwenpaw_data.host.core.algo.followup.models import Provenance, SignalSnapshot
 from qwenpaw_data.host.core.algo.followup.relevance import (
     EntityEvidence,
@@ -49,26 +50,10 @@ _FILE_WRITING_TOOLS = frozenset({"write_file"})
 _PLAN_TOOLS = frozenset({"PlanCreate", "PlanUpdate"})
 _TASK_STATE_TOOL = "TaskStateUpdate"
 _SKILL_TOOL = "Skill"
-_DIMENSION_DETAIL_TOOLS = frozenset(
-    {"get_dimension", "get_dimension_values", "get_dimension_hierarchy"}
-)
-_METRIC_LISTING_TOOLS = frozenset(
-    {"list_metrics", "get_priority_metrics", "get_north_star_metrics"}
-)
-_METRIC_RESULT_TOOLS = frozenset(
-    {
-        "get_metric",
-        "list_metrics",
-        "get_priority_metrics",
-        "get_north_star_metrics",
-        "list_dimensions_of_metric",
-        "list_metrics_of_dimension",
-    }
-)
-_DIMENSION_RESULT_TOOLS = frozenset(
-    {"list_dimensions", "get_dimension", "get_dimension_hierarchy"}
-)
-_DATASET_RESULT_TOOLS = frozenset({"get_dataset", "list_datasets"})
+# Only the read tool carries analysis intent; create / modify are not analysis.
+_SQL_READ_TOOL = "execute_read"
+# The model-authored Cypher lookup that replaced every per-entity CM tool.
+_GRAPH_QUERY_TOOL = "query_graph"
 
 _TOOL_ERROR_PREFIX = "Error executing tool"
 
@@ -87,15 +72,6 @@ _SQL_GROUPBY_RE = re.compile(
 _SQL_WHERE_RE = re.compile(
     r"WHERE(.*?)(?:GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING|\)|$)", re.IGNORECASE | re.S
 )
-_CTX_METRIC_RE = re.compile(r"met:[^:\s]+:[^:\s]+:([^\s\\,;]+)")
-# One metric's whole block, so its drillable dimensions stay bound to it rather
-# than pooling into one undifferentiated set.
-_CTX_BLOCK_RE = re.compile(
-    r"指标:\s*met:[^:\s]+:[^:\s]+:([^\s\\]+)((?:(?!指标:).)*)", re.S
-)
-_CTX_DIMENSIONS_RE = re.compile(r"可下钻维度:\s*([^\n\\]+)")
-_NAME_SPLIT_RE = re.compile(r"[、,，;；/]\s*")
-
 _ARTIFACT_KINDS: dict[str, str] = {
     ".html": "看板/报告页面",
     ".md": "文档",
@@ -112,6 +88,8 @@ class _PendingTool:
     tool_name: str
     parts: list[str] = field(default_factory=list)
     output_parts: list[str] = field(default_factory=list)
+    # A result is only readable against the statement that produced it.
+    cypher: str = ""
 
 
 class SignalCollector:
@@ -159,9 +137,6 @@ class SignalCollector:
         self._artifact_counts: dict[str, int] = {}
         self._artifact_paths: set[str] = set()
         self._position = 0
-        self._intent_coverage = ""
-        self._intent_gaps: tuple[str, ...] = ()
-        self._intent_next_step = ""
         self._has_golden_query = False
 
     # -- lifecycle --------------------------------------------------------- #
@@ -280,26 +255,10 @@ class SignalCollector:
             self._record_skill_path(_first_str(arguments, _PATH_KEYS))
         elif name in _FILE_WRITING_TOOLS:
             self._record_artifact(_first_str(arguments, _PATH_KEYS))
-        elif name == "execute_sql":
+        elif name == _SQL_READ_TOOL:
             await asyncio.to_thread(self._parse_sql, str(arguments.get("sql") or ""))
-        elif name == "get_metric":
-            self._touch(
-                self._metrics,
-                str(arguments.get("name") or ""),
-                "targeted",
-                analyzed=True,
-            )
-        elif name in _DIMENSION_DETAIL_TOOLS:
-            self._touch(
-                self._dimensions,
-                str(arguments.get("name") or ""),
-                "targeted",
-                analyzed=True,
-            )
-        elif name == "get_dataset":
-            self._touch(
-                self._datasets, str(arguments.get("name") or "").lower(), "targeted"
-            )
+        elif name == _GRAPH_QUERY_TOOL:
+            pending.cypher = str(arguments.get("cypher") or "")
         elif name in _PLAN_TOOLS:
             self._register_plan_nodes(arguments)
         elif name == _TASK_STATE_TOOL:
@@ -325,18 +284,8 @@ class SignalCollector:
         if not text or text.startswith(_TOOL_ERROR_PREFIX):
             return
         name = pending.tool_name
-        # A domain-wide listing names entities nobody asked for, so it is graded
-        # apart from a lookup that was aimed at one entity by name.
-        if name == "search_context":
-            await asyncio.to_thread(self._parse_search_context, text)
-        elif name in _METRIC_RESULT_TOOLS:
-            listing = "domain_dump" if name in _METRIC_LISTING_TOOLS else "metric_bound"
-            await asyncio.to_thread(self._parse_metric_result, text, listing)
-        elif name in _DIMENSION_RESULT_TOOLS:
-            listing = "domain_dump" if name == "list_dimensions" else "targeted"
-            await asyncio.to_thread(self._parse_dimension_result, text, listing)
-        elif name in _DATASET_RESULT_TOOLS:
-            await asyncio.to_thread(self._parse_dataset_result, text)
+        if name == _GRAPH_QUERY_TOOL and pending.cypher:
+            await asyncio.to_thread(self._parse_graph_query, pending.cypher, text)
 
     # -- plan, skills and artifacts ---------------------------------------- #
 
@@ -425,6 +374,8 @@ class SignalCollector:
                 value = _surface_name(value)
                 if not value:
                     continue
+            elif key == "columns" and isinstance(value, set):
+                value = value | set(evidence.columns)
             setattr(evidence, key, value)
 
     def _parse_sql(self, sql: str) -> None:
@@ -447,132 +398,39 @@ class SignalCollector:
             for clause in clause_re.findall(sql):
                 sink.update(token.lower() for token in _SQL_IDENT_RE.findall(clause))
 
-    def _parse_search_context(self, text: str) -> None:
-        """Semantic lookups name far more entities than the run ends up using."""
+    def _parse_graph_query(self, cypher: str, text: str) -> None:
+        """A domain-wide listing names entities nobody asked for, so it is graded
+        apart from a lookup that was aimed at one entity by name."""
         data = _parse_json(text)
-        # The hints are where a lookup names what it matched. Reading them
-        # decoded keeps the envelope's own punctuation out of the names.
-        body = text
-        if isinstance(data, dict):
-            self._record_intent_feedback(data)
-            hints = [str(data.get(key) or "") for key in ("schema_prompt", "path_hint")]
-            body = "\n".join(hint for hint in hints if hint) or text
-        for metric, block in _CTX_BLOCK_RE.findall(body):
-            metric = _surface_name(metric)
-            self._touch(self._metrics, metric, "metric_bound")
-            bound = self._metric_dimensions.setdefault(metric, set())
-            for group in _CTX_DIMENSIONS_RE.findall(block):
-                for raw in _NAME_SPLIT_RE.split(group.strip()):
-                    name = _surface_name(raw)
-                    if not name:
-                        continue
-                    bound.add(name)
-                    self._touch(
-                        self._dimensions,
-                        name,
-                        "metric_bound",
-                        is_time=is_time_dimension(name),
-                    )
-        for metric in _CTX_METRIC_RE.findall(body):
-            self._touch(self._metrics, _surface_name(metric), "metric_bound")
-
-    def _record_intent_feedback(self, data: dict[str, Any]) -> None:
-        feedback = data.get("intent_feedback")
-        if isinstance(feedback, dict):
-            coverage = str(feedback.get("coverage") or "").strip()
-            if coverage:
-                self._intent_coverage = coverage
-            gaps = feedback.get("gaps")
-            if isinstance(gaps, list):
-                self._intent_gaps = tuple(
-                    str(gap).strip() for gap in gaps if str(gap).strip()
-                )
-            next_steps = feedback.get("next_steps")
-            if isinstance(next_steps, list) and next_steps:
-                self._intent_next_step = str(next_steps[0] or "").strip()
-        golden = data.get("golden_query")
-        if isinstance(golden, dict) and golden.get("verified_sql"):
+        rows = data.get("rows") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            return
+        findings = parse_graph_query(cypher, rows)
+        if findings.has_golden_query:
             self._has_golden_query = True
-
-    def _parse_metric_result(self, text: str, listing: Provenance) -> None:
-        data = _parse_json(text)
-        if isinstance(data, list):
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                name = item.get("metric_name") or item.get("name")
-                if isinstance(name, str):
-                    self._touch(
-                        self._metrics,
-                        name,
-                        listing,
-                        aliases=_str_tuple(item.get("aliases")),
-                    )
-            return
-        if not isinstance(data, dict):
-            return
-        matched = data.get("matched_name")
-        if isinstance(matched, str):
-            self._touch(self._metrics, matched, listing)
-        for candidate in data.get("ambiguity_candidates") or []:
-            if not isinstance(candidate, dict):
-                continue
-            store = (
-                self._metrics
-                if candidate.get("entity_type") == "Metric"
-                else self._dimensions
-            )
-            self._touch(store, str(candidate.get("name") or ""), listing)
-        name = data.get("name") or data.get("metric_name")
-        if not data.get("ambiguous") and isinstance(name, str):
+        stores = {
+            "metric": self._metrics,
+            "dimension": self._dimensions,
+            "dataset": self._datasets,
+        }
+        for entity in findings.entities:
+            attributes: dict[str, Any] = {}
+            if entity.aliases:
+                attributes["aliases"] = entity.aliases
+            if entity.kind == "dimension":
+                attributes["columns"] = entity.columns
+                attributes["is_time"] = is_time_dimension(entity.name)
             self._touch(
-                self._metrics,
-                name,
-                "targeted",
-                analyzed=True,
-                aliases=_str_tuple(data.get("aliases")),
+                stores[entity.kind],
+                entity.name,
+                entity.provenance,
+                analyzed=entity.analyzed,
+                **attributes,
             )
-
-    def _parse_dimension_result(self, text: str, listing: Provenance) -> None:
-        for item in _as_items(_parse_json(text)):
-            name = _surface_name(
-                str(item.get("dimension_name") or item.get("name") or "")
+        for metric, dimensions in findings.metric_dimensions.items():
+            self._metric_dimensions.setdefault(_surface_name(metric), set()).update(
+                _surface_name(dimension) for dimension in dimensions
             )
-            if not name:
-                continue
-            aliases = _str_tuple(item.get("aliases"))
-            # Both the aliases and the expression's identifiers are candidate
-            # physical columns, which is how SQL traffic is matched back here.
-            columns = {alias.lower() for alias in aliases}
-            expression = str(item.get("calculate_expr") or "")
-            columns.update(
-                token.lower() for token in _SQL_IDENT_RE.findall(expression)
-            )
-            columns.discard("select")
-            parent = _surface_name(str(item.get("parent_dimension") or ""))
-            self._touch(
-                self._dimensions,
-                name,
-                listing,
-                analyzed=listing == "targeted",
-                aliases=aliases,
-                columns=columns,
-                parent=parent,
-                is_time=is_time_dimension(name, str(item.get("dimension_type") or "")),
-            )
-            if parent:
-                self._touch(
-                    self._dimensions,
-                    parent,
-                    listing,
-                    is_time=is_time_dimension(parent),
-                )
-
-    def _parse_dataset_result(self, text: str) -> None:
-        for item in _as_items(_parse_json(text)):
-            name = item.get("dataset_name") or item.get("name")
-            if isinstance(name, str) and name:
-                self._touch(self._datasets, name.lower(), "targeted")
 
     # -- freezing ---------------------------------------------------------- #
 
@@ -625,9 +483,6 @@ class SignalCollector:
             entity_aliases=ranked.aliases,
             artifacts_summary=self._artifacts_summary(),
             previous_followups=self._previous_followups,
-            intent_coverage=self._intent_coverage,
-            intent_gaps=self._intent_gaps,
-            intent_next_step=self._intent_next_step,
             has_golden_query=self._has_golden_query,
         )
 
@@ -654,7 +509,7 @@ def _block_key(payload: dict[str, Any]) -> tuple[str, str]:
 
 def _clean_name(name: str) -> str:
     """Strip the punctuation a name picks up when it is read out of raw text."""
-    return name.strip().strip('\\"\'`,;。，、[](){}')
+    return name.strip().strip("\\\"'`,;。，、[](){}")
 
 
 def _surface_name(name: str) -> str:
@@ -668,12 +523,6 @@ def _surface_name(name: str) -> str:
         return ""
     match = _GRAPH_KEY_RE.fullmatch(cleaned)
     return match.group(1) if match is not None else cleaned
-
-
-def _str_tuple(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        return ()
-    return tuple(item for item in value if isinstance(item, str) and item)
 
 
 def _first_str(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
@@ -692,15 +541,6 @@ def _parse_json(text: str) -> Any:
         return json.loads(stripped)
     except json.JSONDecodeError:
         return None
-
-
-def _as_items(data: Any) -> list[dict[str, Any]]:
-    """Read a result that may be one object or a list of them."""
-    if isinstance(data, dict):
-        return [data]
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    return []
 
 
 __all__ = ["SignalCollector"]

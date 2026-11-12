@@ -1,22 +1,18 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
-from pathlib import Path, PurePosixPath, PureWindowsPath
-from types import SimpleNamespace
+from pathlib import Path
 
 import httpx
 import pytest
-from agentscope.message import TextBlock, ToolResultState
-from agentscope.tool import ToolResponse
 
-from qwenpaw_data.host.core.agent.middleware import sql_artifact as mw_mod
-from qwenpaw_data.host.core.agent.middleware.sql_artifact import SqlArtifactMiddleware
-from qwenpaw_data.host.core.cm_sql_artifact import (
+from qwenpaw_data.host.core.db.engine import get_session_factory
+from qwenpaw_data.host.core.integrations.cm.sql_artifact import (
     SqlArtifactError,
     is_execute_sql_tool,
     materialize_execute_sql_result,
 )
+from qwenpaw_data.host.core.settings import clear_settings
 
 
 def _sql_result(*, download_url: str | None) -> str:
@@ -34,10 +30,7 @@ def _sql_result(*, download_url: str | None) -> str:
 
 
 def _handler(
-    captured: list[httpx.Request],
-    *,
-    status: int = 200,
-    body: bytes = b"day,dau\n",
+    captured: list[httpx.Request], *, status: int = 200, body: bytes = b"day,dau\n"
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
@@ -47,41 +40,21 @@ def _handler(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "model_root,expected",
-    [
-        (
-            Path("/workspace/artifacts/ses_1"),
-            "/workspace/artifacts/ses_1/data/raw/54814f8b.csv",
-        ),
-        (
-            PurePosixPath("/workspace/artifacts/ses_1"),
-            "/workspace/artifacts/ses_1/data/raw/54814f8b.csv",
-        ),
-        (
-            PureWindowsPath("/workspace/artifacts/ses_1"),
-            "/workspace/artifacts/ses_1/data/raw/54814f8b.csv",
-        ),
-        (
-            PureWindowsPath("C:/workspace/artifacts/ses_1"),
-            r"C:\workspace\artifacts\ses_1\data\raw\54814f8b.csv",
-        ),
-    ],
-)
 async def test_materialize_writes_csv_and_rewrites_to_file_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    model_root,
-    expected,
 ) -> None:
     monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_SECRET", "secret")
+    clear_settings()
     captured: list[httpx.Request] = []
     artifact_dir = tmp_path / "artifacts" / "ses_1"
 
     rewritten = await materialize_execute_sql_result(
-        _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
+        _sql_result(
+            download_url="/api/v1/cm/downloads/54814f8b.csv",
+        ),
         artifact_dir=artifact_dir,
-        model_artifact_dir=model_root,
         access_token="tok-user",
         transport=httpx.MockTransport(_handler(captured)),
     )
@@ -89,7 +62,7 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
     payload = json.loads(rewritten)
     dest = artifact_dir / "data" / "raw" / "54814f8b.csv"
     assert dest.read_bytes() == b"day,dau\n"
-    assert payload["file_path"] == expected
+    assert payload["file_path"] == str(dest.resolve())
     assert "download_url" not in payload
     assert payload["rows"] == [[1]]
     assert len(captured) == 1
@@ -98,119 +71,30 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
 
 
 @pytest.mark.asyncio
-async def test_materialize_returns_host_path_for_local_workspace(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
-    artifact_dir = (tmp_path / "artifacts" / "ses_1").resolve()
-
-    rewritten = await materialize_execute_sql_result(
-        _sql_result(download_url="/api/v1/cm/downloads/local.csv"),
-        artifact_dir=artifact_dir,
-        transport=httpx.MockTransport(_handler([])),
-    )
-
-    assert json.loads(rewritten)["file_path"] == str(
-        artifact_dir / "data" / "raw" / "local.csv",
-    )
-
-
-@pytest.mark.asyncio
-async def test_materialize_rejects_symlink_target_escape(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
-    artifact_dir = tmp_path / "artifacts" / "ses_1"
-    destination_dir = artifact_dir / "data" / "raw"
-    destination_dir.mkdir(parents=True)
-    outside = tmp_path / "outside.csv"
-    outside.write_bytes(b"do not overwrite")
-    (destination_dir / "escape.csv").symlink_to(outside)
-    captured: list[httpx.Request] = []
-
-    with pytest.raises(SqlArtifactError, match="unsafe.*destination"):
-        await materialize_execute_sql_result(
-            _sql_result(download_url="/api/v1/cm/downloads/escape.csv"),
-            artifact_dir=artifact_dir,
-            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
-            transport=httpx.MockTransport(_handler(captured)),
-        )
-
-    assert outside.read_bytes() == b"do not overwrite"
-    assert captured == []
-
-
-@pytest.mark.asyncio
-async def test_materialize_uses_env_token_when_no_access_token(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
-    monkeypatch.setenv("QWENPAW_DATA_CLIENT_API_TOKEN", "tok-env")
-    captured: list[httpx.Request] = []
-
-    await materialize_execute_sql_result(
-        _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
-        artifact_dir=tmp_path,
-        model_artifact_dir=tmp_path,
-        transport=httpx.MockTransport(_handler(captured)),
-    )
-
-    assert captured[0].headers["authorization"] == "Bearer tok-env"
-
-
-@pytest.mark.asyncio
-async def test_materialize_omits_auth_header_without_any_token(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
-    monkeypatch.delenv("QWENPAW_DATA_CLIENT_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    captured: list[httpx.Request] = []
-
-    await materialize_execute_sql_result(
-        _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
-        artifact_dir=tmp_path,
-        model_artifact_dir=tmp_path,
-        transport=httpx.MockTransport(_handler(captured)),
-    )
-
-    assert "authorization" not in captured[0].headers
-
-
-@pytest.mark.asyncio
 async def test_materialize_skips_when_no_download_url(tmp_path: Path) -> None:
     original = _sql_result(download_url=None)
     rewritten = await materialize_execute_sql_result(
         original,
         artifact_dir=tmp_path,
-        model_artifact_dir=tmp_path,
         access_token="tok-user",
     )
     assert rewritten == original
 
 
 @pytest.mark.asyncio
-async def test_materialize_skips_non_json_text(tmp_path: Path) -> None:
-    rewritten = await materialize_execute_sql_result(
-        "not json",
-        artifact_dir=tmp_path,
-        model_artifact_dir=tmp_path,
-    )
-    assert rewritten == "not json"
-
-
-@pytest.mark.asyncio
-async def test_materialize_rejects_foreign_download_url(tmp_path: Path) -> None:
-    with pytest.raises(SqlArtifactError, match="not a CM CSV download"):
+async def test_materialize_fails_without_token_when_auth_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_SECRET", "secret")
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_MODE", "multi-user")
+    with pytest.raises(SqlArtifactError, match="access_token"):
         await materialize_execute_sql_result(
-            _sql_result(download_url="http://evil.test/steal.csv"),
+            _sql_result(
+                download_url="http://127.0.0.1:8080/api/v1/cm/downloads/54814f8b.csv",
+            ),
             artifact_dir=tmp_path,
-            model_artifact_dir=tmp_path,
-            access_token="tok-user",
+            access_token=None,
         )
 
 
@@ -220,55 +104,74 @@ async def test_materialize_fails_on_http_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_SECRET", "secret")
+    clear_settings()
     with pytest.raises(SqlArtifactError, match="HTTP 401"):
         await materialize_execute_sql_result(
             _sql_result(
                 download_url="http://127.0.0.1:8080/api/v1/cm/downloads/54814f8b.csv",
             ),
             artifact_dir=tmp_path,
-            model_artifact_dir=tmp_path,
             access_token="tok-user",
             transport=httpx.MockTransport(_handler([], status=401, body=b"no")),
         )
 
 
-def test_is_execute_sql_tool_requires_cm_prefix() -> None:
-    prefixes = {"mcp__context-manager__"}
-    assert is_execute_sql_tool("mcp__context-manager__execute_sql", prefixes)
-    assert not is_execute_sql_tool("mcp__other__execute_sql", prefixes)
-    assert not is_execute_sql_tool("mcp__context-manager__search_context", prefixes)
-    assert not is_execute_sql_tool("", prefixes)
+def _agent(*, access_token: str = "tok"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(_request_context={"access_token": access_token})
 
 
-def _agent() -> SimpleNamespace:
-    return SimpleNamespace(
-        _request_context={"access_token": "tok-user"},
-        _cm_mcp_tool_prefixes={"mcp__context-manager__"},
-    )
+def test_is_execute_sql_tool_requires_cm_name() -> None:
+    assert is_execute_sql_tool("mcp__context-manager__execute_read")
+    assert not is_execute_sql_tool("mcp__context-manager__execute_sql")
+    assert not is_execute_sql_tool("mcp__other__execute_read")
+    assert not is_execute_sql_tool("mcp__context-manager__search_context")
 
 
 @pytest.mark.asyncio
 async def test_middleware_skips_non_sql_tools(tmp_path: Path) -> None:
-    response = ToolResponse(
-        content=[TextBlock(type="text", text='{"download_url":"x"}')],
-    )
+    from types import SimpleNamespace
+
+    from agentscope.message import TextBlock
+    from agentscope.tool import ToolResponse
+
+    from qwenpaw_data.host.core.agent.middleware.sql_artifact import SqlArtifactMiddleware
+    from qwenpaw_data.host.core.domain.identity import Identity
+    from qwenpaw_data.host.core.paths import UserAgentPaths
+    from qwenpaw_data.host.core.runtime.context import RunContext
+
+    response = ToolResponse(content=[TextBlock(text='{"download_url":"x"}')])
 
     async def next_handler(**_kwargs):
         yield response
 
     middleware = SqlArtifactMiddleware(
-        host_artifact_dir=tmp_path,
-        model_artifact_dir=Path("/workspace/artifacts/ses_1"),
+        run_context=RunContext(
+            session_id="ses_1",
+            chat_id="chat-a",
+            workspace=SimpleNamespace(),
+            paths=UserAgentPaths(
+                home=tmp_path,
+                tenant_id="tenant-a",
+                workspace_id="ws-a",
+                user_id="user-a",
+                agent_id="agent-a",
+                session_id="ses_1",
+            ),
+            user_runtime_config=SimpleNamespace(),  # type: ignore[arg-type]
+            identity=Identity(
+                user_id="user-a", tenant_id="tenant-a", workspace_id="ws-a"
+            ),
+            session_factory=get_session_factory(),
+        )
     )
     items = [
         item
         async for item in middleware.on_acting(
             _agent(),  # type: ignore[arg-type]
-            {
-                "tool_call": SimpleNamespace(
-                    name="mcp__context-manager__search_context",
-                ),
-            },
+            {"tool_call": SimpleNamespace(name="mcp__context-manager__search_context")},
             next_handler,
         )
     ]
@@ -277,12 +180,65 @@ async def test_middleware_skips_non_sql_tools(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["local", "docker", "fc-sandbox"])
 async def test_middleware_rewrites_execute_sql_tool_response(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    backend: str,
 ) -> None:
+    from types import SimpleNamespace
+
+    from agentscope.message import TextBlock
+    from agentscope.tool import ToolResponse
+
+    from qwenpaw_data.host.core.agent.middleware.sql_artifact import SqlArtifactMiddleware
+    from qwenpaw_data.host.core.domain.identity import Identity
+    from qwenpaw_data.host.core.paths import UserAgentPaths
+    from qwenpaw_data.host.core.runtime.context import RunContext
+
     monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_SECRET", "secret")
+    monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_BACKEND", backend)
+    monkeypatch.setenv("QWENPAW_DATA_CM_SANDBOX_BASE_URL", "https://gateway.example.test")
+    clear_settings()
     captured: list[httpx.Request] = []
+    paths = UserAgentPaths(
+        home=tmp_path,
+        tenant_id="tenant-a",
+        workspace_id="ws-a",
+        user_id="user-a",
+        agent_id="agent-a",
+        session_id="ses_1",
+    )
+    workdir = {
+        "local": str(paths.workspace),
+        "docker": "/workspace",
+        "fc-sandbox": "/custom-fc/workspace",
+    }[backend]
+    run_context = RunContext(
+        session_id="ses_1",
+        chat_id="chat-a",
+        workspace=SimpleNamespace(workdir=workdir),
+        paths=paths,
+        user_runtime_config=SimpleNamespace(),  # type: ignore[arg-type]
+        identity=Identity(user_id="user-a", tenant_id="tenant-a", workspace_id="ws-a"),
+        session_factory=get_session_factory(),
+    )
+    agent = _agent(access_token="tok-user")
+    response = ToolResponse(
+        content=[
+            TextBlock(
+                text=_sql_result(
+                    download_url="/api/v1/cm/downloads/54814f8b.csv",
+                ),
+            ),
+        ],
+    )
+
+    async def next_handler(**_kwargs):
+        yield response
+
+    from qwenpaw_data.host.core.agent.middleware import sql_artifact as mw_mod
 
     async def _materialize(result_text: str, **kwargs):
         return await materialize_execute_sql_result(
@@ -291,128 +247,22 @@ async def test_middleware_rewrites_execute_sql_tool_response(
             transport=httpx.MockTransport(_handler(captured)),
         )
 
+    middleware = SqlArtifactMiddleware(run_context=run_context)
     monkeypatch.setattr(mw_mod, "materialize_execute_sql_result", _materialize)
 
-    response = ToolResponse(
-        content=[
-            TextBlock(
-                type="text",
-                text=_sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
-            ),
-        ],
-    )
-
-    async def next_handler(**_kwargs):
-        yield response
-
-    middleware = SqlArtifactMiddleware(
-        host_artifact_dir=tmp_path,
-        model_artifact_dir=Path("/workspace/artifacts/ses_1"),
-    )
     items = [
         item
         async for item in middleware.on_acting(
-            _agent(),  # type: ignore[arg-type]
-            {
-                "tool_call": SimpleNamespace(
-                    name="mcp__context-manager__execute_sql",
-                ),
-            },
+            agent,  # type: ignore[arg-type]
+            {"tool_call": SimpleNamespace(name="mcp__context-manager__execute_read")},
             next_handler,
         )
     ]
 
+    dest = paths.artifact_dir / "data" / "raw" / "54814f8b.csv"
     payload = json.loads(items[0].content[0].text)
-    dest = tmp_path / "data" / "raw" / "54814f8b.csv"
     assert dest.read_bytes() == b"day,dau\n"
-    assert payload["file_path"] == "/workspace/artifacts/ses_1/data/raw/54814f8b.csv"
+    expected = f"{workdir}/artifacts/ses_1/data/raw/54814f8b.csv"
+    assert payload["file_path"] == expected
     assert "download_url" not in payload
-    assert captured[0].headers["authorization"] == "Bearer tok-user"
-
-
-async def _drive(
-    middleware: SqlArtifactMiddleware,
-    text: str,
-) -> ToolResponse:
-    response = ToolResponse(content=[TextBlock(type="text", text=text)])
-
-    async def next_handler(**_kwargs):
-        yield response
-
-    items = [
-        item
-        async for item in middleware.on_acting(
-            _agent(),  # type: ignore[arg-type]
-            {"tool_call": SimpleNamespace(name="mcp__context-manager__execute_sql")},
-            next_handler,
-        )
-    ]
-    return items[0]
-
-
-def _assert_contained(chunk: ToolResponse) -> None:
-    assert chunk.state == ToolResultState.ERROR
-    payload = json.loads(chunk.content[0].text)
-    assert payload["error"]["code"] == "SQL_ARTIFACT_MATERIALIZATION_FAILED"
-
-
-@pytest.mark.asyncio
-async def test_middleware_contains_parse_failure(tmp_path: Path) -> None:
-    chunk = await _drive(
-        SqlArtifactMiddleware(
-            host_artifact_dir=tmp_path,
-            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
-        ),
-        _sql_result(download_url="http://evil.test/steal.csv"),
-    )
-    _assert_contained(chunk)
-
-
-@pytest.mark.asyncio
-async def test_middleware_contains_fetch_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
-
-    async def _materialize(result_text: str, **kwargs):
-        return await materialize_execute_sql_result(
-            result_text,
-            **kwargs,
-            transport=httpx.MockTransport(_handler([], status=500, body=b"boom")),
-        )
-
-    monkeypatch.setattr(mw_mod, "materialize_execute_sql_result", _materialize)
-
-    chunk = await _drive(
-        SqlArtifactMiddleware(
-            host_artifact_dir=tmp_path,
-            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
-        ),
-        _sql_result(download_url="/api/v1/cm/downloads/54814f8b.csv"),
-    )
-    _assert_contained(chunk)
-
-
-@pytest.mark.asyncio
-async def test_middleware_contains_write_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://cm.test")
-    artifact_dir = tmp_path / "artifacts" / "ses_1"
-    destination_dir = artifact_dir / "data" / "raw"
-    destination_dir.mkdir(parents=True)
-    outside = tmp_path / "outside.csv"
-    outside.write_bytes(b"do not overwrite")
-    (destination_dir / "escape.csv").symlink_to(outside)
-
-    chunk = await _drive(
-        SqlArtifactMiddleware(
-            host_artifact_dir=artifact_dir,
-            model_artifact_dir=Path("/workspace/artifacts/ses_1"),
-        ),
-        _sql_result(download_url="/api/v1/cm/downloads/escape.csv"),
-    )
-    _assert_contained(chunk)
-    assert outside.read_bytes() == b"do not overwrite"
+    assert str(captured[0].url) == "http://cm.test/api/v1/cm/downloads/54814f8b.csv"

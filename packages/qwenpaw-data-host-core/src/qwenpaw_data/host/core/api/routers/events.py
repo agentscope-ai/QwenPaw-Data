@@ -1,31 +1,26 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
+import asyncio
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 
-from qwenpaw_data.host.core.api.deps import ServiceState, get_identity, get_state
+from qwenpaw_data.host.core.api.deps import get_identity
 from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.api.sse import format_sse
+from qwenpaw_data.host.core.db.engine import get_session_factory
+from qwenpaw_data.host.core.db.tables import ChatRow
 from qwenpaw_data.host.core.domain.chat import TERMINAL
 from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.stream.hub import get_hub
+from qwenpaw_data.host.core.repositories import ChatRepository
+from qwenpaw_data.host.core.repositories.chat_event import ChatEventRepository
+from qwenpaw_data.host.core.settings import get_settings
+from qwenpaw_data.host.core.utils.session import access_session
+from qwenpaw_data.host.core.utils.status import is_terminal_response
 
 router = APIRouter(tags=["events"])
-
-_HEARTBEAT_ENV = "QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS"
-
-
-def _heartbeat_seconds() -> float:
-    raw = (os.environ.get(_HEARTBEAT_ENV) or "").strip()
-    try:
-        value = float(raw) if raw else 15.0
-    except ValueError:
-        return 15.0
-    return value if value > 0 else 15.0
 
 
 @router.get("/sessions/{session_id}/chats/{chat_id}/events")
@@ -34,17 +29,17 @@ async def chat_events(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
     after_sequence_number: int = Query(-1, ge=-1),
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ) -> StreamingResponse:
-    _ = identity
     after = after_sequence_number
     if last_event_id is not None and last_event_id.strip().isdigit():
         after = max(after, int(last_event_id.strip()))
 
     try:
-        await state.chats.get(chat_id, session_id=session_id)
+        async with get_session_factory()() as db:
+            await access_session(db, identity, session_id)
+            await ChatRepository(db, identity).get(chat_id, session_id=session_id)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:
@@ -52,64 +47,42 @@ async def chat_events(
         raise
 
     async def gen() -> AsyncIterator[str]:
-        hub = get_hub()
+        factory = get_session_factory()
         cursor = after
+        cfg = get_settings().stream
+        idle = 0.0
 
-        # Attach before replaying so events published meanwhile are buffered.
-        queue = hub.attach(chat_id)
-        try:
-            replay = await state.events.read_after(chat_id, cursor)
-            chat = await state.chats.get(chat_id)
-            status = chat.status
-            last = await state.events.last_sequence_number(chat_id)
+        while True:
+            if await request.is_disconnected():
+                return
 
-            for obj in replay:
-                if await request.is_disconnected():
-                    return
-                yield format_sse(obj)
-                cursor = obj.sequence_number
+            async with factory() as sdb:
+                events = ChatEventRepository(sdb, identity)
+                batch = await events.read_after(chat_id, cursor)
+                row = await sdb.get(ChatRow, chat_id)
+                if row is None:
+                    raise LookupError("chat not found")
+                status = row.status
+                last = row.last_sequence_number
+
+            if batch:
+                idle = 0.0
+                for obj in batch:
+                    if await request.is_disconnected():
+                        return
+                    yield format_sse(obj)
+                    cursor = obj.sequence_number
+                    if is_terminal_response(obj):
+                        return
+                continue
 
             if status in TERMINAL and cursor >= last:
-                # Chat status is saved before its terminal response is appended.
-                # A caught-up cursor alone cannot prove the stream is finished.
-                # On reconnect, the response may precede the requested cursor.
-                history = (
-                    await state.events.read_after(chat_id, -1)
-                    if after >= 0
-                    else replay
-                )
-                if any(
-                    obj.object == "response"
-                    and obj.status in ("completed", "failed", "cancelled")
-                    and obj.sequence_number <= cursor
-                    for obj in history
-                ):
-                    return
+                return
 
-            async for obj in hub.iterate(
-                chat_id,
-                queue,
-                heartbeat_interval=_heartbeat_seconds(),
-            ):
-                if await request.is_disconnected():
-                    return
-                if obj is None:
-                    # SSE comments keep idle-connection timers from expiring
-                    # without becoming visible to the client-side event parser.
-                    yield ": keepalive\n\n"
-                    continue
-                if obj.sequence_number <= cursor:
-                    continue
-                yield format_sse(obj)
-                cursor = obj.sequence_number
-                if obj.object == "response" and obj.status in (
-                    "completed",
-                    "failed",
-                    "cancelled",
-                ):
-                    return
-        finally:
-            # Idempotent: iterate() also detaches when it is reached.
-            hub.detach(chat_id, queue)
+            await asyncio.sleep(cfg.sse_poll_seconds)
+            idle += cfg.sse_poll_seconds
+            if idle >= cfg.sse_heartbeat_seconds:
+                yield ": keepalive\n\n"
+                idle = 0.0
 
     return StreamingResponse(gen(), media_type="text/event-stream")

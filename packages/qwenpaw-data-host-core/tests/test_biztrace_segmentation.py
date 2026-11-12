@@ -4,14 +4,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from qwenpaw_data.host.core.algo.biztrace.llm import StructuredLLMError
 from qwenpaw_data.host.core.algo.biztrace.models import BizEvent, OrchestrationInfo, Segment
+from qwenpaw_data.host.core.algo.biztrace.prompts import get_extractor_system_prompt
 from qwenpaw_data.host.core.algo.biztrace.segmentation import (
     ChainBuilder,
     ContinuityJudge,
     SegmentAssembler,
+    SegmentClassifier,
     SegmentExtractor,
 )
 from qwenpaw_data.host.core.algo.biztrace.workspace_index import ArtifactVerifier
+
 
 class FakeJudgeLLM:
     """Answers continuity questions from a queue of scripted decisions."""
@@ -40,11 +44,32 @@ class FakeExtractLLM:
         }
         self.calls = 0
         self.prompts: list[str] = []
+        self.systems: list[str] = []
 
     async def complete(self, **kwargs: Any) -> dict[str, Any]:
+        step = str(kwargs.get("step") or "")
+        if step == "biztrace.segment_kind":
+            return {"kind": "other", "reason": "scripted"}
         self.calls += 1
         self.prompts.append(str(kwargs.get("user") or ""))
+        self.systems.append(str(kwargs.get("system") or ""))
         return self.payload
+
+
+class FakeClassifyLLM:
+    """Answers the six-way kind classifier, or raises to force a degrade."""
+
+    def __init__(self, kind: str = "other", *, fail: bool = False) -> None:
+        self.kind = kind
+        self.fail = fail
+        self.calls = 0
+
+    async def complete(self, **kwargs: Any) -> dict[str, Any]:
+        _ = kwargs
+        self.calls += 1
+        if self.fail:
+            raise StructuredLLMError("classifier unavailable")
+        return {"kind": self.kind, "reason": "scripted"}
 
 
 class FakeRegistry:
@@ -119,6 +144,7 @@ def _assembler(
     *,
     judge: FakeJudgeLLM | None = None,
     extract: FakeExtractLLM | None = None,
+    classify: FakeClassifyLLM | None = None,
     max_span: int = 100,
     artifact_files: FakeRegistry | None = None,
     verifier: ArtifactVerifier | None = None,
@@ -128,6 +154,7 @@ def _assembler(
     assembler = SegmentAssembler(
         session_id="ses-1",
         judge=ContinuityJudge(llm=judge),  # type: ignore[arg-type]
+        classifier=SegmentClassifier(llm=classify),  # type: ignore[arg-type]
         extractor=SegmentExtractor(
             llm=extract if extract is not None else FakeExtractLLM(),  # type: ignore[arg-type]
             verifier=verifier,
@@ -196,9 +223,7 @@ def test_hint_and_orchestration_split_a_message_open() -> None:
             ),
         )
     )
-    subtask_nodes = builder.push(
-        _tool_result("TaskStateUpdate", "ok", call_id="c9")
-    )
+    subtask_nodes = builder.push(_tool_result("TaskStateUpdate", "ok", call_id="c9"))
 
     assert [node.kind for node in hint_nodes] == ["normal", "hint"]
     assert hint_nodes[1].covered is False
@@ -220,9 +245,7 @@ def test_a_question_is_uncovered_until_its_answer_arrives() -> None:
     assert [node.kind for node in nodes] == ["normal", "ask"]
     assert ask.covered is False
 
-    trailing = builder.push(
-        _tool_result("ask_user_question", "看自然日", call_id="q1")
-    )
+    trailing = builder.push(_tool_result("ask_user_question", "看自然日", call_id="q1"))
 
     assert trailing == []
     assert ask.covered is True
@@ -281,6 +304,22 @@ async def test_a_natural_boundary_closes_one_segment_and_opens_the_next() -> Non
     assert [segment.status for segment in collector.done] == ["done", "done"]
     assert collector.done[0].title == "取数并核对"
     assert any(entry["type"] == "continuity" for entry in collector.logs)
+
+
+async def test_a_system_hint_does_not_clear_the_draft() -> None:
+    assembler, collector = _assembler(judge=FakeJudgeLLM([]))
+
+    await assembler.feed(_event("user", content="分析日活"))
+    await assembler.feed(_text("半成品", "r1"))
+    await assembler.feed(
+        _event("hint", content="先确认口径", source="interaction-strategy")
+    )
+    await assembler.feed(_text("继续", "r2"))
+    await assembler.aclose()
+
+    assert assembler.stats.cleared_by_hint == 0
+    assert [segment.boundary_reason for segment in collector.done] == ["session_end"]
+    assert len(collector.done[0].coverage.event_ids) == 2
 
 
 async def test_a_hint_clears_the_draft_without_emitting_a_segment() -> None:
@@ -362,9 +401,7 @@ async def test_a_sub_task_scopes_the_segments_it_opens() -> None:
     await assembler.feed(
         _tool_use("TaskStateUpdate", {}, call_id="c1", orchestration=scope)
     )
-    await assembler.feed(
-        _tool_result("TaskStateUpdate", "ok", call_id="c1")
-    )
+    await assembler.feed(_tool_result("TaskStateUpdate", "ok", call_id="c1"))
     await assembler.feed(_text("取数完成", "r1"))
     await assembler.feed(
         _tool_use(
@@ -374,9 +411,7 @@ async def test_a_sub_task_scopes_the_segments_it_opens() -> None:
             orchestration=scope.model_copy(update={"subtask_state": "completed"}),
         )
     )
-    await assembler.feed(
-        _tool_result("TaskStateUpdate", "ok", call_id="c2")
-    )
+    await assembler.feed(_tool_result("TaskStateUpdate", "ok", call_id="c2"))
     await assembler.aclose()
 
     # The closing TaskStateUpdate ends the scope, so it produces the only
@@ -414,9 +449,7 @@ async def test_max_span_cuts_a_window_that_never_ends() -> None:
 
     await assembler.feed(_event("user", content="分析日活"))
     for index in range(4):
-        await assembler.feed(
-            _text(f"第{index}步", f"r{index}")
-        )
+        await assembler.feed(_text(f"第{index}步", f"r{index}"))
     await assembler.aclose()
 
     assert collector.done[0].boundary_reason == "max_span"
@@ -523,9 +556,7 @@ async def test_a_segment_that_registered_no_file_has_no_artifact() -> None:
     await assembler.feed(
         _tool_use("Bash", {"command": "python build_report.py"}, call_id="c1")
     )
-    await assembler.feed(
-        _tool_result("Bash", "denied", call_id="c1", status="error")
-    )
+    await assembler.feed(_tool_result("Bash", "denied", call_id="c1", status="error"))
     await assembler.aclose()
 
     assert collector.done[0].artifact is None
@@ -547,7 +578,7 @@ async def test_the_prompt_offers_the_files_the_segment_produced() -> None:
     await assembler.feed(_tool_result("Bash", "done", call_id="c1"))
     await assembler.aclose()
 
-    assert "候选工作区文件" in extract.prompts[0]
+    assert "本段写入的文件" in extract.prompts[0]
     assert "`report.md`" in extract.prompts[0]
 
 
@@ -714,3 +745,100 @@ async def test_a_judge_without_a_model_keeps_accumulating() -> None:
     assert assembler.judge.degraded == 1
     assert [segment.boundary_reason for segment in collector.done] == ["session_end"]
     assert len(collector.done[0].coverage.event_ids) == 2
+
+
+def test_a_result_folds_into_its_call_despite_its_own_message_id() -> None:
+    builder = ChainBuilder()
+    builder.push(_tool_use("Bash", {"command": "ls"}, call_id="c1", parent_msg_id="m1"))
+    assert (
+        builder.push(_tool_result("Bash", "ok", call_id="c1", parent_msg_id="m2")) == []
+    )
+    nodes = builder.flush()
+    assert len(nodes) == 1
+    assert [block["type"] for block in nodes[0].content] == ["tool_use", "tool_result"]
+    assert nodes[0].event_ids == ["c1", "c1:result"]
+
+
+async def test_a_result_orphaned_by_a_boundary_is_never_judged() -> None:
+    judge = FakeJudgeLLM([])
+    assembler, collector = _assembler(judge=judge)
+    await assembler.feed(_event("user", content="分析日活"))
+    await assembler.feed(
+        _tool_use("Bash", {"command": "ls"}, call_id="c1", parent_msg_id="m1")
+    )
+    await assembler.feed(_event("hint", content="换个口径"))
+    await assembler.feed(_tool_result("Bash", "ok", call_id="c1", parent_msg_id="m2"))
+    await assembler.aclose()
+    assert judge.calls == 0
+    assert [segment.boundary_reason for segment in collector.done] == ["session_end"]
+
+
+async def test_extractor_expands_number_color_tokens_on_the_segment() -> None:
+    extract = FakeExtractLLM(
+        {
+            "title": "核对收入",
+            "input": None,
+            "behavior": "汇总人均 {blue:28.71}。",
+            "conclusion": "环比 {green:+12.3%}。",
+            "artifact": None,
+        }
+    )
+    assembler, collector = _assembler(judge=FakeJudgeLLM([]), extract=extract)
+    await assembler.feed(_event("user", content="分析日活"))
+    await assembler.feed(_text("完成", "r1"))
+    await assembler.aclose()
+    assert collector.done[0].behavior == (
+        '汇总人均 <span class="text-blue-600 font-bold">28.71</span>。'
+    )
+    assert collector.done[0].conclusion == (
+        '环比 <span class="text-green-600 font-bold">+12.3%</span>。'
+    )
+
+
+async def test_classifier_kind_selects_the_extractor_prompt() -> None:
+    classify = FakeClassifyLLM("fetch_transform")
+    extract = FakeExtractLLM()
+    assembler, collector = _assembler(
+        judge=FakeJudgeLLM([]), extract=extract, classify=classify
+    )
+    await assembler.feed(_event("user", content="分析日活"))
+    await assembler.feed(_text("按 thedate 取数", "r1"))
+    await assembler.aclose()
+    assert classify.calls == 1
+    assert collector.done[0].kind == "fetch_transform"
+    assert any("取数与变换" in system for system in extract.systems)
+    fetch_system = next(system for system in extract.systems if "取数与变换" in system)
+    assert fetch_system.count("## 字段写作规范") == 1
+    assert "取了什么数、按什么维度切" in fetch_system
+    assert "描述这一小段的**局部业务目标**" not in fetch_system
+
+
+def test_probe_conclusion_forbids_bare_usable() -> None:
+    probe = get_extractor_system_prompt("zh", kind="probe")
+    assert "禁止只写「可用」「不可用」" in probe
+    assert "哪张表 / 哪个项目空间 / 哪个查询能力" in probe
+    assert "不要写入" in probe
+
+
+def test_extractor_other_falls_back_to_generic_field_rules() -> None:
+    other = get_extractor_system_prompt("zh", kind="other")
+    unknown = get_extractor_system_prompt("zh", kind="not_a_kind")
+    assert other.count("## 字段写作规范") == 1
+    assert "描述这一小段的**局部业务目标**" in other
+    assert other == unknown
+    assert "## 单位" in other
+    assert "## 计划节点" in other
+    assert "## artifact 格式" in other
+    assert "{blue:28.71}" in other
+    assert "<span class=" not in other
+
+
+async def test_classifier_degrades_to_other() -> None:
+    classify = FakeClassifyLLM(fail=True)
+    assembler, collector = _assembler(judge=FakeJudgeLLM([]), classify=classify)
+    await assembler.feed(_event("user", content="分析日活"))
+    await assembler.feed(_text("做完了", "r1"))
+    await assembler.aclose()
+    assert collector.done[0].kind == "other"
+    assert assembler.stats.classify_degraded == 1
+    assert assembler.stats.kinds.get("other") == 1

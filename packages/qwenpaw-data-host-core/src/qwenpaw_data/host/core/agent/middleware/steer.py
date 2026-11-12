@@ -10,45 +10,37 @@ from agentscope.event import HintBlockEvent
 from agentscope.message import AssistantMsg, HintBlock
 from agentscope.middleware import MiddlewareBase
 
-from qwenpaw_data.host.core.domain.steer import SteerQueue
+from qwenpaw_data.host.core.tracing.adapters import tracer_span
+from qwenpaw_data.host.core.repositories import ChatCommandRepository
+from qwenpaw_data.host.core.runtime.context import RunContext
 from qwenpaw_data.host.core.runtime.turn import compose_agent_input
+from qwenpaw_data.tracing.core.names import Step
 
 
 class SteerMiddleware(MiddlewareBase):
-    """Own the SteerQueue; drain it before each reasoning step."""
+    def __init__(self, run_context: RunContext) -> None:
+        self._session_factory = run_context.session_factory
+        self._chat_id = run_context.chat_id
 
-    def __init__(self) -> None:
-        self.queue = SteerQueue()
-
-    @classmethod
-    def find(cls, agent: Agent) -> SteerMiddleware | None:
-        for middleware in agent._reasoning_middlewares:
-            if isinstance(middleware, cls):
-                return middleware
-        return None
-
-    @classmethod
-    def require(cls, agent: Agent) -> SteerMiddleware:
-        middleware = cls.find(agent)
-        if middleware is None:
-            raise RuntimeError("CONFLICT: SteerMiddleware is not configured")
-        return middleware
-
-    def reset(self) -> None:
-        """Start a fresh queue; cancel_all() closes a queue terminally."""
-        self.queue = SteerQueue()
-
-    async def steer(
-        self,
-        text: str,
-        artifact_comments: list[dict] | None = None,
+    def _steer_span(
+        self, state: str, steers: list[dict] | None = None, error: str = ""
     ) -> None:
-        """Enqueue steer text and wait until it is injected."""
-        await self.queue.wait_until_injected(text, artifact_comments)
-
-    async def cancel(self) -> None:
-        """Release every pending steer waiter."""
-        await self.queue.cancel_all()
+        with tracer_span(
+            Step.STEER,
+            attributes={"steer.count": len(steers)} if steers else None,
+            metadata={"steer_state": state},
+            input=[
+                {
+                    "text": str(s["text"]),
+                    "artifact_comments": list(s["artifact_comments"]),
+                }
+                for s in steers
+            ]
+            if steers
+            else None,
+            error=error or None,
+        ):
+            pass
 
     async def on_reasoning(  # type: ignore[override]
         self,
@@ -56,25 +48,33 @@ class SteerMiddleware(MiddlewareBase):
         input_kwargs: dict,
         next_handler: Callable[..., AsyncGenerator],
     ) -> AsyncGenerator[Any, None]:
-        pending = await self.queue.take_pending()
+        try:
+            async with self._session_factory() as db:
+                pending = await ChatCommandRepository(db).take_steers(self._chat_id)
+                await db.commit()
+        except Exception as exc:
+            self._steer_span("error", error=type(exc).__name__)
+            raise
         if pending:
             hint_blocks = [
                 HintBlock(
-                    hint=compose_agent_input(item.text, item.artifact_comments),
+                    hint=compose_agent_input(
+                        str(steer["text"]),
+                        list(steer["artifact_comments"]),
+                    ),
                     source="steer",
                 )
-                for item in pending
+                for steer in pending
             ]
             self._append_hints(agent, hint_blocks)
-            for item in pending:
-                await self.queue.mark_injected(item)
-            for hint, item in zip(hint_blocks, pending):
+            self._steer_span("success", steers=list(pending))
+            for hint, steer in zip(hint_blocks, pending):
                 yield HintBlockEvent(
                     reply_id=agent.state.reply_id,
                     block_id=hint.id,
                     source="steer",
-                    hint=item.text,
-                    metadata={"artifact_comments": item.artifact_comments},
+                    hint=str(steer["text"]),
+                    metadata={"artifact_comments": list(steer["artifact_comments"])},
                 )
 
         async for event in next_handler(**input_kwargs):

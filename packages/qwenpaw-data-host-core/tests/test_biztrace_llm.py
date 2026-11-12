@@ -9,7 +9,6 @@ from typing import Any
 
 import jsonschema
 import pytest
-
 from qwenpaw_data.host.core.algo.biztrace import pipeline
 from qwenpaw_data.host.core.algo.biztrace.llm import (
     StructuredLLM,
@@ -18,8 +17,20 @@ from qwenpaw_data.host.core.algo.biztrace.llm import (
     for_structured_calls,
 )
 from qwenpaw_data.host.core.algo.biztrace.segmentation import _EXTRACTION_SCHEMA
+from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext, ModelUsageSource
 from qwenpaw_data.host.core.domain.preference import ActiveModel
 from qwenpaw_data.host.core.providers.factory import build_model
+from qwenpaw_data.tracing.core.names import Step, Tracer
+from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
+from qwenpaw_data.tracing.runtime.host.chat import ChatTracer
+
+_USAGE = ModelUsageContext(
+    source=ModelUsageSource.BIZTRACE,
+    identity=Identity(user_id="u1", tenant_id="t1", workspace_id="w1"),
+    session_id="ses-1",
+    chat_id="chat-1",
+)
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -45,15 +56,29 @@ class _FakeModel:
     calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def generate_structured_output(
-        self, *, messages: list[Any], structured_model: Any
+        self, *, messages: list[Any], structured_model: Any, source_step: Any = None
     ) -> _Answer:
-        self.calls.append({"messages": messages, "schema": structured_model})
+        self.calls.append(
+            {
+                "messages": messages,
+                "schema": structured_model,
+                "source_step": source_step,
+            }
+        )
         if self.delay:
             await asyncio.sleep(self.delay)
         answer = self.answers[min(len(self.calls) - 1, len(self.answers) - 1)]
         if isinstance(answer, Exception):
             raise answer
         return _Answer(answer)
+
+
+def _chat_tracer() -> ChatTracer:
+    return ChatTracer(
+        session=BaseSessionTracer(user_id="u1", session_id="ses-1"),
+        chat_id="chat-" + "ab" * 16,
+        step="biztrace",
+    )
 
 
 def _llm(model: _FakeModel, *, timeout: float = 1.0) -> StructuredLLM:
@@ -75,7 +100,11 @@ def _active(**overrides: object) -> ActiveModel:
 
 @pytest.mark.parametrize("provider", ["dashscope", "openai"])
 def test_a_host_built_model_is_retuned_for_extraction(provider: str) -> None:
-    model = for_structured_calls(build_model(_active(provider_id=provider)))
+    model = for_structured_calls(
+        # ``context_size`` is pinned: the openai parametrisation reuses a
+        # dashscope model id, which the openai builtin registry cannot size.
+        build_model(_active(provider_id=provider, context_size=131_072), usage=_USAGE)
+    )
 
     assert model.stream is False
     assert model.parameters.thinking_enable is False
@@ -89,13 +118,14 @@ async def test_a_call_carries_the_prompt_and_the_schema() -> None:
     llm = _llm(model)
 
     data = await llm.complete(
-        system="s", user="u", schema=SCHEMA, schema_name="presentation_body"
+        system="s", user="u", schema=SCHEMA, step=Step.PRESENTATION_BODY
     )
 
     assert data == {"body": "取数完成"}
     assert model.calls[0]["schema"] is SCHEMA
     roles = [(msg.role, msg.get_text_content()) for msg in model.calls[0]["messages"]]
     assert roles == [("system", "s"), ("user", "u")]
+    assert model.calls[0]["source_step"] == "biztrace.presentation_body"
 
 
 async def test_a_first_bad_answer_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +133,9 @@ async def test_a_first_bad_answer_is_retried(monkeypatch: pytest.MonkeyPatch) ->
     model = _FakeModel([RuntimeError("no tool call"), {"body": "ok"}])
     llm = _llm(model)
 
-    data = await llm.complete(system="s", user="u", schema=SCHEMA, schema_name="body")
+    data = await llm.complete(
+        system="s", user="u", schema=SCHEMA, step=Step.PRESENTATION_BODY
+    )
 
     assert data == {"body": "ok"}
     assert len(model.calls) == 2
@@ -119,7 +151,7 @@ async def test_a_retry_tells_the_model_what_was_rejected(
     model = _FakeModel([RuntimeError("'x' is not of type 'array'"), {"body": "ok"}])
     llm = _llm(model)
 
-    await llm.complete(system="s", user="u", schema=SCHEMA, schema_name="body")
+    await llm.complete(system="s", user="u", schema=SCHEMA, step=Step.PRESENTATION_BODY)
 
     retry = [msg.get_text_content() for msg in model.calls[1]["messages"]]
     assert len(retry) == 3
@@ -138,12 +170,10 @@ async def test_a_nested_container_sent_as_text_is_decoded() -> None:
         },
         "required": ["title"],
     }
-    model = _FakeModel(
-        [{"title": "产出报告", "artifact": '[{"name": "a.md"}]'}]
-    )
+    model = _FakeModel([{"title": "产出报告", "artifact": '[{"name": "a.md"}]'}])
 
     data = await _llm(model).complete(
-        system="s", user="u", schema=schema, schema_name="segment_metadata"
+        system="s", user="u", schema=schema, step=Step.SEGMENT_METADATA
     )
 
     assert data == {"title": "产出报告", "artifact": [{"name": "a.md"}]}
@@ -196,7 +226,7 @@ async def test_the_reported_extraction_failure_now_survives_the_round_trip() -> 
         system="s",
         user="u",
         schema=_EXTRACTION_SCHEMA,
-        schema_name="segment_metadata",
+        step=Step.SEGMENT_METADATA,
     )
 
     # And what the pipeline gets back conforms to the strict schema again.
@@ -212,7 +242,7 @@ async def test_text_that_only_looks_like_a_container_is_left_alone() -> None:
     model = _FakeModel([{"artifact": "没有产出文件"}])
 
     data = await _llm(model).complete(
-        system="s", user="u", schema=schema, schema_name="segment_metadata"
+        system="s", user="u", schema=schema, step=Step.SEGMENT_METADATA
     )
 
     assert data == {"artifact": "没有产出文件"}
@@ -225,7 +255,9 @@ async def test_an_answer_that_is_not_an_object_is_rejected(
     llm = _llm(_FakeModel(["not an object"]))
 
     with pytest.raises(StructuredLLMError):
-        await llm.complete(system="s", user="u", schema=SCHEMA, schema_name="body")
+        await llm.complete(
+            system="s", user="u", schema=SCHEMA, step=Step.PRESENTATION_BODY
+        )
 
     assert llm.failures == 1
 
@@ -238,7 +270,9 @@ async def test_a_broken_model_raises_after_its_attempts(
     llm = _llm(model)
 
     with pytest.raises(StructuredLLMError, match="gateway is down"):
-        await llm.complete(system="s", user="u", schema=SCHEMA, schema_name="body")
+        await llm.complete(
+            system="s", user="u", schema=SCHEMA, step=Step.PRESENTATION_BODY
+        )
 
     assert len(model.calls) == llm.attempts
     assert llm.failures == 1
@@ -253,7 +287,9 @@ async def test_a_stalled_call_gives_up_at_this_step_budget(
     llm = _llm(_FakeModel([{"body": "ok"}], delay=1.0), timeout=0.02)
 
     with pytest.raises(StructuredLLMError):
-        await llm.complete(system="s", user="u", schema=SCHEMA, schema_name="body")
+        await llm.complete(
+            system="s", user="u", schema=SCHEMA, step=Step.PRESENTATION_BODY
+        )
 
     assert llm.failures == 1
 
@@ -291,12 +327,91 @@ async def test_every_step_shares_one_model_and_differs_only_in_budget(
     made = pipeline.build_pipeline(
         session_id="ses_1",
         chat_model=model,  # type: ignore[arg-type]
+        tracer=_chat_tracer(),
     )
 
     assert made is not None
     assert {id(client.model) for client in built} == {id(model)}
-    assert sorted(client.timeout for client in built) == [5.0, 30.0, 60.0]
+    # presentation / judge / classify / extract, one budget each. Confidence
+    # is not here: it builds its own model from user preferences and the
+    # transformer hands it in, so biztrace passes it no setting of its own.
+    assert sorted(client.timeout for client in built) == [5.0, 30.0, 30.0, 60.0]
     await made.aclose()
+
+
+async def test_pipeline_steps_hang_under_biztrace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    _record_clients(monkeypatch, tmp_path)
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer(Tracer.HOST)
+
+    from opentelemetry import trace as otel_trace
+
+    monkeypatch.setattr(otel_trace, "get_tracer", lambda _name: tracer)
+
+    parents: list[str] = []
+    real_create = asyncio.create_task
+
+    def _create(coro: Any, **kwargs: Any) -> asyncio.Task[Any]:
+        parents.append(otel_trace.get_current_span().name)
+        return real_create(coro, **kwargs)
+
+    class _AsyncioShim:
+        """Per-module asyncio stand-in: records create_task, delegates the rest."""
+
+        @staticmethod
+        def create_task(coro: Any, **kwargs: Any) -> asyncio.Task[Any]:
+            return _create(coro, **kwargs)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(asyncio, name)
+
+    # Patch the attribute on each biztrace module instead of the global
+    # asyncio module, so unrelated tasks on the loop are never seen.
+    from qwenpaw_data.host.core.algo.biztrace import (
+        converter,
+        linking,
+        scoring,
+        segmentation,
+        transformer,
+    )
+
+    for module in (pipeline, converter, scoring, segmentation, linking, transformer):
+        monkeypatch.setattr(module, "asyncio", _AsyncioShim())
+
+    outer = provider.get_tracer("test")
+    with outer.start_as_current_span("invoke_agent qwenpaw-data") as parent:
+        made = pipeline.build_pipeline(session_id="ses_1", tracer=_chat_tracer())
+        assert made is not None
+        assert (
+            otel_trace.get_current_span().get_span_context().span_id
+            == parent.get_span_context().span_id
+        )
+        await made.aclose()
+        assert (
+            otel_trace.get_current_span().get_span_context().span_id
+            == parent.get_span_context().span_id
+        )
+
+    assert parents
+    assert set(parents) == {"biztrace"}
+    finished = [
+        span for span in exporter.get_finished_spans() if span.name == "biztrace"
+    ]
+    assert len(finished) == 1
+    # Detached trace: the biztrace span is a root on its own trace, so a
+    # pipeline failure cannot paint the reply's trace ERROR.
+    assert finished[0].parent is None
+    assert finished[0].context.trace_id != parent.get_span_context().trace_id
 
 
 async def test_a_run_without_a_model_stays_rule_based(
@@ -304,7 +419,7 @@ async def test_a_run_without_a_model_stays_rule_based(
 ) -> None:
     built = _record_clients(monkeypatch, tmp_path)
 
-    made = pipeline.build_pipeline(session_id="ses_1")
+    made = pipeline.build_pipeline(session_id="ses_1", tracer=_chat_tracer())
 
     assert made is not None
     assert built == []

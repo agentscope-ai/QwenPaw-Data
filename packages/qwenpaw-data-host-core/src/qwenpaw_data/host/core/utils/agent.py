@@ -13,9 +13,7 @@ def close_interrupted_tool_calls(agent: Agent) -> None:
     if last_message.role != "assistant" or last_message.name != agent.name:
         return
 
-    result_ids = {
-        block.id for block in last_message.get_content_blocks("tool_result")
-    }
+    result_ids = {block.id for block in last_message.get_content_blocks("tool_result")}
     interrupted_results: list[ToolResultBlock] = []
     for tool_call in last_message.get_content_blocks("tool_call"):
         if tool_call.id in result_ids:

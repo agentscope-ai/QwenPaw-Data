@@ -1,47 +1,75 @@
 # -*- coding: utf-8 -*-
-"""Console-shaped compat routes: uploads and attachment-aware chat."""
-
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
-from fastapi.responses import Response
-
-from qwenpaw_data.host.core.api.deps import (
-    ServiceState,
-    get_identity,
-    get_state,
-    owned_session,
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Query,
+    Request,
+    UploadFile,
 )
+from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from qwenpaw_data.host.core.api.deps import get_db, get_identity
 from qwenpaw_data.host.core.api.errors import map_domain_error
+from qwenpaw_data.host.core.settings.mcp import McpSettings
+from qwenpaw_data.host.core.utils.mcp_headers import parse_mcp_headers
 from qwenpaw_data.host.core.api.mappers import chat_to_schema
 from qwenpaw_data.host.core.api.models.common import AttachmentRefSchema
-from qwenpaw_data.host.core.api.models.requests import ConsoleChatRequest
+from qwenpaw_data.host.core.api.models.requests import (
+    ChatAdmissionFields,
+    ConsoleChatRequest,
+)
+from qwenpaw_data.host.core.api.models.runtime_models import RuntimeModels
+from qwenpaw_data.host.core.api.routers.datasources import (
+    get_context_manager_client,
+    require_known_datasets,
+)
+from qwenpaw_data.host.core.db.engine import get_session_factory
 from qwenpaw_data.host.core.domain.attachment import Attachment
+from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.session import Session
+from qwenpaw_data.host.core.integrations.cm import ContextManagerClient
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories import (
+    AttachmentRepository,
+    ChatRepository,
+    PreferencesRepository,
+    SessionRepository,
+)
+from qwenpaw_data.host.core.query_log import Step, log_info
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
 from qwenpaw_data.host.core.runtime.registry import get_runtime_registry
-from qwenpaw_data.host.core.stream.output_stream import OutputStream
+from qwenpaw_data.host.core.settings import get_settings
+from qwenpaw_data.host.core.utils.auth import generate_temporary_token
+from qwenpaw_data.host.core.utils.session import access_session
 
 router = APIRouter(prefix="/console", tags=["console"])
 
 
-def _workspace(state: ServiceState, session_id: str) -> Path:
-    return Path(state.hosts.get(session_id=session_id).paths.workspace)
-
-
-def _uploads_dir(state: ServiceState, session_id: str) -> Path:
-    return _workspace(state, session_id) / "uploads" / session_id
+def _session_paths(session: Session) -> UserAgentPaths:
+    return UserAgentPaths.from_identity(
+        home=get_settings().paths.home,
+        identity=session.identity,
+        agent_id=session.agent_id,
+        session_id=session.id,
+    )
 
 
 def _raise(exc: Exception) -> None:
     http = map_domain_error(exc)
     if http:
         raise http from exc
-    raise exc
+    raise
 
 
 @router.post("/upload")
@@ -49,26 +77,25 @@ async def upload_attachment(
     session_id: str = Form(...),
     file: UploadFile = File(...),
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
         if not file.filename:
             raise ValueError("filename is required")
-        session = await owned_session(state, identity, session_id)
+        session = await access_session(db, identity, session_id, write=True)
+        repo = AttachmentRepository(db, identity)
         filename = Path(file.filename).name
-        if await state.attachments.find_by_filename(
-            session.identity.user_id, session.id, filename
-        ):
+        if await repo.find_by_filename(session.id, filename):
             raise ValueError(f"duplicate filename: {filename}")
-        attachment = await asyncio.to_thread(
-            Attachment.receive,
+        attachment = Attachment.receive(
             session_id=session.id,
             identity=identity,
             filename=filename,
             data=await file.read(),
-            dest_dir=_uploads_dir(state, session.id),
+            dest_dir=_session_paths(session).uploads_dir,
         )
-        await state.attachments.add(attachment)
+        await repo.add(attachment)
+        await db.commit()
     except Exception as exc:
         _raise(exc)
     return {"attachment": AttachmentRefSchema.model_validate(attachment.to_ref())}
@@ -78,16 +105,18 @@ async def upload_attachment(
 async def delete_attachment(
     attachment_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     try:
-        attachment = await state.attachments.get(identity.user_id, attachment_id)
-        session = await owned_session(state, identity, attachment.session_id)
-        chats = await state.chats.list_for_session(session.id)
+        repo = AttachmentRepository(db, identity)
+        attachment = await repo.get(attachment_id)
+        session = await access_session(db, identity, attachment.session_id, write=True)
+        chats = await ChatRepository(db, identity).list_for_session(session.id)
         if any(chat.references_attachment(attachment.id) for chat in chats):
             raise RuntimeError("CONFLICT: attachment is used by a chat")
-        await asyncio.to_thread(attachment.remove_file, _workspace(state, session.id))
-        await state.attachments.delete(identity.user_id, attachment.id)
+        attachment.remove_file(_session_paths(session).workspace)
+        await repo.delete(attachment)
+        await db.commit()
     except Exception as exc:
         _raise(exc)
     return Response(status_code=204)
@@ -96,54 +125,137 @@ async def delete_attachment(
 @router.post("/chat")
 async def console_chat(
     body: ConsoleChatRequest,
+    request: Request,
+    background: BackgroundTasks,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
+    cm: ContextManagerClient = Depends(get_context_manager_client),
 ) -> dict[str, Any]:
     try:
-        session = await owned_session(state, identity, body.session_id)
-        attachments = await state.attachments.require_for_session(
-            session.identity.user_id,
-            session.id,
-            body.attachment_ids,
-            workspace=_workspace(state, session.id),
-        )
-        runtime_config = None
-        context_model_header = None
-        if body.runtime_models is not None:
-            local = (await state.prefs.load(identity.user_id)).runtime_config()
-            runtime_config = body.runtime_models.runtime_config(local)
-            context_model_header = body.runtime_models.resolved_context_header(
-                runtime_config
-            )
-        chat = session.open_chat(
-            text=body.text,
-            datasource_id=body.datasource_id,
-            dataset_names=body.dataset_names,
-            has_active_chat=await state.sessions.has_active_chat(session.id),
+        mcp_headers = parse_mcp_headers(request.headers.get(McpSettings.HEADERS_HEADER))
+        chat, access_token = await admit_chat(
+            db,
+            identity,
+            session_id=body.session_id,
+            body=body,
+            cm=cm,
+            attachment_ids=body.attachment_ids,
             artifact_comments=[
                 item.model_dump(mode="json") for item in body.artifact_comments
             ],
-            attachments=[item.to_ref() for item in attachments],
         )
-        await state.sessions.save(session)
-        await state.chats.add(chat)
     except Exception as exc:
-        _raise(exc)
-    runtime = ChatRuntime(
-        chats=state.chats,
-        events=state.events,
-        hosts=state.hosts,
-        prefs=state.prefs,
-        sessions=state.sessions,
-        settlement=state.settlement,
+        http = map_domain_error(exc)
+        if http:
+            raise http from exc
+        raise
+    response = {"chat": chat_to_schema(chat)}
+    launch_chat(
+        background,
+        chat,
+        identity=identity,
+        access_token=access_token,
+        mcp_headers=mcp_headers,
+        model_binding_request=body.runtime_models,
     )
-    kwargs = {"identity": identity}
-    if runtime_config is not None:
-        kwargs.update(
-            runtime_config=runtime_config, context_model_header=context_model_header
-        )
-    state.track(asyncio.create_task(runtime.run(chat.id, **kwargs)))
-    return {"chat": chat_to_schema(chat)}
+    return response
+
+
+async def admit_chat(
+    db: AsyncSession,
+    identity: Identity,
+    *,
+    session_id: str,
+    body: ChatAdmissionFields,
+    cm: ContextManagerClient,
+    attachment_ids: list[str] | None = None,
+    artifact_comments: list[dict[str, Any]] | None = None,
+) -> tuple[Chat, str | None]:
+    """Admit one chat turn for every chat-creation route (native and 0.3 compat).
+
+    Write access to the session, a resolvable model configuration and a
+    dataset focus known to the session datasource are checked before the
+    chat row is committed.
+    """
+    session_repo = SessionRepository(db, identity)
+    session = await access_session(db, identity, session_id, write=True)
+    prefs = await PreferencesRepository(db, identity).load()
+    prefs.resolve()
+    dataset_names = await require_known_datasets(
+        cm,
+        datasource_id=(body.datasource_id or "").strip()
+        or getattr(session, "datasource_id", None),
+        dataset_names=body.dataset_names,
+    )
+    attachments = await AttachmentRepository(db, identity).require_for_session(
+        session.id,
+        attachment_ids or [],
+        workspace=_session_paths(session).workspace,
+    )
+    chat = session.open_chat(
+        text=body.text,
+        datasource_id=body.datasource_id,
+        dataset_names=dataset_names,
+        has_active_chat=await session_repo.has_active_chat(session.id),
+        artifact_comments=artifact_comments or [],
+        attachments=[item.to_ref() for item in attachments],
+    )
+    await session_repo.save(session)
+    await ChatRepository(db, identity).add(
+        chat, inherit_plan=get_settings().runtime.inherit_plan
+    )
+    await db.commit()
+    access_token = await asyncio.to_thread(generate_temporary_token, identity)
+    return chat, access_token
+
+
+def launch_chat(
+    background: BackgroundTasks,
+    chat: Chat,
+    *,
+    identity: Identity,
+    access_token: str | None,
+    mcp_headers: dict[str, dict[str, str]],
+    model_binding_request: RuntimeModels | None,
+) -> None:
+    """Run an admitted turn after the response (native and 0.3 compat routes).
+
+    The runtime is registered when background execution begins so an in-process
+    stop can await its unwind (``ChatRuntime.cancel``). Registration before the
+    background task starts would leave a stale entry if the task never runs.
+
+    ``model_binding_request`` is the request-scoped model binding (0.3
+    ``runtime_models``, #81): validated, never persisted. ``ChatRuntime.run``
+    has no per-turn model override yet, so it stops here and
+    ``/console/capabilities`` reports ``runtime_model_bindings: false``.
+    Model binding plugs in at this single point.
+    """
+    del model_binding_request
+    runtime = ChatRuntime(get_session_factory(), chat.id)
+    registry = get_runtime_registry()
+
+    async def run(
+        *,
+        identity: Identity,
+        access_token: str | None,
+        mcp_headers: dict[str, dict[str, str]],
+    ) -> None:
+        registry.register(chat.id, runtime)
+        try:
+            await runtime.run(
+                identity=identity,
+                access_token=access_token,
+                mcp_headers=mcp_headers,
+            )
+        finally:
+            registry.unregister(chat.id)
+
+    background.add_task(
+        run,
+        identity=identity,
+        access_token=access_token,
+        mcp_headers=mcp_headers,
+    )
 
 
 @router.post("/chat/stop")
@@ -151,35 +263,23 @@ async def stop_chat(
     session_id: str = Query(...),
     chat_id: str = Query(...),
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _ = identity
     try:
-        chat = await state.chats.get(chat_id, session_id=session_id)
-        runtime = get_runtime_registry().get(chat_id)
-        if runtime is not None:
-            await runtime.cancel()
-            chat = await state.chats.get(chat_id, session_id=session_id)
-        elif chat.status == "running":
-            await OutputStream(
-                state.events,
-                session_id=session_id,
-                chat_id=chat_id,
-                identity=chat.identity,
-            ).response_cancelled()
-            chat.cancel()
-            await state.chats.reload_event_watermark(chat)
-            await state.chats.save(chat)
+        await access_session(db, identity, session_id, write=True)
+        log_info(
+            request_id=chat_id,
+            step=Step.CHAT_STOP,
+            message="Chat stop requested",
+            context={"session_id": session_id},
+        )
+        repo = ChatRepository(db, identity)
+        chat = await repo.get(chat_id, session_id=session_id)
+        chat = await repo.stop(chat)
+        await db.commit()
+        return {"chat": chat_to_schema(chat)}
     except Exception as exc:
-        _raise(exc)
-    return {"chat": chat_to_schema(chat)}
-
-
-@router.get("/capabilities")
-async def console_capabilities(identity: Identity = Depends(get_identity)):
-    return {
-        "console_protocol": 1,
-        "scoped_sessions": True,
-        "runtime_model_bindings": True,
-        "dataset_context": True,
-    }
+        http = map_domain_error(exc)
+        if http:
+            raise http from exc
+        raise

@@ -1,130 +1,91 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
+from agentscope.model import DashScopeChatModel, OpenAIChatModel
 
-from qwenpaw_data.host.core import model as model_module
-from qwenpaw_data.host.core.providers import factory as factory_module
+from qwenpaw_data.host.core.providers.factory import build_model
+from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext, ModelUsageSource
+from qwenpaw_data.host.core.domain.preference import ActiveModel
 
-
-class FakeCredential:
-    def __init__(self, **kwargs: Any) -> None:
-        self.kwargs = kwargs
-
-
-class FakeParameters:
-    def __init__(self, **kwargs: Any) -> None:
-        self.kwargs = kwargs
-
-
-class FakeOpenAIModel:
-    Parameters = FakeParameters
-
-    def __init__(self, **kwargs: Any) -> None:
-        self.kwargs = kwargs
+_USAGE = ModelUsageContext(
+    source=ModelUsageSource.DATA_AGENT,
+    identity=Identity(user_id="u1", tenant_id="t1", workspace_id="w1"),
+    session_id="ses-1",
+    chat_id="chat-1",
+)
 
 
-class FakeDashScopeModel:
-    Parameters = FakeParameters
-
-    def __init__(self, **kwargs: Any) -> None:
-        self.kwargs = kwargs
-
-
-@pytest.fixture(autouse=True)
-def fake_model_classes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(factory_module, "OpenAICredential", FakeCredential)
-    monkeypatch.setattr(factory_module, "OpenAIChatModel", FakeOpenAIModel)
-    monkeypatch.setattr(factory_module, "DashScopeCredential", FakeCredential)
-    monkeypatch.setattr(factory_module, "DashScopeChatModel", FakeDashScopeModel)
-
-
-def test_openai_compatible_env_is_used_as_default() -> None:
-    result = model_module.build_model_from_env(
-        {
-            "LLM_MODEL": "shared-model",
-            "OPENAI_API_KEY": "shared-key",
-            "OPENAI_BASE_URL": "https://shared.example/v1",
-        },
-    )
-
-    assert isinstance(result, FakeOpenAIModel)
-    assert result.kwargs["model"] == "shared-model"
-    assert result.kwargs["credential"].kwargs == {
-        "api_key": "shared-key",
-        "base_url": "https://shared.example/v1",
+def _model(**overrides: object) -> ActiveModel:
+    values: dict[str, object] = {
+        "provider_id": "openai",
+        "model_id": "gpt-4o",
+        "api_key": "secret",
+        "base_url": "https://models.example.test/v1",
+        "chat_model": "OpenAIChatModel",
+        "name": "GPT-4o",
     }
+    values.update(overrides)
+    return ActiveModel(**values)  # type: ignore[arg-type]
 
 
-def test_qwenpaw_data_model_env_overrides_shared_values() -> None:
-    result = model_module.build_model_from_env(
-        {
-            "QWENPAW_DATA_MODEL_PROVIDER": "openai",
-            "QWENPAW_DATA_MODEL_NAME": "cli-model",
-            "QWENPAW_DATA_MODEL_API_KEY": "cli-key",
-            "QWENPAW_DATA_MODEL_BASE_URL": "https://cli.example/v1",
-            "LLM_MODEL": "shared-model",
-            "OPENAI_API_KEY": "shared-key",
-            "OPENAI_BASE_URL": "https://shared.example/v1",
-        },
+def test_build_openai_model() -> None:
+    model = build_model(_model(), usage=_USAGE)
+
+    assert isinstance(model, OpenAIChatModel)
+    assert model.model == "gpt-4o"
+    assert model.credential.base_url == "https://models.example.test/v1"
+    assert model.credential.api_key.get_secret_value() == "secret"
+    assert model.parameters.thinking_enable is False
+
+
+def test_build_dashscope_model() -> None:
+    model = build_model(
+        _model(
+            provider_id="dashscope",
+            model_id="qwen-plus",
+            chat_model="DashScopeChatModel",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ),
+        usage=_USAGE,
     )
 
-    assert isinstance(result, FakeOpenAIModel)
-    assert result.kwargs["model"] == "cli-model"
-    assert result.kwargs["credential"].kwargs == {
-        "api_key": "cli-key",
-        "base_url": "https://cli.example/v1",
-    }
+    assert isinstance(model, DashScopeChatModel)
+    assert model.model == "qwen-plus"
+    assert model.parameters.thinking_enable is False
 
 
-def test_dashscope_provider_remains_supported() -> None:
-    result = model_module.build_model_from_env(
-        {
-            "QWENPAW_DATA_MODEL_PROVIDER": "dashscope",
-            "QWENPAW_DATA_MODEL_NAME": "qwen-model",
-            "QWENPAW_DATA_MODEL_API_KEY": "dashscope-key",
-        },
+def test_build_dashscope_model_enables_thinking() -> None:
+    model = build_model(
+        _model(
+            provider_id="dashscope",
+            model_id="qwen3.8-max",
+            chat_model="DashScopeChatModel",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            thinking_enabled=True,
+        ),
+        usage=_USAGE,
     )
 
-    assert isinstance(result, FakeDashScopeModel)
-    assert result.kwargs["model"] == "qwen-model"
-    assert result.kwargs["credential"].kwargs == {"api_key": "dashscope-key"}
+    assert isinstance(model, DashScopeChatModel)
+    assert model.parameters.thinking_enable is True
 
 
-def test_missing_model_config_reports_alternatives_without_secret() -> None:
-    secret = "must-not-leak"
+def test_build_openai_model_disables_thinking() -> None:
+    model = build_model(_model(thinking_enabled=False), usage=_USAGE)
 
-    with pytest.raises(RuntimeError) as exc_info:
-        model_module.build_model_from_env({"OPENAI_API_KEY": secret})
-
-    message = str(exc_info.value)
-    assert "QWENPAW_DATA_MODEL_NAME (or LLM_MODEL)" in message
-    assert "QWENPAW_DATA_MODEL_API_KEY" not in message
-    assert secret not in message
+    assert isinstance(model, OpenAIChatModel)
+    assert model.parameters.thinking_enable is False
 
 
-def test_missing_model_and_api_key_report_both_fallbacks() -> None:
-    with pytest.raises(RuntimeError) as exc_info:
-        model_module.build_model_from_env({})
-
-    message = str(exc_info.value)
-    assert "QWENPAW_DATA_MODEL_NAME (or LLM_MODEL)" in message
-    assert "QWENPAW_DATA_MODEL_API_KEY (or OPENAI_API_KEY)" in message
+def test_build_model_rejects_unknown_provider() -> None:
+    # ``context_size`` is pinned so the model reaches provider dispatch; an
+    # unknown provider is not in the builtin registry to supply one itself.
+    with pytest.raises(ValueError, match="unsupported provider_id"):
+        build_model(_model(provider_id="unknown", context_size=128_000), usage=_USAGE)
 
 
-def test_unsupported_provider_does_not_expose_api_key() -> None:
-    secret = "must-not-leak"
-
-    with pytest.raises(RuntimeError) as exc_info:
-        model_module.build_model_from_env(
-            {
-                "QWENPAW_DATA_MODEL_PROVIDER": "unsupported",
-                "QWENPAW_DATA_MODEL_NAME": "model",
-                "QWENPAW_DATA_MODEL_API_KEY": secret,
-            },
-        )
-
-    message = str(exc_info.value)
-    assert "Unsupported QWENPAW_DATA_MODEL_PROVIDER='unsupported'" in message
-    assert secret not in message
+def test_build_model_requires_api_key() -> None:
+    with pytest.raises(ValueError, match="api_key is required"):
+        build_model(_model(api_key=""), usage=_USAGE)

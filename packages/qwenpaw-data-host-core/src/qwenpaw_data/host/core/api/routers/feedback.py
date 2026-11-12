@@ -1,28 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Like/dislike reactions and appended feedback on a chat."""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from qwenpaw_data.host.core.api.deps import ServiceState, get_identity, get_state
+from qwenpaw_data.host.core.api.deps import get_db, get_identity
 from qwenpaw_data.host.core.api.errors import map_domain_error
-from qwenpaw_data.host.core.api.models.chat import FeedbackSchema
+from qwenpaw_data.host.core.api.mappers import feedback_to_schema
 from qwenpaw_data.host.core.api.models.requests import FeedbackRequest
 from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.utils.time import utcnow
+from qwenpaw_data.host.core.repositories import ChatRepository, FeedbackRepository
+from qwenpaw_data.host.core.utils.session import access_session
 
 router = APIRouter(prefix="/sessions/{session_id}/chats/{chat_id}", tags=["feedback"])
-
-
-def _to_schema(data: dict[str, Any]) -> dict[str, Any]:
-    return FeedbackSchema.model_validate(data).model_dump(mode="json")
-
-
-async def _touch_chat(state: ServiceState, chat) -> None:
-    chat.updated_at = utcnow()
-    await state.chats.save(chat)
 
 
 @router.post("/feedback")
@@ -31,24 +23,23 @@ async def feedback(
     chat_id: str,
     body: FeedbackRequest,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    chat_repo = ChatRepository(db, identity)
     try:
-        chat = await state.chats.get(chat_id, session_id=session_id)
+        await access_session(db, identity, session_id, write=True)
+        chat = await chat_repo.get(chat_id, session_id=session_id)
+        feedback_repo = FeedbackRepository(db, identity)
         if body.kind in {"like", "dislike"}:
-            fb = await state.feedback.set_reaction(
-                user_id=identity.user_id,
-                session_id=session_id,
-                chat_id=chat_id,
+            fb = await feedback_repo.set_reaction(
+                chat,
                 kind=body.kind,
                 reason=body.reason,
                 detail=body.detail,
             )
         else:
-            fb = await state.feedback.add(
-                user_id=identity.user_id,
-                session_id=session_id,
-                chat_id=chat_id,
+            fb = await feedback_repo.add(
+                chat,
                 kind=body.kind,
                 reason=body.reason,
                 detail=body.detail,
@@ -58,13 +49,13 @@ async def feedback(
                     else None
                 ),
             )
-        await _touch_chat(state, chat)
+        await chat_repo.save(chat)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:
             raise http from exc
         raise
-    return {"feedback": _to_schema(fb)}
+    return {"feedback": feedback_to_schema(fb)}
 
 
 @router.get("/feedback/reaction")
@@ -72,19 +63,18 @@ async def get_feedback_reaction(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        await state.chats.get(chat_id, session_id=session_id)
-        reaction = await state.feedback.get_reaction(
-            identity.user_id, session_id, chat_id
-        )
+        await access_session(db, identity, session_id)
+        chat = await ChatRepository(db, identity).get(chat_id, session_id=session_id)
+        reaction = await FeedbackRepository(db, identity).get_reaction(chat)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:
             raise http from exc
         raise
-    return {"feedback": _to_schema(reaction) if reaction else None}
+    return {"feedback": feedback_to_schema(reaction) if reaction else None}
 
 
 @router.delete("/feedback/reaction", status_code=204)
@@ -92,12 +82,14 @@ async def delete_feedback_reaction(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
+    chat_repo = ChatRepository(db, identity)
     try:
-        chat = await state.chats.get(chat_id, session_id=session_id)
-        await state.feedback.clear_reaction(identity.user_id, session_id, chat_id)
-        await _touch_chat(state, chat)
+        await access_session(db, identity, session_id, write=True)
+        chat = await chat_repo.get(chat_id, session_id=session_id)
+        await FeedbackRepository(db, identity).clear_reaction(chat)
+        await chat_repo.save(chat)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:

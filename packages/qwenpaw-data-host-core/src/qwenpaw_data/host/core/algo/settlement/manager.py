@@ -1,28 +1,17 @@
 # -*- coding: utf-8 -*-
-"""SettlementManager: detection orchestrator on the host's store layer.
+"""SettlementManager: cloud-adapted detection orchestrator.
 
-Reads chat events from the event store, runs SettlementDetector for
-extraction, and commits new cards to the settlement store.
+Reads chat events from the DB, runs SettlementDetector for extraction,
+and commits new cards to settlement_cards table.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
-from qwenpaw_data.host.core.algo.biztrace.llm import (
-    StructuredLLM,
-    for_structured_calls,
-)
-from qwenpaw_data.host.core.cm_client import API_TOKEN_ENV, CLIENT_API_TOKEN_ENV
-from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.store.protocols import (
-    ChatEventStore,
-    ChatStore,
-    SessionStore,
-    SettlementStore,
-)
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .cm_utils import (
     SettlementCmClient,
@@ -33,6 +22,11 @@ from .cm_utils import (
 )
 from .models import DetectedItem
 from .settings import SettlementSettings
+from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.repositories.chat import ChatRepository
+from qwenpaw_data.host.core.repositories.chat_event import ChatEventRepository
+from qwenpaw_data.host.core.repositories.settlement import SettlementRepository
+from qwenpaw_data.host.core.utils.auth import generate_temporary_token
 
 logger = logging.getLogger(__name__)
 
@@ -50,66 +44,52 @@ class SettlementManager:
 
     def __init__(
         self,
+        db: AsyncSession,
         *,
-        sessions: SessionStore,
-        chats: ChatStore,
-        events: ChatEventStore,
-        cards: SettlementStore,
         identity: Identity | None = None,
-        user_runtime_config: Any = None,
         settings: SettlementSettings | None = None,
-        access_token: str | None = None,
     ) -> None:
-        self._sessions = sessions
-        self._chats = chats
-        self._events = events
-        self._cards = cards
-        self._identity = identity or Identity.anonymous()
-        self._user_runtime_config = user_runtime_config
-        self._settings = settings if settings is not None else SettlementSettings()
-        self._access_token = access_token
-
-    @property
-    def _user_id(self) -> str:
-        return self._identity.user_id
-
-    def _resolve_access_token(self) -> str | None:
-        if self._access_token is not None:
-            return self._access_token.strip() or None
-        return (
-            (os.environ.get(CLIENT_API_TOKEN_ENV) or "").strip()
-            or (os.environ.get(API_TOKEN_ENV) or "").strip()
-            or None
+        self._db = db
+        self._identity = identity or Identity(
+            user_id="system", tenant_id="default", workspace_id="default"
         )
+        self._settings = settings if settings is not None else SettlementSettings()
+        self._repo = SettlementRepository(db, self._identity)
+        self._chats = ChatRepository(db, self._identity)
+        self._events = ChatEventRepository(db, self._identity)
 
-    def _build_llm(self) -> StructuredLLM | None:
-        """The light model if configured, else default, else env; None disables.
-
-        Settlement has no rules-only fallback: without a usable model the
-        turn simply settles nothing.
-        """
-        from qwenpaw_data.host.core.model import build_model_from_env
-        from qwenpaw_data.host.core.providers.factory import build_model
-
-        config = self._user_runtime_config
-        active = None
-        if config is not None:
-            active = getattr(config, "light", None) or getattr(
-                config, "default", None
-            )
+    async def _resolve_access_token(self) -> str | None:
         try:
-            if active is not None:
-                model = for_structured_calls(build_model(active))
-            else:
-                model = for_structured_calls(build_model_from_env())
-        except Exception:
-            logger.exception("Settlement has no usable model; skipping detection")
+            return await asyncio.to_thread(generate_temporary_token, self._identity)
+        except (LookupError, PermissionError, RuntimeError):
+            logger.exception(
+                "Settlement temporary token mint failed for user=%s",
+                self._identity.user_id,
+            )
             return None
-        return StructuredLLM(
-            model,
-            timeout=self._settings.llm_timeout,
-            attempts=self._settings.llm_attempts,
-            concurrency=self._settings.confirmer_concurrency,
+
+    async def _build_model(self, *, session_id: str, chat_id: str) -> Any:
+        from .llm import for_structured_calls
+        from qwenpaw_data.host.core.domain.model_usage import (
+            ModelUsageContext,
+            ModelUsageSource,
+        )
+        from qwenpaw_data.host.core.providers.factory import build_model
+        from qwenpaw_data.host.core.repositories import PreferencesRepository
+
+        prefs = await PreferencesRepository(self._db, self._identity).load()
+        config = prefs.resolve()
+        active = config.light or config.default
+        return for_structured_calls(
+            build_model(
+                active,
+                usage=ModelUsageContext(
+                    ModelUsageSource.SETTLEMENT,
+                    self._identity,
+                    session_id,
+                    chat_id,
+                ),
+            )
         )
 
     async def on_chat_finish(self, *, chat_id: str, session_id: str) -> None:
@@ -126,15 +106,21 @@ class SettlementManager:
                     chat_id,
                 )
         except Exception:
-            logger.warning("Settlement detection failed for chat %s", chat_id, exc_info=True)
+            logger.warning(
+                "Settlement detection failed for chat %s", chat_id, exc_info=True
+            )
 
-    def schedule_cm_ingest(
+    async def schedule_cm_ingest(
         self,
         card: dict[str, Any],
         *,
         datasource_id: str | None = None,
     ) -> None:
-        """After confirm: async CM feedback_card writeback (fail-soft, non-blocking)."""
+        """After repo.confirm: async CM feedback_card writeback (fail-soft, non-blocking).
+
+        ``datasource_id`` / temporary token must be resolved before scheduling —
+        the background task must not reuse this request AsyncSession.
+        """
         ds = (datasource_id or "").strip() or None
         if not ds:
             logger.warning(
@@ -142,7 +128,7 @@ class SettlementManager:
                 card.get("id"),
             )
             return
-        access_token = self._resolve_access_token()
+        access_token = await self._resolve_access_token()
         _track(
             asyncio.create_task(
                 self._ingest_confirmed_safe(
@@ -189,30 +175,33 @@ class SettlementManager:
         window_events = await self._read_window_events(session_id, chat_id)
         if not window_events:
             logger.warning(
-                "Settlement: no window events for chat=%s session=%s user=%s",
+                "Settlement: no window events for chat=%s session=%s identity=%s/%s/%s",
                 chat_id,
                 session_id,
-                self._user_id,
+                self._identity.user_id,
+                self._identity.tenant_id,
+                self._identity.workspace_id,
             )
             return []
 
         recent_turns = self._extract_conversation(window_events)
         if not recent_turns:
             logger.warning(
-                "Settlement: window had %d events but no message turns chat=%s user=%s",
+                "Settlement: window had %d events but no message turns chat=%s identity=%s/%s/%s",
                 len(window_events),
                 chat_id,
-                self._user_id,
+                self._identity.user_id,
+                self._identity.tenant_id,
+                self._identity.workspace_id,
             )
             return []
 
         pool_summary = await self._load_pool_summary(session_id)
         datasource_id = await self._load_datasource_id(session_id)
-        cm = self._create_cm_client(datasource_id=datasource_id)
+        cm = await self._create_cm_client(datasource_id=datasource_id)
         domain_names = await self._resolve_domain_names(cm)
         if not domain_names:
-            # Without a domain allowlist there is nothing to recommend against
-            # (the LLM inventing domains would hammer CM with bogus names).
+            # 无可用业务域白名单时不做推荐（避免 LLM 自造域名打爆 CM）
             logger.warning(
                 "Settlement: skip recommend — list_domains empty chat=%s session=%s ds=%s",
                 chat_id,
@@ -221,33 +210,40 @@ class SettlementManager:
             )
             return []
 
-        llm = self._build_llm()
-        if llm is None:
-            return []
+        model = await self._build_model(session_id=session_id, chat_id=chat_id)
+        cfg = self._settings
         result = await self._detect(
-            llm, recent_turns, pool_summary,
+            model,
+            recent_turns,
+            pool_summary,
             domain_names=domain_names,
+            timeout=cfg.llm_timeout,
+            attempts=cfg.llm_attempts,
         )
         if result is None or not result.items:
             return []
 
         items = result.items
 
-        # Store-level dedupe — dismissed cards are never re-recommended.
-        items = await self._filter_dismissed(llm, items, session_id)
+        # DB 去重 — 已拒绝的 cards 不再推荐
+        items = await self._filter_dismissed(model, items, session_id)
         if not items:
             logger.info("Settlement: all items filtered by dismissed history")
             return []
 
         confirmed_items = await self._confirm_with_cm(
-            llm, cm, items,
+            model,
+            cm,
+            items,
+            session_id=session_id,
+            chat_id=chat_id,
             datasource_id=datasource_id,
             domain_names=domain_names,
         )
         if not confirmed_items:
             return []
 
-        # CM feedback_card dry-run: only items that can land reach the user.
+        # CM feedback_card dry-run：只有能落图的才入库给用户确认
         confirmed_items = await self._filter_feedback_dry_run(
             confirmed_items,
             session_id=session_id,
@@ -268,28 +264,22 @@ class SettlementManager:
     async def _read_window_events(
         self, session_id: str, current_chat_id: str
     ) -> list[Any]:
-        """Events of the last N unconsumed chats (sliding window).
+        """读取最近 N 个未消费 chat 的 events（滑动窗口）。
 
-        Prior turns count only when completed; the current chat counts
-        regardless of status (the host may trigger before it is marked
-        completed). Chats before the last card-producing chat are cut off
-        by the watermark.
+        历史轮仅纳入 completed；当前 chat 无论 status 都纳入
+        （Host 可能在 ReplyEnd 时触发，此时尚未 mark completed）。
+        已成功产出 settlement cards 的 chat 经水位截断后不再纳入窗口。
         """
-        all_chats = sorted(
-            await self._chats.list_for_session(session_id),
-            key=lambda c: c.sequence,
-        )
+        all_chats = await self._chats.list_for_session(session_id)
+        # list_for_session 按 sequence 升序
         valid = [
-            c
-            for c in all_chats
-            if c.status == "completed" or c.id == current_chat_id
+            c for c in all_chats if c.status == "completed" or c.id == current_chat_id
         ]
 
         watermark_chat_id = await self._get_watermark_chat_id(session_id)
         if watermark_chat_id:
-            # Locate the watermark in the full session order, then truncate the
-            # valid list. The watermark chat itself need not still be completed
-            # (a silently void watermark would rescan earlier turns).
+            # 在完整会话顺序里定位水位，再截断 valid 列表。
+            # 水位 chat 本身不必仍是 completed（避免水位「静默失效」回扫更早轮次）。
             wm_seq = next(
                 (c.sequence for c in all_chats if c.id == watermark_chat_id),
                 None,
@@ -310,7 +300,7 @@ class SettlementManager:
                 break
 
         if current_idx is None:
-            # Current chat missing from the window (watermark/data mismatch) → skip.
+            # 当前 chat 不在 valid 窗口（异常：identity/水位/数据不一致）→ 跳过
             logger.warning(
                 "Settlement: current chat %s not in session window; skip",
                 current_chat_id,
@@ -318,21 +308,21 @@ class SettlementManager:
             return []
 
         start = max(0, current_idx - self._settings.window_size + 1)
-        window_chats = valid[start: current_idx + 1]
+        window_chats = valid[start : current_idx + 1]
 
         window_events: list[Any] = []
         for chat in window_chats:
-            events = await self._events.read_after(chat.id, -1)
+            events = await self._events.read_after(chat.id, after=0)
             window_events.extend(events)
 
         return window_events
 
     async def _get_watermark_chat_id(self, session_id: str) -> str | None:
-        """The source_chat_id of the session's latest card, if any."""
-        all_cards = await self._cards.list_by_session(self._user_id, session_id)
+        """查找 session 内最近一次成功产出 card 的 source_chat_id。"""
+        all_cards = await self._repo.list_by_session(session_id)
         if not all_cards:
             return None
-        # list_by_session is created_at desc; [0] is the newest card
+        # list_by_session 按 created_at desc 排序，[0] 是最新的 card
         return all_cards[0].get("source_chat_id")
 
     def _extract_conversation(self, window_events: list[Any]) -> list[dict[str, Any]]:
@@ -351,17 +341,11 @@ class SettlementManager:
         return recent_turns
 
     async def _load_pool_summary(self, session_id: str) -> list[dict[str, Any]]:
-        """Items already settled this session, so the detector avoids repeats."""
-        pending = await self._cards.list_by_session(
-            self._user_id, session_id, status="pending"
-        )
-        queried = await self._cards.list_by_session(
-            self._user_id, session_id, status="queried"
-        )
-        confirmed = await self._cards.list_by_session(
-            self._user_id, session_id, status="confirmed"
-        )
-        # Each list is created_at desc; merge then truncate.
+        """本 session 已算过的项（pending/queried/confirmed），供 Detector 避免重复提取。"""
+        pending = await self._repo.list_by_session(session_id, status="pending")
+        queried = await self._repo.list_by_session(session_id, status="queried")
+        confirmed = await self._repo.list_by_session(session_id, status="confirmed")
+        # list_by_session 均为 created_at desc；合并后截断
         merged = pending + queried + confirmed
         return [
             {"id": c["id"], "type": c["type"], "fields": c["fields"]}
@@ -370,53 +354,63 @@ class SettlementManager:
 
     async def _load_datasource_id(self, session_id: str) -> str | None:
         try:
-            session = await self._sessions.get(session_id)
-            return session.datasource_id
+            from qwenpaw_data.host.core.db.tables import SessionRow
+
+            row = await self._db.get(SessionRow, session_id)
+            return row.datasource_id if row else None
         except Exception:
             logger.debug(
-                "Failed to load datasource_id for session %s", session_id,
-                exc_info=True,
+                "Failed to load datasource_id for session %s", session_id, exc_info=True
             )
             return None
 
     async def _filter_dismissed(
-        self, llm: StructuredLLM, items: list[DetectedItem], session_id: str
+        self, model: Any, items: list[DetectedItem], session_id: str
     ) -> list[DetectedItem]:
-        """Drop cards the user already dismissed (semantic equality, LLM-judged)."""
-        dismissed = await self._cards.list_by_session(
-            self._user_id, session_id, status="dismissed"
-        )
+        """过滤掉用户已拒绝过的语义等价 cards（LLM 判断）。"""
+        dismissed = await self._repo.list_by_session(session_id, status="dismissed")
         if not dismissed:
             return items
 
-        # created_at desc; only the most recent N, to bound the prompt.
+        # list_by_session 按 created_at desc；只取最近 N 条，避免 prompt 无限膨胀
         limit = self._settings.dismissed_summary_limit
         dismissed = dismissed[:limit]
 
         from .dismissed_filter import DismissedFilter
 
-        f = DismissedFilter(llm)
-        return await f.filter(items, dismissed)
+        f = DismissedFilter(model)
+        return await f.filter(
+            items,
+            dismissed,
+            timeout=self._settings.llm_timeout,
+            attempts=self._settings.llm_attempts,
+        )
 
     async def _confirm_with_cm(
         self,
-        llm: StructuredLLM,
+        model: Any,
         cm: SettlementCmClient,
         items: list[Any],
         *,
+        session_id: str,
+        chat_id: str,
         datasource_id: str | None = None,
         domain_names: list[str] | None = None,
     ) -> list[Any]:
-        """Ask CM to filter out knowledge the semantic layer already has."""
+        """调 CM 确认，过滤掉语义层已有的等价知识。"""
         try:
             from .confirmer import SettlementConfirmer
 
             confirmer = SettlementConfirmer(
-                llm,
+                model,
+                session_id=session_id,
+                chat_id=chat_id,
                 cm=cm,
                 datasource_id=datasource_id,
                 domain_names=domain_names,
                 concurrency=self._settings.confirmer_concurrency,
+                retrieval_max_iters=self._settings.retrieval_max_iters,
+                cm_timeout=self._settings.cm_timeout,
             )
             return await confirmer.confirm(items)
         except Exception:
@@ -469,8 +463,7 @@ class SettlementManager:
             if feedback_dry_run_recommendable(record):
                 return item
             logger.info(
-                "Settlement: drop item after feedback dry-run type=%s "
-                "http=%s ack=%s",
+                "Settlement: drop item after feedback dry-run type=%s http=%s ack=%s",
                 type_key,
                 record.get("status"),
                 ack,
@@ -482,32 +475,37 @@ class SettlementManager:
 
     async def _detect(
         self,
-        llm: StructuredLLM,
+        model: Any,
         recent_turns: list[dict[str, Any]],
         pool_summary: list[dict[str, Any]],
         *,
         domain_names: list[str] | None = None,
+        timeout: float = 30.0,
+        attempts: int = 2,
     ) -> Any | None:
         from .detector import SettlementDetector
 
-        detector = SettlementDetector(llm)
+        detector = SettlementDetector(model)
         return await detector.detect(
-            recent_turns, pool_summary,
+            recent_turns,
+            pool_summary,
             domain_names=domain_names,
+            timeout=timeout,
+            attempts=attempts,
         )
 
-    def _create_cm_client(
+    async def _create_cm_client(
         self, *, datasource_id: str | None = None
     ) -> SettlementCmClient:
-        """The CM REST client settlement calls use."""
+        """创建 settlement 用的 CM REST client。"""
         return SettlementCmClient(
-            access_token=self._resolve_access_token(),
+            access_token=await self._resolve_access_token(),
             datasource_id=datasource_id,
             timeout=self._settings.cm_timeout,
         )
 
     async def _resolve_domain_names(self, cm: SettlementCmClient) -> list[str]:
-        """Fetch the available domain names via CM list_domains."""
+        """调 CM list_domains 获取可用 domain 名称列表。"""
         try:
             return await cm.list_domain_names()
         except Exception:
@@ -524,12 +522,8 @@ class SettlementManager:
         """Write pending cards; replace same-subject pending/queried by delete+insert."""
         from .subject import normalize_item_fields, subject_key
 
-        pending = await self._cards.list_by_session(
-            self._user_id, session_id, status="pending"
-        )
-        queried = await self._cards.list_by_session(
-            self._user_id, session_id, status="queried"
-        )
+        pending = await self._repo.list_by_session(session_id, status="pending")
+        queried = await self._repo.list_by_session(session_id, status="queried")
         # subject_key -> all actionable card ids (session + this batch)
         pending_by_subject: dict[str, list[str]] = {}
         for card in pending + queried:
@@ -545,8 +539,8 @@ class SettlementManager:
 
             if key:
                 for old_id in pending_by_subject.pop(key, []):
-                    if await self._cards.delete_if_unconfirmed(
-                        self._user_id, old_id, session_id=session_id
+                    if await self._repo.delete_if_unconfirmed(
+                        old_id, session_id=session_id
                     ):
                         logger.info(
                             "Settlement: replaced card %s subject=%s",
@@ -554,8 +548,7 @@ class SettlementManager:
                             key,
                         )
 
-            card = await self._cards.add(
-                user_id=self._user_id,
+            card = await self._repo.add(
                 session_id=session_id,
                 source_chat_id=chat_id,
                 type=type_key,
@@ -565,4 +558,5 @@ class SettlementManager:
             if key:
                 pending_by_subject[key] = [card["id"]]
 
+        await self._db.flush()
         return new_cards

@@ -12,8 +12,7 @@ from typing import Literal
 from pydantic import Field, SecretStr
 
 from .common import ApiModel
-from ...domain.preference import UserRuntimeConfig
-from ...providers.registry import ActiveModel
+from ...domain.preference import ActiveModel, UserRuntimeConfig
 
 MODEL_BINDING_HEADER = "x-qwenpaw-model-binding"
 

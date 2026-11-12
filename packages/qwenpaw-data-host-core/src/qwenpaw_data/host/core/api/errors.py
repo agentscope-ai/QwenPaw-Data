@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import NoReturn
-
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -11,19 +9,13 @@ from qwenpaw_data.host.core.domain.steer import SteerChatEndedError
 
 
 def raise_api(
-    code: str,
-    message: str,
-    *,
-    status: int,
-    details: dict | None = None,
-) -> NoReturn:
+    code: str, message: str, *, status: int, details: dict | None = None
+) -> None:
     raise HTTPException(
         status_code=status,
         detail=ErrorBodySchema(
-            code=code,  # type: ignore[arg-type]
-            message=message,
-            details=details,
-        ).model_dump(),
+            code=code, message=message, details=details
+        ).model_dump(),  # type: ignore[arg-type]
     )
 
 
@@ -75,10 +67,7 @@ def map_domain_error(exc: Exception) -> HTTPException | None:
     return None
 
 
-async def http_exception_handler(
-    _request: Request,
-    exc: HTTPException,
-) -> JSONResponse:
+async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail
     if isinstance(detail, dict) and "code" in detail:
         return JSONResponse(status_code=exc.status_code, content=detail)

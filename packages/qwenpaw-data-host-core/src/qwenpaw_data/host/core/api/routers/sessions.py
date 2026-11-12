@@ -4,10 +4,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from qwenpaw_data.host.core.api.deps import ServiceState, get_identity, get_state
+from qwenpaw_data.host.core.api.deps import get_db, get_identity
 from qwenpaw_data.host.core.api.errors import map_domain_error
-from qwenpaw_data.host.core.api.mappers import chat_to_schema, session_to_schema
+from qwenpaw_data.host.core.api.mappers import (
+    chat_bundle_to_schema,
+    session_to_schema,
+)
 from qwenpaw_data.host.core.api.models.requests import (
     CreateSessionRequest,
     ForkSessionRequest,
@@ -15,8 +19,17 @@ from qwenpaw_data.host.core.api.models.requests import (
 )
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.session import Session
-from qwenpaw_data.host.core.fork import fork_session
-from qwenpaw_data.host.core.store.protocols import ChatEventStore
+from qwenpaw_data.host.core.tracing.records import tracer_record_behavior
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories import (
+    ChatRepository,
+    SessionForkRepository,
+    SessionRepository,
+    SnapshotRepository,
+)
+from qwenpaw_data.host.core.settings import get_settings
+from qwenpaw_data.host.core.utils.session import access_session
+from qwenpaw_data.host.core.workspace import get_workspace_manager
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -25,17 +38,26 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def create_session(
     body: CreateSessionRequest,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    session_repo = SessionRepository(db, identity)
     try:
+        if body.parent_session_id:
+            await access_session(db, identity, body.parent_session_id, write=True)
         session = Session.create(
             identity=identity,
             agent_id=body.agent_id,
             title=body.title,
             datasource_id=body.datasource_id,
+            parent_session_id=body.parent_session_id,
+            enable_clarification=body.enable_clarification,
         )
-        await state.sessions.add(session)
-        return {"session": session_to_schema(session, has_active_chat=False)}
+        await session_repo.add(session)
+        return {
+            "session": session_to_schema(
+                session, has_active_chat=await session_repo.has_active_chat(session.id)
+            )
+        }
     except Exception as exc:
         http = map_domain_error(exc)
         if http:
@@ -46,7 +68,8 @@ async def create_session(
 @router.get("")
 async def list_sessions(
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
+    session_id: str | None = None,
     search_text: str | None = None,
     status: str | None = None,
     datasource_id: str | None = None,
@@ -54,11 +77,12 @@ async def list_sessions(
     sort: str = "updated_desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    min_chat_count: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    _ = identity
+    session_repo = SessionRepository(db, identity)
     try:
-        items, total = await state.sessions.list(
-            user_id=identity.user_id,
+        items, total = await session_repo.list(
+            session_id=session_id,
             search_text=search_text,
             status=status,
             datasource_id=datasource_id,
@@ -66,6 +90,7 @@ async def list_sessions(
             sort=sort,
             page=page,
             page_size=page_size,
+            min_chat_count=min_chat_count,
         )
     except Exception as exc:
         http = map_domain_error(exc)
@@ -82,15 +107,14 @@ async def list_sessions(
 async def get_session(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _ = identity
+    session_repo = SessionRepository(db, identity)
     try:
-        session = await state.sessions.get(session_id)
+        session = await access_session(db, identity, session_id)
         return {
             "session": session_to_schema(
-                session,
-                has_active_chat=await state.sessions.has_active_chat(session.id),
+                session, has_active_chat=await session_repo.has_active_chat(session.id)
             )
         }
     except Exception as exc:
@@ -105,17 +129,37 @@ async def patch_session(
     session_id: str,
     body: PatchSessionRequest,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _ = identity
+    session_repo = SessionRepository(db, identity)
     try:
-        session = await state.sessions.get(session_id)
+        session = await access_session(db, identity, session_id, write=True)
         session.rename(body.title)
-        await state.sessions.save(session)
+        if body.share_scope is not None:
+            session.set_share_scope(body.share_scope)
+            await tracer_record_behavior(
+                db,
+                identity,
+                session_id=session.id,
+                kind="share",
+                target_type="session",
+                target_id=session.id,
+                payload={"share_scope": session.share_scope},
+                score_name="share",
+                value=session.share_scope,
+                score_on="session",
+            )
+        if body.enable_clarification is not None:
+            session.set_enable_clarification(body.enable_clarification)
+            chat_repo = ChatRepository(db, identity)
+            active = await chat_repo.get_active(session.id)
+            if active is not None:
+                active.set_enable_clarification(body.enable_clarification)
+                await chat_repo.save(active)
+        await session_repo.save(session)
         return {
             "session": session_to_schema(
-                session,
-                has_active_chat=await state.sessions.has_active_chat(session.id),
+                session, has_active_chat=await session_repo.has_active_chat(session.id)
             )
         }
     except Exception as exc:
@@ -125,39 +169,44 @@ async def patch_session(
         raise
 
 
-@router.delete("/{session_id}", status_code=204)
+@router.delete("/{session_id}")
 async def delete_session(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
-) -> None:
-    _ = identity
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    session_repo = SessionRepository(db, identity)
     try:
-        await state.sessions.delete(session_id)
+        await access_session(db, identity, session_id, write=True)
+        deleted = await session_repo.delete(session_id)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:
             raise http from exc
         raise
+    if deleted is not None:
+        await get_workspace_manager().purge_session(
+            UserAgentPaths.from_identity(
+                home=get_settings().paths.home,
+                identity=identity,
+                agent_id=deleted.agent_id,
+                session_id=session_id,
+            ),
+            session_id=session_id,
+        )
+    return {"status": "ok"}
 
 
 @router.post("/{session_id}/fork")
-async def fork(
+async def fork_session(
     session_id: str,
     body: ForkSessionRequest,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _ = identity
     try:
-        session = await fork_session(
-            sessions=state.sessions,
-            chats=state.chats,
-            events=state.events,
-            attachments=state.attachments,
-            home=state.hosts.home,
-            session_id=session_id,
-            chat_id=body.chat_id,
+        session = await SessionForkRepository(db, identity).execute(
+            session_id, body.chat_id
         )
     except Exception as exc:
         http = map_domain_error(exc)
@@ -167,47 +216,18 @@ async def fork(
     return {"session": session_to_schema(session, has_active_chat=False)}
 
 
-async def bundle_extras(
-    events: ChatEventStore,
-    chat_id: str,
-) -> dict[str, Any]:
-    """Segments, main-channel biz events, artifacts, last followup."""
-    segments: list[dict[str, Any]] = []
-    biz_events: list[dict[str, Any]] = []
-    artifacts: list[dict[str, Any]] = []
-    followup: dict[str, Any] | None = None
-    for obj in await events.read_after(chat_id, -1):
-        if obj.object == "segment":
-            segments.append(obj.segment.model_dump(mode="json"))
-        elif obj.object == "biz_event" and obj.biz_event.channel == "main":
-            biz_events.append(obj.biz_event.model_dump(mode="json"))
-        elif obj.object == "artifact.registered":
-            artifacts.append(obj.artifact.model_dump(mode="json"))
-        elif obj.object == "followup.generated":
-            followup = obj.followup.model_dump(mode="json")
-    return {
-        "segments": segments,
-        "biz_events": biz_events,
-        "artifacts": artifacts,
-        "followup": followup,
-    }
-
-
 @router.get("/{session_id}/snapshot")
 async def snapshot(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(15, ge=1, le=100),
+    before_sequence: int | None = Query(None, ge=1),
 ) -> dict[str, Any]:
-    _ = identity
     try:
-        session = await state.sessions.get(session_id)
-        active = await state.sessions.has_active_chat(session_id)
-        chats = await state.chats.list_for_session(session_id)
-        bundles = [
-            chat_to_schema(chat, await bundle_extras(state.events, chat.id))
-            for chat in chats
-        ]
+        session, active, bundles, has_more = await SnapshotRepository(
+            db, identity
+        ).load(session_id, limit=limit, before_sequence=before_sequence)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:
@@ -215,5 +235,6 @@ async def snapshot(
         raise
     return {
         "session": session_to_schema(session, has_active_chat=active),
-        "chats": bundles,
+        "chats": [chat_bundle_to_schema(b) for b in bundles],
+        "has_more": has_more,
     }
