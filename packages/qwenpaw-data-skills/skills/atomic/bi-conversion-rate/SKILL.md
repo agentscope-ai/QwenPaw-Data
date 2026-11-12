@@ -26,7 +26,7 @@ date,访问用户数,对话用户数
 使用 `<skill-dir>/scripts/compute_conversion.py` 脚本，计算用户从某初始状态到目标状态的转化率（计算结果保留小数点后 5 位）。
 
 ```bash
-python <skill-dir>/scripts/compute_retention.py --input_file "<输入数据文件路径 (CSV)>" --metric_name "<转化率名称>" --begin_col "<初始行为状态的对象列名>" --end_col "<目标/结束行为状态的对象列名>"
+python <skill-dir>/scripts/compute_conversion.py --input_file "<输入数据文件路径 (CSV)>" --metric_name "<转化率名称>" --begin_col "<初始行为状态的对象列名>" --end_col "<目标/结束行为状态的对象列名>"
 ```
 
 **参数说明**：

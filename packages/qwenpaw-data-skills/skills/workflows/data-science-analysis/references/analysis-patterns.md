@@ -36,8 +36,8 @@ print(f"Selected row:\n{result}")
 For range/duration edge cases, define inclusion rules explicitly:
 
 ```python
-overlap = df[(df["start"] <= window_end) & (df["end"] >= window_start)]   # inclusive
-strict  = df[(df["start"] > window_start) & (df["end"] < window_end)]     # exclusive
+overlap = df[(df["start"] <= window_end) & (df["end"] >= window_start)]  # inclusive
+strict = df[(df["start"] > window_start) & (df["end"] < window_end)]  # exclusive
 df["duration_inclusive"] = df["end_year"] - df["start_year"] + 1
 df["duration_exclusive"] = df["end_year"] - df["start_year"]
 ```
@@ -49,13 +49,21 @@ df["duration_exclusive"] = df["end_year"] - df["start_year"]
 When events span multiple rows, group by a **stable identifier** to avoid double-counting:
 
 ```python
-grouped = df.groupby("conflict_id").agg({
-    "start_year": "min",
-    "end_year": "max",
-    "participants": "first",
-}).reset_index()
+grouped = (
+    df.groupby("conflict_id")
+    .agg(
+        {
+            "start_year": "min",
+            "end_year": "max",
+            "participants": "first",
+        }
+    )
+    .reset_index()
+)
 
-filtered = grouped[(grouped["start_year"] >= start_bound) & (grouped["end_year"] <= end_bound)]
+filtered = grouped[
+    (grouped["start_year"] >= start_bound) & (grouped["end_year"] <= end_bound)
+]
 print(f"Raw rows: {len(df)}, Unique: {len(grouped)}, Filtered: {len(filtered)}")
 ```
 
@@ -101,7 +109,7 @@ When intersecting metadata IDs with primary data (biomedical linking), filter bo
 ```python
 common = set(metadata["sample_id"].dropna()) & set(primary["sample_id"].dropna())
 metadata = metadata[metadata["sample_id"].isin(common)]
-primary  = primary[primary["sample_id"].isin(common)]
+primary = primary[primary["sample_id"].isin(common)]
 ```
 
 ---
@@ -117,7 +125,7 @@ Numerator and denominator **must** share the exact same categorical, temporal, a
 Use the dataset's grand total (including "Unknown"/unclassified) as the denominator:
 
 ```python
-total_reports = df["report_count"].sum()   # includes all categories
+total_reports = df["report_count"].sum()  # includes all categories
 fraud_rate = fraud_reports / total_reports
 # WRONG: summing only known sub-categories skews the rate if "Unknown" is large
 ```
@@ -184,7 +192,7 @@ Exclude partial-year data from temporal averages:
 ```python
 df["year"] = df["date"].dt.year
 counts = df.groupby("year").size()
-complete = counts[counts >= 365].index   # or 12 for monthly
+complete = counts[counts >= 365].index  # or 12 for monthly
 df = df[df["year"].isin(complete)]
 ```
 
@@ -219,8 +227,8 @@ Detect peaks/troughs with a signal-processing library rather than manual thresho
 ```python
 from scipy.signal import find_peaks
 
-peaks, props = find_peaks(signal, prominence=0.5, distance=10)   # maxima
-troughs, _   = find_peaks(-signal, prominence=0.5, distance=10)  # minima (invert)
+peaks, props = find_peaks(signal, prominence=0.5, distance=10)  # maxima
+troughs, _ = find_peaks(-signal, prominence=0.5, distance=10)  # minima (invert)
 ```
 
 ### Ranking Top-N Extrema
@@ -241,7 +249,7 @@ import numpy as np
 
 peak_times = np.sort(time[peaks])
 gaps = np.diff(peak_times)
-n_events = 1 + int((gaps > tolerance).sum())   # clusters separated by > tolerance
+n_events = 1 + int((gaps > tolerance).sum())  # clusters separated by > tolerance
 ```
 
 ---
@@ -253,7 +261,7 @@ n_events = 1 + int((gaps > tolerance).sum())   # clusters separated by > toleran
 **Never use random splits** for time-series — always split chronologically, after merging and filtering to valid samples:
 
 ```python
-split_idx = int(len(data) * 0.7)   # percentage-based, not a hardcoded date
+split_idx = int(len(data) * 0.7)  # percentage-based, not a hardcoded date
 train, test = data.iloc[:split_idx], data.iloc[split_idx:]
 ```
 
@@ -312,8 +320,6 @@ import json
 from pathlib import Path
 
 artifact_dir = Path("artifacts/<session_id>")
-# Only for an active TaskGraph node explicitly supplied by the runtime:
-# artifact_dir /= Path("<graph_id>") / "<node_id>"
 artifact_path = artifact_dir / "answer.json"
 artifact_path.parent.mkdir(parents=True, exist_ok=True)
 answer_value = round(result, 2)  # exact requested precision, applied only here
@@ -321,8 +327,7 @@ with artifact_path.open("w") as f:
     json.dump({"answer": answer_value}, f)
 ```
 
-Replace `session_id` with the current runtime value. Add the graph/node suffix
-only when both IDs are supplied for an active TaskGraph node.
+Replace `session_id` with the current runtime value.
 
 - Numeric answers: raw numbers, no units, no thousands separators, no prose.
 - **Negative constraints** ("no explanation"): output only the bare answer value.

@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-skills"
-version = "0.3.4"
+version = "0.4.0"
 description = "Reusable data analysis skills for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"
@@ -18,6 +18,11 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 requires-python = ">=3.11"
+dependencies = ["jinja2>=3.1"]
+
+[project.optional-dependencies]
+analysis = ["pandas>=2", "numpy>=1.26", "scikit-learn>=1.4", "scipy>=1.12", "ruptures>=1.1", "chinese-calendar>=1.9"]
+reports = ["python-docx>=1.1"]
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
@@ -31,10 +36,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-bypass-selection = true
+packages = ["src/qwenpaw_data"]
+exclude = ["**/__pycache__", "**/*.pyc"]
 
 [tool.hatch.build.targets.wheel.force-include]
+# Assets retain the metadata path used by existing Apps; qwenpaw_data.skills
+# is the public accessor. One canonical bundle avoids duplicate wheel payloads.
 "skills" = "qwenpaw_data_skills/skills"
+"../../LICENSE" = "LICENSE"
+"../../NOTICE" = "NOTICE"
 
 [tool.hatch.build.targets.sdist.force-include]
 "../../LICENSE" = "LICENSE"

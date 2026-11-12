@@ -120,7 +120,7 @@ TaskGraph 节点： <workspace>/artifacts/<session_id>/<graph_id>/<node_id>
 ```
 
 - 只说"报告已生成"、"图表已完成"而不给路径，视为交付不完整
-- 路径与 `update_subtask(..., files=...)` 登记时的写法一致，不带 workspace、
+- 路径与 当前 Task 的产物登记 登记时的写法一致，不带 workspace、
   `artifacts` 或 `session_id` 前缀
 - 有多个交付物时逐个列出，主交付物放在最前
 - 按 §1.5，指向的始终是最新版本

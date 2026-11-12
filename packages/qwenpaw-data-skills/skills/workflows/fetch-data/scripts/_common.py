@@ -64,17 +64,6 @@ def fatal(logger: logging.Logger, msg: str, exit_code: int = EXIT_BAD_INPUT) -> 
     sys.exit(exit_code)
 
 
-def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge override into base (override wins on conflicts)."""
-    out = dict(base)
-    for key, val in override.items():
-        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
-            out[key] = deep_merge(out[key], val)
-        else:
-            out[key] = val
-    return out
-
-
 def render_prompt(template_name: str, **context: Any) -> str:
     try:
         from jinja2 import Environment, FileSystemLoader, StrictUndefined
