@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, QueryResult } from "../types";
+import type { GraphNode, GraphEdge, QueryResult } from '../types';
 
 /** Build rows + columns from a set of graph nodes.
  *  Generates table/text view data scoped to the given nodes only —
@@ -18,7 +18,7 @@ export function buildRowsFromNodes(nodes: GraphNode[]): {
   nodes.forEach((n) => {
     Object.keys(n.properties ?? {}).forEach((k) => propKeys.add(k));
   });
-  const columns = ["key", "label", "display_name", ...propKeys];
+  const columns = ['key', 'label', 'display_name', ...propKeys];
   return { rows, columns };
 }
 
@@ -30,9 +30,6 @@ export function buildRowsFromNodes(nodes: GraphNode[]): {
  *
  * @returns Array with a single `{ nodes, edges }` entry.
  */
-export function splitGraphIntoComponents(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-): QueryResult[] {
+export function splitGraphIntoComponents(nodes: GraphNode[], edges: GraphEdge[]): QueryResult[] {
   return [{ nodes, edges }];
 }

@@ -9,12 +9,6 @@ class WeaveTaskSubmit(BaseModel):
     weave_mode: str | None = None
 
 
-class WeaveTaskCallback(BaseModel):
-    task_id: str | None = None
-    status: str | None = None
-    error_msg: str | None = None
-
-
 class WeaveTaskResponse(BaseModel):
     id: int
     task_id: str | None = None
@@ -24,4 +18,5 @@ class WeaveTaskResponse(BaseModel):
     weave_mode: str | None = None
     status: str | None = None
     error_msg: str | None = None
+    cancel_requested: bool = False
     created_at: str | None = None

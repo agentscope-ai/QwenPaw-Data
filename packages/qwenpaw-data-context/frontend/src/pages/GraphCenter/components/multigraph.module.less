@@ -1,0 +1,150 @@
+/* Chips floating above cluster membranes (DOM overlay). Ported from
+   cm-graph-demo/styles.css .mg-chip* — class names are module-scoped because
+   chips are created imperatively via document.createElement. */
+
+.gcChipLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.gcCanvas {
+  position: absolute;
+  inset: 0;
+  animation: gcCanvasIn 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* G6/WebGL default clear is black. A leftover or not-yet-resized canvas
+     sits at (0, 0) and reads as a top-left 黑边. Keep every surface transparent
+     and block-level so it cannot paint that default backing. */
+  canvas {
+    display: block;
+    background: transparent !important;
+  }
+}
+
+@keyframes gcCanvasIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.gcChip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 12px;
+  color: #1f1f1f;
+  font-size: 13px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid; /* border color set inline per layer */
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translate(-50%, -100%);
+  pointer-events: auto;
+  user-select: none;
+  cursor: default;
+
+  b {
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+}
+
+.mcCount {
+  color: #8c8c8c;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mcGrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.12);
+  }
+}
+
+.mcShrink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  background: #ffffff;
+  border: 1px solid; /* stroke/text color set inline per layer */
+  border-radius: 50%;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #e6f4ff;
+  }
+}
+
+.mcGrow:disabled,
+.mcShrink:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.gcOverview {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 7;
+  display: none;
+  width: 176px;
+  height: 112px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.gcOverviewOn {
+  display: block;
+}
+
+.gcOverviewSvg {
+  display: block;
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .gcChip,
+:global(:root[data-qwenpaw-data-theme='dark']) .gcOverview,
+:global(:root[data-qwenpaw-data-theme='dark']) .mcShrink {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .mcCount {
+  color: var(--qwenpaw-data-color-text-secondary);
+}

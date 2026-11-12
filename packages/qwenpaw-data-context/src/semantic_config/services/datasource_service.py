@@ -6,26 +6,27 @@ import uuid
 from typing import Any
 
 import aiosqlite
+from qwenpaw_data_auth import Principal
 
 from semantic_config.errors import BadRequestError, NotFoundError, NotFoundNoBody
 from semantic_config.models.datasource import (
     ConnectionTestResponse,
     DatasourceCreate,
-    DatasourceMetadataResponse,
     DatasourceResponse,
     DatasourceUpdate,
 )
-from semantic_config.models.datasource_config import validate_config
+from semantic_config.models.datasource_config import resolve_type, validate_config
 from semantic_config.pagination import Page, offset
+from semantic_config.principal import require_admin
 from semantic_config.repositories import datasource_repo as repo
 from semantic_config.services import connection_tester
 
 log = logging.getLogger("semantic_config.datasource_service")
 
-from semantic_config.models.datasource_config import DatasourceType as _DatasourceType
-
-_ALLOWED_TYPES = {t.value for t in _DatasourceType}
-_SENSITIVE_CONFIG_KEYS = frozenset({"password", "access_key_secret", "sts_token"})
+#: Write-only config keys: never echoed in API responses, kept on blank same-type edits.
+_SENSITIVE_CONFIG_KEYS = frozenset(
+    {"password", "access_key_secret", "sts_token", "credentials_json"}
+)
 
 
 def _safe_config(raw_config: str | None) -> dict[str, Any] | None:
@@ -41,63 +42,99 @@ def _safe_config(raw_config: str | None) -> dict[str, Any] | None:
 
 def _to_response(row: aiosqlite.Row) -> DatasourceResponse:
     raw_config = row["config"]
+    keys = row.keys()
+    config = _safe_config(raw_config)
     return DatasourceResponse(
+        id=row["id"],
         datasource_id=row["datasource_id"],
         datasource_name=row["datasource_name"],
         datasource_type=row["datasource_type"],
-        config=_safe_config(raw_config),
+        config=config,
+        description=row["description"] if "description" in keys else None,
     )
 
 
-def _to_metadata_response(row: aiosqlite.Row) -> DatasourceMetadataResponse:
-    return DatasourceMetadataResponse(
-        datasource_id=row["datasource_id"],
-        datasource_name=row["datasource_name"],
-        datasource_type=row["datasource_type"],
-    )
+async def create(
+    db: aiosqlite.Connection, payload: DatasourceCreate, principal: Principal
+) -> DatasourceResponse:
+    """新建数据源（幂等）：同 tenant/workspace 下同名 + 同类型已存在则直接返回该行，不新建。
 
-
-async def create(db: aiosqlite.Connection, payload: DatasourceCreate) -> DatasourceResponse:
+    幂等键 = (datasource_name, 归一后的 datasource_type)；命中即返回已存在数据源，
+    连接配置不做校验/更新（“已存在即复用”，改配置请走 update）。
+    """
+    require_admin(principal)
     if not payload.datasource_name:
         raise BadRequestError("datasource_name 不能为空")
     if not payload.datasource_type:
         raise BadRequestError("datasource_type 不能为空")
 
-    datasource_type = payload.datasource_type
-    if datasource_type.lower() not in _ALLOWED_TYPES:
-        raise BadRequestError(f"数据源类型不支持: {datasource_type}")
+    # The type vocabulary is centralized in resolve_type (incl. legacy alias folding)
+    datasource_type = resolve_type(payload.datasource_type).value
+
+    # 幂等短路：同名同类型已存在则直接返回（config 不校验、不覆盖）。
+    existing = await repo.find_by_name_and_type(
+        db,
+        payload.datasource_name,
+        datasource_type,
+        principal.tenant_id,
+        principal.active_workspace_id,
+    )
+    if existing is not None:
+        return _to_response(existing)
 
     normalized = validate_config(datasource_type, payload.config)
 
-    # datasource_id 由后端自动生成：type-uuid（全局唯一，前端不传）
-    datasource_id = f"{datasource_type.lower()}-{uuid.uuid4().hex[:8]}"
+    # datasource_id is generated server-side: type-uuid (globally unique, never client-sent)
+    datasource_id = f"{datasource_type}-{uuid.uuid4().hex[:8]}"
 
     config_json = json.dumps(normalized, ensure_ascii=False)
     new_id = await repo.insert(
-        db, datasource_id, payload.datasource_name, datasource_type, config_json
+        db,
+        datasource_id,
+        payload.datasource_name,
+        datasource_type,
+        config_json,
+        description=payload.description,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.active_workspace_id,
+        created_by=principal.user_id,
     )
-    row = await repo.find_by_id(db, new_id)
+    row = await repo.find_by_id(
+        db, new_id, principal.tenant_id, principal.active_workspace_id
+    )
     return _to_response(row)
 
 
 async def update(
-    db: aiosqlite.Connection, datasource_id: str, payload: DatasourceUpdate
+    db: aiosqlite.Connection,
+    datasource_id: str,
+    payload: DatasourceUpdate,
+    principal: Principal,
 ) -> DatasourceResponse:
-    row = await repo.find_by_datasource_id(db, datasource_id)
+    require_admin(principal)
+    row = await repo.find_by_datasource_id(
+        db, datasource_id, principal.tenant_id, principal.active_workspace_id
+    )
     if row is None:
         raise NotFoundError(f"数据源不存在: datasource_id={datasource_id}")
 
-    if payload.datasource_type is not None and payload.datasource_type.lower() not in _ALLOWED_TYPES:
-        raise BadRequestError(f"数据源类型不支持: {payload.datasource_type}")
-
-    # 有效类型：以传入 type 优先，否则沿用原类型（config 校验按有效类型走）
-    effective_type = payload.datasource_type or row["datasource_type"]
+    # Effective type: an incoming type wins (normalized), else the stored one; config validates against it
+    effective_type = (
+        resolve_type(payload.datasource_type).value
+        if payload.datasource_type is not None
+        else resolve_type(row["datasource_type"]).value
+    )
 
     update_config = payload.config is not None
     config_json: str | None = None
     if update_config:
         candidate = dict(payload.config or {})
-        if effective_type == row["datasource_type"]:
+        try:
+            same_type = resolve_type(row["datasource_type"]).value == effective_type
+        except BadRequestError:  # unknown stored type: no secrets to carry over
+            same_type = False
+        if same_type:
+            # Responses omit secrets, so a blank secret keeps the stored value.
             existing = json.loads(row["config"]) if row["config"] else {}
             for key in _SENSITIVE_CONFIG_KEYS:
                 if candidate.get(key) in (None, "") and existing.get(key) not in (
@@ -108,23 +145,36 @@ async def update(
         normalized = validate_config(effective_type, candidate)
         config_json = json.dumps(normalized, ensure_ascii=False)
     elif payload.datasource_type is not None:
-        # 改了类型但没给新 config：确保原有 config 仍与新类型兼容，否则要求补 config
+        # Type changed without a new config: the existing config must stay compatible, else 400
         existing = json.loads(row["config"]) if row["config"] else None
         validate_config(effective_type, existing)
 
     await repo.update(
         db,
         row["id"],
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.active_workspace_id,
         name=payload.datasource_name,
-        dtype=payload.datasource_type,
+        dtype=effective_type if payload.datasource_type is not None else None,
         config_json=config_json,
         update_config=update_config,
+        description=payload.description,
+        update_description=payload.description is not None,
+        updated_by=principal.user_id,
     )
-    return _to_response(await repo.find_by_id(db, row["id"]))
+    return _to_response(
+        await repo.find_by_id(
+            db, row["id"], principal.tenant_id, principal.active_workspace_id
+        )
+    )
 
 
-async def get_one(db: aiosqlite.Connection, datasource_id: str) -> DatasourceResponse:
-    row = await repo.find_by_datasource_id(db, datasource_id)
+async def get_one(
+    db: aiosqlite.Connection, datasource_id: str, principal: Principal
+) -> DatasourceResponse:
+    row = await repo.find_by_datasource_id(
+        db, datasource_id, principal.tenant_id, principal.active_workspace_id
+    )
     if row is None:
         raise NotFoundNoBody()
     return _to_response(row)
@@ -137,77 +187,108 @@ async def list_page(
     dtype: str | None,
     page: int,
     size: int,
+    principal: Principal,
 ) -> Page[DatasourceResponse]:
-    total = await repo.count(db, datasource_id, name, dtype)
-    rows = await repo.find_page(db, datasource_id, name, dtype, size, offset(page, size))
-    return Page(records=[_to_response(r) for r in rows], total=total, page=page, size=size)
-
-
-async def list_metadata_page(
-    db: aiosqlite.Connection,
-    datasource_id: str | None,
-    name: str | None,
-    dtype: str | None,
-    page: int,
-    size: int,
-) -> Page[DatasourceMetadataResponse]:
-    total = await repo.count(db, datasource_id, name, dtype)
-    rows = await repo.find_page(db, datasource_id, name, dtype, size, offset(page, size))
+    total = await repo.count(
+        db,
+        datasource_id,
+        name,
+        dtype,
+        principal.tenant_id,
+        principal.active_workspace_id,
+    )
+    rows = await repo.find_page(
+        db,
+        datasource_id,
+        name,
+        dtype,
+        size,
+        offset(page, size),
+        principal.tenant_id,
+        principal.active_workspace_id,
+    )
     return Page(
-        records=[_to_metadata_response(row) for row in rows],
-        total=total,
-        page=page,
-        size=size,
+        records=[_to_response(r) for r in rows], total=total, page=page, size=size
     )
 
 
-async def delete(db: aiosqlite.Connection, datasource_id: str, *, driver: Any = None) -> dict:
-    row = await repo.find_by_datasource_id(db, datasource_id)
+async def delete(
+    db: aiosqlite.Connection,
+    datasource_id: str,
+    principal: Principal,
+    *,
+    driver: Any = None,
+) -> dict:
+    require_admin(principal)
+    row = await repo.find_by_datasource_id(
+        db, datasource_id, principal.tenant_id, principal.active_workspace_id
+    )
     if row is None:
         raise NotFoundError(f"数据源不存在: datasource_id={datasource_id}")
-    domains = await repo.count_domains(db, datasource_id)
-    if domains > 0:
-        raise BadRequestError(f"数据源被引用，无法删除：业务域 {domains} 个")
-    await repo.soft_delete(db, row["id"])
+    # 业务域已与数据源解耦，删除只看数据集这一条引用边（SPEC 00 §6）。
+    datasets = await repo.count_datasets(
+        db, row["datasource_id"], principal.tenant_id, principal.active_workspace_id
+    )
+    if datasets:
+        raise BadRequestError(f"数据源被引用，无法删除：数据集 {datasets} 个")
+    await repo.soft_delete(
+        db,
+        row["id"],
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.active_workspace_id,
+        updated_by=principal.user_id,
+    )
 
-    # 同步清空图数据库中该数据源对应的语义层与物理层节点。图清理失败不回滚 SQLite
-    # 软删除——图是 SQLite 元数据的下游投影，偶发不一致可后续重导修复。
-    if driver is not None and datasource_id:
-        try:
-            from context_manager.graph.semantic_import_service import (
-                drop_semantic_for_datasource,
-                drop_physical_for_datasource,
-            )
+    # mg-088（§4.3 适配点）：级联软删 explore_scope/explore_state（与
+    # datasource_repo 删除链同风格；失败不回滚 ds 软删，漂移可重探）。
+    try:
+        from semantic_config.repositories import explore_repo
 
-            dropped_sem = drop_semantic_for_datasource(driver, datasource_id)
+        cascaded = await explore_repo.soft_delete_for_datasource(
+            db,
+            principal.tenant_id,
+            principal.active_workspace_id,
+            datasource_id,
+            updated_by=principal.user_id,
+        )
+        if cascaded:
             log.info(
-                "delete datasource %s: dropped %d semantic domain roots from graph",
-                datasource_id, dropped_sem,
+                "delete datasource %s: cascaded %d explore rows",
+                datasource_id,
+                cascaded,
             )
-            dropped_phy = drop_physical_for_datasource(driver, datasource_id)
-            log.info(
-                "delete datasource %s: dropped %d physical nodes from graph",
-                datasource_id, dropped_phy,
-            )
-        except Exception as exc:
-            log.warning(
-                "delete datasource %s: graph cleanup failed (non-fatal): %s",
-                datasource_id, exc,
-            )
+    except Exception as exc:  # noqa: BLE001 — 级联失败不阻断 ds 删除
+        log.warning(
+            "delete datasource %s: explore cascade failed (non-fatal): %s",
+            datasource_id,
+            exc,
+        )
+
+    # TODO: use a datasource-scoped deletion service once CM exposes one, including
+    # ownership handling for semantic nodes shared by several datasources.
+    log.warning(
+        "delete datasource %s: CM graph cleanup is not yet connected", datasource_id
+    )
     return {"message": "deleted", "datasource_id": datasource_id}
 
 
 async def test_connection(datasource_type: str, config: dict) -> ConnectionTestResponse:
-    """存盘前测试连接：直接用传入的类型与 config。"""
+    """Test a connection before persisting, using the given type and config."""
     return await connection_tester.test_connection(datasource_type, config)
 
 
-async def test_connection_by_id(db: aiosqlite.Connection, datasource_id: str) -> ConnectionTestResponse:
-    """测试已保存数据源的连接。"""
-    row = await repo.find_by_datasource_id(db, datasource_id)
+async def test_connection_by_id(
+    db: aiosqlite.Connection, datasource_id: str, principal: Principal
+) -> ConnectionTestResponse:
+    """Test the connection of an already-persisted datasource."""
+    row = await repo.find_by_datasource_id(
+        db, datasource_id, principal.tenant_id, principal.active_workspace_id
+    )
     if row is None:
         raise NotFoundError(f"数据源不存在: datasource_id={datasource_id}")
     config = json.loads(row["config"]) if row["config"] else None
     if config is None:
-        raise BadRequestError(f"数据源 datasource_id={datasource_id} 未配置连接信息（config 为空）")
+        raise BadRequestError(
+            f"数据源 datasource_id={datasource_id} 未配置连接信息（config 为空）"
+        )
     return await connection_tester.test_connection(row["datasource_type"], config)

@@ -1,58 +1,116 @@
-import { QueryDimensionParams, DimensionItem, QueryDimensionCaliberParams, DimensionCaliberItem } from "@/types/dimensionManagement"
-import { request } from "@/utils/request"
-import { semanticConfigApi } from "./api"
+import type {
+  DimensionCaliberCreateRequest,
+  DimensionCaliberResponse,
+  DimensionCaliberUpdateRequest,
+  DimensionCaliberUpsertInput,
+  DimensionCreateRequest,
+  DimensionResponse,
+  DimensionUpdateRequest,
+  QueryDimensionCaliberParams,
+  QueryDimensionParams,
+} from '@/types/dimensionManagement';
+import type { SemanticConfigDeleteResponse, SemanticConfigPage } from '@/types/semanticConfig';
+import { assertSemanticConfigPage, pickSemanticFields } from '@/utils/semanticConfigContract';
+import { request } from '@/utils/request';
+import { semanticConfigApi } from './api';
 
-const DIMENSION_API = semanticConfigApi('/dimension')
-const DIMENSION_CALIBER_API = semanticConfigApi('/dataset-dimension')
+const DIMENSION_API = semanticConfigApi('/dimension');
+const DIMENSION_CALIBER_API = semanticConfigApi('/dataset-dimension');
+const DIMENSION_CREATE_FIELDS = [
+  'domain_id',
+  'dimension_name',
+  'description',
+  'synonyms',
+  'dimension_type',
+  'child_dimensions',
+  'priority',
+] as const;
+const DIMENSION_UPDATE_FIELDS = [
+  'dimension_name',
+  'description',
+  'synonyms',
+  'dimension_type',
+  'child_dimensions',
+  'priority',
+] as const;
+const CALIBER_CREATE_FIELDS = ['dataset_id', 'dimension_id', 'expr', 'value_example'] as const;
+const CALIBER_UPDATE_FIELDS = ['expr', 'value_example'] as const;
 
-// ==================== 维度主表 /api/semantic-config/dimension ====================
+export const queryDimensionList = async (
+  params: QueryDimensionParams = {},
+): Promise<SemanticConfigPage<DimensionResponse>> => {
+  const response = await request.get<unknown>(DIMENSION_API, {
+    params: { ...params, page: params.page ?? 1, size: params.size ?? 20 },
+  });
+  return assertSemanticConfigPage<DimensionResponse>(response);
+};
 
-export const queryDimensionList = (params: QueryDimensionParams) => {
-  return request.get(DIMENSION_API, { params })
-}
+export const createDimension = (data: DimensionCreateRequest): Promise<DimensionResponse> => {
+  return request.post(DIMENSION_API, pickSemanticFields(data, DIMENSION_CREATE_FIELDS));
+};
 
-export const createDimension = (data: Partial<DimensionItem>) => {
-  return request.post(DIMENSION_API, data)
-}
+export const updateDimension = (
+  id: number,
+  data: DimensionUpdateRequest,
+): Promise<DimensionResponse> => {
+  return request.put(`${DIMENSION_API}/${id}`, pickSemanticFields(data, DIMENSION_UPDATE_FIELDS));
+};
 
-export const updateDimension = (id: number, data: Partial<DimensionItem>) => {
-  return request.put(`${DIMENSION_API}/${id}`, data)
-}
+export const deleteDimension = (id: number): Promise<SemanticConfigDeleteResponse> => {
+  return request.delete(`${DIMENSION_API}/${id}`);
+};
 
-export const deleteDimension = (id: number) => {
-  return request.delete(`${DIMENSION_API}/${id}`)
-}
+export const queryDimensionCaliberList = async (
+  params: QueryDimensionCaliberParams = {},
+): Promise<SemanticConfigPage<DimensionCaliberResponse>> => {
+  const response = await request.get<unknown>(DIMENSION_CALIBER_API, {
+    params: { ...params, page: params.page ?? 1, size: params.size ?? 20 },
+  });
+  return assertSemanticConfigPage<DimensionCaliberResponse>(response);
+};
 
-// ==================== 维度口径 /api/semantic-config/dataset-dimension ====================
+export const getDimensionCaliber = (id: number): Promise<DimensionCaliberResponse> => {
+  return request.get(`${DIMENSION_CALIBER_API}/${id}`);
+};
+
+export const getDimensionCalibersByDataset = (
+  datasetId: number,
+): Promise<DimensionCaliberResponse[]> => {
+  return request.get(`${DIMENSION_CALIBER_API}/dataset/${datasetId}`);
+};
+
+export const createDimensionCaliber = (
+  data: DimensionCaliberCreateRequest,
+): Promise<DimensionCaliberResponse> => {
+  return request.post(DIMENSION_CALIBER_API, pickSemanticFields(data, CALIBER_CREATE_FIELDS));
+};
+
+export const updateDimensionCaliber = (
+  id: number,
+  data: DimensionCaliberUpdateRequest,
+): Promise<DimensionCaliberResponse> => {
+  return request.put(
+    `${DIMENSION_CALIBER_API}/${id}`,
+    pickSemanticFields(data, CALIBER_UPDATE_FIELDS),
+  );
+};
+
+export const deleteDimensionCaliber = (id: number): Promise<SemanticConfigDeleteResponse> => {
+  return request.delete(`${DIMENSION_CALIBER_API}/${id}`);
+};
 
 export const previewDimension = (datasetIds: number[]) => {
-  return Promise.all(
-    datasetIds.map((datasetId) => request.get<DimensionCaliberItem[]>(`${DIMENSION_CALIBER_API}/dataset/${datasetId}`))
-  ).then((results) => results.flat())
-}
+  return Promise.all(datasetIds.map(getDimensionCalibersByDataset)).then((results) =>
+    results.flat(),
+  );
+};
 
-export const confirmDimensionStorage = (data: DimensionCaliberItem[]) => {
+export const confirmDimensionStorage = (data: DimensionCaliberUpsertInput[]) => {
   return Promise.all(
     data.map((item) =>
-      typeof item.id === 'number'
-        ? updateDimensionCaliber(item.id, item)
-        : createDimensionCaliber(item)
-    )
-  )
-}
-
-export const queryDimensionCaliberList = (params: QueryDimensionCaliberParams) => {
-  return request.get(DIMENSION_CALIBER_API, { params })
-}
-
-export const createDimensionCaliber = (data: Partial<DimensionCaliberItem>) => {
-  return request.post(DIMENSION_CALIBER_API, data)
-}
-
-export const updateDimensionCaliber = (id: number, data: Partial<DimensionCaliberItem>) => {
-  return request.put(`${DIMENSION_CALIBER_API}/${id}`, data)
-}
-
-export const deleteDimensionCaliber = (id: number) => {
-  return request.delete(`${DIMENSION_CALIBER_API}/${id}`)
-}
+      item.id == null
+        ? createDimensionCaliber(pickSemanticFields(item, CALIBER_CREATE_FIELDS))
+        : updateDimensionCaliber(item.id, pickSemanticFields(item, CALIBER_UPDATE_FIELDS)),
+    ),
+  );
+};

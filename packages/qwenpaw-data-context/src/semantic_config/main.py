@@ -6,19 +6,25 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from profiling.db import init_probe_db
+from profiling.integration import mount_profiling
 from semantic_config.config import get_settings
 from semantic_config.db import init_db
 from semantic_config.errors import register_exception_handlers
 from semantic_config.routers import (
     biz_domain_router,
-    dataset_column_meta_router,
     dataset_dimension_router,
+    dataset_field_router,
     dataset_meta_router,
     datasource_router,
     dimension_router,
+    explore_router,
+    export_router,
     import_router,
-    metric_formula_lib_router,
+    metric_caliber_router,
     metric_lib_router,
+    table_column_router,
+    verified_query_router,
     weave_task_router,
 )
 
@@ -26,6 +32,7 @@ from semantic_config.routers import (
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
+    await init_probe_db()
     yield
 
 
@@ -65,16 +72,23 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(datasource_router.router)
-    app.include_router(datasource_router.metadata_router)
     app.include_router(biz_domain_router.router)
     app.include_router(dataset_meta_router.router)
-    app.include_router(dataset_column_meta_router.router)
+    app.include_router(table_column_router.router)
+    app.include_router(dataset_field_router.router)
+    app.include_router(dataset_field_router.legacy_router)
     app.include_router(dimension_router.router)
     app.include_router(dataset_dimension_router.router)
     app.include_router(metric_lib_router.router)
-    app.include_router(metric_formula_lib_router.router)
+    app.include_router(metric_caliber_router.router)
+    app.include_router(metric_caliber_router.legacy_router)
+    app.include_router(verified_query_router.router)
     app.include_router(import_router.router)
+    app.include_router(export_router.router)
     app.include_router(weave_task_router.router)
+    app.include_router(explore_router.router)  # mg-088 物理层自动探查（§2.2）
+
+    mount_profiling(app)
 
     @app.get("/health")
     async def health():

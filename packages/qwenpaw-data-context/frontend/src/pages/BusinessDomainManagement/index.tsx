@@ -1,22 +1,51 @@
-import { queryBusinessDomainList, createBusinessDomain, updateBusinessDomain, deleteBusinessDomain } from '@/services/businessDomain';
-import { BusinessDomainItem, BusinessDomainQueryParams } from '@/types/businessDomain';
-import { useDataSourceFilterOptions } from '@/hooks/useFilterOptions';
-import { normalizeListResponse, extractTotal } from '@/utils/listResponse';
-import { formatDatasourceLabel, isFormValidationError, omitKeys, toOptionalString } from '@/utils';
+import {
+  queryBusinessDomainList,
+  createBusinessDomain,
+  updateBusinessDomain,
+  deleteBusinessDomain,
+} from '@/services/businessDomain';
+import SemanticExcelActions from '@/components/SemanticExcelActions';
+import type {
+  BusinessDomainCreateRequest,
+  BusinessDomainItem,
+  BusinessDomainQueryParams,
+} from '@/types/businessDomain';
+import { useBusinessDomainOptionsStore } from '@/store/businessDomainOptions';
+import { isFormValidationError, toOptionalString } from '@/utils';
 import { PlusOutlined } from '@/design';
 import { ProColumns, ProTable } from '@/design';
-import type { ActionType } from '@/design';
-import { Button, Drawer, message, Modal, Form, Input, Select, Space, Tooltip, Typography } from '@/design';
+import type { ActionType, ProFormInstance } from '@/design';
+import { Button, Drawer, message, Modal, Form, Input, Space } from '@/design';
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHasCapability } from '@/store/authStore';
+import { readUrlSearchValues } from '@/utils/urlSearch';
+import {
+  loadSemanticDeepLinkInOrder,
+  locateSemanticRecord,
+  parseSemanticObjectId,
+} from '@/utils/semanticDeepLink';
+import { useSearchParams } from 'react-router-dom';
 
-const { Text } = Typography;
+type BusinessDomainDeepLink = BusinessDomainQueryParams & { domain_id?: number };
 
 const BusinessDomainManagement: React.FC = () => {
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const [deepLinkValues] = useState(() =>
+    readUrlSearchValues<BusinessDomainDeepLink>(searchParams, {
+      domain_id: { parse: parseSemanticObjectId },
+      domain_name: {},
+    }),
+  );
+  const initialSearchValues: BusinessDomainQueryParams = {
+    domain_name: deepLinkValues.domain_name,
+  };
+  const canWrite = useHasCapability('datasource:write');
+  const canExcel = useHasCapability('excel_import');
   const actionRef = useRef<ActionType | undefined>(undefined);
+  const searchFormRef = useRef<ProFormInstance | undefined>(undefined);
   const [form] = Form.useForm();
-  const { options: dataSourceOptions, refresh: refreshDataSource } = useDataSourceFilterOptions('full');
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerTitleKey, setDrawerTitleKey] = useState('businessDomain.addTitle');
   const [editingRecord, setEditingRecord] = useState<BusinessDomainItem | null>(null);
@@ -28,20 +57,13 @@ const BusinessDomainManagement: React.FC = () => {
     setEditingRecord(null);
     setDrawerTitleKey('businessDomain.addTitle');
     setDrawerVisible(true);
-    // 打开抽屉时重新请求数据源数据
-    refreshDataSource();
   };
 
   // 打开编辑抽屉
   const handleOpenEditDrawer = (record: BusinessDomainItem) => {
-    // 打开抽屉时重新请求数据源数据
-    refreshDataSource();
     form.setFieldsValue({
-      datasource_id: record.datasource_id,
       domain_name: record.domain_name,
-      display_name: record.display_name,
       description: record.description,
-      aliases: record.aliases,
     });
     setEditingRecord(record);
     setDrawerTitleKey('businessDomain.editTitle');
@@ -51,12 +73,13 @@ const BusinessDomainManagement: React.FC = () => {
   // 抽屉确认
   const handleDrawerOk = async () => {
     try {
-      const values = await form.validateFields();
+      const values = (await form.validateFields()) as BusinessDomainCreateRequest;
       setConfirmLoading(true);
       if (editingRecord) {
-        // 编辑模式：不传 datasource_id
-        const rest = omitKeys(values, ['datasource_id']);
-        await updateBusinessDomain(editingRecord.domain_id, rest);
+        await updateBusinessDomain(editingRecord.domain_id, {
+          domain_name: values.domain_name,
+          description: values.description,
+        });
         message.success(t('common.editSuccess'));
       } else {
         // 新增模式
@@ -65,6 +88,7 @@ const BusinessDomainManagement: React.FC = () => {
       }
       setDrawerVisible(false);
       form.resetFields();
+      useBusinessDomainOptionsStore.getState().invalidate();
       actionRef.current?.reload();
     } catch (error: unknown) {
       if (isFormValidationError(error)) return;
@@ -90,6 +114,7 @@ const BusinessDomainManagement: React.FC = () => {
         try {
           await deleteBusinessDomain(record.domain_id);
           message.success(t('common.deleteSuccess'));
+          useBusinessDomainOptionsStore.getState().invalidate();
           actionRef.current?.reload();
         } catch {
           // API 错误由响应拦截器统一提示
@@ -100,38 +125,11 @@ const BusinessDomainManagement: React.FC = () => {
 
   const columns: ProColumns<BusinessDomainItem>[] = [
     {
-      title: t('fields.dataSource'),
-      dataIndex: 'datasource_id',
-      hideInSearch: false,
-      valueType: 'select',
-      width: 200,
-      fieldProps: {
-        options: dataSourceOptions,
-      },
-      ellipsis: true,
-      render: (_, record) => {
-        if (!record.datasource_name) return '-';
-        const text = formatDatasourceLabel(record.datasource_name, record.datasource_id);
-        return (
-          <Tooltip title={text}>
-            <Text ellipsis style={{ maxWidth: '100%' }}>{text}</Text>
-          </Tooltip>
-        );
-      },
-    },
-    {
       width: 200,
       title: t('fields.businessDomainName'),
       ellipsis: true,
       dataIndex: 'domain_name',
       hideInSearch: false,
-    },
-    {
-       width: 200,
-      title: t('fields.displayName'),
-      ellipsis: true,
-      dataIndex: 'display_name',
-      hideInSearch: true,
     },
     {
       title: t('fields.description'),
@@ -141,13 +139,6 @@ const BusinessDomainManagement: React.FC = () => {
       width: 230,
     },
     {
-       width: 200,
-      title: t('fields.aliases'),
-      dataIndex: 'aliases',
-      hideInSearch: true,
-      ellipsis: true,
-    },
-    {
       title: t('common.actions'),
       dataIndex: 'action',
       hideInSearch: true,
@@ -155,12 +146,21 @@ const BusinessDomainManagement: React.FC = () => {
       width: 120,
       render: (_, record) => (
         <>
-          <Button type="link" onClick={() => handleOpenEditDrawer(record)} style={{ padding: 0 }}>
-            {t('common.edit')}
-          </Button>
-          <Button type="link" danger onClick={() => handleDelete(record)} style={{ padding: 0, marginLeft: 8 }}>
-            {t('common.delete')}
-          </Button>
+          {canWrite && (
+            <Button type="link" onClick={() => handleOpenEditDrawer(record)} style={{ padding: 0 }}>
+              {t('common.edit')}
+            </Button>
+          )}
+          {canWrite && (
+            <Button
+              type="link"
+              danger
+              onClick={() => handleDelete(record)}
+              style={{ padding: 0, marginLeft: 8 }}
+            >
+              {t('common.delete')}
+            </Button>
+          )}
         </>
       ),
     },
@@ -171,7 +171,9 @@ const BusinessDomainManagement: React.FC = () => {
       <ProTable<BusinessDomainItem>
         rowKey="domain_id"
         actionRef={actionRef}
+        formRef={searchFormRef}
         columns={columns}
+        form={{ initialValues: initialSearchValues }}
         search={{
           labelWidth: 'auto',
         }}
@@ -181,32 +183,62 @@ const BusinessDomainManagement: React.FC = () => {
           const requestData: BusinessDomainQueryParams = {
             page: params.current,
             size: params.pageSize,
-            datasource_id: toOptionalString(params.datasource_id),
             domain_name: toOptionalString(params.domain_name),
           };
+          if (deepLinkValues.domain_id) {
+            const match = await loadSemanticDeepLinkInOrder([], () =>
+              locateSemanticRecord({
+                targetId: deepLinkValues.domain_id!,
+                getRecordId: (record: BusinessDomainItem) => record.domain_id,
+                size: params.pageSize,
+                loadPage: (page, size) =>
+                  queryBusinessDomainList({
+                    page,
+                    size,
+                  }),
+              }),
+            );
+            return {
+              data: match ? [match.record] : [],
+              success: true,
+              total: match ? 1 : 0,
+            };
+          }
           const result = await queryBusinessDomainList(requestData);
-          const list = normalizeListResponse<BusinessDomainItem>(result);
           return {
-            data: list,
+            data: result.records,
             success: true,
-            total: extractTotal(result) || list.length,
+            total: result.total,
           };
         }}
         pagination={{
-          defaultPageSize: 10,
+          defaultPageSize: 20,
           showSizeChanger: true,
           showTotal: (total) => t('common.total', { count: total }),
-          pageSizeOptions: ['10', '20', '50', '100'],
+          pageSizeOptions: ['20', '50', '100'],
         }}
         toolBarRender={() => [
-          <Button
-            key="add"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleOpenAddDrawer}
-          >
-              {t('businessDomain.add')}
-          </Button>,
+          ...(canExcel
+            ? [
+                <SemanticExcelActions
+                  key="excel"
+                  templateObject="biz_domain"
+                  onImportSuccess={() => actionRef.current?.reload()}
+                />,
+              ]
+            : []),
+          ...(canWrite
+            ? [
+                <Button
+                  key="add"
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleOpenAddDrawer}
+                >
+                  {t('businessDomain.add')}
+                </Button>,
+              ]
+            : []),
         ]}
       />
 
@@ -217,7 +249,7 @@ const BusinessDomainManagement: React.FC = () => {
         onClose={handleDrawerCancel}
         destroyOnHidden
         width={640}
-        footer={(
+        footer={
           <div style={{ textAlign: 'right' }}>
             <Space>
               <Button onClick={handleDrawerCancel}>{t('common.cancel')}</Button>
@@ -226,23 +258,9 @@ const BusinessDomainManagement: React.FC = () => {
               </Button>
             </Space>
           </div>
-        )}
+        }
       >
         <Form form={form} layout="vertical">
-          <Form.Item
-            name="datasource_id"
-            label={t('fields.dataSource')}
-            rules={[{ required: true, message: t('validation.selectDataSource') }]}
-          >
-            <Select
-              placeholder={t('validation.selectDataSource')}
-              options={dataSourceOptions}
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              disabled={!!editingRecord}
-            />
-          </Form.Item>
           <Form.Item
             name="domain_name"
             label={t('fields.businessDomainName')}
@@ -250,18 +268,12 @@ const BusinessDomainManagement: React.FC = () => {
           >
             <Input placeholder={t('validation.inputBusinessDomainName')} allowClear />
           </Form.Item>
-          <Form.Item name="display_name" label={t('fields.displayName')}>
-            <Input placeholder={t('validation.inputDisplayName')} allowClear />
-          </Form.Item>
           <Form.Item
             name="description"
             label={t('fields.description')}
             rules={[{ required: true, message: t('validation.inputDescription') }]}
           >
             <Input.TextArea placeholder={t('validation.inputDescription')} rows={3} />
-          </Form.Item>
-          <Form.Item name="aliases" label={t('fields.aliases')}>
-            <Input placeholder={t('businessDomain.aliasesPlaceholder')} allowClear />
           </Form.Item>
         </Form>
       </Drawer>

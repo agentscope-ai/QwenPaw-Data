@@ -1,0 +1,254 @@
+.stageDescription {
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55)) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 20px !important;
+}
+
+.workbenchLayout,
+.stageContent {
+  display: flex;
+  width: 100%;
+}
+
+.summaryCard,
+.stageCard {
+  border: 0 !important;
+  border-radius: var(--context-radius-lg, 12px) !important;
+  box-shadow: var(--context-surface-shadow, 0 6px 24px rgba(0, 21, 41, 0.05)) !important;
+}
+
+.summaryCard :global(.ant-card-body) {
+  padding: 20px 24px;
+}
+
+.stageCard :global(.ant-card-body) {
+  padding: 18px 24px 20px;
+}
+
+.summaryHeader,
+.stageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.stageCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.datasourceMeta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  font-size: 13px;
+  line-height: 24px;
+
+  span {
+    white-space: nowrap;
+  }
+}
+
+.overallActions,
+.overallStatus {
+  display: flex;
+  align-items: center;
+}
+
+.overallActions {
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.overallStatus {
+  min-height: 32px;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--colorFillQuaternary, #f7f8fa);
+}
+
+.overallLabel {
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.stepsPanel {
+  margin-top: 18px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--colorBorderSecondary, #edf0f5);
+  border-radius: 8px;
+  background: var(--colorFillQuaternary, #f8faff);
+}
+
+.profilingSteps :global(.ant-steps-item-icon) {
+  box-shadow: 0 0 0 3px var(--colorBgContainer, #fff);
+}
+
+.profilingSteps :global(.ant-steps-item-tail)::after {
+  height: 2px;
+  border-radius: 2px;
+}
+
+.profilingSteps :global(.ant-steps-item-title)::after {
+  top: 12px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.profilingSteps :global(.ant-steps-item-content) {
+  min-height: 44px;
+}
+
+.stepTitle {
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.stepDescription {
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.stageHeader {
+  align-items: center;
+}
+
+.stageCopy {
+  gap: 6px;
+}
+
+.stageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stageActions {
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+
+.manualModelingCard {
+  overflow: hidden;
+  border: 1px solid var(--colorBorderSecondary, #e8e8e8);
+}
+
+.manualStepSelector {
+  margin-top: 20px;
+}
+
+.manualModelingContent {
+  min-height: 360px;
+  margin-top: 16px;
+}
+
+.manualModelingLoading {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+.manualModelingFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px -16px -12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--colorBorderSecondary, #e8e8e8);
+}
+
+.phaseActionHint {
+  min-width: 180px;
+  flex: 1;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.manualModelingFooterActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+}
+
+.stageAiDrawer :global(.ant-drawer-body) {
+  padding: 20px;
+  background: var(--colorBgLayout, #f5f5f5);
+}
+
+.stageAiDrawerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.aiStageSelector {
+  align-self: flex-start;
+}
+
+.notStartedEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+  padding: 20px 0 8px;
+  border-radius: 8px;
+  background: var(--colorFillQuaternary, #fafbfc);
+}
+
+.notStartedEmptyContent {
+  width: 100%;
+}
+
+.notStartedIllustration {
+  display: block;
+  width: min(100%, 836px);
+  height: auto;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.notStartedEmpty :global(.spark-empty-title),
+.notStartedEmpty :global(.ant-empty-description) {
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  font-size: 14px;
+  line-height: 22px;
+}
+
+@media (max-width: 960px) {
+  .summaryHeader,
+  .stageHeader {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .overallActions,
+  .stageActions {
+    justify-content: flex-start;
+  }
+
+  .stepsPanel {
+    padding: 14px 16px;
+  }
+}
+
+:global(html.dark-mode) {
+  .summaryCard,
+  .stageCard {
+    box-shadow: none;
+  }
+}

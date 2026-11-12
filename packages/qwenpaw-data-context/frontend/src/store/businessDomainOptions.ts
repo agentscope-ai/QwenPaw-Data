@@ -1,20 +1,22 @@
+import { useEffect } from 'react';
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { queryBusinessDomainList } from '@/services/businessDomain';
-import { normalizeListResponse, type SelectOption } from '@/utils/listResponse';
+import { type SelectOption } from '@/utils/listResponse';
+import { useAuthStore } from './authStore';
 
 interface BusinessDomainOptionsState {
-  /** 按 datasourceId 分组的业务域下拉选项 */
+  /** 按租户和工作空间缓存全部业务域，不按数据源分桶。 */
   optionsMap: Record<string, SelectOption[]>;
-  /** 正在加载的 datasourceId 集合 */
+  /** 正在加载的工作空间。 */
   loadingIds: Set<string>;
-  /** 已获取过的 datasourceId 集合 */
+  /** 已加载的工作空间。 */
   fetchedIds: Set<string>;
-  /** 按 datasourceId 获取业务域选项（带缓存） */
-  fetchOptions: (datasourceId: string, force?: boolean) => Promise<SelectOption[]>;
-  /** 强制失效指定数据源的业务域缓存（用于增删改后刷新） */
+  /** 保留旧调用参数兼容数据集页面，数据源不再限制业务域。 */
+  fetchOptions: (datasourceId?: string, force?: boolean) => Promise<SelectOption[]>;
+  /** 业务域变更后失效缓存。 */
   invalidate: (datasourceId?: string) => void;
-  /** 重置所有状态 */
+  /** 重置缓存。 */
   reset: () => void;
 }
 
@@ -23,84 +25,66 @@ const initialState = {
   loadingIds: new Set<string>(),
   fetchedIds: new Set<string>(),
 };
+const scopeKey = (state: { tenantId: string; activeWorkspaceId: string }) =>
+  JSON.stringify([state.tenantId, state.activeWorkspaceId]);
+const pending = new Map<string, Promise<SelectOption[]>>();
+let generation = 0;
 
 export const useBusinessDomainOptionsStore = create<BusinessDomainOptionsState>()(
   devtools(
     (set, get) => ({
       ...initialState,
-
-      fetchOptions: async (datasourceId: string, force = false) => {
-        if (!datasourceId) return [];
-        const state = get();
-        // 防止重复请求
-        if (state.loadingIds.has(datasourceId) || (!force && state.fetchedIds.has(datasourceId))) {
-          return state.optionsMap[datasourceId] ?? [];
-        }
-
-        set(
-          (prev) => ({
-            loadingIds: new Set([...prev.loadingIds, datasourceId]),
-          }),
-          false,
-          'fetchOptions/start',
-        );
-
-        try {
-          const result = await queryBusinessDomainList({ datasource_id: datasourceId, page: 1, size: 500 });
-          const list = normalizeListResponse<{ domain_id: number; domain_name: string }>(result);
-          const options: SelectOption[] = list.map((item) => ({
-            label: item.domain_name,
-            value: item.domain_id,
-          }));
-
-          set(
-            (prev) => ({
-              optionsMap: { ...prev.optionsMap, [datasourceId]: options },
-              loadingIds: new Set([...prev.loadingIds].filter((id) => id !== datasourceId)),
-              fetchedIds: new Set([...prev.fetchedIds, datasourceId]),
-            }),
-            false,
-            '业务域选项请求成功',
-          );
-
-          return options;
-        } catch {
-          set(
-            (prev) => ({
-              loadingIds: new Set([...prev.loadingIds].filter((id) => id !== datasourceId)),
-            }),
-            false,
-            'fetchOptions/error',
-          );
-          return [];
-        }
+      fetchOptions: async (_datasourceId, force = false) => {
+        const key = scopeKey(useAuthStore.getState());
+        const existing = pending.get(key);
+        if (existing) return existing;
+        if (!force && get().fetchedIds.has(key)) return get().optionsMap[key] ?? [];
+        const requestGeneration = generation;
+        set((prev) => ({ loadingIds: new Set([...prev.loadingIds, key]) }));
+        const request = (async () => {
+          try {
+            const options: SelectOption[] = [];
+            let page = 1;
+            let total = 0;
+            do {
+              const result = await queryBusinessDomainList({ page, size: 500 });
+              total = result.total;
+              options.push(
+                ...result.records.map((item) => ({
+                  label: item.domain_name,
+                  value: item.domain_id,
+                })),
+              );
+              if (!result.records.length) break;
+              page += 1;
+            } while (options.length < total);
+            if (requestGeneration === generation) {
+              set((prev) => ({
+                optionsMap: { ...prev.optionsMap, [key]: options },
+                fetchedIds: new Set([...prev.fetchedIds, key]),
+              }));
+            }
+            return options;
+          } catch {
+            return [];
+          } finally {
+            if (requestGeneration === generation) {
+              pending.delete(key);
+              set((prev) => ({
+                loadingIds: new Set([...prev.loadingIds].filter((id) => id !== key)),
+              }));
+            }
+          }
+        })();
+        pending.set(key, request);
+        return request;
       },
-
-      invalidate: (datasourceId?: string) => {
-        if (datasourceId) {
-          set(
-            (prev) => ({
-              optionsMap: { ...prev.optionsMap, [datasourceId]: [] },
-              fetchedIds: new Set([...prev.fetchedIds].filter((id) => id !== datasourceId)),
-            }),
-            false,
-            'invalidate/single',
-          );
-        } else {
-          set(
-            {
-              optionsMap: {},
-              fetchedIds: new Set(),
-            },
-            false,
-            'invalidate/all',
-          );
-        }
+      invalidate: () => {
+        generation += 1;
+        pending.clear();
+        set({ ...initialState });
       },
-
-      reset: () => {
-        set(initialState, false, 'reset');
-      },
+      reset: () => get().invalidate(),
     }),
     { name: 'BusinessDomainOptionsStore' },
   ),
@@ -108,10 +92,20 @@ export const useBusinessDomainOptionsStore = create<BusinessDomainOptionsState>(
 
 const EMPTY_OPTIONS: SelectOption[] = [];
 
-/** 获取指定数据源下的业务域选项 */
-export const useBusinessDomainOptions = (datasourceId: string) =>
-  useBusinessDomainOptionsStore((state) => state.optionsMap[datasourceId] ?? EMPTY_OPTIONS);
+/** 获取当前工作空间全部业务域；旧数据源参数不再参与过滤。 */
+export const useBusinessDomainOptions = (_datasourceId?: string) => {
+  void _datasourceId;
+  const key = useAuthStore(scopeKey);
+  const fetched = useBusinessDomainOptionsStore((state) => state.fetchedIds.has(key));
+  useEffect(() => {
+    if (!fetched) void useBusinessDomainOptionsStore.getState().fetchOptions();
+  }, [key, fetched]);
+  return useBusinessDomainOptionsStore((state) => state.optionsMap[key] ?? EMPTY_OPTIONS);
+};
 
-/** 获取指定数据源下的业务域加载状态 */
-export const useBusinessDomainOptionsLoading = (datasourceId: string) =>
-  useBusinessDomainOptionsStore((state) => state.loadingIds.has(datasourceId));
+/** 当前工作空间域选项加载状态。 */
+export const useBusinessDomainOptionsLoading = (_datasourceId?: string) => {
+  void _datasourceId;
+  const key = useAuthStore(scopeKey);
+  return useBusinessDomainOptionsStore((state) => state.loadingIds.has(key));
+};

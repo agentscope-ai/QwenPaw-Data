@@ -6,15 +6,15 @@
 
 ## 本地开发
 
-推荐从仓库根目录统一初始化和启动 DataBridge：
+推荐从仓库根目录统一初始化和启动 Context：
 
 ```bash
-scripts/init_databridge.sh
-scripts/start_databridge.sh
+scripts/init_context.sh
+scripts/start_context.sh
 ```
 
 这会同时启动 `http://localhost:3000` 的管理前端和
-`http://localhost:8765` 的 DataBridge API。
+`http://localhost:8765` 的 Context API。
 
 如需单独运行前端，先确保后端已启动：
 
@@ -32,7 +32,7 @@ SERVICE_BASE_URL=http://localhost:8765
 ```
 
 开发服务固定监听 `3000` 并启用 `strictPort`。如果端口被占用，Vite 会直接失败，
-避免 DataBridge 管理入口跳到错误端口。
+避免 QwenPawData 的 Context Management 入口跳到错误端口。
 
 ## 可用脚本
 
@@ -55,7 +55,7 @@ packages/qwenpaw-data-context/frontend/dist
 
 ```bash
 cd packages/qwenpaw-data-context
-./.venv/bin/python scripts/serve.py --port 8765
+./.venv/bin/python scripts/serve.py --host 0.0.0.0 --port 8765
 ```
 
 后端需要 Neo4j 和仓库根目录 `.env` 配置。依赖服务可用包根目录下的 `docker-compose.yml` 启动：
@@ -156,4 +156,4 @@ server {
 the `qwenpaw-data-console` wheel, mounted at `/databridge/`. This mode reads
 no checkout `.env`; the local portal supplies routing and authentication
 settings through `/console-config.js`. Standalone builds keep their existing
-root routing and session-token authentication. No source rewriting is needed.
+root routing and authentication. No source rewriting is needed.

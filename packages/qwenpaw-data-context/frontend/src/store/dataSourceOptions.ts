@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { queryDataSourceMetadata } from '@/services/dataSource';
+import { queryDataSourceList } from '@/services/dataSource';
 import type { DataSourceItem } from '@/types/dataSource';
 import { normalizeListResponse } from '@/utils/listResponse';
 import { formatDatasourceLabel } from '@/utils';
@@ -10,6 +10,7 @@ const normalizeList = normalizeListResponse<DataSourceItem>;
 // 数据源选项（轻量，用于下拉）
 export interface DataSourceOption {
   label: string;
+  title: string;
   value: string;
   datasource_id: string;
   datasource_type?: string;
@@ -48,25 +49,31 @@ export const useDataSourceOptionsStore = create<DataSourceOptionsState>()(
         }
         set({ loading: true }, false, 'fetchOptions/start');
         try {
-          const result = await queryDataSourceMetadata({});
+          const result = await queryDataSourceList({});
           const list = normalizeList(result);
-          set({
-            list,
-            options: list.map((item) => ({
-              label: formatDatasourceLabel(item.datasource_name, item.datasource_id),
-              value: item.datasource_id,
-              datasource_id: item.datasource_id,
-              datasource_type: item.datasource_type,
-            })),
-            simpleOptions: list.map((item) => ({
-              label: formatDatasourceLabel(item.datasource_name, item.datasource_id),
-              value: item.datasource_id,
-              datasource_id: item.datasource_id,
-              datasource_type: item.datasource_type,
-            })),
-            loading: false,
-            fetched: true,
-          }, false, '数据源选项请求成功');
+          set(
+            {
+              list,
+              options: list.map((item) => ({
+                label: formatDatasourceLabel(item.datasource_name, item.datasource_id),
+                title: formatDatasourceLabel(item.datasource_name, item.datasource_id),
+                value: item.datasource_id,
+                datasource_id: item.datasource_id,
+                datasource_type: item.datasource_type,
+              })),
+              simpleOptions: list.map((item) => ({
+                label: item.datasource_name?.trim() || item.datasource_id,
+                title: item.datasource_name?.trim() || item.datasource_id,
+                value: item.datasource_id,
+                datasource_id: item.datasource_id,
+                datasource_type: item.datasource_type,
+              })),
+              loading: false,
+              fetched: true,
+            },
+            false,
+            '数据源选项请求成功',
+          );
         } catch {
           set({ loading: false }, false, 'fetchOptions/error');
         }
@@ -77,12 +84,14 @@ export const useDataSourceOptionsStore = create<DataSourceOptionsState>()(
         set(initialState, false, 'reset');
       },
     }),
-    { name: 'DataSourceOptionsStore' }
-  )
+    { name: 'DataSourceOptionsStore' },
+  ),
 );
 
 // 导出 selector hooks 便于组件使用
 export const useDataSourceOptions = () => useDataSourceOptionsStore((state) => state.options);
-export const useDataSourceSimpleOptions = () => useDataSourceOptionsStore((state) => state.simpleOptions);
+export const useDataSourceSimpleOptions = () =>
+  useDataSourceOptionsStore((state) => state.simpleOptions);
 export const useDataSourceList = () => useDataSourceOptionsStore((state) => state.list);
-export const useDataSourceOptionsLoading = () => useDataSourceOptionsStore((state) => state.loading);
+export const useDataSourceOptionsLoading = () =>
+  useDataSourceOptionsStore((state) => state.loading);

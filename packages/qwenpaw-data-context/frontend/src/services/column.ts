@@ -1,67 +1,80 @@
-import { QueryColumnParams, ColumnItem } from "@/types/column"
-import { request } from "@/utils/request"
-import { semanticConfigApi } from "./api"
+import type {
+  ColumnCreateRequest,
+  ColumnResponse,
+  ColumnUpdateRequest,
+  ColumnUpsertInput,
+  QueryColumnParams,
+} from '@/types/column';
+import type { SemanticConfigDeleteResponse, SemanticConfigPage } from '@/types/semanticConfig';
+import { assertSemanticConfigPage, pickSemanticFields } from '@/utils/semanticConfigContract';
+import { request } from '@/utils/request';
+import { semanticConfigApi } from './api';
 
-const COLUMN_API = semanticConfigApi('/dataset-column-meta')
+const COLUMN_API = semanticConfigApi('/dataset-column-meta');
+const COLUMN_CREATE_FIELDS = [
+  'datasource_id',
+  'domain_id',
+  'dataset_id',
+  'field_name',
+  'description',
+  'data_type',
+  'is_primary',
+  'is_nullable',
+] as const;
+const COLUMN_UPDATE_FIELDS = [
+  'field_name',
+  'description',
+  'data_type',
+  'is_primary',
+  'is_nullable',
+] as const;
 
-// 查询列列表
-export const queryColumnList = (params: QueryColumnParams) => {
-  return request.get(COLUMN_API, { params })
-}
+export const queryColumnList = async (
+  params: QueryColumnParams = {},
+): Promise<SemanticConfigPage<ColumnResponse>> => {
+  const response = await request.get<unknown>(COLUMN_API, {
+    params: { ...params, page: params.page ?? 1, size: params.size ?? 20 },
+  });
+  return assertSemanticConfigPage<ColumnResponse>(response);
+};
 
-// 创建列（单个）
-export const createColumn = (data: Partial<ColumnItem>) => {
-  return request.post(COLUMN_API, data)
-}
+export const createColumn = (data: ColumnCreateRequest): Promise<ColumnResponse> => {
+  return request.post(COLUMN_API, pickSemanticFields(data, COLUMN_CREATE_FIELDS));
+};
 
-// 更新列
-export const updateColumn = (id: number, data: Partial<ColumnItem>) => {
-  return request.put(`${COLUMN_API}/${id}`, data)
-}
+export const updateColumn = (id: number, data: ColumnUpdateRequest): Promise<ColumnResponse> => {
+  return request.put(`${COLUMN_API}/${id}`, pickSemanticFields(data, COLUMN_UPDATE_FIELDS));
+};
 
-// 删除列
-export const deleteColumn = (id: number) => {
-  return request.delete(`${COLUMN_API}/${id}`)
-}
+export const deleteColumn = (id: number): Promise<SemanticConfigDeleteResponse> => {
+  return request.delete(`${COLUMN_API}/${id}`);
+};
 
-// Step 1 - 预览
-export const previewColumnMeta = (datasetId: number) => {
-  return request.get(`${COLUMN_API}/dataset/${datasetId}`)
-}
+export const previewColumnMeta = (datasetId: number): Promise<ColumnResponse[]> => {
+  return request.get(`${COLUMN_API}/dataset/${datasetId}`);
+};
 
-const persistColumns = (datasetId: number, data: ColumnItem[]) => {
+const persistColumns = (data: ColumnUpsertInput[]) => {
   return Promise.all(
-    data.map((item) => {
-      const payload = { ...item, dataset_id: item.dataset_id ?? datasetId };
-      return typeof item.id === 'number'
-        ? updateColumn(item.id, payload)
-        : createColumn(payload);
-    })
+    data.map((item) =>
+      item.id == null
+        ? createColumn(pickSemanticFields(item, COLUMN_CREATE_FIELDS))
+        : updateColumn(item.id, pickSemanticFields(item, COLUMN_UPDATE_FIELDS)),
+    ),
   );
 };
 
-// Step 2 - 确认入库
-export const confirmColumnMetaStorage = (datasetId: number, data: ColumnItem[]) => {
-  return persistColumns(datasetId, data)
-}
+export const confirmColumnMetaStorage = (_datasetId: number, data: ColumnUpsertInput[]) =>
+  persistColumns(data);
 
-// Step 3 - 维度推理
-export const inferDimensions = (datasetId: number, data: ColumnItem[]) => {
-  void datasetId;
-  return Promise.resolve(data)
-}
+export const inferDimensions = (_datasetId: number, data: ColumnUpsertInput[]) => {
+  return Promise.resolve(data);
+};
 
-// Step 4 - 确认维度
-export const confirmDimensions = (datasetId: number, data: ColumnItem[]) => {
-  return persistColumns(datasetId, data)
-}
+export const confirmDimensions = (_datasetId: number, data: ColumnUpsertInput[]) =>
+  persistColumns(data);
 
-// Step 5 - 样本补全
-export const completeSamples = (datasetId: number) => {
-  return previewColumnMeta(datasetId)
-}
+export const completeSamples = (datasetId: number) => previewColumnMeta(datasetId);
 
-// Step 6 - 确认样本
-export const confirmSamples = (datasetId: number, data: ColumnItem[]) => {
-  return persistColumns(datasetId, data)
-}
+export const confirmSamples = (_datasetId: number, data: ColumnUpsertInput[]) =>
+  persistColumns(data);

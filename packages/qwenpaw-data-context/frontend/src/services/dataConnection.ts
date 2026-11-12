@@ -1,7 +1,7 @@
-import { request } from "./request";
+import { request } from './request';
 
 /** Supported data source types (aligned with backend API). */
-export type DataSourceType = "mysql" | "postgresql" | "odps";
+export type DataSourceType = 'mysql' | 'postgresql' | 'odps';
 
 export interface MysqlPostgresConfig {
   host?: string;
@@ -56,17 +56,17 @@ export interface DataSourceTypeInfo {
   defaultPort?: number;
 }
 
-const BASE = "/qwenpaw-data/data-sources";
+const BASE = '/qwenpaw_data/data-sources';
 
 /** Normalize snake_case / camelCase backend fields into the frontend record shape. */
 function normalizeRecord(raw: Record<string, unknown>): DataSourceRecord {
   return {
-    id: String(raw.id ?? ""),
-    type: raw.type as DataSourceRecord["type"],
-    name: String(raw.name ?? ""),
-    config: (raw.config as DataSourceRecord["config"]) ?? {},
-    createdAt: String(raw.createdAt ?? raw.created_at ?? ""),
-    updatedAt: String(raw.updatedAt ?? raw.updated_at ?? ""),
+    id: String(raw.id ?? ''),
+    type: raw.type as DataSourceRecord['type'],
+    name: String(raw.name ?? ''),
+    config: (raw.config as DataSourceRecord['config']) ?? {},
+    createdAt: String(raw.createdAt ?? raw.created_at ?? ''),
+    updatedAt: String(raw.updatedAt ?? raw.updated_at ?? ''),
   };
 }
 
@@ -74,17 +74,13 @@ function normalizeRecord(raw: Record<string, unknown>): DataSourceRecord {
 function normalizeListResponse(raw: unknown): DataSourceListResponse {
   if (Array.isArray(raw)) {
     return {
-      items: raw.map((item) =>
-        normalizeRecord(item as Record<string, unknown>),
-      ),
+      items: raw.map((item) => normalizeRecord(item as Record<string, unknown>)),
     };
   }
   const body = (raw ?? {}) as Record<string, unknown>;
   const items = Array.isArray(body.items) ? body.items : [];
   return {
-    items: items.map((item) =>
-      normalizeRecord(item as Record<string, unknown>),
-    ),
+    items: items.map((item) => normalizeRecord(item as Record<string, unknown>)),
   };
 }
 
@@ -94,9 +90,8 @@ function normalizeTestResult(raw: unknown): DataSourceTestResult {
   const latency = body.latencyMs ?? body.latency_ms;
   return {
     success: Boolean(body.success),
-    message: String(body.message ?? ""),
-    latencyMs:
-      latency === undefined || latency === null ? undefined : Number(latency),
+    message: String(body.message ?? ''),
+    latencyMs: latency === undefined || latency === null ? undefined : Number(latency),
   };
 }
 
@@ -109,7 +104,7 @@ export const httpDataSourceApi = {
   create: async (payload: DataSourceCreatePayload) =>
     normalizeRecord(
       (await request(BASE, {
-        method: "POST",
+        method: 'POST',
         body: JSON.stringify(payload),
       })) as Record<string, unknown>,
     ),
@@ -118,7 +113,7 @@ export const httpDataSourceApi = {
   testConnection: async (payload: DataSourceTestPayload) =>
     normalizeTestResult(
       await request(`${BASE}/test`, {
-        method: "POST",
+        method: 'POST',
         body: JSON.stringify(payload),
       }),
     ),
@@ -126,7 +121,7 @@ export const httpDataSourceApi = {
   /** Delete one saved data source connection. */
   remove: (id: string) =>
     request<void>(`${BASE}/${encodeURIComponent(id)}`, {
-      method: "DELETE",
+      method: 'DELETE',
     }),
 };
 

@@ -1,4 +1,4 @@
-import { cmRequest, cmRequestWithMeta, encodeKey, buildPageQuery } from "./helpers";
+import { cmRequest, cmRequestWithMeta, encodeKey, buildPageQuery } from './helpers';
 import type {
   Domain,
   DomainDetail,
@@ -13,7 +13,7 @@ import type {
   MgNodeEdgesParams,
   MgNodeEdgesResponse,
   PaginationMeta,
-} from "./types";
+} from './types';
 
 // ------------------------------------------------------------
 // MG (Metadata Graph) — Read-only API module
@@ -24,20 +24,15 @@ import type {
 async function listDomains(
   params?: DomainListParams,
 ): Promise<{ data: Domain[]; meta: PaginationMeta | null }> {
-  const qs = params ? buildPageQuery(params as Record<string, unknown>) : "";
-  const path = qs ? `/mg/domains?${qs}` : "/mg/domains";
+  const qs = params ? buildPageQuery(params as Record<string, unknown>) : '';
+  const path = qs ? `/mg/domains?${qs}` : '/mg/domains';
   return cmRequestWithMeta<Domain[]>(path);
 }
 
 /** GET /api/v1/admin/mg/domains/:key */
-async function getDomain(
-  key: string,
-  params?: { datasource_id?: string },
-): Promise<DomainDetail> {
-  const qs = params ? buildPageQuery(params) : "";
-  const path = qs
-    ? `/mg/domains/${encodeKey(key)}?${qs}`
-    : `/mg/domains/${encodeKey(key)}`;
+async function getDomain(key: string, params?: { datasource_id?: string }): Promise<DomainDetail> {
+  const qs = params ? buildPageQuery(params) : '';
+  const path = qs ? `/mg/domains/${encodeKey(key)}?${qs}` : `/mg/domains/${encodeKey(key)}`;
   return cmRequest<DomainDetail>(path);
 }
 
@@ -45,8 +40,8 @@ async function getDomain(
 async function listMetrics(
   params?: MetricListParams,
 ): Promise<{ data: MetricSummary[]; meta: PaginationMeta | null }> {
-  const qs = params ? buildPageQuery(params as Record<string, unknown>) : "";
-  const path = qs ? `/mg/metrics?${qs}` : "/mg/metrics";
+  const qs = params ? buildPageQuery(params as Record<string, unknown>) : '';
+  const path = qs ? `/mg/metrics?${qs}` : '/mg/metrics';
   return cmRequestWithMeta<MetricSummary[]>(path);
 }
 
@@ -55,10 +50,8 @@ async function getMetric(
   key: string,
   params?: { domain?: string; datasource_id?: string },
 ): Promise<MetricDetail> {
-  const qs = params ? buildPageQuery(params) : "";
-  const path = qs
-    ? `/mg/metrics/${encodeKey(key)}?${qs}`
-    : `/mg/metrics/${encodeKey(key)}`;
+  const qs = params ? buildPageQuery(params) : '';
+  const path = qs ? `/mg/metrics/${encodeKey(key)}?${qs}` : `/mg/metrics/${encodeKey(key)}`;
   return cmRequest<MetricDetail>(path);
 }
 
@@ -66,8 +59,8 @@ async function getMetric(
 async function listDimensions(
   params?: DimensionListParams,
 ): Promise<{ data: DimensionDetail[]; meta: PaginationMeta | null }> {
-  const qs = params ? buildPageQuery(params as Record<string, unknown>) : "";
-  const path = qs ? `/mg/dimensions?${qs}` : "/mg/dimensions";
+  const qs = params ? buildPageQuery(params as Record<string, unknown>) : '';
+  const path = qs ? `/mg/dimensions?${qs}` : '/mg/dimensions';
   return cmRequestWithMeta<DimensionDetail[]>(path);
 }
 
@@ -76,10 +69,8 @@ async function getDimension(
   key: string,
   params?: { domain?: string; datasource_id?: string },
 ): Promise<DimensionDetail> {
-  const qs = params ? buildPageQuery(params) : "";
-  const path = qs
-    ? `/mg/dimensions/${encodeKey(key)}?${qs}`
-    : `/mg/dimensions/${encodeKey(key)}`;
+  const qs = params ? buildPageQuery(params) : '';
+  const path = qs ? `/mg/dimensions/${encodeKey(key)}?${qs}` : `/mg/dimensions/${encodeKey(key)}`;
   return cmRequest<DimensionDetail>(path);
 }
 
@@ -87,8 +78,8 @@ async function getDimension(
 async function listDatasets(
   params?: DatasetListParams,
 ): Promise<{ data: DatasetSchema[]; meta: PaginationMeta | null }> {
-  const qs = params ? buildPageQuery(params as Record<string, unknown>) : "";
-  const path = qs ? `/mg/datasets?${qs}` : "/mg/datasets";
+  const qs = params ? buildPageQuery(params as Record<string, unknown>) : '';
+  const path = qs ? `/mg/datasets?${qs}` : '/mg/datasets';
   return cmRequestWithMeta<DatasetSchema[]>(path);
 }
 
@@ -97,22 +88,15 @@ async function getDataset(
   key: string,
   params?: { domain?: string; datasource_id?: string },
 ): Promise<DatasetSchema> {
-  const qs = params ? buildPageQuery(params) : "";
-  const path = qs
-    ? `/mg/datasets/${encodeKey(key)}?${qs}`
-    : `/mg/datasets/${encodeKey(key)}`;
+  const qs = params ? buildPageQuery(params) : '';
+  const path = qs ? `/mg/datasets/${encodeKey(key)}?${qs}` : `/mg/datasets/${encodeKey(key)}`;
   return cmRequest<DatasetSchema>(path);
 }
 
 /** GET /api/v1/admin/mg/nodes/:key/edges */
-async function getNodeEdges(
-  key: string,
-  params?: MgNodeEdgesParams,
-): Promise<MgNodeEdgesResponse> {
-  const qs = params ? buildPageQuery(params as Record<string, unknown>) : "";
-  const path = qs
-    ? `/mg/nodes/${encodeKey(key)}/edges?${qs}`
-    : `/mg/nodes/${encodeKey(key)}/edges`;
+async function getNodeEdges(key: string, params?: MgNodeEdgesParams): Promise<MgNodeEdgesResponse> {
+  const qs = params ? buildPageQuery(params as Record<string, unknown>) : '';
+  const path = qs ? `/mg/nodes/${encodeKey(key)}/edges?${qs}` : `/mg/nodes/${encodeKey(key)}/edges`;
   return cmRequest<MgNodeEdgesResponse>(path);
 }
 

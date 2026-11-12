@@ -8,121 +8,105 @@ erasing data. The repositories now use COALESCE to preserve omitted fields.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import aiosqlite
 import pytest
-
+from _sc_dbutil import new_memory_session
 from semantic_config.models.biz_domain import BizDomainCreate, BizDomainUpdate
-from semantic_config.models.datasource import DatasourceCreate
 from semantic_config.models.dimension import DimensionCreate, DimensionUpdate
 from semantic_config.models.metric_lib import MetricCreate, MetricUpdate
-from semantic_config.services import biz_domain_service, dimension_service, metric_lib_service
-from semantic_config.services import datasource_service
-
-_SCHEMA = (
-    Path(__file__).resolve().parents[1] / "src" / "semantic_config" / "schema.sql"
+from semantic_config.principal import LOCAL_DEV_PRINCIPAL
+from semantic_config.services import (
+    biz_domain_service,
+    dimension_service,
+    metric_lib_service,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.fixture()
-async def db(tmp_path: Path) -> aiosqlite.Connection:
-    conn = await aiosqlite.connect(tmp_path / "semantic_config.db")
-    conn.row_factory = aiosqlite.Row
-    await conn.executescript(_SCHEMA.read_text(encoding="utf-8"))
-    await conn.commit()
+async def db() -> AsyncSession:
+    session = await new_memory_session()
     try:
-        yield conn
+        yield session
     finally:
-        await conn.close()
+        await session.close()
 
 
-async def _seed_domain(db: aiosqlite.Connection) -> tuple[str, int]:
-    datasource = await datasource_service.create(
-        db,
-        DatasourceCreate(
-            datasource_name="ds",
-            datasource_type="postgresql",
-            config={
-                "host": "127.0.0.1",
-                "port": 5432,
-                "dbname": "db",
-                "user": "u",
-                "password": "p",
-            },
-        ),
-    )
+async def _seed_domain(db: AsyncSession) -> int:
     domain = await biz_domain_service.create(
         db,
         BizDomainCreate(
-            datasource_id=datasource.datasource_id,
             domain_name="d1",
-            display_name="Domain 1",
             description="desc",
-            aliases="a1",
         ),
+        LOCAL_DEV_PRINCIPAL,
     )
-    return datasource.datasource_id, domain.domain_id
+    return domain.domain_id
 
 
-async def test_metric_partial_update_keeps_other_fields(db: aiosqlite.Connection) -> None:
-    datasource_id, domain_id = await _seed_domain(db)
+async def test_metric_partial_update_keeps_other_fields(db: AsyncSession) -> None:
+    domain_id = await _seed_domain(db)
     created = await metric_lib_service.create(
         db,
         MetricCreate(
-            datasource_id=datasource_id,
             domain_id=domain_id,
             metric_name="m1",
             description="original",
-            unit="CNY",
-            is_polaris=True,
             synonyms="s1",
+            priority="HIGH",
         ),
+        LOCAL_DEV_PRINCIPAL,
     )
 
     updated = await metric_lib_service.update(
-        db, created.id, MetricUpdate(description="changed")
+        db,
+        created.metric_id,
+        MetricUpdate(description="changed"),
+        LOCAL_DEV_PRINCIPAL,
     )
 
     assert updated.description == "changed"
     assert updated.metric_name == "m1"
-    assert updated.unit == "CNY"
-    assert updated.is_polaris is True
     assert updated.synonyms == "s1"
+    assert updated.priority == "HIGH"
 
 
-async def test_dimension_partial_update_keeps_other_fields(db: aiosqlite.Connection) -> None:
-    datasource_id, domain_id = await _seed_domain(db)
+async def test_dimension_partial_update_keeps_other_fields(db: AsyncSession) -> None:
+    domain_id = await _seed_domain(db)
     created = await dimension_service.create(
         db,
         DimensionCreate(
-            datasource_id=datasource_id,
             domain_id=domain_id,
             dimension_name="dim1",
             description="original",
             synonyms="s1",
-            enums="a,b",
+            dimension_type="categorical",
+            child_dimensions="child1$$$child2",
+            priority="LOW",
         ),
+        LOCAL_DEV_PRINCIPAL,
     )
 
     updated = await dimension_service.update(
-        db, created.id, DimensionUpdate(description="changed")
+        db,
+        created.dimension_id,
+        DimensionUpdate(description="changed"),
+        LOCAL_DEV_PRINCIPAL,
     )
 
     assert updated.description == "changed"
     assert updated.dimension_name == "dim1"
     assert updated.synonyms == "s1"
-    assert updated.enums == "a,b"
+    assert updated.dimension_type == "categorical"
+    assert updated.child_dimensions == "child1$$$child2"
+    assert updated.priority == "LOW"
 
 
-async def test_domain_partial_update_keeps_other_fields(db: aiosqlite.Connection) -> None:
-    _, domain_id = await _seed_domain(db)
+async def test_domain_partial_update_keeps_other_fields(db: AsyncSession) -> None:
+    domain_id = await _seed_domain(db)
 
     updated = await biz_domain_service.update(
-        db, domain_id, BizDomainUpdate(description="changed")
+        db, domain_id, BizDomainUpdate(description="changed"), LOCAL_DEV_PRINCIPAL
     )
 
     assert updated.description == "changed"
     assert updated.domain_name == "d1"
-    assert updated.display_name == "Domain 1"
-    assert updated.aliases == "a1"

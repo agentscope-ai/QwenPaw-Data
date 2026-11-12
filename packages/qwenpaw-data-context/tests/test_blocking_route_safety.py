@@ -5,12 +5,6 @@ from __future__ import annotations
 import inspect
 import json
 
-from qwenpaw_data.context.blocking_io import (
-    BlockingIOOverloaded,
-    BlockingIOTimeout,
-    BlockingPool,
-)
-
 from context_manager.api import (
     cm_api,
     ctx_service,
@@ -23,7 +17,27 @@ from context_manager.api import (
     tg_admin_api,
     trace_api,
 )
+from context_manager.metadata.weaving import MetadataWeavingService
+from qwenpaw_data.context.blocking_io import (
+    BlockingIOOverloaded,
+    BlockingIOTimeout,
+    BlockingPool,
+)
 from semantic_config.routers import weave_task_router
+
+
+def _mounted_endpoints(routes, prefix=""):
+    """Flatten Starlette's registered-router wrappers for source assertions."""
+    endpoints = {}
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            context = getattr(route, "include_context", None)
+            child_prefix = prefix + (getattr(context, "prefix", "") or "")
+            endpoints.update(_mounted_endpoints(included.routes, child_prefix))
+        elif hasattr(route, "endpoint"):
+            endpoints[prefix + route.path] = route.endpoint
+    return endpoints
 
 
 def test_openpyxl_and_trace_routes_run_in_fastapi_threadpool():
@@ -72,17 +86,15 @@ def test_async_routes_use_the_governor_instead_of_default_to_thread():
     assert "run_in_executor" not in inspect.getsource(doc_api)
     assert "asyncio.to_thread" not in inspect.getsource(import_api)
 
-    endpoints = {
-        route.path: route.endpoint
-        for route in server.app.routes
-        if hasattr(route, "endpoint")
-    }
-    for path in ("/api/domains", "/api/resolve", "/api/expand"):
+    endpoints = _mounted_endpoints(server.app.routes)
+    for path in (
+        "/api/v1/cm/domains",
+        "/api/v3/cm/explore",
+        "/api/v1/graph/expand_neighbors",
+    ):
         endpoint = endpoints[path]
         assert inspect.iscoroutinefunction(endpoint)
-        assert "_run_blocking" in inspect.getsource(endpoint)
-
-    assert not inspect.iscoroutinefunction(endpoints["/api/admin/reset_memory"])
+        assert "runtime.run_graph_read" in inspect.getsource(endpoint)
 
 
 def test_context_and_sql_async_paths_use_bounded_resource_pools():
@@ -110,21 +122,20 @@ def test_semantic_import_http_paths_forward_the_app_governor():
     assert "governor=req.app.state.blocking_io" in inspect.getsource(
         semantic_api.semantic_import
     )
-    assert "governor=governor" in inspect.getsource(
-        weave_task_router.submit_task
+    assert "publisher.submit_task" in inspect.getsource(weave_task_router.submit_task)
+    assert "executor=self._executor" in inspect.getsource(
+        MetadataWeavingService.submit_task
     )
 
 
 def test_background_writeback_uses_governed_submission():
-    endpoints = {
-        route.path: route.endpoint
-        for route in server.app.routes
-        if hasattr(route, "endpoint")
-    }
-    for path in ("/api/execute_sql", "/api/feedback"):
-        source = inspect.getsource(endpoints[path])
-        assert "blocking_io.submit" in source
-        assert "async_mode=False" in source
+    endpoints = _mounted_endpoints(server.app.routes)
+    sql_source = inspect.getsource(endpoints["/api/v1/rdb/execute_sql"])
+    feedback_source = inspect.getsource(
+        endpoints["/api/v1/semantic/feedback_card"]
+    )
+    assert "runtime.run_sql" in sql_source
+    assert "runtime.run_background" in feedback_source
 
 
 async def test_blocking_failures_have_explicit_http_overload_semantics():

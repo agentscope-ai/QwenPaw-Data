@@ -1,0 +1,396 @@
+/* TopicStudio — light aurora theme.
+   white-lavender ground, indigo hairlines, soft glow accents. */
+
+.studio {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  background: #f7f8fe;
+}
+
+/* ── left rail ── */
+.rail {
+  width: 264px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 16px 14px;
+  border-right: 1px solid rgba(79, 82, 217, 0.14);
+  background: rgba(255, 255, 255, 0.7);
+  overflow-y: auto;
+}
+
+.railTitle {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #4f52d9;
+}
+
+.railSub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #8a90b8;
+  letter-spacing: 0.04em;
+}
+
+// ── 主题画像（左上卡）：摘要 / 闭环漏斗 / 证据行 / 覆盖域 chips ──────────
+.profileSummary {
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #3d4166;
+  background: rgba(79, 82, 217, 0.05);
+  border: 1px solid rgba(79, 82, 217, 0.14);
+  border-radius: 6px;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.profileFunnel {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.funnelRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.funnelLabel {
+  flex-shrink: 0;
+  width: 52px;
+  font-size: 10px;
+  color: #8a90b8;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.funnelTrack {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(79, 82, 217, 0.08);
+  overflow: hidden;
+}
+
+.funnelBar {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  opacity: 0.75;
+  transition: width 0.3s ease;
+}
+
+.funnelNum {
+  flex-shrink: 0;
+  min-width: 26px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+.profileStats {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: #8a90b8;
+  letter-spacing: 0.04em;
+}
+
+.profileChips {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.profileChip {
+  padding: 2px 8px;
+  font-size: 10px;
+  color: #4a4f8f;
+  background: rgba(79, 82, 217, 0.07);
+  border: 1px solid rgba(79, 82, 217, 0.18);
+  border-radius: 999px;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.railList {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.railItem {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+
+  &:hover {
+    background: rgba(79, 82, 217, 0.05);
+  }
+}
+
+.railItemOn {
+  border-color: rgba(79, 82, 217, 0.35);
+  background: rgba(79, 82, 217, 0.06);
+  box-shadow: 0 2px 10px rgba(79, 82, 217, 0.1);
+}
+
+.railDot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-top: 3px;
+  box-shadow: 0 0 6px rgba(79, 82, 217, 0.35);
+}
+
+.railItemTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #2c2f52;
+  line-height: 1.3;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.railItemMeta {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #8a90b8;
+  letter-spacing: 0.06em;
+}
+
+.railFoot {
+  margin-top: auto;
+  padding-top: 10px;
+  text-align: right;
+}
+
+/* ── center stage ── */
+.stage {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+}
+
+.stageSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.stageControls {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(79, 82, 217, 0.2);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+
+.ctlBtn {
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: #4f52d9;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-family: inherit;
+
+  &:hover {
+    color: #26264a;
+  }
+}
+
+.zoomSlider {
+  width: 130px;
+  accent-color: #6366f1;
+}
+
+.zoomVal {
+  font-size: 10px;
+  color: #8a90b8;
+  min-width: 40px;
+  text-align: right;
+}
+
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(79, 82, 217, 0.3);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(79, 82, 217, 0.16);
+  z-index: 10;
+}
+
+.tooltipTitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #26264a;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.tooltipMeta {
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: #8a90b8;
+}
+
+/* ── right detail ── */
+.detail {
+  width: 300px;
+  flex-shrink: 0;
+  border-left: 1px solid rgba(79, 82, 217, 0.14);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 18px 16px;
+  overflow-y: auto;
+}
+
+.detailKicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #4f52d9;
+}
+
+.detailEmpty {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #8a90b8;
+  line-height: 1.9;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+// 沉淀缺口提示（主题洞察默认态）：轨迹/调用已发生但尚无可复用知识。
+.insightGap {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #b26a00;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  border-radius: 6px;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.detailHead {
+  margin-top: 14px;
+}
+
+.detailLayer {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.detailTitle {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #26264a;
+  line-height: 1.4;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.detailSub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #8a90b8;
+  word-break: break-all;
+}
+
+.detailText {
+  margin-top: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: #3d4166;
+  background: #fff;
+  border: 1px solid rgba(79, 82, 217, 0.18);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.evidenceKicker {
+  margin-top: 16px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #4f52d9;
+}
+
+.evidenceList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(79, 82, 217, 0.06);
+    }
+  }
+}
+
+.evidenceLayer {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.evidenceLabel {
+  flex: 1;
+  font-size: 11.5px;
+  color: #3d4166;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.evidenceRel {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #8a90b8;
+}
+
+.detailFoot {
+  margin-top: 14px;
+  text-align: right;
+}

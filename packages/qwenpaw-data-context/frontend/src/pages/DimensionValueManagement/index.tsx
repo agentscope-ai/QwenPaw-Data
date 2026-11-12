@@ -1,5 +1,13 @@
-import { previewDimensionValue, confirmDimensionValueStorage, queryDimensionValueList, deleteDimensionValue } from '@/services/dimensionValueManagement';
-import type { DimensionValueItem, QueryDimensionValueParams } from '@/types/dimensionValueManagement';
+import {
+  previewDimensionValue,
+  confirmDimensionValueStorage,
+  queryDimensionValueList,
+  deleteDimensionValue,
+} from '@/services/dimensionValueManagement';
+import type {
+  DimensionValueItem,
+  QueryDimensionValueParams,
+} from '@/types/dimensionValueManagement';
 import { deleteExtraDelete, omitKeys } from '@/utils';
 import { normalizeListResponse, extractTotal } from '@/utils/listResponse';
 import { ArrowLeftOutlined, SaveOutlined } from '@/design';
@@ -7,12 +15,30 @@ import { ProColumns, ProTable, EditableProTable } from '@/design';
 import type { ActionType } from '@/design';
 import { Button, Popconfirm, message, Tag, Space, Spin, Alert } from '@/design';
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { useSearchParams, useNavigate } from 'react-router';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useHasCapability } from '@/store/authStore';
+import { parseUrlNumber, readUrlSearchValues } from '@/utils/urlSearch';
 
 const DimensionValueManagement: React.FC = () => {
   const { t } = useTranslation();
+  const canWrite = useHasCapability('datasource:write');
   const [searchParams] = useSearchParams();
+  const [initialSearchValues] = useState(() =>
+    readUrlSearchValues<{
+      datasetName?: string;
+      dimension_name?: string;
+      dimensionValue?: string;
+      dataset_id?: number;
+      dimension_id?: number;
+    }>(searchParams, {
+      datasetName: { aliases: ['dataset_name'] },
+      dimension_name: { aliases: ['dimensionName'] },
+      dimensionValue: { aliases: ['dimension_value'] },
+      dataset_id: { aliases: ['datasetId'], parse: parseUrlNumber },
+      dimension_id: { aliases: ['dimensionId'], parse: parseUrlNumber },
+    }),
+  );
   const navigate = useNavigate();
   const actionRef = useRef<ActionType | undefined>(undefined);
 
@@ -114,28 +140,62 @@ const DimensionValueManagement: React.FC = () => {
     { title: t('fields.dimensionType'), dataIndex: 'dimension_type', width: 100 },
     { title: t('fields.dataType'), dataIndex: 'data_type', width: 100 },
     { title: t('fields.dimensionValue'), dataIndex: 'dimension_value', width: 150 },
-    { title: t('fields.occurrenceCount'), dataIndex: 'dimension_occur_cnt', editable: false, width: 100 },
+    {
+      title: t('fields.occurrenceCount'),
+      dataIndex: 'dimension_occur_cnt',
+      editable: false,
+      width: 100,
+    },
   ];
 
   // 管理表格列
   const columns: ProColumns<DimensionValueItem>[] = [
-    { title: t('fields.datasetName'), dataIndex: 'datasetName', search: false, width: 120, render: (_, record) => <>{record.dataset_name || '-'}</> },
+    {
+      title: t('fields.datasetName'),
+      dataIndex: 'datasetName',
+      search: false,
+      width: 120,
+      render: (_, record) => <>{record.dataset_name || '-'}</>,
+    },
     { title: t('fields.dimensionName'), dataIndex: 'dimension_name', width: 120 },
-    { title: t('fields.calculateExpression'), dataIndex: 'calculate_expr', search: false, ellipsis: true, width: 150 },
+    {
+      title: t('fields.calculateExpression'),
+      dataIndex: 'calculate_expr',
+      search: false,
+      ellipsis: true,
+      width: 150,
+    },
     { title: t('fields.dimensionType'), dataIndex: 'dimension_type', search: false, width: 100 },
     { title: t('fields.dataType'), dataIndex: 'data_type', search: false, width: 100 },
-    { title: t('fields.dimensionValue'), dataIndex: 'dimensionValue', width: 150, render: (_, record) => <>{record.dimension_value || '-'}</> },
-    { title: t('fields.occurrenceCount'), dataIndex: 'dimension_occur_cnt', search: false, width: 100 },
     {
-      title: t('common.actions'), search: false, dataIndex: 'action', fixed: 'right', width: 80,
-      render: (_, record) => (
-        <Popconfirm
-          title={t('common.confirmDeleteRecord')}
-          onConfirm={() => handleDelete(record)}
-        >
-          <Button size="small" type="link" danger>{t('common.delete')}</Button>
-        </Popconfirm>
-      ),
+      title: t('fields.dimensionValue'),
+      dataIndex: 'dimensionValue',
+      width: 150,
+      render: (_, record) => <>{record.dimension_value || '-'}</>,
+    },
+    {
+      title: t('fields.occurrenceCount'),
+      dataIndex: 'dimension_occur_cnt',
+      search: false,
+      width: 100,
+    },
+    {
+      title: t('common.actions'),
+      search: false,
+      dataIndex: 'action',
+      fixed: 'right',
+      width: 80,
+      render: (_, record) =>
+        canWrite && (
+          <Popconfirm
+            title={t('common.confirmDeleteRecord')}
+            onConfirm={() => handleDelete(record)}
+          >
+            <Button size="small" type="link" danger>
+              {t('common.delete')}
+            </Button>
+          </Popconfirm>
+        ),
     },
   ];
 
@@ -179,14 +239,18 @@ const DimensionValueManagement: React.FC = () => {
                 recordCreatorProps={false}
                 editable={{
                   type: 'multiple',
-                  editableKeys: items.map((item: DimensionValueItem) => item._key).filter((key): key is string => key !== undefined),
+                  editableKeys: items
+                    .map((item: DimensionValueItem) => item._key)
+                    .filter((key): key is string => key !== undefined),
                   onChange: setEditableRowKeys,
                   onValuesChange: (_record, recordList) => {
                     // 更新预览数据
                     setPreviewData((prev) => {
                       const newData = [...prev];
                       recordList.forEach((updatedItem) => {
-                        const index = newData.findIndex((item) => item._key === (updatedItem as DimensionValueItem)._key);
+                        const index = newData.findIndex(
+                          (item) => item._key === (updatedItem as DimensionValueItem)._key,
+                        );
                         if (index > -1) {
                           newData[index] = updatedItem;
                         }
@@ -211,37 +275,38 @@ const DimensionValueManagement: React.FC = () => {
   // 管理表格模式渲染
   return (
     <ProTable<DimensionValueItem>
-        rowKey={(record: DimensionValueItem) => record.id}
-        actionRef={actionRef}
-        columns={columns}
-        request={async (params) => {
-          const requestData: QueryDimensionValueParams = {
-            page: params.current,
-            size: params.pageSize,
-            ...params,
+      rowKey={(record: DimensionValueItem) => record.id}
+      actionRef={actionRef}
+      columns={columns}
+      form={{ initialValues: initialSearchValues }}
+      request={async (params) => {
+        const requestData: QueryDimensionValueParams = {
+          page: params.current,
+          size: params.pageSize,
+          ...params,
+        };
+        try {
+          const result = await queryDimensionValueList(deleteExtraDelete(requestData));
+          const list = normalizeListResponse<DimensionValueItem>(result);
+          return {
+            data: list,
+            success: true,
+            total: extractTotal(result) || list.length,
           };
-          try {
-            const result = await queryDimensionValueList(deleteExtraDelete(requestData));
-            const list = normalizeListResponse<DimensionValueItem>(result);
-            return {
-              data: list,
-              success: true,
-              total: extractTotal(result) || list.length,
-            };
-          } catch {
-            return { data: [], success: false, total: 0 };
-          }
-        }}
-        scroll={{ x: 1400 }}
-        pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
-        }}
-        search={{
-          labelWidth: 'auto',
-        }}
-      />
+        } catch {
+          return { data: [], success: false, total: 0 };
+        }
+      }}
+      scroll={{ x: 1400 }}
+      pagination={{
+        defaultPageSize: 10,
+        showSizeChanger: true,
+        pageSizeOptions: ['10', '20', '50', '100'],
+      }}
+      search={{
+        labelWidth: 'auto',
+      }}
+    />
   );
 };
 

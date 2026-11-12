@@ -9,6 +9,7 @@ class DatasourceCreate(BaseModel):
     datasource_name: str | None = None
     datasource_type: str | None = None
     config: dict | None = None
+    description: str | None = None  # v2.1 新增（P1）
 
 
 class DatasourceUpdate(BaseModel):
@@ -17,13 +18,16 @@ class DatasourceUpdate(BaseModel):
     datasource_name: str | None = None
     datasource_type: str | None = None
     config: dict | None = None
+    description: str | None = None
 
 
 class DatasourceResponse(BaseModel):
-    datasource_id: str | None = None
+    id: int | None = None
+    datasource_id: str | None = None  # 对外唯一编码，既是展示也是子表关联键
     datasource_name: str | None = None
     datasource_type: str | None = None
     config: dict | None = None
+    description: str | None = None
 
 
 class DatasourceMetadataResponse(BaseModel):

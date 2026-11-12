@@ -1,0 +1,1088 @@
+/* Dashboard · 数据总览 — violet↔teal accent system on the app's light theme.
+   Layer hues stay canonical (constants.ts); the gradient accent is derived
+   from TG violet → a teal bridging KG green / MG blue. */
+
+/* ── Tokens ────────────────────────────────────────────────────────────── */
+:root {
+  --dash-violet: #7c4dd6;
+  --dash-teal: #14b8a6;
+  --dash-accent: linear-gradient(120deg, #7c4dd6 0%, #14b8a6 100%);
+  --dash-grid: rgba(31, 31, 31, 0.06);
+  --dash-micro-color: #8c8c8c;
+  --dash-bloom:
+    radial-gradient(ellipse 32% 26% at 6% 0%, rgba(124, 77, 214, 0.05), transparent 70%),
+    radial-gradient(ellipse 30% 24% at 96% 100%, rgba(20, 184, 166, 0.05), transparent 70%);
+}
+
+:root[data-qwenpaw-data-theme='dark'] {
+  --dash-grid: rgb(255 255 255 / 8%);
+  --dash-micro-color: var(--qwenpaw-data-color-text-tertiary);
+}
+
+/* ── Page & hero ───────────────────────────────────────────────────────── */
+.dashPage {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0 8px 32px;
+  background-image: var(--dash-bloom);
+}
+
+.dashHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+  margin-bottom: 12px;
+}
+
+.dashHeroMeta {
+  color: var(--dash-micro-color);
+  font-size: 12px;
+}
+
+.dashHeroRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Small category label above the card title. */
+.dashMicro {
+  color: var(--dash-micro-color);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.refreshBtn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  color: #595959;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  transition:
+    border-color 0.22s ease,
+    color 0.22s ease,
+    opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+
+  &:hover:not(:disabled) {
+    color: var(--dash-violet);
+    border-color: var(--dash-violet);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.errorNote {
+  color: #d46b08;
+  font-size: 12px;
+}
+
+/* ── Grid ──────────────────────────────────────────────────────────────── */
+.dashGrid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+  animation: dashGridIn 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.dashGridDim {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+@keyframes dashGridIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.span3 {
+  grid-column: span 3;
+}
+.span4 {
+  grid-column: span 4;
+}
+.span5 {
+  grid-column: span 5;
+}
+.span7 {
+  grid-column: span 7;
+}
+.span8 {
+  grid-column: span 8;
+}
+.span12 {
+  grid-column: span 12;
+}
+
+@media (max-width: 1100px) {
+  .span3,
+  .span4,
+  .span5 {
+    grid-column: span 6;
+  }
+  .span7,
+  .span8 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 720px) {
+  .span3,
+  .span4,
+  .span5,
+  .span7,
+  .span8 {
+    grid-column: span 12;
+  }
+}
+
+/* ── Card shell ────────────────────────────────────────────────────────── */
+.dashCard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 18px 14px;
+  background: #fff;
+  border: 1px solid rgba(31, 31, 31, 0.07);
+  border-radius: 12px;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: rgba(124, 77, 214, 0.28);
+    box-shadow: 0 8px 24px rgba(124, 77, 214, 0.08);
+  }
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .dashCard,
+:global(:root[data-qwenpaw-data-theme='dark']) .kpiCard,
+:global(:root[data-qwenpaw-data-theme='dark']) .crossGlyph,
+:global(:root[data-qwenpaw-data-theme='dark']) .refreshBtn {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .kpiLabel,
+:global(:root[data-qwenpaw-data-theme='dark']) .roseLegendName,
+:global(:root[data-qwenpaw-data-theme='dark']) .healthLegendLabel,
+:global(:root[data-qwenpaw-data-theme='dark']) .syncDigest,
+:global(:root[data-qwenpaw-data-theme='dark']) .hotCount {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .caFilter {
+  background: var(--qwenpaw-data-color-fill-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .caFilterBtn {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .caFilterBtnActive {
+  color: var(--qwenpaw-data-color-primary-hover);
+  background: var(--qwenpaw-data-color-inset-surface);
+}
+
+.dashCardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dashCardTitle {
+  margin: 3px 0 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.dashCardExtra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dashCardBody {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── DEMO chips ────────────────────────────────────────────────────────── */
+.demoChip {
+  padding: 1px 8px;
+  color: #7c4dd6;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(124, 77, 214, 0.08);
+  border: 1px solid rgba(124, 77, 214, 0.25);
+  border-radius: 999px;
+}
+
+.demoChipLg {
+  padding: 3px 12px;
+  color: #7c4dd6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(124, 77, 214, 0.08);
+  border: 1px solid rgba(124, 77, 214, 0.3);
+  border-radius: 999px;
+}
+
+/* ── Empty / loading states ────────────────────────────────────────────── */
+.emptyBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 120px;
+  color: var(--dash-micro-color);
+  font-size: 12.5px;
+}
+
+.dashedRing {
+  width: 44px;
+  height: 44px;
+  border: 1.5px dashed rgba(31, 31, 31, 0.18);
+  border-radius: 50%;
+}
+
+.loadingBlock,
+.loadingPage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 120px;
+  color: var(--dash-micro-color);
+  font-size: 12.5px;
+}
+
+.loadingPage {
+  box-sizing: border-box;
+  min-height: 320px;
+  gap: 12px;
+}
+
+/* ── KPI strip ─────────────────────────────────────────────────────────── */
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.kpiCard {
+  position: relative;
+  padding: 14px 18px 16px;
+  background: #fff;
+  border: 1px solid rgba(31, 31, 31, 0.07);
+  border-radius: 12px;
+  overflow: hidden;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(31, 31, 31, 0.06);
+
+    .kpiLine {
+      width: 100%;
+    }
+  }
+}
+
+.kpiCardClick {
+  width: 100%;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kpiNum {
+  margin-top: 6px;
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.kpiNumWarn {
+  color: #d46b08;
+}
+
+.kpiLabel {
+  margin-top: 2px;
+  color: #595959;
+  font-size: 12.5px;
+}
+
+.kpiLine {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 34%;
+  height: 2px;
+  background: var(--dash-accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* ── Legend bits ───────────────────────────────────────────────────────── */
+.legendInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dash-micro-color);
+  font-size: 11px;
+
+  i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-left: 6px;
+  }
+}
+
+.legendDotViolet {
+  background: var(--dash-violet);
+  margin-left: 0 !important;
+}
+.legendDotAmber {
+  background: #faad14;
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2.5px;
+}
+
+/* ── Rose (widget 3) ───────────────────────────────────────────────────── */
+.roseWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.roseLegend {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 2px;
+    font-size: 12px;
+  }
+}
+
+.roseLegendName {
+  color: #595959;
+  flex: 1;
+}
+
+.roseLegendNum {
+  color: var(--dash-micro-color);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Cross-layer rings (widget 4) ──────────────────────────────────────── */
+.crossWrap {
+  display: grid;
+  grid-template-columns: 1fr 128px;
+  gap: 12px;
+  align-items: center;
+  min-height: 200px;
+}
+
+.crossStage {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto;
+}
+
+.crossSvg {
+  width: 100%;
+  height: 100%;
+}
+
+.crossNode {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  transform: translate(-50%, -50%);
+}
+
+.crossGlyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: #fff;
+  border: 1px solid rgba(31, 31, 31, 0.08);
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(31, 31, 31, 0.06);
+}
+
+.crossList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  align-self: center;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(31, 31, 31, 0.05);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+}
+
+.crossPair {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.crossPairLabel {
+  color: var(--dash-micro-color);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.crossCount {
+  color: var(--dash-violet);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Health rings (widget 5) ───────────────────────────────────────────── */
+.healthWrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.healthLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 110px;
+}
+
+.healthLegendRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &:hover .healthLegendLabel {
+    color: var(--dash-violet);
+  }
+}
+
+.healthNum {
+  min-width: 26px;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #14b8a6;
+}
+
+.healthNumWarn {
+  color: #d46b08;
+}
+
+.healthLegendLabel {
+  color: #595959;
+  font-size: 12px;
+}
+
+.healthLink {
+  margin-top: 6px;
+  padding: 0;
+  color: var(--dash-violet);
+  font-size: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* ── Sync status (widget 6) ────────────────────────────────────────────── */
+.syncWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.syncHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.syncDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.syncDotOk {
+  background: var(--dash-teal);
+  box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.5);
+  animation: dash-pulse 2.4s ease-out infinite;
+}
+
+.syncDotWarn {
+  background: var(--dash-violet);
+  box-shadow: 0 0 0 0 rgba(124, 77, 214, 0.5);
+  animation: dash-pulse 1.6s ease-out infinite;
+}
+
+@keyframes dash-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(20, 184, 166, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
+  }
+}
+
+.syncState {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.syncRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.syncRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.syncVal {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.syncDigest {
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: #595959;
+}
+
+.syncStrip {
+  display: flex;
+  gap: 5px;
+}
+
+.syncTick {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.syncTickOk {
+  background: linear-gradient(90deg, rgba(124, 77, 214, 0.5), rgba(20, 184, 166, 0.6));
+}
+.syncTickWarn {
+  background: rgba(250, 173, 20, 0.55);
+}
+
+/* ── Hotspots (widget 7) ───────────────────────────────────────────────── */
+.hotList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hotRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 6px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(124, 77, 214, 0.05);
+  }
+}
+
+.hotRank {
+  color: rgba(31, 31, 31, 0.28);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hotName {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hotType {
+  color: var(--dash-micro-color);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.hotBar {
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.hotCount {
+  min-width: 26px;
+  color: #595959;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── Audit feed (widget 8) ─────────────────────────────────────────────── */
+.auditList {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 16px;
+  list-style: none;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: 1px;
+    background: rgba(31, 31, 31, 0.08);
+  }
+}
+
+.auditRow {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.auditDot {
+  position: absolute;
+  left: -15.5px;
+  top: 13px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2.5px #fff;
+}
+
+.auditMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.auditTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.auditDetail {
+  margin-top: 1px;
+  color: var(--dash-micro-color);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auditTime {
+  color: rgba(31, 31, 31, 0.35);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Curated assets (widget 9) ─────────────────────────────────────────── */
+.caFilter {
+  display: inline-flex;
+  padding: 2px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.caFilterBtn {
+  padding: 2px 12px;
+  color: #595959;
+  font-size: 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.caFilterBtnActive {
+  color: #0958d9;
+  font-weight: 600;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(31, 31, 31, 0.08);
+}
+
+.caList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.caRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 6px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(124, 77, 214, 0.05);
+  }
+}
+
+.caIdentity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.caName {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caKind {
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+.caKindMetric {
+  color: var(--dash-violet);
+  background: rgba(124, 77, 214, 0.09);
+}
+
+.caKindDim {
+  color: #0d9488;
+  background: rgba(20, 184, 166, 0.1);
+}
+
+.caDomain {
+  color: var(--dash-micro-color);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caDate {
+  color: rgba(31, 31, 31, 0.4);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.caUsage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 190px;
+  flex-shrink: 0;
+}
+
+.caCount {
+  color: var(--dash-violet);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.caUnused {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(31, 31, 31, 0.38);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.caUnusedDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #faad14;
+  opacity: 0.85;
+}
+
+/* ── Health issues (compact audit list) ────────────────────────────────── */
+.healthAnchor {
+  scroll-margin-top: 12px;
+}
+
+.issueFilterCount {
+  margin-left: 6px;
+  color: var(--dash-micro-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.issueList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issueRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(124, 77, 214, 0.05);
+  }
+}
+
+.issueMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.issueName {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issueType {
+  color: var(--dash-micro-color);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.issueChip {
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+
+.issueChipDef {
+  color: var(--dash-violet);
+  background: rgba(124, 77, 214, 0.09);
+}
+
+.issueChipDim {
+  color: #d48806;
+  background: rgba(250, 173, 20, 0.14);
+}
+
+.issueChipIso {
+  color: #d4380d;
+  background: rgba(255, 122, 69, 0.12);
+}
+
+.issueRef {
+  margin-left: auto;
+  color: var(--dash-violet);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.issueLocate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  padding: 0;
+  color: var(--dash-micro-color);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--dash-violet);
+    background: rgba(124, 77, 214, 0.08);
+  }
+}
+
+.issueExpand {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 0 2px;
+  color: var(--dash-violet);
+  font-size: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* ── Global (non-module) animation classes used by the SVG primitives ──── */
+:global(.dash-ring-draw) {
+  animation: dash-ring-in 0.7s ease-out both;
+}
+
+@keyframes dash-ring-in {
+  from {
+    stroke-dasharray: 0 9999;
+    opacity: 0.3;
+  }
+}
+
+:global(.dash-bar-glow) {
+  box-shadow: 0 0 6px rgba(20, 184, 166, 0.45);
+}
+
+:global(.dash-rose-petal) {
+  transition: filter 0.18s ease;
+
+  &:hover {
+    filter: drop-shadow(0 0 5px rgba(124, 77, 214, 0.35));
+  }
+}
+
+:global(.dash-ribbon) {
+  transition:
+    opacity 0.18s ease,
+    filter 0.18s ease;
+
+  &:hover {
+    opacity: 1 !important;
+    filter: drop-shadow(0 0 4px rgba(124, 77, 214, 0.4));
+  }
+}

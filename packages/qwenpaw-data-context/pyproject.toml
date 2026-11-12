@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-context"
-version = "0.3.4"
+version = "0.4.0"
 description = "Context management and graph memory foundation for QwenPaw-Data."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,6 +20,12 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+  "qwenpaw-data-auth>=0.4,<0.5",
+  "qwenpaw-data-tracing>=0.4,<0.5",
+  "cryptography>=44,<51",
+  "antlr4-cypher==0.1.2",
+  "antlr4-python3-runtime==4.13.2",
+  "apscheduler>=3.10,<4.0",
   # --- Web / 服务 ---
   "fastapi>=0.141.1,<1.0",
   # anyio 上限放宽以兼容 QwenPaw 主应用（QwenPaw 为规避 #2632 busy-loop 而 pin anyio<4.13.0）
@@ -59,7 +65,8 @@ dependencies = [
   "certifi>=2026.10.18,<2027.0",
   "func-timeout>=4.3,<5.0",
   "oss2>=2.19,<3.0",
-  "sqlalchemy>=2.0,<3.0",
+  "sqlalchemy[asyncio]>=2.0,<3.0",
+  "greenlet>=3.0,<4.0; platform_machine == 'arm64'",
 ]
 
 [project.optional-dependencies]
@@ -91,6 +98,14 @@ exclude = [
   "/frontend/dist-ssr",
 ]
 
+[tool.hatch.build.targets.wheel.force-include]
+"../../LICENSE" = "qwenpaw_data/context/LICENSE"
+"../../NOTICE" = "qwenpaw_data/context/NOTICE"
+
 [tool.hatch.build.targets.sdist.force-include]
 "../../LICENSE" = "LICENSE"
 "../../NOTICE" = "NOTICE"
+
+[tool.uv.sources]
+qwenpaw-data-auth = { workspace = true }
+qwenpaw-data-tracing = { workspace = true }

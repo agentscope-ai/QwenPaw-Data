@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAuthStore } from '@/store/authStore';
+import { setActiveDataSource } from '@/services/dataSource';
 import { queryDimensionList } from '@/services/dimensionManagement';
 import { queryDatasetMeta } from '@/services/datasetManagement';
 import type { DimensionItem } from '@/types/dimensionManagement';
@@ -12,20 +14,26 @@ import {
   useBusinessDomainOptions,
 } from '@/store';
 
-const dimensionNameCache = new Map<number, SelectOption<string>[]>();
-const datasetCache = new Map<number, SelectOption[]>();
+const dimensionNameCache = new Map<string, SelectOption<string>[]>();
+const datasetCache = new Map<string, SelectOption[]>();
+
+const optionCacheKey = (domainId: number, datasourceId?: string) => {
+  const { tenantId, activeWorkspaceId } = useAuthStore.getState();
+  return JSON.stringify([tenantId, activeWorkspaceId, domainId, datasourceId]);
+};
 
 /** 加载维度名称下拉（按业务域缓存） */
 export async function loadDimensionNameOptions(domainId: number): Promise<SelectOption<string>[]> {
   if (!domainId) return [];
-  const cached = dimensionNameCache.get(domainId);
+  const key = optionCacheKey(domainId);
+  const cached = dimensionNameCache.get(key);
   if (cached) return cached;
 
   const res = await queryDimensionList({ domain_id: domainId, page: 1, size: 200 });
   const list = normalizeListResponse<DimensionItem>(res);
   const names = [...new Set(list.map((item) => item.dimension_name).filter(Boolean))] as string[];
   const options = names.map((name) => ({ label: name, value: name }));
-  dimensionNameCache.set(domainId, options);
+  dimensionNameCache.set(key, options);
   return options;
 }
 
@@ -34,35 +42,44 @@ export async function loadDimensionIdOptions(domainId: number): Promise<SelectOp
   if (!domainId) return [];
   const res = await queryDimensionList({ domain_id: domainId, page: 1, size: 500 });
   return normalizeListResponse<DimensionItem>(res)
-    .filter((item) => item.id && item.dimension_name)
-    .map((item) => ({ label: item.dimension_name, value: item.id }));
+    .filter((item) => item.dimension_id && item.dimension_name)
+    .map((item) => ({ label: item.dimension_name, value: item.dimension_id }));
 }
 
 /** 加载数据集下拉（按业务域缓存） */
-export async function loadDatasetOptions(domainId: number): Promise<SelectOption[]> {
+export async function loadDatasetOptions(
+  domainId: number,
+  datasourceId?: string,
+): Promise<SelectOption[]> {
   if (!domainId) return [];
-  const cached = datasetCache.get(domainId);
+  const key = optionCacheKey(domainId, datasourceId);
+  const cached = datasetCache.get(key);
   if (cached) return cached;
 
-  const res = await queryDatasetMeta({ domain_id: domainId, page: 1, size: 500 });
-  const options = normalizeListResponse<{ dataset_id?: number; id?: number; dataset_name: string }>(res).map(
+  const res = await queryDatasetMeta({
+    domain_id: domainId,
+    datasource_id: datasourceId,
+    page: 1,
+    size: 500,
+  });
+  const options = normalizeListResponse<{ dataset_id: number; dataset_name: string }>(res).map(
     (item) => ({
       label: item.dataset_name,
-      value: item.dataset_id ?? item.id!,
-    })
+      value: item.dataset_id,
+    }),
   );
-  datasetCache.set(domainId, options);
+  datasetCache.set(key, options);
   return options;
 }
 
 export function invalidateDimensionCache(domainId?: number) {
-  if (domainId) dimensionNameCache.delete(domainId);
-  else dimensionNameCache.clear();
+  void domainId;
+  dimensionNameCache.clear();
 }
 
 export function invalidateDatasetCache(domainId?: number) {
-  if (domainId) datasetCache.delete(domainId);
-  else datasetCache.clear();
+  void domainId;
+  datasetCache.clear();
 }
 
 type DataSourceLabelStyle = 'simple' | 'full';
@@ -88,8 +105,8 @@ export function useDataSourceFilterOptions(labelStyle: DataSourceLabelStyle = 's
 /** 级联筛选：业务域走 store 缓存，维度/数据集走模块缓存 */
 export function useCascadeFilterOptions() {
   const loadDomains = useCallback(
-    (datasourceId: string) => useBusinessDomainOptionsStore.getState().fetchOptions(datasourceId),
-    []
+    (datasourceId?: string) => useBusinessDomainOptionsStore.getState().fetchOptions(datasourceId),
+    [],
   );
 
   return {
@@ -104,7 +121,7 @@ export function useCascadeFilterOptions() {
   };
 }
 
-/** 列表筛选：数据源 + 业务域级联（业务域选项来自 store 缓存） */
+/** 列表筛选：数据源保留物理归属，业务域独立加载工作空间全量。 */
 export function useDatasourceDomainFilter(labelStyle: DataSourceLabelStyle = 'full') {
   const { options: dataSourceOptions } = useDataSourceFilterOptions(labelStyle);
   const { loadDomains } = useCascadeFilterOptions();
@@ -114,7 +131,10 @@ export function useDatasourceDomainFilter(labelStyle: DataSourceLabelStyle = 'fu
   const selectDatasource = useCallback(
     async (dsId: string) => {
       setSearchDatasourceId(dsId || '');
-      if (dsId) await loadDomains(dsId);
+      if (dsId) {
+        void setActiveDataSource(dsId).catch(() => undefined);
+        await loadDomains(dsId);
+      }
     },
     [loadDomains],
   );

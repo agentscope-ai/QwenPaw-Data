@@ -1,0 +1,243 @@
+/* ── Graph Management pages ───────────────────────────────────────────────── */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Org breadcrumb (top-left) ────────────────────────────────────────────── */
+.orgBreadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.orgBreadcrumbIcon {
+  font-size: 14px;
+}
+
+.orgBreadcrumbSeparator {
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+}
+
+.orgBreadcrumbLink {
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+  text-decoration: none;
+
+  &:hover {
+    color: var(--colorPrimary, #0d76fd);
+  }
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.orgBreadcrumbText {
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.orgBreadcrumbCurrent {
+  color: var(--colorText, rgba(0, 0, 0, 0.85));
+  font-weight: 500;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}
+
+/* ── Section blocks ───────────────────────────────────────────────────────── */
+.section {
+  padding: 24px;
+
+  :global(html.dark-mode) & {
+    background: #2a2e33;
+    border-color: #3a3e43;
+  }
+}
+
+.sectionTitle {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--colorText, rgba(0, 0, 0, 0.85));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}
+
+.sectionDesc {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+/* ── Entry / workspace cards ──────────────────────────────────────────────── */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.entryCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 5px 18px rgba(42, 66, 101, 0.07);
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s,
+    background-color 0.2s;
+  background: var(--colorBgContainer, #fff);
+
+  &:hover {
+    background: #f8fbff;
+    box-shadow: 0 8px 22px rgba(42, 66, 101, 0.11);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--colorPrimary, #0d76fd);
+    outline-offset: 2px;
+  }
+
+  :global(html.dark-mode) & {
+    background: #2a2e33;
+    border-color: #3a3e43;
+  }
+}
+
+.entryCardIcon {
+  font-size: 22px;
+  color: var(--colorPrimary, #0d76fd);
+  flex-shrink: 0;
+}
+
+.entryCardBody {
+  min-width: 0;
+}
+
+.entryCardTitle {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--colorText, rgba(0, 0, 0, 0.85));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}
+
+.entryCardMeta {
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
+.entryCardActiveTag {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Member list ──────────────────────────────────────────────────────────── */
+.memberSearch {
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+.memberList {
+  display: flex;
+  flex-direction: column;
+}
+
+.memberItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--colorFillTertiary, rgba(0, 0, 0, 0.04));
+  }
+
+  :global(html.dark-mode) &:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.memberAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--colorPrimaryBg, #e6f0ff);
+  color: var(--colorPrimary, #0d76fd);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.memberName {
+  font-size: 14px;
+  color: var(--colorText, rgba(0, 0, 0, 0.85));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.85);
+  }
+}
+
+.memberRole {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.listState {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+}
+
+/* ── Workspace switching overlay ──────────────────────────────────────────── */
+.switching {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 320px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+}

@@ -1,7 +1,7 @@
-import { useEffect } from "react";
-import { Spin } from "@/design";
-import { useNavigate } from "react-router";
-import { ROUTES } from "@/router";
+import { useEffect } from 'react';
+import { Spin } from '@/design';
+import { useNavigate } from 'react-router-dom';
+import { ROUTES } from '@/router';
 
 /** Backward-compatible route: all create flows now open from the right drawer. */
 export default function DataConnectionAddRedirect() {

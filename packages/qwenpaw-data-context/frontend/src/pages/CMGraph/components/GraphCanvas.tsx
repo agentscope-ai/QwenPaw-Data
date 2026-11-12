@@ -1,11 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { useTranslation } from "react-i18next";
-import { Graph } from "@antv/g6";
-import type { EdgeData, IElementEvent, NodeData } from "@antv/g6";
-import type { GraphNode, GraphEdge } from "../types";
-import { getNodeColor } from "../mock-data";
-import { BRAND_PRIMARY } from "@/brand";
-import styles from "../index.module.less";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Graph } from '@antv/g6';
+import type { GraphNode, GraphEdge } from '../types';
+import { getNodeColor } from '../nodeColors';
+import { BRAND_PRIMARY } from '@/brand';
+import styles from '../index.module.less';
 
 export interface GraphCanvasHandle {
   toDataURL: () => Promise<string>;
@@ -13,6 +12,9 @@ export interface GraphCanvasHandle {
   zoomOut: () => Promise<void>;
   fitView: () => Promise<void>;
   resize: () => Promise<void>;
+  /** Center the viewport on a node. Resolves `true` once the focus has been
+   *  applied, `false` when the graph is not rendered yet (caller may retry). */
+  focusNode: (nodeId: string) => Promise<boolean>;
 }
 
 interface GraphCanvasProps {
@@ -24,8 +26,11 @@ interface GraphCanvasProps {
   selectedEdgeId?: string | null;
 }
 
-const GRAPH_VIEWPORT_ANIMATION = { duration: 220, easing: "ease-in-out" };
+const GRAPH_VIEWPORT_ANIMATION = { duration: 220, easing: 'ease-in-out' };
 const ZOOM_STEP = 1.2;
+// Minimum zoom applied when focusing a located node, so the node and its
+// label stay legible even after autoFit shrank a large graph.
+const FOCUS_NODE_MIN_ZOOM = 1.4;
 const MIN_LABEL_CHARS = 12;
 const MAX_LABEL_CHARS = 24;
 
@@ -41,15 +46,12 @@ function truncateMiddle(text: string, maxChars: number) {
 }
 
 function compactNodeLabel(label: string, nodeSize: number) {
-  const maxChars = Math.max(
-    MIN_LABEL_CHARS,
-    Math.min(MAX_LABEL_CHARS, Math.floor(nodeSize / 3)),
-  );
+  const maxChars = Math.max(MIN_LABEL_CHARS, Math.min(MAX_LABEL_CHARS, Math.floor(nodeSize / 3)));
   if (label.length <= maxChars) return label;
 
-  const segments = label.split(":").filter(Boolean);
+  const segments = label.split(':').filter(Boolean);
   if (segments.length >= 3) {
-    const tail = segments.slice(-2).join(":");
+    const tail = segments.slice(-2).join(':');
     if (tail.length <= maxChars) return tail;
     return truncateMiddle(tail, maxChars);
   }
@@ -58,62 +60,51 @@ function compactNodeLabel(label: string, nodeSize: number) {
 }
 
 function appendTooltipRow(root: HTMLElement, label: string, value: string) {
-  const row = document.createElement("div");
+  const row = document.createElement('div');
   row.className = styles.graphTooltipRow;
 
-  const key = document.createElement("span");
+  const key = document.createElement('span');
   key.className = styles.graphTooltipKey;
   key.textContent = label;
 
-  const text = document.createElement("span");
+  const text = document.createElement('span');
   text.className = styles.graphTooltipValue;
-  text.textContent = value || "-";
+  text.textContent = value || '-';
 
   row.appendChild(key);
   row.appendChild(text);
   root.appendChild(row);
 }
 
-type TooltipDatum = {
-  id?: string;
-  source?: string;
-  target?: string;
-  data?: { label?: string; type?: string };
-};
-
-function createTooltipContent(item: unknown) {
-  const root = document.createElement("div");
+function createTooltipContent(item: any) {
+  const root = document.createElement('div');
   root.className = styles.graphTooltip;
 
-  const datum = (item ?? {}) as TooltipDatum;
+  const datum = item ?? {};
   const data = datum.data ?? {};
-  const isEdge = "source" in datum || "target" in datum;
-  const title = document.createElement("div");
+  const isEdge = 'source' in datum || 'target' in datum;
+  const title = document.createElement('div');
   title.className = styles.graphTooltipTitle;
   title.textContent = isEdge
-    ? data.label || datum.id || "Relationship"
-    : data.label || datum.id || "Node";
+    ? data.label || datum.id || 'Relationship'
+    : data.label || datum.id || 'Node';
   root.appendChild(title);
 
   if (isEdge) {
-    appendTooltipRow(root, "source", String(datum.source ?? ""));
-    appendTooltipRow(root, "target", String(datum.target ?? ""));
+    appendTooltipRow(root, 'source', String(datum.source ?? ''));
+    appendTooltipRow(root, 'target', String(datum.target ?? ''));
   } else {
-    appendTooltipRow(root, "type", String(data.type ?? ""));
-    appendTooltipRow(root, "id", String(datum.id ?? ""));
+    appendTooltipRow(root, 'type', String(data.type ?? ''));
+    appendTooltipRow(root, 'id', String(datum.id ?? ''));
   }
 
   return root;
 }
 
-const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas({
-  graphNodes,
-  graphEdges,
-  onNodeClick,
-  onEdgeClick,
-  onPaneClick,
-  selectedEdgeId,
-}, ref) {
+const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas(
+  { graphNodes, graphEdges, onNodeClick, onEdgeClick, onPaneClick, selectedEdgeId },
+  ref,
+) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
@@ -122,29 +113,53 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
   useImperativeHandle(ref, () => ({
     toDataURL: () => {
       const graph = graphRef.current;
-      if (!graph || graph.destroyed) return Promise.reject(new Error("Graph not ready"));
+      if (!graph || graph.destroyed) return Promise.reject(new Error('Graph not ready'));
       return graph.toDataURL();
     },
     zoomIn: () => {
       const graph = graphRef.current;
-      if (!graph || graph.destroyed) return Promise.reject(new Error("Graph not ready"));
+      if (!graph || graph.destroyed) return Promise.reject(new Error('Graph not ready'));
       return graph.zoomBy(ZOOM_STEP, GRAPH_VIEWPORT_ANIMATION);
     },
     zoomOut: () => {
       const graph = graphRef.current;
-      if (!graph || graph.destroyed) return Promise.reject(new Error("Graph not ready"));
+      if (!graph || graph.destroyed) return Promise.reject(new Error('Graph not ready'));
       return graph.zoomBy(1 / ZOOM_STEP, GRAPH_VIEWPORT_ANIMATION);
     },
     fitView: () => {
       const graph = graphRef.current;
-      if (!graph || graph.destroyed) return Promise.reject(new Error("Graph not ready"));
-      return graph.fitView({ when: "always", direction: "both" }, GRAPH_VIEWPORT_ANIMATION);
+      if (!graph || graph.destroyed) return Promise.reject(new Error('Graph not ready'));
+      return graph.fitView({ when: 'always', direction: 'both' }, GRAPH_VIEWPORT_ANIMATION);
     },
     resize: async () => {
       const graph = graphRef.current;
-      if (!graph || graph.destroyed) return Promise.reject(new Error("Graph not ready"));
+      if (!graph || graph.destroyed) return Promise.reject(new Error('Graph not ready'));
       graph.resize();
-      await graph.fitView({ when: "always", direction: "both" }, GRAPH_VIEWPORT_ANIMATION);
+      await graph.fitView({ when: 'always', direction: 'both' }, GRAPH_VIEWPORT_ANIMATION);
+    },
+    focusNode: async (nodeId: string) => {
+      const graph = graphRef.current;
+      // The force layout renders asynchronously — report "not ready" instead
+      // of dropping the request so the caller can retry until render is done.
+      if (!graph || graph.destroyed || renderedGraphRef.current !== graph) return false;
+      try {
+        graph.getNodeData(nodeId); // Throws when the node is absent.
+      } catch {
+        return false;
+      }
+      try {
+        await graph.focusElement(nodeId, GRAPH_VIEWPORT_ANIMATION);
+        // Zoom in around the viewport center (where the node now sits) when
+        // the current zoom is too small to read the node; never zoom out on
+        // a user who already zoomed in further.
+        if (graph.getZoom() < FOCUS_NODE_MIN_ZOOM) {
+          await graph.zoomTo(FOCUS_NODE_MIN_ZOOM, GRAPH_VIEWPORT_ANIMATION);
+        }
+        void Promise.resolve(graph.setElementState(nodeId, ['selected'])).catch(() => {});
+        return true;
+      } catch {
+        return false;
+      }
     },
   }));
 
@@ -160,9 +175,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
       const states: Record<string, string[]> = {};
       graphEdges.forEach((e) => {
         states[e.id] =
-          selectedEdgeIdRef.current && e.id === selectedEdgeIdRef.current
-            ? ["selected"]
-            : [];
+          selectedEdgeIdRef.current && e.id === selectedEdgeIdRef.current ? ['selected'] : [];
       });
       void Promise.resolve(graph.setElementState(states, false)).catch(() => {});
     } catch {
@@ -194,7 +207,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
     }));
 
     // ── Detect parallel edges and assign curve offsets ──
-    const groupKey = (s: string, t: string) => [s, t].sort().join("\0");
+    const groupKey = (s: string, t: string) => [s, t].sort().join('\0');
     const groupTotals = new Map<string, number>();
     graphEdges.forEach((e) => {
       const k = groupKey(e.source, e.target);
@@ -207,8 +220,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
       const total = groupTotals.get(k) || 1;
       const idx = groupCounters.get(k) || 0;
       groupCounters.set(k, idx + 1);
-      const curveOffset =
-        total > 1 ? (idx - (total - 1) / 2) * 30 : 0;
+      const curveOffset = total > 1 ? (idx - (total - 1) / 2) * 30 : 0;
       return {
         id: e.id,
         source: e.source,
@@ -229,125 +241,125 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
       if (disposed) return;
 
       const graph = new Graph({
-      container,
-      autoFit: {
-        type: "view",
-        options: { when: "always", direction: "both" },
-      },
-      padding: 60,
-      data: { nodes, edges },
-      node: {
-        type: "circle",
-        style: {
-          size: (d: NodeData) => {
-            const degree = (d.data?.degree as number) || 0;
-            return getNodeSize(degree);
-          },
-          fill: (d: NodeData) => (d.data?.color as string) || "#78909c",
-          stroke: "#fff",
-          lineWidth: 2,
-          labelText: (d: NodeData) => {
-            const label = (d.data?.label as string) || "";
-            const degree = (d.data?.degree as number) || 0;
-            return compactNodeLabel(label, getNodeSize(degree));
-          },
-          labelFill: "#fff",
-          labelFontSize: 10,
-          labelFontWeight: 500,
-          labelPlacement: "center",
-          shadowColor: "rgba(0,0,0,0.15)",
-          shadowBlur: 8,
-          shadowOffsetY: 2,
-          cursor: "pointer",
+        container,
+        autoFit: {
+          type: 'view',
+          options: { when: 'always', direction: 'both' },
         },
-        state: {
-          selected: {
-            stroke: "#0D76FD",
-            lineWidth: 3,
-          },
-          hover: {
-            stroke: "#0D76FD",
+        padding: 60,
+        data: { nodes, edges },
+        node: {
+          type: 'circle',
+          style: {
+            size: (d: any) => {
+              const degree = d.data?.degree || 0;
+              return getNodeSize(degree);
+            },
+            fill: (d: any) => d.data?.color || '#78909c',
+            stroke: '#fff',
             lineWidth: 2,
-            shadowColor: "rgba(13, 118, 253,0.4)",
-            shadowBlur: 12,
+            labelText: (d: any) => {
+              const label = (d.data?.label as string) || '';
+              const degree = d.data?.degree || 0;
+              return compactNodeLabel(label, getNodeSize(degree));
+            },
+            labelFill: '#fff',
+            labelFontSize: 10,
+            labelFontWeight: 500,
+            labelPlacement: 'center',
+            shadowColor: 'rgba(0,0,0,0.15)',
+            shadowBlur: 8,
+            shadowOffsetY: 2,
+            cursor: 'pointer',
+          },
+          state: {
+            selected: {
+              stroke: '#0D76FD',
+              lineWidth: 3,
+            },
+            hover: {
+              stroke: '#0D76FD',
+              lineWidth: 2,
+              shadowColor: 'rgba(13, 118, 253,0.4)',
+              shadowBlur: 12,
+            },
           },
         },
-      },
-      edge: {
-        type: "quadratic",
-        style: {
-          stroke: "#b0b8c0",
-          lineWidth: 1,
-          endArrow: true,
-          curveOffset: (d: EdgeData) => (d.data?.curveOffset as number) || 0,
-          labelText: (d: EdgeData) => (d.data?.label as string) || "",
-          labelFontSize: 10,
-          labelFill: "#888",
-          labelBackground: true,
-          labelBackgroundFill: "rgba(255,255,255,0.85)",
-          labelBackgroundRadius: 2,
-          cursor: "pointer",
-        },
-        state: {
-          selected: {
-            stroke: "#f0c040",
-            lineWidth: 2,
+        edge: {
+          type: 'quadratic',
+          style: {
+            stroke: '#b0b8c0',
+            lineWidth: 1,
+            endArrow: true,
+            curveOffset: (d: any) => d.data?.curveOffset || 0,
+            labelText: (d: any) => (d.data?.label as string) || '',
+            labelFontSize: 10,
+            labelFill: '#888',
+            labelBackground: true,
+            labelBackgroundFill: 'rgba(255,255,255,0.85)',
+            labelBackgroundRadius: 2,
+            cursor: 'pointer',
+          },
+          state: {
+            selected: {
+              stroke: '#f0c040',
+              lineWidth: 2,
+            },
           },
         },
-      },
-      layout: {
-        type: "d3-force",
-        manyBody: { strength: -200 },
-        link: { distance: 150 },
-        collide: { radius: 40 },
-        center: { strength: 0.05 },
-      },
-      behaviors: ["zoom-canvas", "drag-canvas", "drag-element"],
-      plugins: [
-        {
-          type: "tooltip",
-          key: "full-label-tooltip",
-          trigger: "hover",
-          enable: (_event: unknown, items: unknown[]) => items.length > 0,
-          getContent: (_event: unknown, items: unknown[]) => createTooltipContent(items[0]),
-          onOpenChange: () => {},
+        layout: {
+          type: 'd3-force',
+          manyBody: { strength: -200 },
+          link: { distance: 150 },
+          collide: { radius: 40 },
+          center: { strength: 0.05 },
         },
-        {
-          type: "minimap",
-          key: "viewport-minimap",
-          size: [160, 104],
-          position: "right-bottom",
-          padding: 8,
-          containerStyle: {
-            border: "1px solid rgba(0, 0, 0, 0.12)",
-            borderRadius: "6px",
-            background: "rgba(255, 255, 255, 0.92)",
-            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
-            overflow: "hidden",
+        behaviors: ['zoom-canvas', 'drag-canvas', 'drag-element'],
+        plugins: [
+          {
+            type: 'tooltip',
+            key: 'full-label-tooltip',
+            trigger: 'hover',
+            enable: (_event: any, items: any[]) => items.length > 0,
+            getContent: (_event: any, items: any[]) => createTooltipContent(items[0]),
+            onOpenChange: () => {},
           },
-          maskStyle: {
-            border: `1px solid ${BRAND_PRIMARY}`,
-            background: "rgba(13, 118, 253, 0.12)",
+          {
+            type: 'minimap',
+            key: 'viewport-minimap',
+            size: [160, 104],
+            position: 'right-bottom',
+            padding: 8,
+            containerStyle: {
+              border: '1px solid rgba(0, 0, 0, 0.12)',
+              borderRadius: '6px',
+              background: 'rgba(255, 255, 255, 0.92)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+              overflow: 'hidden',
+            },
+            maskStyle: {
+              border: `1px solid ${BRAND_PRIMARY}`,
+              background: 'rgba(13, 118, 253, 0.12)',
+            },
           },
-        },
-      ],
-      animation: true,
-    });
+        ],
+        animation: true,
+      });
 
       mountedGraph = graph;
       graphRef.current = graph;
 
-      graph.on("node:click", (evt: IElementEvent) => {
+      graph.on('node:click', (evt: any) => {
         const nodeId = evt.target?.id;
         if (nodeId) callbacksRef.current.onNodeClick?.(nodeId);
       });
 
-      graph.on("edge:click", (evt: IElementEvent) => {
+      graph.on('edge:click', (evt: any) => {
         const edgeId = evt.target?.id;
         if (edgeId) callbacksRef.current.onEdgeClick?.(edgeId);
       });
 
-      graph.on("canvas:click", () => {
+      graph.on('canvas:click', () => {
         callbacksRef.current.onPaneClick?.();
       });
 
@@ -376,7 +388,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || typeof ResizeObserver === "undefined") return;
+    if (!container || typeof ResizeObserver === 'undefined') return;
 
     let animationFrame = 0;
     const resizeObserver = new ResizeObserver(() => {
@@ -386,7 +398,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
         if (!graph || graph.destroyed) return;
         graph.resize();
         graph
-          .fitView({ when: "always", direction: "both" }, GRAPH_VIEWPORT_ANIMATION)
+          .fitView({ when: 'always', direction: 'both' }, GRAPH_VIEWPORT_ANIMATION)
           .catch(() => {});
       });
     });
@@ -404,15 +416,10 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
   }, [selectedEdgeId, graphEdges]);
 
   if (!graphNodes.length && !graphEdges.length) {
-    return <div className={styles.graphEmpty}>{t("kgBrowser.noGraphData")}</div>;
+    return <div className={styles.graphEmpty}>{t('kgBrowser.noGraphData')}</div>;
   }
 
-  return (
-    <div
-      ref={containerRef}
-      style={{ position: "absolute", inset: 0, overflow: "hidden" }}
-    />
-  );
+  return <div ref={containerRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />;
 });
 
 export default GraphCanvas;

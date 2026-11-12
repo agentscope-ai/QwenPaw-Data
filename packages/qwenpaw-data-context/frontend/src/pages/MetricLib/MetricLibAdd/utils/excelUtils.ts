@@ -86,7 +86,11 @@ export const parseExcelFile = (file: File): Promise<MetricItem[]> => {
         const headerRow = jsonData[0];
 
         // 查找列索引
-        const metricNameIndex = findColumnIndex(headerRow, ['指标名称', 'metricName', 'Metric Name']);
+        const metricNameIndex = findColumnIndex(headerRow, [
+          '指标名称',
+          'metricName',
+          'Metric Name',
+        ]);
         const domainIndex = findColumnIndex(headerRow, ['所属域', 'domain', 'Domain']);
         const synonymsIndex = findColumnIndex(headerRow, ['同义词', 'synonyms', 'Synonyms']);
 
@@ -126,7 +130,9 @@ export const parseExcelFile = (file: File): Promise<MetricItem[]> => {
         }
 
         if (invalidCount > 0) {
-          message.warning(i18n.t('metricAdd.excel.skippedMissingMetricName', { count: invalidCount }));
+          message.warning(
+            i18n.t('metricAdd.excel.skippedMissingMetricName', { count: invalidCount }),
+          );
         }
 
         if (parsedData.length === 0) {
@@ -173,7 +179,10 @@ const findColumnIndex = (headerRow: string[], possibleNames: string[]): number =
  * @param data 要导出的数据
  * @param filename 文件名
  */
-export const exportDataToExcel = (data: MetricItem[], filename: string = i18n.t('metricAdd.excel.dataFile')) => {
+export const exportDataToExcel = (
+  data: MetricItem[],
+  filename: string = i18n.t('metricAdd.excel.dataFile'),
+) => {
   if (data.length === 0) {
     message.warning(i18n.t('metricAdd.excel.noDataToExport'));
     return;
@@ -193,11 +202,7 @@ export const exportDataToExcel = (data: MetricItem[], filename: string = i18n.t(
   const worksheet = XLSX.utils.json_to_sheet(exportData);
 
   // 设置列宽
-  worksheet['!cols'] = [
-    { wch: 20 },
-    { wch: 15 },
-    { wch: 30 },
-  ];
+  worksheet['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 30 }];
 
   // 添加工作表到工作簿
   XLSX.utils.book_append_sheet(workbook, worksheet, i18n.t('metricAdd.excel.dataSheet'));

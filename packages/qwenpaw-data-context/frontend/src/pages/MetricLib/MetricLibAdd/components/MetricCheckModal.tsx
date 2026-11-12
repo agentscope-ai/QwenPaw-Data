@@ -4,7 +4,7 @@ import { WarningOutlined } from '@/design';
 import type { MetricCheckResult } from '@/types/metricLib';
 import { useTranslation } from 'react-i18next';
 
-const { Text, Title } = Typography;
+const { Title } = Typography;
 
 interface MetricCheckModalProps {
   title: string;
@@ -37,13 +37,7 @@ const MetricCheckModal: React.FC<MetricCheckModalProps> = ({
   // 渲染重复检查结果
   const renderCheckResults = () => {
     if (!data || data.length === 0) {
-      return (
-        <Alert
-          type="success"
-          message={t('metricAdd.noDuplicateMetric')}
-          showIcon
-        />
-      );
+      return <Alert type="success" message={t('metricAdd.noDuplicateMetric')} showIcon />;
     }
 
     return (
@@ -56,11 +50,6 @@ const MetricCheckModal: React.FC<MetricCheckModalProps> = ({
               <Title level={5} style={{ margin: 0 }}>
                 {t('metricAdd.metricLabel', { name: item.input_metric })}
               </Title>
-              {item.domain && (
-                <Text type="secondary" style={{ marginLeft: 8 }}>
-                  {t('metricAdd.domainLabel', { domain: item.domain })}
-                </Text>
-              )}
             </div>
             <Alert
               type="warning"

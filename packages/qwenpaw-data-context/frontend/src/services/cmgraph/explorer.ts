@@ -3,7 +3,7 @@
 // Based on api.md Section 6: /api/v1/admin/explorer/*
 // ============================================================
 
-import { cmRequest, encodeKey, buildPageQuery } from "./helpers";
+import { cmRequest, encodeKey, buildPageQuery } from './helpers';
 import type {
   GlobalGraphParams,
   DomainGraphParams,
@@ -12,22 +12,26 @@ import type {
   SearchNodesParams,
   SearchSubgraphParams,
   SearchSubgraphResponse,
+  SchemaParams,
   SchemaInfo,
+  NodeDetailParams,
   NodeDetail,
+  CrossGraphParams,
   CrossGraphNeighbor,
   EdgeDetailParams,
   EdgeDetail,
+  ListNodesParams,
   GraphData,
   ApiGraphNode,
-} from "./types";
+} from './types';
 
 // ------------------------------------------------------------
 // Helper: build POST request options with JSON body
 // ------------------------------------------------------------
 function postJson(body: unknown): RequestInit {
   return {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   };
 }
@@ -36,8 +40,17 @@ function postJson(body: unknown): RequestInit {
 // 6.1 Global Graph
 // POST /api/v1/admin/explorer/global-graph
 // ------------------------------------------------------------
+const globalGraphInflight = new Map<string, Promise<GraphData>>();
+
 async function getGlobalGraph(params: GlobalGraphParams = {}): Promise<GraphData> {
-  return cmRequest<GraphData>("/explorer/global-graph", postJson(params));
+  const key = JSON.stringify(params);
+  const pending = globalGraphInflight.get(key);
+  if (pending) return pending;
+  const req = cmRequest<GraphData>('/explorer/global-graph', postJson(params)).finally(() => {
+    globalGraphInflight.delete(key);
+  });
+  globalGraphInflight.set(key, req);
+  return req;
 }
 
 // ------------------------------------------------------------
@@ -45,7 +58,7 @@ async function getGlobalGraph(params: GlobalGraphParams = {}): Promise<GraphData
 // POST /api/v1/admin/explorer/domain-graph
 // ------------------------------------------------------------
 async function getDomainGraph(params: DomainGraphParams): Promise<GraphData> {
-  return cmRequest<GraphData>("/explorer/domain-graph", postJson(params));
+  return cmRequest<GraphData>('/explorer/domain-graph', postJson(params));
 }
 
 // ------------------------------------------------------------
@@ -53,7 +66,7 @@ async function getDomainGraph(params: DomainGraphParams): Promise<GraphData> {
 // POST /api/v1/admin/explorer/expand-node
 // ------------------------------------------------------------
 async function expandNode(params: ExpandNodeParams): Promise<GraphData> {
-  return cmRequest<GraphData>("/explorer/expand-node", postJson(params));
+  return cmRequest<GraphData>('/explorer/expand-node', postJson(params));
 }
 
 // ------------------------------------------------------------
@@ -61,7 +74,7 @@ async function expandNode(params: ExpandNodeParams): Promise<GraphData> {
 // POST /api/v1/admin/explorer/expand-layer
 // ------------------------------------------------------------
 async function expandLayer(params: ExpandLayerParams): Promise<GraphData> {
-  return cmRequest<GraphData>("/explorer/expand-layer", postJson(params));
+  return cmRequest<GraphData>('/explorer/expand-layer', postJson(params));
 }
 
 // ------------------------------------------------------------
@@ -69,7 +82,7 @@ async function expandLayer(params: ExpandLayerParams): Promise<GraphData> {
 // POST /api/v1/admin/explorer/search-nodes
 // ------------------------------------------------------------
 async function searchNodes(params: SearchNodesParams): Promise<ApiGraphNode[]> {
-  return cmRequest<ApiGraphNode[]>("/explorer/search-nodes", postJson(params));
+  return cmRequest<ApiGraphNode[]>('/explorer/search-nodes', postJson(params));
 }
 
 // ------------------------------------------------------------
@@ -77,23 +90,25 @@ async function searchNodes(params: SearchNodesParams): Promise<ApiGraphNode[]> {
 // POST /api/v1/admin/explorer/search-subgraph
 // ------------------------------------------------------------
 async function searchSubgraph(params: SearchSubgraphParams): Promise<SearchSubgraphResponse> {
-  return cmRequest<SearchSubgraphResponse>("/explorer/search-subgraph", postJson(params));
+  return cmRequest<SearchSubgraphResponse>('/explorer/search-subgraph', postJson(params));
 }
 
 // ------------------------------------------------------------
 // 6.7 Schema (Node Labels + Relationship Types)
 // GET /api/v1/admin/explorer/schema
 // ------------------------------------------------------------
-async function getSchema(): Promise<SchemaInfo> {
-  return cmRequest<SchemaInfo>("/explorer/schema");
+async function getSchema(params: SchemaParams = {}): Promise<SchemaInfo> {
+  const qs = buildPageQuery(params);
+  return cmRequest<SchemaInfo>(`/explorer/schema${qs ? `?${qs}` : ''}`);
 }
 
 // ------------------------------------------------------------
 // 6.8 Generic Node Detail
 // GET /api/v1/admin/explorer/nodes/{node_key}
 // ------------------------------------------------------------
-async function getNodeDetail(key: string): Promise<NodeDetail> {
-  return cmRequest<NodeDetail>(`/explorer/nodes/${encodeKey(key)}`);
+async function getNodeDetail(key: string, params: NodeDetailParams = {}): Promise<NodeDetail> {
+  const qs = buildPageQuery(params);
+  return cmRequest<NodeDetail>(`/explorer/nodes/${encodeKey(key)}${qs ? `?${qs}` : ''}`);
 }
 
 // ------------------------------------------------------------
@@ -102,10 +117,10 @@ async function getNodeDetail(key: string): Promise<NodeDetail> {
 // ------------------------------------------------------------
 async function getCrossGraphNeighbors(
   key: string,
-  params: { limit?: number } = {},
+  params: CrossGraphParams = {},
 ): Promise<CrossGraphNeighbor[]> {
   const qs = buildPageQuery(params);
-  const path = `/explorer/nodes/${encodeKey(key)}/cross-graph${qs ? `?${qs}` : ""}`;
+  const path = `/explorer/nodes/${encodeKey(key)}/cross-graph${qs ? `?${qs}` : ''}`;
   return cmRequest<CrossGraphNeighbor[]>(path);
 }
 
@@ -114,15 +129,18 @@ async function getCrossGraphNeighbors(
 // POST /api/v1/admin/explorer/edge-detail
 // ------------------------------------------------------------
 async function getEdgeDetail(params: EdgeDetailParams): Promise<EdgeDetail> {
-  return cmRequest<EdgeDetail>("/explorer/edge-detail", postJson(params));
+  return cmRequest<EdgeDetail>('/explorer/edge-detail', postJson(params));
 }
 
 // ------------------------------------------------------------
 // 6.11 List Nodes (convenience wrapper over global-graph)
 // Returns first N nodes from the global graph
 // ------------------------------------------------------------
-async function listNodes(params: { limit?: number } = {}): Promise<ApiGraphNode[]> {
-  const { nodes } = await getGlobalGraph({ max_nodes: params.limit ?? 50 });
+async function listNodes(params: ListNodesParams = {}): Promise<ApiGraphNode[]> {
+  const { nodes } = await getGlobalGraph({
+    max_nodes: params.limit ?? 50,
+    owner_id: params.owner_id,
+  });
   return nodes;
 }
 
