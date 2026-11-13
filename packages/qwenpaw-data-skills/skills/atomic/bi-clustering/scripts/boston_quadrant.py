@@ -106,10 +106,9 @@ def axis_high_mask(
         return out, resolved
     n = len(uniques)
     if n == 1:
-        low_set, high_set = set(uniques), set()
+        high_set = set()
     else:
         mid = n // 2
-        low_set = set(uniques[:mid])
         high_set = set(uniques[mid:])
     for pos, v in enumerate(s.values):
         if pd.isna(v):

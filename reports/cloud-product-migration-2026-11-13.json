@@ -1,10 +1,37 @@
 {
+  "pull_request": "https://github.com/agentscope-ai/QwenPaw-Data/pull/126",
   "followups": [
+    {
+      "area": "Initial PR CI triage",
+      "base_commit": "3818d395eabf2c3cb2cce34c0b83ca56ad007888",
+      "committed": false,
+      "implemented": [
+        "Separate ChatCommand factories from dataclass payload fields and update callers, preserving HTTP payloads",
+        "Remove unused quadrant classification variable without changing classification behavior",
+        "Enable the existing PostgreSQL extra in development dependencies; leave production backend dependencies optional"
+      ],
+      "verification": {
+        "command_runtime_passed": 51,
+        "static_check": "Repository-wide CI rule selection E9,F63,F7,F811,F82,F841 passed",
+        "dependency_exports": "Development includes psycopg and its binary, excludes the Hologres pool; base production Context excludes psycopg",
+        "lock_check": "uv lock --check --offline passed",
+        "quadrant_parity": "Before/after empty, singleton, numeric, categorical and missing-value cases passed"
+      },
+      "remaining_ci_findings": [
+        "Docker cleanup job imports removed ManagedDockerBash",
+        "Context GraphCanvas frontend explicit-any lint errors",
+        "Supply-chain audit reports opentelemetry-api 1.45.1 vulnerability, with 1.45.2 listed as fixed",
+        "Legacy Python collection errors and other release/platform checks remain unresolved; CI is not green"
+      ],
+      "evidence": "/tmp/qpd-chat-command-ci-fix.xml",
+      "ci_run": "https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/43494093545"
+    },
     {
       "area": "Execution safety, startup rollback and persisted product state",
       "status": "Implemented and focused verification passed; not full migration acceptance",
       "base_commit": "a97637a24ff4147a934261534d7bd637b0e9f51c",
-      "committed": false,
+      "committed": true,
+      "commit": "3818d395eabf2c3cb2cce34c0b83ca56ad007888",
       "implemented": [
         "Docker restored as the default workspace backend; local execution requires explicit opt-in",
         "Failed or cancelled Docker warmup leaves no sweeper and retries initialization",
