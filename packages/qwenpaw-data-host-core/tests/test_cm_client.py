@@ -272,6 +272,36 @@ def test_list_datasources_fetches_every_page_in_server_order() -> None:
     assert [request.url.params["size"] for request in requests] == ["2", "2"]
 
 
+def test_list_datasource_metadata_uses_scoped_noncredential_endpoint() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        page = int(request.url.params["page"])
+        record = {"datasource_id": f"source-{page}", "datasource_name": "Source", "datasource_type": "sqlite"}
+        return httpx.Response(200, json=_page([record], total=2, page=page))
+
+    result = ContextManagerClient(
+        base_url="http://localhost:8765", page_size=1, access_token="query-token",
+        transport=httpx.MockTransport(handler),
+    ).list_datasource_metadata()
+    assert [item.datasource_id for item in result.items] == ["source-1", "source-2"]
+    assert all(item.config is None for item in result.items)
+    assert all(request.url.path == "/api/v1/cm/datasources" for request in requests)
+    assert all(request.headers["authorization"] == "Bearer query-token" for request in requests)
+
+
+def test_datasource_metadata_rejects_unexpected_connection_config_without_leaking_it() -> None:
+    secret = "must-not-appear-in-errors"
+    transport = httpx.MockTransport(lambda _: httpx.Response(
+        200, json=_page([{"datasource_id": "source", "config": {"password": secret}}], total=1, page=1),
+    ))
+    with pytest.raises(CMClientError) as exc:
+        ContextManagerClient(transport=transport).list_datasource_metadata()
+    assert "unexpectedly contains config" in str(exc.value)
+    assert secret not in str(exc.value)
+
+
 def test_list_datasources_accepts_an_empty_page() -> None:
     transport = httpx.MockTransport(
         lambda _: httpx.Response(200, json=_page([], total=0, page=1)),

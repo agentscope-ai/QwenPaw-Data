@@ -1,18 +1,19 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Spin, Tabs } from 'antd';
+import { Badge, Spin, Tabs } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/store/authStore';
 import UsersTab from '@/pages/UserCenter/Members/UsersTab';
+import AccessRequestsTab from '@/pages/UserCenter/Members/AccessRequestsTab';
 import WorkspaceManagement from '@/pages/UserCenter/WorkspaceManagement';
 import PlatformDashboard from '@/pages/UserCenter/Dashboard/PlatformDashboard';
 import TenantAdminDashboard from '@/pages/UserCenter/Dashboard/TenantAdminDashboard';
 import WsAdminDashboard from '@/pages/UserCenter/Dashboard/WsAdminDashboard';
 import MemberHome from '@/pages/UserCenter/Dashboard/MemberHome';
 
-type ConsoleTab = 'members' | 'workspaces';
+type ConsoleTab = 'members' | 'access-requests' | 'workspaces';
 
-const TAB_KEYS: readonly ConsoleTab[] = ['members', 'workspaces'];
+const TAB_KEYS: readonly ConsoleTab[] = ['members', 'access-requests', 'workspaces'];
 
 function isConsoleTab(value: string | null): value is ConsoleTab {
   return value !== null && (TAB_KEYS as readonly string[]).includes(value);
@@ -27,6 +28,7 @@ const Console: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [inviteTick, setInviteTick] = useState(0);
   const [createWorkspaceTick, setCreateWorkspaceTick] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const role = useAuthStore((s) => s.role);
   const activeWorkspaceRole = useAuthStore((s) => s.activeWorkspaceRole);
@@ -71,12 +73,23 @@ const Console: React.FC = () => {
         children: <UsersTab openInviteTick={inviteTick} />,
       },
       {
+        key: 'access-requests',
+        label: (
+          <Badge count={pendingCount} offset={[10, -2]} size="small">
+            {t('accessRequests.tab')}
+          </Badge>
+        ),
+        // Mount eagerly: the badge is the only signal that work is waiting.
+        forceRender: true,
+        children: <AccessRequestsTab onPendingCountChange={setPendingCount} />,
+      },
+      {
         key: 'workspaces',
         label: tRoot('menu.ucWorkspaces'),
         children: <WorkspaceManagement openCreateTick={createWorkspaceTick} />,
       },
     ],
-    [t, tRoot, inviteTick, createWorkspaceTick],
+    [t, tRoot, inviteTick, createWorkspaceTick, pendingCount],
   );
 
   if (!initialized) {

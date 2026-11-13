@@ -1268,6 +1268,7 @@
     "add": "新增数据集",
     "addTitle": "新增数据集",
     "editTitle": "编辑数据集",
+    "savedWithoutDatasource": "数据集配置已保存。该数据集缺少数据源归属，无法同步到图。",
     "nameExtra": "建议使用下划线命名法，需保持唯一性"
   },
   "metricFormula": {

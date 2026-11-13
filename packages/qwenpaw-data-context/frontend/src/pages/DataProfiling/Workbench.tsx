@@ -3,7 +3,6 @@ import {
   Button,
   Card,
   Drawer,
-  Empty,
   Form,
   Input,
   InputNumber,
@@ -56,17 +55,6 @@ import styles from './DataProfiling.module.less';
 const TASK_POLL_INTERVAL = 1500;
 const SECTION_TITLE_STYLE = { margin: 0, fontSize: 16, lineHeight: '24px' } as const;
 type RowFormValues = Record<string, string | number | undefined>;
-
-const EMPTY_STATE_IMAGES: Partial<Record<ProfilingStagePath, string>> = {
-  'biz-domain':
-    'https://img.alicdn.com/imgextra/i1/O1CN0134lBnSG9B0C3OTaP_!!6000000003122-2-tps-1672-941.png',
-  dataset:
-    'https://img.alicdn.com/imgextra/i3/O1CN01cIclbqDRFIE3OTaP_!!6000000001083-2-tps-1672-941.png',
-  'dimension-caliber':
-    'https://img.alicdn.com/imgextra/i2/O1CN01grzc8JJNjJC3OTaP_!!6000000006417-2-tps-1672-941.png',
-  'metric-caliber':
-    'https://img.alicdn.com/imgextra/i4/O1CN016hi6KFTiQGJ3OTaP_!!6000000004368-2-tps-1672-941.png',
-};
 
 function isStagePath(value: string | null): value is ProfilingStagePath {
   return Boolean(value && value in PROFILING_STAGE_BY_PATH);
@@ -918,21 +906,9 @@ export default function DataProfilingWorkbench() {
 
             {activeStageStatus === 'NOT_STARTED' ? (
               <div className={styles.notStartedEmpty}>
-                {EMPTY_STATE_IMAGES[activePath] ? (
-                  <img
-                    className={styles.notStartedIllustration}
-                    src={EMPTY_STATE_IMAGES[activePath]}
-                    alt={t(activeConfig.titleKey)}
-                  />
-                ) : (
-                  <Empty
-                    className={styles.notStartedEmptyContent}
-                    type="noData"
-                    imageStyle={{ width: 96, height: 96 }}
-                    title={t('dataProfiling.notStartedTip')}
-                    description={null}
-                  />
-                )}
+                <Typography.Text type="secondary">
+                  {t('dataProfiling.notStartedTip')}
+                </Typography.Text>
               </div>
             ) : null}
 

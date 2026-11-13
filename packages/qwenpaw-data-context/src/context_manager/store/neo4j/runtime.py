@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from itertools import islice
 from typing import Any, TypeVar
 
-from neo4j import Driver, ManagedTransaction, unit_of_work
+from neo4j import Driver, ManagedTransaction, Session, unit_of_work
 from neo4j.exceptions import (
     DriverError,
     IncompleteCommit,
@@ -20,6 +20,8 @@ from .target import GraphTarget
 from .values import _detach_query_value, _detach_value
 
 _T = TypeVar("_T")
+_HEALTH_ACQUISITION_TIMEOUT_SECONDS = 2.0
+_QUERY_ACQUISITION_TIMEOUT_SECONDS = 5.0
 
 
 class Neo4jRuntime(GraphRuntime[GraphTarget]):
@@ -82,7 +84,14 @@ class Neo4jRuntime(GraphRuntime[GraphTarget]):
         """Execute one prepared query without validation or compilation layers."""
         values = parameters
         try:
-            with self._session() as session:
+            with self._session(
+                health=operation == "health" and not write,
+                no_retry=operation == "execute_query" and not write,
+            ) as session:
+                # Readiness checks must report an unavailable backend instead
+                # of waiting through the driver's managed-transaction retries.
+                if operation == "health" and not write:
+                    return _run(session, query, values, max_rows=max_rows)
                 executor = session.execute_write if write else session.execute_read
 
                 def execute(tx):
@@ -100,11 +109,19 @@ class Neo4jRuntime(GraphRuntime[GraphTarget]):
         except (Neo4jError, DriverError) as exc:
             raise self._error(exc, operation) from exc
 
-    def _session(self) -> Any:
+    def _session(self, *, health: bool = False, no_retry: bool = False) -> Any:
         """Open one session using the configured database when supplied."""
-        if self._target.database is None:
-            return self._driver.session()
-        return self._driver.session(database=self._target.database)
+        options: dict[str, object] = {}
+        if self._target.database is not None:
+            options["database"] = self._target.database
+        if health:
+            options["connection_acquisition_timeout"] = _HEALTH_ACQUISITION_TIMEOUT_SECONDS
+        if no_retry:
+            # User-facing native queries have their own server timeout and
+            # should report a disconnected backend instead of driver retries.
+            options["max_transaction_retry_time"] = 0
+            options["connection_acquisition_timeout"] = _QUERY_ACQUISITION_TIMEOUT_SECONDS
+        return self._driver.session(**options)
 
     @staticmethod
     def _error(exc: Exception, operation: str) -> StoreError:
@@ -188,7 +205,7 @@ class _BoundRuntime(GraphRuntime[GraphTarget]):
 
 
 def _run(
-    transaction: ManagedTransaction,
+    transaction: ManagedTransaction | Session,
     query: str,
     parameters: Mapping[str, object],
     *,

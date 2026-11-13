@@ -13,6 +13,7 @@ from qwenpaw_data_auth.principal import DEFAULT_PRINCIPAL
 
 from ..mcp import mount_mcp
 from ..runtime import ContextRuntime, ContextRuntimeUnavailable
+from ..runtime_model_binding import RuntimeModelBindingMiddleware
 from ..runtime.connection import (
     GraphConnectionConfig,
     HoloConnectionConfig,
@@ -111,6 +112,7 @@ def create_api_app() -> FastAPI:
     )
     application.add_exception_handler(BlockingIOOverloaded, _blocking_io_overloaded)
     application.add_exception_handler(BlockingIOTimeout, _blocking_io_timeout)
+    application.add_middleware(RuntimeModelBindingMiddleware)
     mount_context_routes(application)
     return application
 

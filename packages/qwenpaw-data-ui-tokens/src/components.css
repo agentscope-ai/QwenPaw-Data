@@ -606,3 +606,38 @@ textarea.data-runtime-input,
 .ant-pagination-item-active {
   background: var(--qwenpaw-data-color-primary-bg) !important;
 }
+
+/* Frame block code once, at the editor/viewer boundary rather than each line. */
+.cm-editor,
+.ant-codeHighlighter,
+.data-runtime-codeHighlighter,
+.qwenpaw-data-code-frame,
+pre:not(:where(.ant-codeHighlighter, .data-runtime-codeHighlighter) pre) {
+  border: 1px solid var(--qwenpaw-data-color-border-secondary, #f0f0f0) !important;
+  border-radius: var(--qwenpaw-data-radius-lg, 12px) !important;
+}
+
+.cm-editor .cm-scroller {
+  border-radius: inherit;
+}
+
+.cm-editor.cm-focused {
+  border-color: var(--qwenpaw-data-color-primary) !important;
+  box-shadow: 0 0 0 2px var(--qwenpaw-data-color-primary-bg);
+  outline: none;
+}
+
+.ant-codeHighlighter,
+.data-runtime-codeHighlighter {
+  overflow: hidden;
+}
+
+.ant-codeHighlighter .ant-codeHighlighter-code,
+.data-runtime-codeHighlighter .data-runtime-codeHighlighter-code {
+  border: 0;
+}
+
+pre:not(:where(.ant-codeHighlighter, .data-runtime-codeHighlighter) pre) {
+  padding: 12px 16px;
+  overflow: auto;
+}

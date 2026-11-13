@@ -115,6 +115,7 @@ class McpRepository:
         access_token: str | None = None,
         datasource_id: str | None = None,
         dataset_names: list[str] | None = None,
+        context_model_header: str | None = None,
     ) -> None:
         scope = {"agent_id": agent_id, "session_id": session_id}
         wanted = {
@@ -155,6 +156,7 @@ class McpRepository:
                         dataset_names=dataset_names,
                         session_id=session_id,
                         chat_id=request_id,
+                        context_model_header=context_model_header,
                     )
                 tools = await asyncio.wait_for(
                     client.list_raw_tools(),

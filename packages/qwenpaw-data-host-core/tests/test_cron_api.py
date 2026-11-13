@@ -122,25 +122,51 @@ def test_list_targets_empty(cron_client: TestClient) -> None:
     assert body["targets"] == []
 
 
-def test_im_channel_job_requires_valid_session_id(cron_client: TestClient) -> None:
-    """A non-console (IM) channel job is rejected on invalid session id.
-
-    It raises ``ValueError`` -> HTTP 400 (code ``VALIDATION``).
-    """
+def test_job_write_rejects_session_id(cron_client: TestClient) -> None:
     created = cron_client.post(
         "/api/cron/jobs",
         json={
-            "name": "IM 定时",
+            "name": "指定会话",
             "message": "推送一条",
             "datasource_id": "ds_demo",
-            "channel": "wecom",
             "schedule": _schedule(),
             "session_id": "asdf",
         },
     )
 
-    assert created.status_code == 400, created.text
-    assert created.json().get("code") == "VALIDATION"
+    assert created.status_code == 422, created.text
+
+
+def test_job_attachments_upload_list_and_delete(cron_client: TestClient) -> None:
+    created = cron_client.post(
+        "/api/cron/jobs",
+        json={
+            "name": "带附件",
+            "message": "读取附件",
+            "datasource_id": "ds_demo",
+            "schedule": _schedule(),
+        },
+    )
+    assert created.status_code == 200, created.text
+    job = created.json()["job"]
+    assert job["attachments"] == []
+    url = f"/api/cron/jobs/{job['id']}/attachments"
+
+    uploaded = cron_client.post(url, files={"file": ("a.txt", b"hello")})
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["job"]["attachments"] == ["a.txt"]
+
+    duplicated = cron_client.post(url, files={"file": ("a.txt", b"again")})
+    assert duplicated.status_code == 400, duplicated.text
+
+    deleted = cron_client.delete(f"{url}/a.txt")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["job"]["attachments"] == []
+
+    missing = cron_client.delete(f"{url}/a.txt")
+    assert missing.status_code == 404, missing.text
+
+    cron_client.delete(f"/api/cron/jobs/{job['id']}")
 
 
 def test_agent_job_requires_datasource(cron_client: TestClient) -> None:

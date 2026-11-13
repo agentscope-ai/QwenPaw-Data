@@ -11,8 +11,9 @@ export type DatasetUpdateRequest = Pick<
   'dataset_name' | 'description' | 'source'
 >;
 
-export interface DatasetResponse extends DatasetCreateRequest {
+export interface DatasetResponse extends Omit<DatasetCreateRequest, 'datasource_id'> {
   dataset_id: number;
+  datasource_id: string | null;
   datasource_name: string;
   domain_name: string;
 }

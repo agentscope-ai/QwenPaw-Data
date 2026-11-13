@@ -1,6 +1,6 @@
 """单条 SQL 的解析、作用域索引与物理表血缘查询。
 
-移植自 ``profiling/algorithm/utils_ast.py``（逐行保真），仅做两处删减：
+缓存与错误处理约定：
 
 - 删 pickle 协议（``__getstate__``/``__setstate__``）——本架构**不落 AST 缓存**，
   缓存成果（证据 DataFrame），不缓存中间态；
@@ -1790,85 +1790,3 @@ def _build_analysis_indexes(root: exp.Expression) -> _AnalysisIndexes:
         visible_ctes_by_select_id=MappingProxyType(dict(visible_ctes_by_select_id)),
         scopes_by_select_id=MappingProxyType(dict(scopes_by_select_id)),
     )
-
-
-# ---------------------------------------------------------------------------
-# Extractor integration examples (documentation only; intentionally not run)
-# ---------------------------------------------------------------------------
-
-# Dataset extractor
-#
-# analysis = SqlAnalysis.create_from_sql_or_none(sql, dialect=dialect)
-# if analysis is not None:
-#     # 根查询与每一层嵌套子查询各计一次出现，内层高频模式才不会被漏掉。
-#     for select in analysis.select_exprs:
-#         norm_key, template = norm_key_and_template_from_root(
-#             select,
-#             dialect=analysis.dialect_name,
-#         )
-#         row = {
-#             "norm_key": norm_key,
-#             "sql_template": template,
-#             "repeated_sql": select.sql(dialect=analysis.dialect_name),
-#             "parents": json.dumps(
-#                 sorted(analysis.resolve_select_source_table_names(select)),
-#                 ensure_ascii=False,
-#             ),
-#         }
-
-# Dimension extractor
-#
-# analysis = SqlAnalysis.create_from_sql_or_none(sql, dialect=dialect)
-# if analysis is not None:
-#     rows = []
-#     for select in analysis.select_exprs:
-#         group = select.args.get("group")
-#         for group_expression in group.expressions if group is not None else ():
-#             for column in group_expression.find_all(exp.Column):
-#                 table = analysis.resolve_unique_column_source_table_name(select, column)
-#                 if table is not None:
-#                     rows.append(
-#                         {
-#                             "dimension_name": analysis.extract_column_name(column),
-#                             "table_name": table,
-#                             "source": "group_by",
-#                         }
-#                     )
-
-# Metric extractor
-#
-# analysis = SqlAnalysis.create_from_sql_or_none(sql, dialect=dialect)
-# if analysis is not None:
-#     rows = []
-#     for select in analysis.select_exprs:
-#         for projection in select.expressions:
-#             for aggregate in projection.find_all(exp.AggFunc):
-#                 tables = analysis.resolve_expression_source_table_names(select, aggregate)
-#                 rows.append(
-#                     {
-#                         "metric_name": str(projection.alias_or_name).lower(),
-#                         "table_name": analysis.convert_table_names_to_profile_table_ref(tables),
-#                         "formula": aggregate.sql(dialect=analysis.dialect_name),
-#                     }
-#                 )
-
-# Biz-domain JOIN extractor
-#
-# analysis = SqlAnalysis.create_from_sql_or_none(sql, dialect=dialect)
-# if analysis is not None:
-#     edges = []
-#     for join in analysis.join_exprs:
-#         select = analysis.resolve_owning_select_expr(join)
-#         if select is None:
-#             continue
-#         for predicate in analysis.extract_conjunct_exprs(join.args.get("on")):
-#             if not isinstance(predicate, exp.EQ):
-#                 continue
-#             if not isinstance(predicate.left, exp.Column):
-#                 continue
-#             if not isinstance(predicate.right, exp.Column):
-#                 continue
-#             left_table = analysis.resolve_unique_column_source_table_name(select, predicate.left)
-#             right_table = analysis.resolve_unique_column_source_table_name(select, predicate.right)
-#             if left_table is not None and right_table is not None:
-#                 edges.append((left_table, right_table))

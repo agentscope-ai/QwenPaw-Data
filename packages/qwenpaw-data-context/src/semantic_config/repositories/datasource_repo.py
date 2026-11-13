@@ -181,6 +181,20 @@ async def find_page(
     return res.mappings().all()
 
 
+async def find_metadata_page(
+    db: AsyncSession, limit: int, off: int, tenant_id: str, workspace_id: str
+):
+    """Read only credential-free identity fields for one Workspace."""
+    res = await db.execute(
+        select(datasource.c.datasource_id, datasource.c.datasource_name, datasource.c.datasource_type)
+        .where(*_conds(None, None, None, tenant_id, workspace_id))
+        .order_by(datasource.c.id.desc())
+        .limit(limit)
+        .offset(off)
+    )
+    return res.mappings().all()
+
+
 async def soft_delete(
     db: AsyncSession, ds_id: int, *, tenant_id: str, workspace_id: str, updated_by: str
 ) -> int:

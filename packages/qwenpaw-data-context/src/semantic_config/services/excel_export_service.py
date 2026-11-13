@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from semantic_config.errors import BadRequestError
 from semantic_config.principal import require_admin
 from semantic_config.repositories import datasource_repo
+from semantic_config.services.dimension_service import is_valid_priority
 from semantic_config.services.domain_scope import (
     domain_ids_for_datasource,
     scope_contains,
@@ -549,7 +550,9 @@ async def _collect_rows(
                 "synonyms": r["synonyms"],
                 "dimension_type": r["dimension_type"],
                 "child_dimensions": r["child_dimensions"],
-                "priority": r["priority"],
+                "priority": (
+                    r["priority"] if is_valid_priority(r["priority"]) else "NORMAL"
+                ),
             }
             for r in dims
         ],

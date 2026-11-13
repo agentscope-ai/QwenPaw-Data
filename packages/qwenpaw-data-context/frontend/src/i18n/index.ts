@@ -1,4 +1,5 @@
-import i18n from 'i18next';
+import { createInstance } from 'i18next';
+const i18n = createInstance();
 import { initReactI18next } from 'react-i18next';
 import en from './locales/en.json';
 import zh from './locales/zh.json';

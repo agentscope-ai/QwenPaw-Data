@@ -292,6 +292,22 @@ async def _rows(table, order_by=None):
 # ---------------- A1-A5：原批量语义在新契约下保持 ----------------
 
 
+async def test_import_rejects_numeric_dimension_priority(tmp_path, monkeypatch):
+    await _setup_db(tmp_path, monkeypatch)
+    sheets = _full_sheets()
+    sheets["dimension"][1][0][-1] = 50
+    del sheets["dimension_binding"]
+
+    result = await _import(_xlsx(sheets))
+
+    assert result["success"] is False
+    [error] = result["errors"]
+    assert error["sheet"] == "dimension"
+    assert error["row"] == 2
+    assert "priority" in error["message"]
+    assert await _count(dataset) == 0
+
+
 async def test_batch_import_wires_parent_ids_across_sheets(tmp_path, monkeypatch):
     await _setup_db(tmp_path, monkeypatch)
 

@@ -23,6 +23,7 @@ class ChatCommand:
     clarification: dict[str, Any] | None = None
     plan: dict[str, Any] | None = None
     tool_confirmation: dict[str, Any] | None = None
+    ui: dict[str, Any] | None = None
 
     @classmethod
     def cancel(cls, chat: Chat) -> ChatCommand:
@@ -86,6 +87,27 @@ class ChatCommand:
         )
 
     @classmethod
+    def ui(
+        cls,
+        chat: Chat,
+        *,
+        call_id: str,
+        outcome: dict[str, Any],
+    ) -> ChatCommand:
+        if not call_id.strip():
+            raise ValueError("call_id is required")
+        status = outcome.get("status")
+        if status == "executed":
+            if not isinstance(outcome.get("result"), dict):
+                raise ValueError("result is required")
+        elif status in ("failed", "rejected"):
+            if not isinstance(outcome.get("error"), dict):
+                raise ValueError("error is required")
+        else:
+            raise ValueError(f"invalid UI answer status: {status}")
+        return cls._new(chat, "ui", ui={"id": call_id, **outcome})
+
+    @classmethod
     def _new(
         cls,
         chat: Chat,
@@ -95,6 +117,7 @@ class ChatCommand:
         clarification: dict[str, Any] | None = None,
         plan: dict[str, Any] | None = None,
         tool_confirmation: dict[str, Any] | None = None,
+        ui: dict[str, Any] | None = None,
     ) -> ChatCommand:
         return cls(
             id=create_id("cmd"),
@@ -107,4 +130,5 @@ class ChatCommand:
             clarification=clarification,
             plan=plan,
             tool_confirmation=tool_confirmation,
+            ui=ui,
         )

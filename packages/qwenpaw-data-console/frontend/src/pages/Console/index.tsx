@@ -23,16 +23,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { dataConsoleApi } from '@/features/console/api/client';
 import { skillDraftsApi } from '@/features/console/api/skillDrafts';
 import type { ArtifactComment, ReportManifest } from '@/features/console/api/types';
-import ArtifactPreview from '@/features/console/components/ArtifactPreview';
+import ArtifactPreview from '@/features/console/components/ArtifactPreview/index';
 import ChannelIcon from '@/features/console/components/ChannelIcon';
 import CompareConfigPanel from '@/features/console/components/CompareConfigPanel';
 import type { CompareCandidate } from '@/features/console/components/CompareConfigPanel';
 import OverflowTooltip from '@/features/console/components/OverflowTooltip';
-import RuntimeConversation from '@/features/console/components/RuntimeConversation';
-import type { RuntimeConversationHandle } from '@/features/console/components/RuntimeConversation';
+import RuntimeConversation from '@/features/console/components/RuntimeConversation/index';
+import type { RuntimeConversationHandle } from '@/features/console/components/RuntimeConversation/index';
 import SectionComparePanel from '@/features/console/components/SectionComparePanel';
 import LineDiffPanel from '@/features/console/components/LineDiffPanel';
-import SessionWorkspace from '@/features/console/components/SessionWorkspace';
+import SessionWorkspace from '@/features/console/components/SessionWorkspace/index';
 import SessionShareModal from '@/features/console/components/SessionShareModal';
 import { accessArtifact, shareArtifact } from '@/features/console/model/artifacts/artifacts';
 import { artifactFromLink } from '@/features/console/model/artifacts/artifactLinks';
@@ -58,7 +58,6 @@ import {
   buildAgentConfigurationPath,
   buildConsoleSessionPath,
 } from '@/shared/navigation/sessionNavigation';
-import { getContextFrontendUrl } from '@/services/config';
 import {
   appendReviewPrompt,
   reviewReportFilename,
@@ -412,6 +411,25 @@ export default function ConsolePage() {
     setPreviewHighlight(null);
     setIsArtifactCommentMode(false);
   }, []);
+
+  useEffect(
+    () =>
+      uiRegistry.object('artifact', async (ref, context) => {
+        if (ref.kind !== 'artifact' || ref.session_id !== consoleController.session?.id)
+          throw new Error('FORBIDDEN');
+        const artifact = consoleController.projections
+          .flatMap(({ chat }) => chat.artifacts)
+          .find((item) => item.id === ref.artifact_id);
+        if (!artifact) throw new Error('TARGET_NOT_FOUND');
+        context.assertCurrent();
+        openArtifact({ ...artifactFromCommentPath(artifact.path), id: artifact.id });
+        await uiRegistry.wait(() => isArtifactReady(ref) || isArtifactFailed(ref), context.signal);
+        context.assertCurrent();
+        if (!isArtifactReady(ref)) throw new Error('MODULE_NOT_READY');
+        return { object_ref: ref, view_state: 'opened', completed_steps: ['preview_loaded'] };
+      }),
+    [consoleController.session?.id, consoleController.projections, openArtifact],
+  );
 
   const handleArtifactLinkClick = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -976,9 +994,7 @@ export default function ConsolePage() {
             const returnTo = `/console${query.size ? `?${query}` : ''}`;
             navigate(buildAgentConfigurationPath(returnTo));
           }}
-          onOpenDataBridgeModelConfig={() =>
-            window.location.assign(getContextFrontendUrl('/model-config'))
-          }
+          onOpenDataBridgeModelConfig={() => navigate(buildAgentConfigurationPath())}
           onOpenComment={handleOpenComment}
           onConsumePendingComments={handleConsumePendingComments}
           onRestorePendingComments={handleRestorePendingComments}
@@ -1266,3 +1282,5 @@ export default function ConsolePage() {
     </div>
   );
 }
+import { uiRegistry } from '@/features/console/ui-runtime/registry';
+import { isArtifactReady, isArtifactFailed } from '@/features/console/ui-runtime/artifactAdapter';

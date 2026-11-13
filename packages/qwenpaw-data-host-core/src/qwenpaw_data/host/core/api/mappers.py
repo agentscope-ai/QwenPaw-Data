@@ -28,11 +28,13 @@ from qwenpaw_data.host.core.providers.registry import ProviderRegistry
 from qwenpaw_data.host.core.repositories.snapshot import ChatBundle
 from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.utils.secrets import mask_api_key
+from qwenpaw_data.host.core.utils.session_naming import session_display_code
 
 
 def session_to_schema(session: Session, *, has_active_chat: bool) -> SessionSchema:
     return SessionSchema(
         id=session.id,
+        display_code=session_display_code(session.id),
         owner_user_id=session.identity.user_id,
         agent_id=session.agent_id,
         title=session.title,

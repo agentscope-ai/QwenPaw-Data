@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Shared OpenTelemetry-on-Langfuse plumbing for QwenPawData packages."""
 
-from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
 from qwenpaw_data.tracing.core.trace.tracer import BaseTracer
 from qwenpaw_data.tracing.core.utils.serialize import dump_json, plain
 from qwenpaw_data.tracing.core.utils.warnonce import reset_warn_once, warn_once
@@ -31,7 +30,6 @@ __all__ = [
     "CACHE_ATTRIBUTES",
     "METADATA_KEY",
     "BaggageAttributeProcessor",
-    "BaseSessionTracer",
     "BaseTracer",
     "DebugSpanProcessor",
     "TracingConfig",

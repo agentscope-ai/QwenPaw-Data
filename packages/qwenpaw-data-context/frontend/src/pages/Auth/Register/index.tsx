@@ -25,7 +25,7 @@ const Register: React.FC = () => {
         navigate('/login', { replace: true });
         return;
       }
-      if (status.platform_bootstrap_required) {
+      if (status.platform_bootstrap_required && !status.has_users) {
         navigate('/platform/login', { replace: true });
         return;
       }

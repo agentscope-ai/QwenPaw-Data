@@ -206,7 +206,11 @@ async def auth_middleware(request, call_next):
                 identity=None,
                 token=None,
             )
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers={"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None,
+        )
     except Exception:
         logger.exception("Host authentication is unavailable")
         return JSONResponse(

@@ -1,10 +1,5 @@
 """聚合表达式抽取。供 CALIBER / DICT —— 被聚合的列是指标候选。
 
-移植自 ``profiling/algorithm/profiler_metric_caliber.py``
-（expression_metrics_from_select / scalar_aggs_from_select /
-metric_name_from_agg）+ ``query_context._extract_metric_records`` 的
-per-SQL 去重与聚合。
-
 原版关键行为（全部保留）：
 
 - **expression 分支**：带别名且内部含 >=1 个非窗口聚合的投影整体成为一个

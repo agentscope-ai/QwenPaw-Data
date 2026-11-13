@@ -28,6 +28,8 @@ def _parse_backend_list(raw: str) -> list[str]:
 def graph_backend() -> str:
     """Active graph engine from ``GRAPH_BACKEND`` (default Neo4j)."""
     raw = (os.environ.get("GRAPH_BACKEND") or NEO4J_BACKEND).strip().lower()
+    if raw in {"holoage", "holo-age"}:
+        raw = HOLO_BACKEND
     return raw if raw in SUPPORTED_BACKENDS else NEO4J_BACKEND
 
 

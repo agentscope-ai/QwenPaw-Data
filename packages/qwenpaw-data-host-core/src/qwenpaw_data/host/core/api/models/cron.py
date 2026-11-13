@@ -58,7 +58,7 @@ class CronJobWrite(ApiModel):
     message: str
     datasource_id: str
     channel: str = "console"
-    session_id: str | None = None
+    session_policy: Literal["reuse", "new_each_run"] = "reuse"
     target_external_key: str | None = None
     source_chat_id: str | None = None
     schedule: ScheduleSpec
@@ -71,8 +71,6 @@ class CronJobWrite(ApiModel):
         self.message = self.message.strip()
         self.datasource_id = self.datasource_id.strip()
         self.channel = self.channel.strip()
-        sid = (self.session_id or "").strip()
-        self.session_id = sid or None
         target = (self.target_external_key or "").strip()
         self.target_external_key = target or None
         if self.source_chat_id is not None:

@@ -7,11 +7,13 @@ from typing import Any
 
 import aiosqlite
 from qwenpaw_data_auth import Principal
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from semantic_config.errors import BadRequestError, NotFoundError, NotFoundNoBody
 from semantic_config.models.datasource import (
     ConnectionTestResponse,
     DatasourceCreate,
+    DatasourceMetadataResponse,
     DatasourceResponse,
     DatasourceUpdate,
 )
@@ -209,6 +211,21 @@ async def list_page(
     )
     return Page(
         records=[_to_response(r) for r in rows], total=total, page=page, size=size
+    )
+
+
+async def list_metadata_page(
+    db: AsyncSession, page: int, size: int, principal: Principal
+) -> Page[DatasourceMetadataResponse]:
+    """List only datasource identities in the authenticated Workspace."""
+    tenant, workspace = principal.tenant_id, principal.active_workspace_id
+    total = await repo.count(db, None, None, None, tenant, workspace)
+    rows = await repo.find_metadata_page(db, size, offset(page, size), tenant, workspace)
+    return Page(
+        records=[DatasourceMetadataResponse(**row) for row in rows],
+        total=total,
+        page=page,
+        size=size,
     )
 
 

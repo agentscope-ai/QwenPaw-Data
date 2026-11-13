@@ -30,6 +30,7 @@ class RuntimeSettings(BaseSettings):
     tool_timeout_seconds: float = Field(
         default=1800,
         ge=1,
+        allow_inf_nan=False,
         validation_alias=AliasChoices(
             "QWENPAW_DATA_RUNTIME_TOOL_TIMEOUT_SECONDS",
             "QWENPAW_DATA_TOOL_TIMEOUT_SECONDS",

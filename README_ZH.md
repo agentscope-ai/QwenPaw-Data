@@ -20,6 +20,9 @@ QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织�
 
 ## 版本与 QwenPaw App 预告
 
+开发版本的 Auth / Context / Host 联合启动及可选多用户聊天初始化见
+[脚本说明](scripts/README.md)。下文的 OSS 默认本地初始化与启动命令继续支持。
+
 - **已发布：QwenPaw-Data 0.3.x。** 独立部署的 Engine 提供分析会话、执行事件及产物的
   HTTP / 可重放 SSE 接口。详见
   [0.3.0 发布说明](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
@@ -47,7 +50,7 @@ QwenPaw-Data 通过三个协同子系统实现这一拆解：
 | --- | --- | --- |
 | **DataBridge** | 事实锚定 | 元数据、业务知识、历史轨迹、指标定义、数据血缘和任务相关证据。 |
 | **Skill-Hub** | 方法编排 | 路由、规划、流程和原子分析技能，以及相关参考资料、脚本和质量要求。 |
-| **Host** | 执行控制 | DAG 规划、子智能体调度、工具调用、默认在容器工作区中执行、产物登记、反思和恢复。 |
+| **Host** | 执行控制 | 任务规划、智能体编排、工具调用、可配置的工作区执行、产物登记、反思和恢复。 |
 
 三个子系统共同提供四类数据分析能力：可信事实锚定、标准化分析方法、可控制的长链路执行，以及可自演进的数据资产。
 
@@ -99,7 +102,7 @@ QwenPaw App 增加平台工作区和渠道入口；面向 QPD 0.3 的集成当�
 | 模式 | 用途 | 典型用户 | 运行形态 |
 | --- | --- | --- | --- |
 | **DataBridge UI** | 管理图记忆、语义配置及相关 DataBridge 资产 | 分析师、平台运营 | 本地管理界面，后端对接 DataBridge API。 |
-| **CLI** | 平台集成、二次开发和本地自动化 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 提供意图理解、任务规划和工作流执行等能力。 |
+| **CLI** | 平台集成与本地管理 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 管理数据源、语义配置和诊断；智能体执行由 Host 和 Console 承担。 |
 | **Headless Engine** | 将分析能力接入宿主或前端 | 应用开发者 | [HTTP + 可重放 SSE 服务](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra)。 |
 | **QwenPaw App — QPD 0.3 预览** | 从 QwenPaw 工作区和渠道发起数据分析 | QwenPaw 用户 | 内嵌 Data Console 与渠道桥接；详见 [发布预告与使用入口](docs/QWENPAW_APP_ZH.md)。 |
 
@@ -110,7 +113,7 @@ QwenPaw-Data 采用 Python + uv 工作区的单仓库结构。
 当前仓库主要包含：
 
 - **DataBridge**：管理元数据、业务知识、历史轨迹、图记忆及其管理界面。
-- **Host Core / CLI**：共享 Host 编排能力与 CLI 执行入口。
+- **Host Core / CLI**：Host 编排能力与 CLI 管理、诊断入口。
 - **数据分析技能**：可复用的分析技能及配套资源。
 
 ```text
@@ -303,18 +306,13 @@ qwenpaw-data datasource list
 
 ### 8. 执行真实数据任务
 
-建议第一次使用非流式模式，便于查看完整执行摘要：
+打开[本地 Console](packages/qwenpaw-data-console/README.md)，配置模型并选择
+`Demo PG - GAAP use case`，提交：
 
-```bash
-qwenpaw-data run \
-  --no-stream \
-  --datasource-id postgresql-demo-gaap \
-  "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
-```
+> 分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值。
 
-```powershell
-qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
-```
+0.4 已停用 CLI 的 `run`、`chat`、`plan`、`execute` 命令。CLI 保留
+`datasource`、`semantic`、`doctor`；交互式智能体任务由 Host 和 Console 承担。
 
 预期峰值出现在 2026-03-10，有效用户平均 GAAP 值约为 `45.89`。默认产物
 目录在 macOS/Linux 上是
@@ -359,31 +357,25 @@ DataBridge-only `.sh` 脚本仅作为 macOS/Linux 便捷入口。
 
 ## 工作区隔离
 
-智能体工具在工作区内执行，后端按次选择（`--workspace` 参数或
-`QWENPAW_DATA_WORKSPACE` 环境变量，默认 `docker`）：
+Host 服务在启动时通过 `QWENPAW_DATA_WORKSPACE_BACKEND` 选择工作区后端。
+服务设置默认为 `local`，不提供沙箱隔离；需要容器隔离时，应在启动 Host 前
+显式设置为 `docker`。已停用的 CLI `--workspace` 参数不能配置当前服务。
 
 | 后端 | 隔离级别 | 依赖 | 适用场景 |
 |------|---------|------|---------|
-| `docker`（默认） | 容器级工作区隔离：全部工具在每会话独立容器内执行，仅挂载任务工作区 | 运行中的 Docker daemon | 正常任务执行 |
-| `local` | 文件工具限定路径，但 shell 仍以宿主机用户权限执行 | 显式指定 `--workspace local` | 仅限可信开发或紧急排障 |
+| `docker` | 容器工作区执行 | Docker daemon 和 `QWENPAW_DATA_WORKSPACE_BACKEND=docker` | 需要与宿主机分离的任务 |
+| `local`（服务默认） | shell 使用宿主机用户权限，不是沙箱 | 可信部署及输入 | 仅限可信开发 |
 
 ```bash
 # 先自检环境（Docker daemon、Neo4j、DataBridge API）
 qwenpaw-data doctor
 
-# Docker 是默认 workspace
-qwenpaw-data run --datasource-id postgresql-demo-gaap "..."
-
-# 显式使用不安全的宿主机执行
-qwenpaw-data run --workspace local "..."
+# 在启动 Host 前设置到其进程环境中
+export QWENPAW_DATA_WORKSPACE_BACKEND=docker
 ```
 
-权限策略默认值为 `auto`（可通过 `--permission-mode` 或
-`QWENPAW_DATA_PERMISSION_MODE` 覆盖）。Docker 后端使用 `bypass`，因为每次运行的
-容器本身就是执行边界。交互式本地 CLI 使用 `accept_edits`：任务工作区内的
-文件编辑被允许，更高风险调用需要终端确认。无人值守本地执行使用
-`dont_ask`，会拒绝原本需要确认的调用。子智能体无法独立请求确认，因此
-此类调用默认拒绝。
+工具确认策略在 Console 中配置。确认提示不是执行沙箱，也不会降低本地 shell
+命令所拥有的宿主机权限。
 
 `docker` 后端说明：
 
@@ -410,14 +402,10 @@ QwenPaw-Data 面向**本地优先、单用户部署**设计。将任何服务暴
   `QWENPAW_DATA_API_TOKEN` 或带 scope 的 `QWENPAW_DATA_API_KEYS`，使 DataBridge REST
   与 HTTP MCP 强制 Bearer token 认证，并用 `QWENPAW_DATA_CORS_ORIGINS` 限制
   精确可信来源。
-- **执行**：Host 默认在每次运行独立的 **Docker** 工作区中执行智能体工具。
-  显式 `--workspace local` 本地执行入口会在你的机器上以当前用户权限执行
-  shell 命令，**不是沙箱**。文件/搜索工具仍限制在任务工作区内，超时或
-  取消命令在本地和 Docker 工作区中都会整组终止。本地 PowerShell/Bash 在
-  权限批准后仍能执行任意宿主机用户操作。权限策略是工作区感知的：Docker
-  在容器边界内默认 `bypass`；交互式本地运行使用 `accept_edits` 并带
-  终端确认；无人值守本地运行使用 `dont_ask` 并默认拒绝确认类调用。这
-  并不意味着 Docker 后端是加固沙箱；其资源和网络限制仍如上文所述。
+- **执行**：Host 服务默认使用 **local** 工作区，不提供沙箱。需要容器执行时，
+  在启动前设置 `QWENPAW_DATA_WORKSPACE_BACKEND=docker`。本地 shell 工具即使经过
+  确认仍具有宿主机用户权限；路径检查与确认提示都不是沙箱。Docker 的资源和
+  网络限制仍如上文所述。
 - **授权**：API key 可分别授予 `query`、`write`、`manage`、
   `credentials:manage`；旧 `QWENPAW_DATA_API_TOKEN` 作为全权限兼容键保留。
   使用 scoped key 的客户端应设置 `QWENPAW_DATA_CLIENT_API_TOKEN`；所有 API 路由

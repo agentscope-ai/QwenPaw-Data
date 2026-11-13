@@ -10,6 +10,7 @@ from agentscope.mcp import MCPClient
 
 from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.settings.cm import CmSettings
+from qwenpaw_data.host.core.utils.auth import resolve_context_access_token
 
 
 def is_cm_mcp_name(name: str) -> bool:
@@ -87,9 +88,10 @@ async def set_cm_mcp_headers(
     dataset_names: list[str] | None = None,
     session_id: str | None = None,
     chat_id: str | None = None,
+    context_model_header: str | None = None,
 ) -> None:
     headers: dict[str, str] = {}
-    if token := (access_token or "").strip():
+    if token := (resolve_context_access_token(access_token) or "").strip():
         headers["Authorization"] = f"Bearer {token}"
     if ds := (datasource_id or "").strip():
         headers["datasource_id"] = ds
@@ -99,6 +101,8 @@ async def set_cm_mcp_headers(
         headers["session_id"] = sid
     if cid := (chat_id or "").strip():
         headers["chat_id"] = cid
+    if context_model_header is not None:
+        headers["x-qwenpaw-model-binding"] = context_model_header
     await client.set_runtime_headers(headers)
 
 

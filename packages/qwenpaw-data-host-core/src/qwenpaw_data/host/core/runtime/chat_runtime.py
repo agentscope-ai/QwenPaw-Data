@@ -17,6 +17,7 @@ from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.chat_failure import ChatFailure
 from qwenpaw_data.host.core.domain.exception import IterationLimitExceeded
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
 from qwenpaw_data.host.core.integrations.cm import fetch_datasource_type
 from qwenpaw_data.host.core.tracing.records import tracer_send_status, tracer_send_stop
 from qwenpaw_data.host.core.paths import UserAgentPaths
@@ -78,12 +79,16 @@ class ChatRuntime:
         identity: Identity,
         access_token: str | None = None,
         mcp_headers: dict[str, dict[str, str]] | None = None,
+        runtime_config: UserRuntimeConfig | None = None,
+        context_model_header: str | None = None,
     ) -> None:
         try:
             await self._run(
                 identity=identity,
                 access_token=access_token,
                 mcp_headers=mcp_headers or {},
+                runtime_config=runtime_config,
+                context_model_header=context_model_header,
             )
         finally:
             await self.clear()
@@ -191,6 +196,8 @@ class ChatRuntime:
         identity: Identity,
         access_token: str | None,
         mcp_headers: dict[str, dict[str, str]],
+        runtime_config: UserRuntimeConfig | None = None,
+        context_model_header: str | None = None,
     ) -> None:
         self._access_token = access_token
         async with self.session_factory() as db:
@@ -200,8 +207,9 @@ class ChatRuntime:
             session = await SessionRepository(db, identity).get(chat.session_id)
             if not session.id.strip():
                 raise ValueError("session_id is required")
-            prefs = await PreferencesRepository(db, identity).load()
-            user_runtime_config = prefs.resolve()
+            if runtime_config is None:
+                prefs = await PreferencesRepository(db, identity).load()
+                runtime_config = prefs.resolve()
             disabled_skills = await SkillStateRepository(
                 db, identity, agent_id=session.agent_id
             ).disabled_names()
@@ -243,13 +251,14 @@ class ChatRuntime:
                     mcp_headers=mcp_headers,
                     datasource_id=datasource_id,
                     dataset_names=dataset_names,
+                    context_model_header=context_model_header,
                 )
                 run_context = RunContext(
                     session_id=session.id,
                     chat_id=chat.id,
                     workspace=workspace,
                     paths=paths,
-                    user_runtime_config=user_runtime_config,
+                    user_runtime_config=runtime_config,
                     identity=identity,
                     session_factory=self.session_factory,
                     disabled_skills=disabled_skills,
@@ -314,6 +323,7 @@ class ChatRuntime:
         mcp_headers: dict[str, dict[str, str]],
         datasource_id: str | None,
         dataset_names: list[str] | None,
+        context_model_header: str | None = None,
     ) -> None:
         await McpRepository(paths.mcp_manifest).sync(
             workspace,
@@ -325,6 +335,7 @@ class ChatRuntime:
             access_token=access_token,
             datasource_id=datasource_id,
             dataset_names=dataset_names,
+            context_model_header=context_model_header,
         )
 
     async def _after_event_callback(self, event: Any) -> None:

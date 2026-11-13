@@ -154,8 +154,9 @@ def test_workspace_provision_can_queue_holo_backend(client, monkeypatch):
     assert bad.status_code == 400
 
 
-def test_workspace_provision_defaults_to_graph_backend(client, monkeypatch):
-    monkeypatch.setenv("GRAPH_BACKEND", "holo_age")
+@pytest.mark.parametrize("backend", ["holo_age", "holoage", " HOLO-AGE "])
+def test_workspace_provision_defaults_to_graph_backend(client, monkeypatch, backend):
+    monkeypatch.setenv("GRAPH_BACKEND", backend)
     monkeypatch.delenv("HOLO_AGE_HOST", raising=False)
     monkeypatch.delenv("HOLO_AGE_PASSWORD", raising=False)
     http, dsn = client

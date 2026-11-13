@@ -74,6 +74,8 @@ def enqueue_initialization(dsn: str, workspace_id: str | None = None) -> list[st
 def graph_backend() -> str:
     """Return the active graph backend. Unknown values fail closed."""
     backend = os.environ.get("GRAPH_BACKEND", "neo4j").strip().lower() or "neo4j"
+    if backend in {"holoage", "holo-age"}:
+        backend = "holo_age"
     if backend not in {"neo4j", "holo_age"}:
         raise ValueError(f"GRAPH_BACKEND must be neo4j or holo_age, got: {backend!r}")
     return backend
@@ -198,13 +200,12 @@ def process_one(
         str(script),
         "--workspace-id",
         workspace["id"],
-        "--dsn",
-        dsn,
     )
     try:
         result = runner(
             command,
             check=False,
+            env={**os.environ, "QWENPAW_DATA_DB_URL": dsn},
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -257,7 +258,7 @@ def main() -> int:
     parser.add_argument(
         "--provision-script",
         type=Path,
-        help="Override the default provisioning script",
+        help="Override the default provisioning script (reads QWENPAW_DATA_DB_URL)",
     )
     parser.add_argument(
         "--holo-script",

@@ -35,48 +35,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 
-@pytest.fixture
-def user_model_config(tmp_path, monkeypatch):
-    """在临时库配置用户模型；保留真实的身份查询、加解密和配置校验。"""
-    from context_manager.model_config import resolver
-    from context_manager.model_config.repository import ModelConfigRepository
-    from context_manager.model_config.tables import ensure_schema
-    from qwenpaw_data_auth.database import _get_engine
-
-    dsn = f"sqlite:///{tmp_path / 'user-model-config.db'}"
-    ensure_schema(dsn)
-    repo = ModelConfigRepository(dsn)
-    monkeypatch.setattr(resolver, "_repository", lambda: repo)
-    monkeypatch.setattr(resolver, "_cache", {})
-
-    def configure(tenant, user):
-        credentials = {
-            "llm_model": f"model-{tenant}-{user}",
-            "llm_api_key": f"test-key-{tenant}-{user}",
-            "llm_base_url": f"https://{tenant}-{user}.example/v1",
-        }
-        repo.upsert_llm(
-            tenant,
-            user,
-            model=credentials["llm_model"],
-            api_key=credentials["llm_api_key"],
-            base_url=credentials["llm_base_url"],
-        )
-        repo.upsert_embedding(
-            tenant,
-            user,
-            model="test-embedding",
-            dim=64,
-            api_key="test-embedding-key",
-            base_url="https://embedding.example/v1",
-        )
-        resolver.invalidate(tenant, user)
-        return credentials
-
-    yield configure
-    _get_engine(dsn).dispose()
-
-
 @dataclass
 class BusinessTable:
     physical_name: str

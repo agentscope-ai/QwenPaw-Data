@@ -10,6 +10,7 @@ provenance marker that proves the HTML came out of the builder.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -34,6 +35,23 @@ def _load_builder_module() -> Any:
 
 
 builder = _load_builder_module()
+
+
+def test_offline_assets_and_notices_match_distribution_receipt() -> None:
+    resources = SKILL_ROOT / "resources"
+    receipt = json.loads((resources / "vendor-assets.json").read_text())
+    for name, digest in receipt["files"].items():
+        assert hashlib.sha256((resources / name).read_bytes()).hexdigest() == digest, name
+    loader = builder.build_echarts_loader()
+    assert "echarts={}" in loader
+    assert "__qwenpawDataEchartsLoadError=true" not in loader
+    icons = builder.load_icons_css()
+    assert "data:font/woff2;base64," in icons
+    assert ".bi-bar-chart" in icons
+    assert "url(https:" not in icons and "url(http:" not in icons
+    assert (resources / "licenses/echarts-LICENSE.txt").is_file()
+    assert (resources / "licenses/echarts-NOTICE.txt").is_file()
+    assert (resources / "licenses/bootstrap-icons-LICENSE.txt").is_file()
 
 
 # --- selector parsing --------------------------------------------------------

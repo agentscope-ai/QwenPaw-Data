@@ -41,7 +41,6 @@ const ExprEditor: React.FC<{
       onChange={(next) => onChange?.(next)}
       placeholder={t('validation.inputCalculateExpression')}
       basicSetup={{ lineNumbers: true }}
-      style={{ border: '1px solid #d9d9d9', borderRadius: 6 }}
     />
   );
   return (

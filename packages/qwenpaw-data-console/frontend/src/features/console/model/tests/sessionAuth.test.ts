@@ -75,5 +75,5 @@ test('a failed switch reconfirms identity instead of restoring cached ownership'
       assert.equal(getHostAuthContext().ready, true);
     },
   );
-  assert.deepEqual(calls, ['/api/auth/switch-workspace', '/api/auth/status', '/api/auth/me']);
+  assert.deepEqual(calls, ['/api/auth/switch-workspace', '/api/v1/auth/status', '/api/auth/me']);
 });

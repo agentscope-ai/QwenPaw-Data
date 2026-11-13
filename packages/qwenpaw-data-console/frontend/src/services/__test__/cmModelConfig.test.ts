@@ -87,7 +87,7 @@ test('实际探测携带 Cookie；HTTP 或网络失败按不确定处理', async
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
-    value: { setTimeout, clearTimeout },
+    value: { setTimeout, clearTimeout, location: { href: 'http://localhost/' } },
   });
   context.after(() => {
     if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
@@ -98,8 +98,9 @@ test('实际探测携带 Cookie；HTTP 或网络失败按不确定处理', async
     globalThis,
     'fetch',
     async (url: RequestInfo | URL, options?: RequestInit) => {
-      assert.equal(url, '/api/system/model-config/');
+      assert.equal(url, '/cm-api/system/model-config/');
       assert.equal(options?.credentials, 'include');
+      assert.equal(new Headers(options?.headers).get('X-QwenPaw-Console'), '1');
       assert.ok(options?.signal instanceof AbortSignal);
       return response;
     },
@@ -113,4 +114,27 @@ test('实际探测携带 Cookie；HTTP 或网络失败按不确定处理', async
     throw new TypeError('network');
   });
   assert.deepEqual(await fetchCMModelConfigStatus(), { determined: false, configured: false });
+});
+
+test('model configuration probe uses the authenticated local DataBridge gateway', async (context) => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      setTimeout,
+      clearTimeout,
+      location: { href: 'http://localhost:8767/console' },
+      QWENPAW_DATA_CONSOLE: { databridge: { base_path: '/databridge' } },
+    },
+  });
+  context.after(() => {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else Reflect.deleteProperty(globalThis, 'window');
+  });
+  context.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, options?: RequestInit) => {
+    assert.equal(url, '/cm-api/system/model-config/');
+    assert.equal(new Headers(options?.headers).get('X-QwenPaw-Console'), '1');
+    return Response.json({ configured: false });
+  });
+  assert.deepEqual(await fetchCMModelConfigStatus(), { determined: true, configured: false });
 });

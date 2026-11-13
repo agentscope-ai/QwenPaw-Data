@@ -39,12 +39,11 @@ from qwenpaw_data.host.core.utils.session import access_session
 
 router = APIRouter(tags=["compat"])
 
-# Only features this Host implements and tests. Request-scoped model bindings
-# (#81) are accepted but not applied yet, so they are reported as absent.
+# Only features this Host implements and tests.
 CONSOLE_CAPABILITIES: dict[str, Any] = {
     "console_protocol": 1,
     "scoped_sessions": True,
-    "runtime_model_bindings": False,
+    "runtime_model_bindings": True,
     "dataset_context": True,
 }
 
@@ -109,7 +108,7 @@ async def create_chat(
     """0.3 chat creation: the native console admission for the path session."""
     try:
         mcp_headers = parse_mcp_headers(request.headers.get(McpSettings.HEADERS_HEADER))
-        chat, access_token = await admit_chat(
+        chat, access_token, runtime_config, context_model_header = await admit_chat(
             db,
             identity,
             session_id=session_id,
@@ -125,7 +124,8 @@ async def create_chat(
         identity=identity,
         access_token=access_token,
         mcp_headers=mcp_headers,
-        model_binding_request=body.runtime_models,
+        runtime_config=runtime_config,
+        context_model_header=context_model_header,
     )
     return response
 

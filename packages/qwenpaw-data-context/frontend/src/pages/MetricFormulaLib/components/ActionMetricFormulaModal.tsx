@@ -34,7 +34,6 @@ const FormulaEditor: React.FC<{
       theme={githubLight}
       onChange={(next) => onChange?.(next)}
       basicSetup={{ lineNumbers: true }}
-      style={{ border: '1px solid #d9d9d9', borderRadius: 6 }}
     />
   );
   return (

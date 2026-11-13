@@ -79,9 +79,9 @@ import { useSettlementCards } from '../../model/settlement/useSettlementCards';
 import { useSkillProposals } from '../../model/settlement/useSkillProposals';
 import { useSkillDrafts } from '../../model/skillDrafts/useSkillDrafts';
 import type { Artifact, ConversationTurn, WorkspaceTab } from '../../types';
-import ArtifactCard from '../ArtifactCard';
+import ArtifactCard from '../ArtifactCard/index';
 import OverflowTooltip from '../OverflowTooltip';
-import SettlementPanel from '../SettlementPanel';
+import SettlementPanel from '../SettlementPanel/index';
 import sharedStyles from '../../index.module.less';
 import { mergeStyleModules } from '../../styleModules';
 import { useAppI18n } from '@/i18n';
@@ -591,7 +591,6 @@ function TasksPanel({
   selectedTurnId,
   turns,
   chatProjection,
-  sessionId,
   sessionChannel,
   onTurnSelect,
   onPlanEdit,
@@ -603,7 +602,6 @@ function TasksPanel({
   | 'selectedTurnId'
   | 'turns'
   | 'chatProjection'
-  | 'sessionId'
   | 'sessionChannel'
   | 'onTurnSelect'
   | 'onPlanEdit'
@@ -640,7 +638,6 @@ function TasksPanel({
           ),
           datasource_id: datasourceId,
           channel,
-          session_id: sessionId && channel === sessionChannel ? sessionId : undefined,
         },
       },
     });
@@ -1651,7 +1648,6 @@ export default function SessionWorkspace({
         selectedTurnId={selectedTurnId}
         turns={turns}
         chatProjection={chatProjection}
-        sessionId={sessionId}
         sessionChannel={sessionChannel}
         onTurnSelect={onTurnSelect}
         onPlanEdit={onPlanEdit}

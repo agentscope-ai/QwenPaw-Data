@@ -1,7 +1,5 @@
 """JOIN 边抽取。供 DOMAIN —— 一起被 JOIN 的表大概率属于同一业务域。
 
-移植自 ``profiling/algorithm/profiler_biz_domain.py`` 的
-``extract_join_edges`` + ``aggregate_join_evidence`` 的边聚合部分。
 并查集聚类（clusters / table_frequencies）**不在这里**——snapshot 只存边表，
 聚类是 DOMAIN 任务的下游职责。
 

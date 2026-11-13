@@ -16,6 +16,11 @@ export interface HostWorkspaceInfo {
 }
 
 export interface HostCurrentUser {
+  role?: 'member' | 'ws_admin' | 'tenant_admin' | 'platform_admin';
+  active_workspace_role?: 'member' | 'ws_admin' | 'tenant_admin';
+  capabilities?: string[];
+  workspace_ids?: string[];
+  must_change_password?: boolean;
   user_id: string; // 当前登录用户 ID。
   username: string; // 当前登录用户名。
   display_name?: string; // 用户显示名称，缺失时回退用户名。
@@ -28,6 +33,16 @@ export interface HostCurrentUser {
 let refreshInFlight: Promise<boolean> | null = null;
 let ssoLoginPath: string | null = null;
 let currentUser: HostCurrentUser | null = null;
+
+export function portalHeaders(input: RequestInfo | URL, initial?: HeadersInit): Headers {
+  const headers = new Headers(initial ?? (input instanceof Request ? input.headers : undefined));
+  const address = input instanceof Request ? input.url : String(input);
+  const base = typeof window === 'undefined' ? 'http://localhost' : window.location.href;
+  if (new URL(address, base).origin === new URL(base).origin) {
+    headers.set('X-QwenPaw-Console', '1');
+  }
+  return headers;
+}
 
 let authContext = { revision: 0, ready: false };
 const authListeners = new Set<() => void>();
@@ -51,6 +66,40 @@ function publishAuthContext(ready: boolean, invalidate = false) {
 
 export function getHostCurrentUser(): HostCurrentUser | null {
   return currentUser;
+}
+
+export function adoptUnifiedIdentity(state: import('@qwenpaw-data/cm').ContextAuth | null) {
+  const next: HostCurrentUser | null =
+    state?.initialized &&
+    !state.loading &&
+    !state.initializationError &&
+    state.sessionPlane === 'tenant' &&
+    state.userId
+      ? {
+          user_id: state.userId,
+          username: state.username,
+          display_name: state.displayName,
+          tenant_id: state.tenantId,
+          active_workspace_id: state.activeWorkspaceId,
+          active_workspace_name: state.activeWorkspaceName,
+          workspaces: state.workspaces,
+          workspace_ids: state.workspaceIds,
+          role: state.role,
+          active_workspace_role: state.activeWorkspaceRole,
+          capabilities: state.capabilities,
+          must_change_password: state.mustChangePassword,
+        }
+      : null;
+  const changed = JSON.stringify(next) !== JSON.stringify(currentUser);
+  currentUser = next;
+  const ready = Boolean(
+    state?.initialized &&
+    !state.loading &&
+    !state.initializationError &&
+    state.sessionPlane === 'tenant' &&
+    (!state.authEnabled || next),
+  );
+  if (changed || ready !== authContext.ready) publishAuthContext(ready, changed || !ready);
 }
 
 async function performRefresh(): Promise<boolean> {
@@ -91,6 +140,7 @@ export async function fetchWithAuthRetry(
 ): Promise<Response> {
   const fetchOptions: RequestInit = {
     ...init,
+    headers: portalHeaders(input, init.headers),
     credentials: 'include',
   };
   let response = await fetch(input, fetchOptions);
@@ -109,8 +159,10 @@ export async function fetchWithAuthRetry(
 export async function bootstrapHostAuth(): Promise<boolean> {
   currentUser = null;
   const revision = publishAuthContext(false, true);
-  const statusResponse = await fetch(getApiUrl('/auth/status'), {
+  const statusUrl = getApiUrl('/auth/status');
+  const statusResponse = await fetch(statusUrl, {
     credentials: 'include',
+    headers: portalHeaders(statusUrl),
   });
   if (!statusResponse.ok) {
     throw new Error(

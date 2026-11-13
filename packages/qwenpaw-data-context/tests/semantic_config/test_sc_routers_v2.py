@@ -7,12 +7,18 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 
+import semantic_config.engine as sc_engine
+import semantic_config.main as sc_main
+from context_manager.api.lifespan import api_lifespan
+from profiling.services import orchestrator
 from semantic_config.config import get_settings
 from semantic_config.db import init_db
-from semantic_config.engine import get_session_factory
+from semantic_config.engine import get_session_factory, reset_engine
 from semantic_config.main import create_app
 from semantic_config.principal import LOCAL_DEV_PRINCIPAL
 
@@ -31,8 +37,11 @@ async def app(tmp_path, monkeypatch):
     monkeypatch.setattr(
         settings, "db_url", "sqlite+aiosqlite:///" + str(tmp_path / "sc.db")
     )
-    await init_db()
-    return create_app()
+    try:
+        await init_db()
+        yield create_app()
+    finally:
+        await reset_engine()
 
 
 @pytest.fixture
@@ -40,6 +49,54 @@ async def client(app):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://sc") as c:
         yield c
+
+
+@pytest.mark.parametrize("fail_startup", [False, True])
+async def test_standalone_lifespan_disposes_database(app, monkeypatch, fail_startup):
+    if fail_startup:
+        async def fail_probe_init():
+            raise RuntimeError("probe initialization failed")
+
+        monkeypatch.setattr(sc_main, "init_probe_db", fail_probe_init)
+
+    if fail_startup:
+        with pytest.raises(RuntimeError, match="probe initialization failed"):
+            async with app.router.lifespan_context(app):
+                pass
+    else:
+        async with app.router.lifespan_context(app):
+            assert sc_engine._engine is not None
+
+    assert sc_engine._engine is None
+
+
+@pytest.mark.parametrize("unified", [False, True])
+async def test_shutdown_drains_probes_before_disposing_database(app, monkeypatch, unified):
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    key = ("tenant", "workspace", "source", "stage")
+
+    async def probe():
+        try:
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            assert sc_engine._engine is not None
+            stopped.set()
+
+    if unified:
+        app.state.semantic_config_mounted = True
+        lifespan = api_lifespan(app)
+    else:
+        lifespan = app.router.lifespan_context(app)
+    async with lifespan:
+        task = asyncio.create_task(probe())
+        monkeypatch.setitem(orchestrator._REGISTRY, key, task)
+        await started.wait()
+
+    assert stopped.is_set()
+    assert task.done()
+    assert sc_engine._engine is None
 
 
 # ---------- helpers：父对象经真实依赖链创建，不 mock ----------
@@ -241,7 +298,7 @@ class TestV21ListSignatures:
         params = _query_param_names(app, f"{SC}/dataset-meta")
         assert "dataset_type" not in params
         assert {"datasource_id", "domain_id", "dataset_name"} <= params
-        assert "source_datasource" not in params
+        assert "source_datasource" in params
 
     async def test_dimension_list_keeps_datasource_id_param(self, app):
         params = _query_param_names(app, f"{SC}/dimension")
@@ -361,18 +418,24 @@ class TestDatasetMetaRouterV21:
         assert resp.status_code == 400
         assert "source" in resp.json()["message"]
 
-    async def test_crud_flow_with_source_column(self, client):
+    @pytest.mark.parametrize("datasource_key", ["datasource_id", "source_datasource"])
+    async def test_crud_flow_with_source_column(self, client, datasource_key):
         ds = await _create_datasource(client)
         dom = await _create_domain(client)
-        created = await _create_dataset(
-            client,
-            ds["datasource_id"],
-            dom["domain_id"],
-            source="WITH t AS (SELECT 1) SELECT * FROM t",
+        response = await client.post(
+            f"{SC}/dataset-meta",
+            json={
+                datasource_key: ds["datasource_id"],
+                "domain_id": dom["domain_id"],
+                "dataset_name": "dwd_order",
+                "source": "WITH t AS (SELECT 1) SELECT * FROM t",
+            },
         )
+        assert response.status_code == 200, response.text
+        created = response.json()
         assert created["source"].startswith("WITH")
         assert created["datasource_id"] == ds["datasource_id"]
-        assert "source_datasource" not in created
+        assert created["source_datasource"] == created["datasource_id"]
         assert "dataset_type" not in created
         assert "sql_content" not in created
         assert "parents" not in created
@@ -380,6 +443,7 @@ class TestDatasetMetaRouterV21:
         dataset_id = created["dataset_id"]
         got = await client.get(f"{SC}/dataset-meta/{dataset_id}")
         assert got.status_code == 200, got.text
+        assert got.json()["source_datasource"] == ds["datasource_id"]
 
         upd = await client.put(
             f"{SC}/dataset-meta/{dataset_id}", json={"description": "新描述"}
@@ -392,6 +456,7 @@ class TestDatasetMetaRouterV21:
 
     async def test_list_keeps_ds_domain_name_filters(self, client):
         ds = await _create_datasource(client)
+        other_ds = await _create_datasource(client, name="other")
         dom = await _create_domain(client)
         await _create_dataset(
             client, ds["datasource_id"], dom["domain_id"], name="orders"
@@ -399,9 +464,24 @@ class TestDatasetMetaRouterV21:
         await _create_dataset(
             client, ds["datasource_id"], dom["domain_id"], name="users"
         )
-        page = await client.get(f"{SC}/dataset-meta", params={"dataset_name": "orders"})
+        await _create_dataset(
+            client, other_ds["datasource_id"], dom["domain_id"], name="orders"
+        )
+        params = {
+            "domain_id": dom["domain_id"],
+            "dataset_name": "orders",
+            "source_datasource": ds["datasource_id"],
+        }
+        page = await client.get(f"{SC}/dataset-meta", params=params)
         assert page.status_code == 200, page.text
-        assert page.json()["total"] == 1
+        [record] = page.json()["records"]
+        assert record["datasource_id"] == ds["datasource_id"]
+
+        params["datasource_id"] = other_ds["datasource_id"]
+        page = await client.get(f"{SC}/dataset-meta", params=params)
+        assert page.status_code == 200, page.text
+        [record] = page.json()["records"]
+        assert record["datasource_id"] == other_ds["datasource_id"]
 
 
 # ---------- R2：table_column（原 dataset_column_meta 更名重构） ----------

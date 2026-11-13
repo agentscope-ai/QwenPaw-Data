@@ -6,10 +6,10 @@ from __future__ import annotations
 import re
 from contextvars import ContextVar, Token
 
-from qwenpaw_data.tracing.core.context.ids import BoundIdGenerator, _bound_trace_id
+from qwenpaw_data.tracing.core.context.ids import TRACE_ID, BoundIdGenerator, _bound_trace_id
 from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
 
-_CHAT_TRACE_ID = re.compile(r"^chat-([0-9a-f]{32})$")
+_CHAT_TRACE_ID = re.compile(rf"^chat-({TRACE_ID})$")
 _chat_trace_id: ContextVar[str | None] = ContextVar(
     "qwenpaw_data_chat_trace_id",
     default=None,

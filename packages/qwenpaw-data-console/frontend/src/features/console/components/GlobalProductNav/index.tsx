@@ -28,11 +28,11 @@ import {
   redirectToLogin,
   switchHostWorkspace,
 } from '@/services/auth';
-import { getContextFrontendUrl } from '@/services/config';
+import { useNavigate } from 'react-router-dom';
 import type { ConsoleSession } from '../../api/types';
 import sharedStyles from '../../index.module.less';
 import { mergeStyleModules } from '../../styleModules';
-import ConsoleSettingsMenu from '../ConsoleSettingsMenu';
+import ConsoleSettingsMenu from '../ConsoleSettingsMenu/index';
 import { useAppI18n } from '@/i18n';
 import OverflowTooltip from '../OverflowTooltip';
 import SessionActions from '../SessionActions';
@@ -91,6 +91,7 @@ export default function GlobalProductNav({
   onOpenSettlementCenter,
   onClose,
 }: GlobalProductNavProps) {
+  const navigate = useNavigate();
   const [searchText, setSearchText] = useState('');
   const lastSubmittedSearch = useRef('');
   const [workspaceSwitching, setWorkspaceSwitching] = useState(false);
@@ -123,7 +124,7 @@ export default function GlobalProductNav({
   }, [searchText, onSearchSessions]);
 
   const openContextPath = (path: string) => {
-    window.location.assign(getContextFrontendUrl(path));
+    navigate(path);
     onClose?.();
   };
 
@@ -451,7 +452,7 @@ export default function GlobalProductNav({
                     type="text"
                     icon={<DatabaseOutlined />}
                     aria-label={t('settings.dataBridge')}
-                    href={getContextFrontendUrl('/data-source')}
+                    href="/data-source"
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => onClose?.()}

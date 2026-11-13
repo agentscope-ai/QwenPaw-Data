@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Alert, Button, Empty, Segmented, Skeleton } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import type { UsagePeriod } from '@/features/console/api/usageTypes';
 import type { UsageError, UsageRegion } from '@/features/console/model/usage/usageController';
 import { useAppI18n } from '@/i18n';

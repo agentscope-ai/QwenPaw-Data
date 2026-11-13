@@ -1,9 +1,5 @@
 """维度用法抽取。供 CALIBER / DICT —— 被 GROUP BY / 等值过滤的列是维度候选。
 
-移植自 ``profiling/algorithm/profiler_dimension_caliber.py``
-（group_dimensions_from_select / where_dimensions_from_select）
-+ ``query_context._extract_dimension_records`` 的 per-SQL 去重与聚合。
-
 原版关键行为（全部保留）：
 
 - GROUP BY 对每个表达式 ``find_all(Column)``，``date_trunc(col)`` 这类包裹

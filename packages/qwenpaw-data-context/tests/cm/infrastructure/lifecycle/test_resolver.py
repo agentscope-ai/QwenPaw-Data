@@ -10,6 +10,7 @@ import pytest
 from context_manager.db import initialize_database
 from context_manager.runtime import (
     ContextRuntimeUnavailable,
+    Neo4jConnectionConfig,
     WorkspaceResolver,
     WorkspaceRuntimePool,
     create_workspace_runtime,
@@ -46,6 +47,10 @@ class _Session:
     def execute_read(self, work: Any) -> object:
         """Invoke the supplied Neo4j work callback."""
         return work(_Transaction(self._healthy))
+
+    def run(self, query: str, **parameters: object) -> tuple[Record, ...]:
+        """Run a single health probe without managed-transaction retries."""
+        return _Transaction(self._healthy).run(query, **parameters)
 
     def execute_write(self, work: Any) -> object:
         """Invoke one schema write callback."""
@@ -97,6 +102,37 @@ class _DriverFactory:
         self.calls.append((uri, dict(options)))
         self.drivers.append(driver)
         return driver
+
+
+def test_fixed_workspace_health_rechecks_cached_graph(tmp_path: Path) -> None:
+    """A previously healthy cached graph must not mask a later outage."""
+    initialize_database(DbSettings(url=f"sqlite:///{tmp_path / 'health.sqlite'}"))
+    connection = Neo4jConnectionConfig(
+        tenant_id="tenant-one",
+        workspace_id="workspace-one",
+        neo4j_uri="bolt://graph.example:7687",
+        neo4j_user="neo4j",
+        neo4j_password="test-password",
+    )
+    factory = _DriverFactory()
+    pool = WorkspaceRuntimePool(
+        lambda config: create_workspace_runtime(
+            config,
+            driver_factory=factory,
+            executor=executor,
+            graph_read_executor=executor,
+        )
+    )
+    resolver = WorkspaceResolver(pool, connection=connection)
+    try:
+        assert resolver.health() is True
+        factory.drivers[0]._healthy = False
+        assert resolver.health() is False
+        factory.drivers[0]._healthy = True
+        assert resolver.health() is True
+        assert len(factory.drivers) == 1
+    finally:
+        resolver.close()
 
 
 def _seed_workspace(
@@ -223,12 +259,16 @@ async def test_resolver_returns_isolated_pooled_workspace_runtimes(
     ]
     assert factory.drivers[0].session_options
     assert all(
-        options == {"database": "graph-one"}
+        options.get("database") == "graph-one"
+        for options in factory.drivers[0].session_options
+    )
+    assert any(
+        options.get("connection_acquisition_timeout") == 2.0
         for options in factory.drivers[0].session_options
     )
     assert factory.drivers[1].session_options
     assert all(
-        options == {"database": "tenant-two-database"}
+        options.get("database") == "tenant-two-database"
         for options in factory.drivers[1].session_options
     )
     with pytest.raises(PermissionError, match="not registered"):

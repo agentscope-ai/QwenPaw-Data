@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, AsyncGenerator, Awaitable, Callable
 from agentscope.middleware import MiddlewareBase
 from agentscope.middleware import TracingMiddleware as AgentScopeTracingMiddleware
 from qwenpaw_data.host.core.tracing.adapters import (
-    SessionTracer,
     _inject_cm_traceparent,
-    _tracer_save_span_id,
+    tracer,
 )
 from qwenpaw_data.host.core.tracing.utils import FAILED_TOOL_STATES
+from qwenpaw_data.tracing.core.names import Score
 from qwenpaw_data.tracing.core.trace.tracer import BaseTracer
-from qwenpaw_data.tracing.runtime.host.chat import ChatTracer
+from qwenpaw_data.tracing.export.score import tracer_send_span_score
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 _TOOL_STATES = frozenset({"success", "error", "interrupted", "denied"})
+# denied is a user decision, not a tool failure: it gets no score.
+_TOOL_FAILED_VALUES = {"success": 0.0, "error": 1.0, "interrupted": 1.0}
 
 
-def stamp_tool_state(item: object) -> None:
+async def stamp_tool_state(item: object) -> None:
     """Write the tool result state while the execute_tool span is still open."""
 
     state = getattr(item, "state", None)
@@ -42,21 +44,16 @@ def stamp_tool_state(item: object) -> None:
         failed=text in FAILED_TOOL_STATES,
         error=text,
     )
+    value = _TOOL_FAILED_VALUES.get(text)
+    if value is not None:
+        await tracer_send_span_score(Score.TOOL_FAILED, value)
 
 
 class TracingMiddleware(MiddlewareBase):
     def __init__(self, *, run_context: RunContext | None = None) -> None:
         self._tracing = AgentScopeTracingMiddleware()
         self._run_context = run_context
-        self._tracer = (
-            ChatTracer(
-                session=SessionTracer.from_context(run_context),
-                chat_id=run_context.chat_id,
-                save_span_id=_tracer_save_span_id(run_context),
-            )
-            if run_context
-            else None
-        )
+        self._tracer = tracer(run_context) if run_context else None
         self._cm_injected: dict[int, tuple[str, str | None]] = {}
 
     async def on_reply(
@@ -96,7 +93,7 @@ class TracingMiddleware(MiddlewareBase):
             if self._run_context is not None:
                 await _inject_cm_traceparent(self._run_context, self._cm_injected)
             async for item in next_handler(**kwargs):
-                stamp_tool_state(item)
+                await stamp_tool_state(item)
                 yield item
 
         acting = getattr(self._tracing, "on_acting", None)

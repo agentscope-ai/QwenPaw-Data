@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  /** Sanitized setup accounts, injected only by the local development server. */
+  readonly VITE_DEV_LOGIN_ACCOUNTS?: string;
   /**
    * 登录页联调账号快填条的口令，仅本地 .env 配置、仅 dev server 生效；
    * vite.config.ts 在 `vite build` 时通过 define 强制置为空串（口令不进构建产物）。

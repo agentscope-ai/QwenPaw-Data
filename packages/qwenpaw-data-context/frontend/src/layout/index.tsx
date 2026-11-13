@@ -108,7 +108,7 @@ export default function Layout() {
         })
         .map((item) => ({
           ...item,
-          name: `${t(item.nameKey)}${effectiveRole === 'member' && item.memberReadOnly ? ` (${t('common.readOnly', { defaultValue: '只读' })})` : ''}`,
+          name: `${t(item.nameKey)}${authEnabled && effectiveRole === 'member' && item.memberReadOnly ? ` (${t('common.readOnly', { defaultValue: '只读' })})` : ''}`,
           children: item.children ? translateMenu(item.children) : undefined,
         }))
         // 空组剪枝：子项全部被权限过滤后，分组整体隐藏

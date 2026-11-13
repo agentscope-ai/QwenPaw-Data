@@ -75,6 +75,34 @@ def _compare(client: TestClient, session_id: str, payload: dict[str, Any]):
     )
 
 
+def test_upload_rejects_linked_directory(client, tmp_path):
+    session_id, folder = _new_session(client)
+    outside = tmp_path / "outside-uploads"
+    outside.mkdir()
+    (folder / "uploads").symlink_to(outside, target_is_directory=True)
+    response = client.post(f"/api/sessions/{session_id}/files/upload",
+                           files={"file": ("data.txt", b"private")})
+    assert response.status_code == 403
+    assert list(outside.iterdir()) == []
+
+
+def test_upload_skips_dangling_links_and_preserves_existing_files(client, tmp_path):
+    session_id, folder = _new_session(client)
+    uploads = folder / "uploads"
+    uploads.mkdir()
+    outside = tmp_path / "must-not-be-created.txt"
+    (uploads / "data.txt").symlink_to(outside)
+    (uploads / "data-1.txt").write_bytes(b"existing")
+    response = client.post(f"/api/sessions/{session_id}/files/upload",
+                           files={"file": ("data.txt", b"new")})
+    assert response.status_code == 200, response.text
+    assert response.json()["path"] == "uploads/data-2.txt"
+    assert (uploads / "data-2.txt").read_bytes() == b"new"
+    assert (uploads / "data-1.txt").read_bytes() == b"existing"
+    assert (uploads / "data.txt").is_symlink()
+    assert not outside.exists()
+
+
 def test_html_difference_maps_to_exact_original_text_not_script_or_duplicate(
     client: TestClient,
 ) -> None:

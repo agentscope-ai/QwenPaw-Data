@@ -126,6 +126,8 @@ def chat_client(
         identity: Any,
         access_token: str | None = None,
         mcp_headers: dict[str, dict[str, str]] | None = None,
+        runtime_config: Any = None,
+        context_model_header: str | None = None,
     ) -> None:
         captured["mcp_headers"] = mcp_headers
 

@@ -111,6 +111,8 @@ def mount_semantic_config(app: FastAPI) -> None:
     """
     from semantic_config.cm_runtime import bind_runtime
 
+    app.state.semantic_config_mounted = True
+
     @app.middleware("http")
     async def bind_editor_runtime(request: Request, call_next):
         with bind_runtime(getattr(request.app.state, "context_runtime", None)):
@@ -133,6 +135,8 @@ def mount_semantic_config(app: FastAPI) -> None:
         weave_task_router,
     ):
         app.include_router(r.router)
+
+    app.include_router(datasource_router.metadata_router)
 
     mount_profiling(app)
 

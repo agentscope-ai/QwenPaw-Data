@@ -1,5 +1,6 @@
 import { buildAuthHeaders } from './authHeaders';
 import { getApiUrl } from './config';
+import { isEmbedded } from '../embedded/context';
 import { ApiRequestError, apiErrorFromResponse } from './apiError';
 
 export interface RequestOptions extends RequestInit {
@@ -64,9 +65,11 @@ async function fetchApi(
     }
 
     if (response.status === 403) {
-      const { message } = await import('@/design');
+      // Import the provider directly: materializing the design barrel namespace
+      // in a split library bundle can leave external icon re-exports unbound.
+      const { message } = await import('@agentscope-ai/design');
       message?.error(error.message);
-      if (redirectOnForbidden && window.location.pathname !== '/403') {
+      if (!isEmbedded() && redirectOnForbidden && window.location.pathname !== '/403') {
         window.location.assign('/403');
       }
     }

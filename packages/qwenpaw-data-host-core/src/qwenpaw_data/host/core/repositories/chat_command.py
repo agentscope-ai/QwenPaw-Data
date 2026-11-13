@@ -33,6 +33,7 @@ class ChatCommandRepository:
                 clarification_json=command.clarification,
                 plan_json=command.plan,
                 tool_confirmation_json=command.tool_confirmation,
+                ui_json=command.ui,
                 created_at=command.created_at,
             )
         )
@@ -183,4 +184,35 @@ class ChatCommandRepository:
             row.status = "done"
             await self.db.flush()
             return decision
+        return None
+
+    async def take_ui(self, chat_id: str, call_id: str) -> dict[str, Any] | None:
+        rows = (
+            await self.db.scalars(
+                select(ChatCommandRow)
+                .where(
+                    ChatCommandRow.chat_id == chat_id,
+                    ChatCommandRow.kind == "ui",
+                    ChatCommandRow.status == "waiting",
+                )
+                .order_by(ChatCommandRow.created_at.desc(), ChatCommandRow.id.desc())
+            )
+        ).all()
+        for row in rows:
+            if row.ui_json is None:
+                raise RuntimeError("CONFLICT: ui command is missing payload")
+            if row.ui_json["id"] != call_id:
+                continue
+            status = row.ui_json.get("status")
+            if status == "executed":
+                if not isinstance(row.ui_json.get("result"), dict):
+                    raise RuntimeError("CONFLICT: ui result is required")
+            elif status in ("failed", "rejected"):
+                if not isinstance(row.ui_json.get("error"), dict):
+                    raise RuntimeError("CONFLICT: ui error is required")
+            else:
+                raise RuntimeError("CONFLICT: ui status is invalid")
+            row.status = "done"
+            await self.db.flush()
+            return {key: value for key, value in row.ui_json.items() if key != "id"}
         return None

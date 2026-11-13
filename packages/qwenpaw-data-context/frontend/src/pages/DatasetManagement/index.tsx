@@ -1,4 +1,4 @@
-import { queryDatasetMeta, deleteDatasetMeta } from '@/services/datasetManagement';
+import { queryDatasetMeta, deleteDatasetMeta, getDatasetMeta } from '@/services/datasetManagement';
 import SemanticExcelActions from '@/components/SemanticExcelActions';
 import { DatasetManagementItem, QueryDatasetMetaParams } from '@/types/datasetManagement';
 import {
@@ -20,6 +20,8 @@ import { useModal } from '@/hooks/useModal';
 import { useDatasourceDomainFilter } from '@/hooks/useFilterOptions';
 import { useTranslation } from 'react-i18next';
 import { readUrlSearchValues } from '@/utils/urlSearch';
+import { useDatasetAdapter } from '../../embedded/datasetAdapter';
+import { getUiBridge } from '../../embedded/bridge';
 import {
   loadSemanticDeepLinkInOrder,
   locateSemanticRecord,
@@ -55,6 +57,42 @@ const DatasetManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }
   );
 
   const { dataSourceOptions, domainOptions, selectDatasource } = useDatasourceDomainFilter();
+  const sourcesReady = useDataSourceOptionsStore((state) => state.fetched && !state.loading);
+  const root = useRef<HTMLDivElement>(null);
+  const [loadedRows, setLoadedRows] = useState<DatasetManagementItem[]>([]);
+  const [agentTable, setAgentTable] = useState<{
+    epoch: number;
+    params: QueryDatasetMetaParams;
+    target?: DatasetManagementItem;
+  } | null>(null);
+  const tableEpoch = agentTable?.epoch ?? 0;
+  const currentTableEpoch = useRef(tableEpoch);
+  currentTableEpoch.current = tableEpoch;
+  useDatasetAdapter({
+    root,
+    rows: loadedRows,
+    canWrite,
+    sourceOptions: dataSourceOptions,
+    sourcesReady,
+    domainOptions,
+    loadSource: selectDatasource,
+    present: (params, target) => {
+      const currentFilters =
+        formRef.current?.getFieldsValue() ?? agentTable?.params ?? initialSearchValues;
+      setAgentTable((old) => ({
+        epoch: (old?.epoch ?? 0) + 1,
+        params: target ? params : { ...currentFilters, ...params },
+        target,
+      }));
+    },
+    edit: (record, ready) =>
+      showCreateOrEditDataMetaDrawer({
+        title: t('dataset.editTitle'),
+        record,
+        onUiReady: ready,
+        callback: () => actionRef.current?.reload(),
+      }),
+  });
 
   useEffect(() => {
     if (initialSearchValues.datasource_id) {
@@ -135,11 +173,16 @@ const DatasetManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }
           <Button
             key="column"
             type="link"
-            onClick={() =>
-              navigate(
-                `/column?dataset_id=${record.dataset_id}&datasource_id=${record.datasource_id}&domain_id=${record.domain_id}`,
-              )
-            }
+            onClick={() => {
+              const params = new URLSearchParams({ dataset_id: String(record.dataset_id) });
+              if (record.datasource_id?.trim()) {
+                params.set('datasource_id', record.datasource_id);
+              }
+              if (record.domain_id != null) {
+                params.set('domain_id', String(record.domain_id));
+              }
+              navigate(`/column?${params}`);
+            }}
           >
             {t('routes.columnManagement')}
           </Button>
@@ -157,14 +200,36 @@ const DatasetManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }
   };
 
   return (
-    <>
+    <div ref={root}>
       <ProTable<DatasetManagementItem>
+        onSubmit={(params) => {
+          if (agentTable?.target)
+            setAgentTable((old) => ({ epoch: (old?.epoch ?? 0) + 1, params }));
+        }}
+        key={agentTable?.epoch ?? 0}
+        onLoad={(rows) => {
+          if (currentTableEpoch.current === tableEpoch) setLoadedRows([...rows]);
+        }}
+        onRow={(record) => ({ tabIndex: -1, 'data-ui-row': String(record.dataset_id) })}
         rowKey={(record: DatasetManagementItem) => record.dataset_id}
         actionRef={actionRef}
         formRef={formRef}
         columns={columns}
-        form={{ initialValues: initialSearchValues }}
+        form={{
+          initialValues: agentTable?.params ?? initialSearchValues,
+          onValuesChange: () => getUiBridge()?.touch(),
+        }}
         request={async (params) => {
+          if (agentTable?.target) {
+            try {
+              const located = await getDatasetMeta(agentTable.target.dataset_id);
+              return { data: [located.record], success: true, total: 1 };
+            } catch (error) {
+              if (error instanceof Error && 'status' in error && error.status === 404)
+                return { data: [], success: true, total: 0 };
+              throw error;
+            }
+          }
           const requestData: QueryDatasetMetaParams = {
             page: params.current,
             size: params.pageSize,
@@ -173,6 +238,7 @@ const DatasetManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }
             dataset_name: toOptionalString(params.dataset_name),
           };
           if (
+            !agentTable &&
             deepLinkValues.dataset_id &&
             requestData.datasource_id === deepLinkValues.datasource_id &&
             requestData.domain_id === deepLinkValues.domain_id
@@ -243,7 +309,7 @@ const DatasetManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }
         ]}
       />
       {createOrEditDataMetaDrawer}
-    </>
+    </div>
   );
 };
 

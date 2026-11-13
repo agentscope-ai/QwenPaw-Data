@@ -33,10 +33,10 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES = SKILL_ROOT / "resources"
 
-_CDN = "https://storage.360buyimg.com/pubfree-bucket/ei-data-resource/"
-TAILWIND_URL = _CDN + "02f0288/static/tailwind.min.css"
-BOOTSTRAP_ICONS_URL = _CDN + "e86f985/static/bootstrap-icons/bootstrap-icons.css"
-BOOTSTRAP_FONT_URL = _CDN + "1d0317d/static/bootstrap-icons/bootstrap-icons.woff2"
+_CDN = "https://cdn.jsdelivr.net/npm/"
+TAILWIND_URL = _CDN + "tailwindcss@2.2.19/dist/tailwind.min.css"
+BOOTSTRAP_ICONS_URL = _CDN + "bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+BOOTSTRAP_FONT_URL = _CDN + "bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff2"
 
 # Files whose class tokens are always kept (intersected with what Tailwind has).
 _SCAN_FILES = (

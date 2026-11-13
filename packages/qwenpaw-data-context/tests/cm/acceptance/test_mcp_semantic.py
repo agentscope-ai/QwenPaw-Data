@@ -528,7 +528,7 @@ def test_real_five_tool_mcp_journey(live_cm, tmp_path):
     )["rows"] == [[340]]
 
 
-def test_real_native_query_rejects_cross_user_reads_and_writes(live_cm):
+def test_real_native_query_enforces_owner_scope_and_rejects_writes(live_cm):
     def call(statement, params=None):
         response = live_cm.client.post(
             "/mcp/v1/cm",
@@ -551,16 +551,31 @@ def test_real_native_query_rejects_cross_user_reads_and_writes(live_cm):
 
     workspace = live_cm.graph_name
     if live_cm.backend == "neo4j":
-        cases = [
-            ("MATCH (n:Metric) RETURN n.name", {}),
+        # Neo4j injects trusted scope predicates, including when the caller
+        # omits them or tries to broaden a predicate with OR.
+        for statement, params_scoped, expected in (
+            ("MATCH (n:Metric) RETURN n.name AS name", {}, {"GMV", "Orders"}),
             (
-                "MATCH (n:Metric {workspace_id:$ws,owner_id:$owner}) RETURN n.name",
-                {"ws": workspace, "owner": "user-2"},
-            ),
-            (
-                "MATCH (n:Metric) WHERE n.workspace_id=$ws AND (n.owner_id=$owner OR true) RETURN n.name",
+                "MATCH (n:Metric) WHERE n.workspace_id=$ws AND (n.owner_id=$owner OR true) RETURN n.name AS name",
                 {"ws": workspace, "owner": "user-1"},
+                {"GMV", "Orders"},
             ),
+            (
+                "MATCH (n:Metric {workspace_id:$ws,owner_id:$owner}) RETURN n.name AS name",
+                {"ws": workspace, "owner": "user-2"},
+                set(),
+            ),
+            (
+                "MATCH (n:Metric {workspace_id:$ws}) RETURN n.name AS name",
+                {"ws": workspace + "-foreign"},
+                set(),
+            ),
+        ):
+            result = call(statement, params_scoped)
+            assert not result.get("isError"), result
+            rows = json.loads(result["content"][0]["text"])["rows"]
+            assert {row["name"] for row in rows} == expected
+        cases = [
             (
                 "CALL db.index.fulltext.queryNodes('cm_metric_fulltext','GMV') YIELD node RETURN node",
                 {},

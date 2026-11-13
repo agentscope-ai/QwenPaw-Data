@@ -141,6 +141,22 @@ async def test_gateway_sync_reuses_then_replaces_configuration(gateway_sync):
     assert saved["mcps"]["default"]["session"][0]["disable_tools"] == ["changed-tool"]
 
 
+async def test_gateway_model_binding_is_ephemeral_and_cleared_next_turn(gateway_sync):
+    h = gateway_sync
+    await h.repo.sync(
+        h.workspace, **h.scope, request_id="chat-1", mcp_headers={},
+        context_model_header="private-turn-binding",
+    )
+    client = (await h.workspace.list_mcps(**h.scope))[0]
+    assert client._runtime_headers["x-qwenpaw-model-binding"] == "private-turn-binding"
+    await h.workspace._save_mcp_file()
+    assert b"private-turn-binding" not in h.storage.call_args.args[1]
+    assert "private-turn-binding" not in h.repo.manifest_path.read_text()
+    await h.repo.sync(h.workspace, **h.scope, request_id="chat-2", mcp_headers={})
+    assert (await h.workspace.list_mcps(**h.scope))[0] is client
+    assert "x-qwenpaw-model-binding" not in client._runtime_headers
+
+
 @pytest.mark.parametrize("stateful", [False, True])
 async def test_gateway_sync_disables_without_duplicate_delete(gateway_sync, stateful):
     h = gateway_sync

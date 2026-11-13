@@ -31,10 +31,12 @@ def _to_response(row) -> DimensionResponse:
     return DimensionResponse(**{k: row[k] for k in row.keys()})
 
 
-def _check_priority(value: str | None) -> None:
-    if value is None:
-        return
-    if str(value).upper() not in _PRIORITIES:
+def is_valid_priority(value: str | None) -> bool:
+    return value is None or value.strip().upper() in _PRIORITIES
+
+
+def validate_priority(value: str | None) -> None:
+    if not is_valid_priority(value):
         raise BadRequestError(
             "priority 仅支持 high / normal（兼容旧值 HIGH / MEDIUM / LOW）"
         )
@@ -49,7 +51,7 @@ async def create(
         raise BadRequestError("domain_id 不能为空")
     if not payload.dimension_name:
         raise BadRequestError("dimension_name 不能为空")
-    _check_priority(payload.priority)
+    validate_priority(payload.priority)
     if await biz_domain_repo.find_by_id(db, payload.domain_id, tid, wid) is None:
         raise BadRequestError(f"业务域不存在: domain_id={payload.domain_id}")
     if await repo.exists_name_in_domain(
@@ -78,7 +80,7 @@ async def update(
     if existing is None:
         raise NotFoundError(f"维度不存在: id={dim_id}")
     merged = _merge(payload, existing)
-    _check_priority(merged.priority)
+    validate_priority(payload.priority)
     if merged.dimension_name != existing["dimension_name"]:
         if await repo.exists_name_in_domain_excluding(
             db, existing["domain_id"], merged.dimension_name, dim_id, tid, wid

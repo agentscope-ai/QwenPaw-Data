@@ -38,7 +38,7 @@ export function getApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const prefixedPath = normalizedPath.startsWith('/api/')
     ? normalizedPath
-    : `/api${normalizedPath}`;
+    : `/api/v1${normalizedPath}`;
   return `${base}${prefixedPath}`;
 }
 

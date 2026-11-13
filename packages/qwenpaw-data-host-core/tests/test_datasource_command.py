@@ -140,7 +140,7 @@ async def test_handle_datasource_unbound_sends_selectable_card(tmp_path: Path) -
         await _seed_session(datasource_id=None)
         with (
             patch(
-                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
                 return_value=_fake_ds_list(),
             ),
             patch.object(
@@ -166,7 +166,7 @@ async def test_handle_datasource_bound_sends_viewonly_card(tmp_path: Path) -> No
         await _seed_session(datasource_id="mysql-1")
         with (
             patch(
-                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
                 return_value=_fake_ds_list(),
             ),
             patch.object(
@@ -189,7 +189,7 @@ async def test_handle_datasource_no_session_asks_first(tmp_path: Path) -> None:
     try:
         channel = _StubChannel()
         with patch(
-            "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+            "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
             return_value=_fake_ds_list(),
         ):
             await channel._handle_datasource(channel._native)
@@ -206,7 +206,7 @@ async def test_handle_datasource_empty_list_sends_text(tmp_path: Path) -> None:
         channel = _StubChannel()
         await _seed_session(datasource_id=None)
         with patch(
-            "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+            "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
             return_value=MagicMock(items=[]),
         ):
             await channel._handle_datasource(channel._native)
@@ -230,7 +230,7 @@ async def test_consume_unbound_pops_card_no_chat(tmp_path: Path) -> None:
         channel._native = _make_text_native("帮我查销量")
         with (
             patch(
-                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
                 return_value=_fake_ds_list(),
             ),
             patch.object(
@@ -262,7 +262,7 @@ async def test_consume_bound_runs_agent(tmp_path: Path) -> None:
         hub.subscribe_live = MagicMock(return_value=_empty_async_iter())
         with (
             patch(
-                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
                 return_value=_fake_ds_list(),
             ),
             patch.object(
@@ -409,7 +409,7 @@ async def test_handle_session_creates_unbound_and_pops_card(tmp_path: Path) -> N
         channel = _StubChannel()
         with (
             patch(
-                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasources",
+                "qwenpaw_data.host.core.integrations.cm.client.ContextManagerClient.list_datasource_metadata",
                 return_value=_fake_ds_list(),
             ),
             patch.object(

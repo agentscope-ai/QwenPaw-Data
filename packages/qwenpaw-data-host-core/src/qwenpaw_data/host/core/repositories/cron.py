@@ -10,6 +10,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
+from qwenpaw_data.host.core.cron.files import JobFiles
 from qwenpaw_data.host.core.db.tables import ChatRow, CronJobRow
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.tracing.records import tracer_record_behavior
@@ -30,8 +31,17 @@ def _to_dict(row: CronJobRow) -> dict[str, Any]:
         "message": row.message,
         "datasource_id": row.datasource_id,
         "channel": row.channel,
+        "session_policy": row.session_policy,
         "session_id": row.session_id,
         "target_external_key": row.target_external_key,
+        "attachments": JobFiles(
+            Identity(
+                user_id=row.user_id,
+                tenant_id=row.tenant_id,
+                workspace_id=row.workspace_id,
+            ),
+            row.id,
+        ).filenames(),
         "source_chat_id": row.source_chat_id,
         "schedule": ScheduleSpec.model_validate(row.schedule_json).model_dump(
             mode="json"
@@ -96,7 +106,8 @@ class CronJobRepository:
             message=body.message,
             datasource_id=body.datasource_id,
             channel=body.channel,
-            session_id=body.session_id,
+            session_policy=body.session_policy,
+            session_id=None,
             target_external_key=body.target_external_key,
             source_chat_id=body.source_chat_id,
             schedule_json=body.schedule.model_dump(mode="json"),
@@ -108,12 +119,11 @@ class CronJobRepository:
         await self.db.flush()
         if body.source_chat_id:
             chat = await self.db.get(ChatRow, body.source_chat_id)
-            session_id = chat.session_id if chat is not None else body.session_id
-            if session_id:
+            if chat is not None:
                 await tracer_record_behavior(
                     self.db,
                     self.identity,
-                    session_id=session_id,
+                    session_id=chat.session_id,
                     chat_id=body.source_chat_id,
                     kind="schedule_saved",
                     target_type="cron",
@@ -126,12 +136,14 @@ class CronJobRepository:
 
     async def replace(self, job_id: str, body: CronJobWrite) -> dict[str, Any]:
         row = await self._get_row(job_id)
+        if row.datasource_id != body.datasource_id or row.channel != body.channel:
+            row.session_id = None
         row.name = body.name
         row.enabled = body.enabled
         row.message = body.message
         row.datasource_id = body.datasource_id
         row.channel = body.channel
-        row.session_id = body.session_id
+        row.session_policy = body.session_policy
         row.target_external_key = body.target_external_key
         row.schedule_json = body.schedule.model_dump(mode="json")
         row.next_run_at = _next_run_at(body.schedule, body.enabled)
@@ -163,6 +175,7 @@ class CronJobRepository:
     async def delete(self, job_id: str) -> None:
         await self.db.delete(await self._get_row(job_id))
         await self.db.flush()
+        JobFiles(self.identity, job_id).clear()
 
     async def _get_row(self, job_id: str) -> CronJobRow:
         row = await self.db.get(CronJobRow, job_id)

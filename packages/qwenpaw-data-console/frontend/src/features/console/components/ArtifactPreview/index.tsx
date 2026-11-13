@@ -31,6 +31,7 @@ import { useAppI18n } from '@/i18n';
 import ownerStyles from './index.module.less';
 import RenderedCommentPreview from './RenderedCommentPreview';
 import type { SourceRange } from '../../model/artifacts/commentSourceMap';
+import { registerArtifactPreview } from '../../ui-runtime/artifactAdapter';
 
 const styles = mergeStyleModules(ownerStyles, sharedStyles);
 
@@ -149,7 +150,7 @@ function LineCommentPreview({
   };
 
   return (
-    <div className={styles.artifactLinePreview}>
+    <div className={`${styles.artifactLinePreview} qwenpaw-data-code-frame`}>
       <div className={styles.artifactLineHint}>
         <span>{t('artifact.commentSelectStart')}</span>
         {range ? (
@@ -273,16 +274,53 @@ function SplitCommentPreview({
   );
 }
 
-export default function ArtifactPreview({
+export default function ArtifactPreview(props: ArtifactPreviewProps) {
+  return (
+    <RegisteredArtifactPreview
+      key={`${props.sessionId}:${props.artifact.id}:${props.artifact.path}`}
+      {...props}
+    />
+  );
+}
+
+function RegisteredArtifactPreview(props: ArtifactPreviewProps) {
+  const root = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState('loading');
+  useEffect(() => {
+    if (!root.current) return;
+    return registerArtifactPreview(
+      { kind: 'artifact', session_id: props.sessionId, artifact_id: props.artifact.id },
+      status,
+      root.current,
+    );
+  }, [props.sessionId, props.artifact.id, status]);
+  return (
+    <div ref={root} tabIndex={-1}>
+      <ArtifactPreviewContent {...props} onUiState={setStatus} />
+    </div>
+  );
+}
+
+function ArtifactPreviewContent({
   artifact,
   commentMode = false,
   highlight,
   onComment,
   sessionId,
-}: ArtifactPreviewProps) {
+  onUiState,
+}: ArtifactPreviewProps & { onUiState: (state: string) => void }) {
   const { t } = useAppI18n();
   const kind = getArtifactPreviewKind(artifact);
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading', kind });
+  useEffect(() => {
+    onUiState(
+      preview.status === 'ready' &&
+        !commentMode &&
+        ['html', 'pdf', 'image', 'video', 'audio'].includes(preview.kind)
+        ? 'loading'
+        : preview.status,
+    );
+  }, [preview, onUiState, commentMode]);
 
   useEffect(() => {
     let disposed = false;
@@ -386,6 +424,7 @@ export default function ArtifactPreview({
   const renderedPreview =
     preview.kind === 'html' ? (
       <iframe
+        onLoad={() => onUiState('ready')}
         className={styles.artifactDocumentPreview}
         src={preview.url}
         title={artifact.name}
@@ -429,26 +468,46 @@ export default function ArtifactPreview({
   if (preview.kind === 'image') {
     return (
       <div className={styles.artifactImagePreview}>
-        <img src={preview.url} alt={artifact.name} />
+        <img
+          src={preview.url}
+          alt={artifact.name}
+          onLoad={() => onUiState('ready')}
+          onError={() => onUiState('error')}
+        />
       </div>
     );
   }
   if (preview.kind === 'pdf') {
     return (
-      <iframe className={styles.artifactDocumentPreview} src={preview.url} title={artifact.name} />
+      <iframe
+        className={styles.artifactDocumentPreview}
+        src={preview.url}
+        title={artifact.name}
+        onLoad={() => onUiState('ready')}
+      />
     );
   }
   if (preview.kind === 'audio') {
     return (
       <div className={styles.artifactMediaPreview}>
-        <audio src={preview.url} controls />
+        <audio
+          src={preview.url}
+          controls
+          onLoadedData={() => onUiState('ready')}
+          onError={() => onUiState('error')}
+        />
       </div>
     );
   }
   if (preview.kind === 'video') {
     return (
       <div className={styles.artifactMediaPreview}>
-        <video src={preview.url} controls />
+        <video
+          src={preview.url}
+          controls
+          onLoadedData={() => onUiState('ready')}
+          onError={() => onUiState('error')}
+        />
       </div>
     );
   }

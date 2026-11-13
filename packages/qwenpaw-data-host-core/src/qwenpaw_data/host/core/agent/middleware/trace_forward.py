@@ -165,12 +165,12 @@ class TraceForwardMiddleware(MiddlewareBase):
                     artifact_id = getattr(artifact, "id", "")
                     with tracer_span(
                         Step.ARTIFACT,
-                        attributes={
-                            "artifact.id": artifact_id
+                        metadata={
+                            "artifact_id": artifact_id
                             if isinstance(artifact_id, str)
                             else "",
-                            "artifact.name": name,
-                            "artifact.path": str((self._artifact_dir / path).resolve()),
+                            "artifact_name": name,
+                            "artifact_path": str((self._artifact_dir / path).resolve()),
                         },
                     ):
                         pass

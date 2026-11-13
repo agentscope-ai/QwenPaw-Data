@@ -13,6 +13,20 @@ class Tracer(StrEnum):
     CONTEXT = "qwenpaw_data.context"
 
 
+class TraceName(StrEnum):
+    """Root trace names the query side recognizes Chat / Task by."""
+
+    CHAT = "chat"
+    TASK = "task"
+
+
+class TaskMeta(StrEnum):
+    """Task root metadata keys the query side reads."""
+
+    # Earliest member Chat start, timezone-aware ISO 8601; list_tasks sorts by it.
+    FIRST_CHAT_AT = "first_chat_at"
+
+
 class Score(StrEnum):
     STOP = "stop"
     CHAT_STATUS = "chat_status"
@@ -29,6 +43,7 @@ class Score(StrEnum):
     CONFIDENCE = "confidence"
     SETTLEMENT_CARD = "settlement_card"
     SKILL_PROPOSAL = "skill_proposal"
+    TOOL_FAILED = "tool_failed"
 
 
 class Tag(StrEnum):
@@ -67,6 +82,8 @@ class Step(StrEnum):
     SHELL_RESULT = "biztrace.shell_result"
     SQL_RESULT = "biztrace.sql_result"
     TOOL_OUTPUT_PRESENTATION = "biztrace.tool_output_presentation"
+    # task 派生 trace：一个成员 Chat 一条，metadata.source_trace_id 指向它
+    CHAT_REF = "task.chat_ref"
     # host: compare（API 请求内裸 generation，无 labels 不上 session）
     RECOMMEND = "compare_recommendations"
     # CM: 检索管线
@@ -80,4 +97,4 @@ class Step(StrEnum):
     EMBEDDING_WARMUP = "embedding_warmup"
 
 
-__all__ = ["Score", "Step", "Tag", "Tracer"]
+__all__ = ["Score", "Step", "Tag", "TaskMeta", "TraceName", "Tracer"]

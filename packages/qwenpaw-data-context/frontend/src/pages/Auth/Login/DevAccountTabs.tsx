@@ -12,7 +12,7 @@ import styles from './DevAccountTabs.module.less';
  * 把该值强制置空（口令不进包）。登录页只在 dev server（import.meta.env.DEV）渲染本组件：
  *   • 已配置口令：回填用户名 + 口令，一键登录；
  *   • 未配置口令：仅回填用户名，口令手输（提示文案 missingPassword）。
- * 账号清单是本地联调用的双租户四角色示例账号，需要先在本地自行创建。
+ * The account list follows the selected Chat Setup configuration; accounts must exist first.
  */
 
 interface DevAccount {
@@ -46,29 +46,19 @@ interface DevAccountGroup {
   accounts: DevAccount[];
 }
 
-/** 按角色分组，权限从高到低。platform-root 走 /platform/login，不在此列。 */
-const ACCOUNT_GROUPS: DevAccountGroup[] = [
-  {
-    role: 'tenant_admin',
-    accounts: [
-      { username: 'acme-admin', scope: 'Acme', hue: 'red' },
-      { username: 'globex-admin', scope: 'Globex', hue: 'purple' },
-    ],
-  },
-  {
-    role: 'ws_admin',
-    accounts: [{ username: 'acme-ws1-admin', scope: 'Acme / WS-1', hue: 'blue' }],
-  },
-  {
-    role: 'member',
-    accounts: [
-      { username: 'alice', scope: 'Acme / WS-1', hue: 'green' },
-      { username: 'bob', scope: 'Acme / WS-1', hue: 'cyan' },
-      { username: 'carol', scope: 'Acme / WS-2', hue: 'orange' },
-      { username: 'dave', scope: 'Globex / GX-1', hue: 'magenta' },
-    ],
-  },
-];
+const configuredAccounts: { username: string; role: string; scope: string }[] = JSON.parse(
+  import.meta.env.VITE_DEV_LOGIN_ACCOUNTS || '[]',
+);
+const palette = Object.keys(HUES) as HueName[];
+const ACCOUNT_GROUPS = configuredAccounts.reduce<DevAccountGroup[]>((groups, account, index) => {
+  let group = groups.find((item) => item.role === account.role);
+  if (!group) {
+    group = { role: account.role, accounts: [] };
+    groups.push(group);
+  }
+  group.accounts.push({ ...account, hue: palette[index % palette.length] });
+  return groups;
+}, []);
 
 const DEV_PASSWORD = import.meta.env.VITE_DEV_LOGIN_PASSWORD ?? '';
 
@@ -118,8 +108,7 @@ const DevAccountTabs: React.FC<DevAccountTabsProps> = ({ form }) => {
     }
     setActiveKey(username);
     const password = passwordFor(account.username);
-    // 生产构建里口令被强制置空，此时只回填用户名。
-    // 不能无条件写 password：空串会把使用者已经手输的口令洗掉。
+    // Keep a manually entered password when no shortcut password is configured.
     form.setFieldsValue(
       password ? { username: account.username, password } : { username: account.username },
     );
@@ -127,6 +116,8 @@ const DevAccountTabs: React.FC<DevAccountTabsProps> = ({ form }) => {
 
   const selected = activeKey ? findAccount(activeKey) : undefined;
   const selectedPassword = selected ? passwordFor(selected.username) : DEV_PASSWORD;
+
+  if (!ACCOUNT_GROUPS.length) return null;
 
   return (
     <div className={styles.wrapper}>

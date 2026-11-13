@@ -21,6 +21,7 @@ from qwenpaw_data.host.core.integrations.cm import (
     ContextManagerClient,
 )
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.utils.auth import resolve_context_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ router = APIRouter(tags=["datasources"])
 
 
 def get_context_manager_client() -> ContextManagerClient:
-    return ContextManagerClient(access_token=get_access_token())
+    token = resolve_context_access_token(get_access_token())
+    return ContextManagerClient(access_token=token)
 
 
 def _raise_cm_list_error(exc: CMClientError, what: str) -> None:
@@ -87,7 +89,7 @@ async def list_datasources(
     client: ContextManagerClient = Depends(get_context_manager_client),
 ) -> dict[str, Any]:
     try:
-        result = await run_in_threadpool(client.list_datasources)
+        result = await run_in_threadpool(client.list_datasource_metadata)
     except CMClientError as exc:
         logger.warning("DataBridge datasource list failed: %s", exc)
         _raise_cm_list_error(exc, "data sources")

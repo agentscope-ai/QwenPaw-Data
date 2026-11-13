@@ -208,19 +208,19 @@ async def run_orphan_sweep(stop: asyncio.Event) -> None:
 
 
 async def _sweep_once() -> None:
-    """Scan each pool, then delete expired SQL downloads.
+    """Scan the shared database, then delete expired SQL downloads.
 
-    Each step logs its own failure. A pool error does not skip the other pool
-    or the file cleanup.
+    Fall back to the async pool if the sync pool fails. File cleanup runs
+    independently of database failures.
     """
     try:
         await asyncio.to_thread(_sweep_sync_engine)
     except Exception:
         log.exception("orphan sweep sync scan failed")
-    try:
-        await _sweep_async_engine()
-    except Exception:
-        log.exception("orphan sweep async scan failed")
+        try:
+            await _sweep_async_engine()
+        except Exception:
+            log.exception("orphan sweep async scan failed")
     try:
         await asyncio.to_thread(_sweep_expired_csv)
     except Exception:

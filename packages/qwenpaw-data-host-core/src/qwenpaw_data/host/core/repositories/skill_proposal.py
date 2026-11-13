@@ -6,7 +6,11 @@ from typing import Any
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from qwenpaw_data.host.core.db.tables import SkillProposalRow, SkillProposalStatus
+from qwenpaw_data.host.core.db.tables import (
+    SessionRow,
+    SkillProposalRow,
+    SkillProposalStatus,
+)
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.time import utcnow
@@ -66,7 +70,11 @@ class SkillProposalRepository:
     async def list(
         self, status: SkillProposalStatus | None = None
     ) -> list[dict[str, Any]]:
-        stmt = self._filter_by_ids(select(SkillProposalRow))
+        stmt = self._filter_by_ids(
+            select(SkillProposalRow)
+            .join(SessionRow, SessionRow.id == SkillProposalRow.session_id)
+            .where(SessionRow.deleted_at.is_(None))
+        )
         if status is not None:
             stmt = stmt.where(SkillProposalRow.status == status)
         rows = (

@@ -227,6 +227,7 @@ def install_context_authentication(
                 "/api/v1/cm/search-metrics",
                 "/api/v1/cm/dimensions",
                 "/api/v1/cm/datasets",
+                "/api/v1/cm/datasources",
                 "/api/v1/admin/cypher",
                 "/api/v1/admin/cypher/raw",
                 "/api/v1/semantic/feedback_card",

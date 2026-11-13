@@ -28,7 +28,7 @@ const defaults: ConsoleRuntimeConfig = {
   logo_url: '/qwenpaw-data-brand.png',
   avatar_url: '/mascot-blue-transparent.png',
   sample_questions: [],
-  capabilities: { skillsHub: false, mcpHub: false, channels: false, contextConsole: false },
+  capabilities: { skillsHub: true, mcpHub: false, channels: true, contextConsole: false },
 };
 
 export function getRuntimeConfig(): ConsoleRuntimeConfig {

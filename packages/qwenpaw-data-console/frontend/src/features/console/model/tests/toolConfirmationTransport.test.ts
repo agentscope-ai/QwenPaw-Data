@@ -16,7 +16,7 @@ async function withFetch(mock: typeof fetch, run: () => Promise<void>) {
 test('confirmation uses the real Host transport, encoded scope, cookie credentials and exact decision body', async () => {
   await withFetch(
     async (input, init) => {
-      assert.equal(input, '/api/sessions/s%2F1/chats/c%201/tool-confirmation/answer');
+      assert.equal(input, '/api/v1/sessions/s%2F1/chats/c%201/tool-confirmation/answer');
       assert.equal(init?.method, 'POST');
       assert.equal(init?.credentials, 'include');
       assert.equal(new Headers(init?.headers).get('Content-Type'), 'application/json');
@@ -107,8 +107,8 @@ test('confirmation retains the existing single 401 refresh retry behavior', asyn
     },
   );
   assert.deepEqual(calls, [
-    '/api/sessions/s/chats/c/tool-confirmation/answer',
+    '/api/v1/sessions/s/chats/c/tool-confirmation/answer',
     '/api/auth/refresh',
-    '/api/sessions/s/chats/c/tool-confirmation/answer',
+    '/api/v1/sessions/s/chats/c/tool-confirmation/answer',
   ]);
 });

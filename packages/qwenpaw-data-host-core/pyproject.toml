@@ -23,7 +23,6 @@ dependencies = [
   "aiodocker>=0.27,<0.28",
   "qwenpaw-data-skills>=0.4,<0.5",
   "qwenpaw-data-auth>=0.4,<0.5",
-  "qwenpaw-data-context>=0.4,<0.5",
   "qwenpaw-data-tracing>=0.4,<0.5",
   "alembic>=1.14,<2.0",
   "aiosqlite>=0.20,<1.0",
@@ -92,5 +91,4 @@ artifacts = [
 [tool.uv.sources]
 qwenpaw-data-skills = { workspace = true }
 qwenpaw-data-auth = { workspace = true }
-qwenpaw-data-context = { workspace = true }
 qwenpaw-data-tracing = { workspace = true }

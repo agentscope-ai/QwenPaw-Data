@@ -185,7 +185,7 @@ export default function CMGraphPage() {
 
   const isMountedRef = useRef(true);
   const activeZoneRef = useRef<GraphZone>('kg');
-  const selectedDatasourceCodeRef = useRef<string>();
+  const selectedDatasourceCodeRef = useRef<string | undefined>(undefined);
   const targetOwnerIdRef = useRef<string | undefined>(targetOwnerId);
   targetOwnerIdRef.current = targetOwnerId;
   const graphStorageKeyRef = useRef(graphStorageKey);

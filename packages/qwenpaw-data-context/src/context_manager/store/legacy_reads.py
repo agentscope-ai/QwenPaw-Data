@@ -1,7 +1,5 @@
 """Preserve legacy native scores and persisted Core projections."""
 
-from psycopg import sql
-
 from ..utils.validation import require_nonempty_text
 from .base import GraphStore
 
@@ -55,6 +53,8 @@ def search_fulltext_scores(store, spec, text, *, limit, scope, metric_domain=Non
         )
     if store.backend != "holoage":
         raise ValueError("Unsupported legacy graph backend")
+    from psycopg import sql
+
     branches = []
     for graph in store._read_graphs(scope):
         table = sql.Identifier(graph, spec.name).as_string().replace("%", "%%")
@@ -116,6 +116,8 @@ def count_core_entities(store, *, scope, key=None):
             "AND ($key IS NULL OR n.key = $key) RETURN count(n) AS count"
         )
     elif store.backend == "holoage":
+        from psycopg import sql
+
         branches = []
         for graph in store._read_graphs(scope):
             table = sql.Identifier(graph, "Entity").as_string().replace("%", "%%")

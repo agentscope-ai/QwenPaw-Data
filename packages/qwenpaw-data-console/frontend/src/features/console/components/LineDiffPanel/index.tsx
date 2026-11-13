@@ -118,7 +118,11 @@ export default function LineDiffPanel({
           }}
         >
           {(['reference', 'target'] as const).map((side, sideIndex) => (
-            <div key={side} className={styles.pane} style={{ gridColumn: sideIndex === 0 ? 1 : 3 }}>
+            <div
+              key={side}
+              className={`${styles.pane} qwenpaw-data-code-frame`}
+              style={{ gridColumn: sideIndex === 0 ? 1 : 3 }}
+            >
               <div className={styles.heading}>
                 <span>
                   {t(

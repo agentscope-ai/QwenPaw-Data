@@ -7,7 +7,7 @@ Runtime 契约。
 | --- |--------------------------------------------------------------------------------------|
 | 适用范围 | 鉴权与用户、Preferences（Provider / ActiveModels / RuntimeSettings）、Skills（Agent skills / 版本历史 / 会话草稿）、CronJob、Session、Chat、Plan、BizEvent、Segment、Trace、Artifact、Steer、Clarification、Feedback、Fork、Review、MCP 连通、我的用量 |
 | 读者 | 前端、Host、Agent                                                                        |
-| `schema_version` | 35                                                                                   |
+| `schema_version` | 36                                                                                   |
 | 全局前缀 | `/api`                                                                               |
 
 ### 变更记录
@@ -16,6 +16,7 @@ Runtime 契约。
 
 | 版本 | 日期         | 改动 |
 |----|------------| --- |
+| 36 | 2026-11-12 | CronJob：Write 去掉 `session_id`；`session_policy`=`reuse`（默认，首次触发建 Session 并回写只读 `session_id`）/ `new_each_run`。附件走任务目录上传/删除，每次触发的 Chat 都带上任务目录里的全部附件。见 §4.10 / §6 |
 | 35 | 2026-10-28 | RuntimeSettings 增加 `tool_confirmation_level`（`off` / `auto` / `all`，缺省 `auto`）。用户偏好；下一轮 Chat 生效。`auto` 按 Host 名单 `auto_ask_names` 原样匹配工具名。待确认调用的 `plugin_call` Message `metadata` 带 `awaiting_confirmation` / `expires_at` / `reason`。见 §4.3 / §6 RuntimeSettings / Message |
 | 34 | 2026-10-27 | `GET /sessions/{session_id}/artifacts`：全 Session 产物索引，同时返回 Agent 视角 `artifacts` 与业务视角 `segment_artifacts`。见 §4.5 |
 | 33 | 2026-10-27 | `Chat.enable_clarification` 为 `false` 时，Host 在等待处对 `ask_user_question` 自动作答，不再依赖客户端提交。见 §4.3 |
@@ -25,7 +26,6 @@ Runtime 契约。
 | 29 | 2026-09-17 | Chat 运行失败用 `ChatError`（`Chat.error` 与 `response.failed.error` 同形）。`code` 区分模型鉴权 / 额度 / 限流 / 模型不存在 / 上下文超长 / 服务不可用 / 配置缺失 / 内部错误。`message` 为面向用户的说明，`details.cause` 为原始异常 |
 | 28 | 2026-09-16 | SSE 增加 `mcp.connect`：开聊探测每个已启用 MCP 各推一条。`context-manager` 失败后本轮以 `response.failed` 结束 |
 | 27 | 2026-09-15 | stop 回执可为 `running`，终态以 SSE `response.cancelled` 为准。澄清不再返回 `CLARIFICATION_ALREADY_RESOLVED`。运行中重连 `/events` 可续 `content`；终态后回放只剩完整 `message` |
-| 26 | 2026-09-15 | Preferences RuntimeSettings 增加 `tool_timeout_enabled` 与 `tool_timeout_seconds`（秒，最小 1）。下一轮 Chat 生效 |
 
 ---
 
@@ -34,7 +34,7 @@ Runtime 契约。
 ```
 User 1 ──── Preferences（Provider 凭证 / 模型扩展 / ActiveModels / RuntimeSettings）
        ├── n Agent skills（workspace/skills + skill_revisions）
-       ├── n CronJob（定时任务定义；到点新开 Session/Chat）
+       ├── n CronJob（定时任务定义；到点在任务自有 Session 开 Chat）
        └── n Session（fork / review 可通过 parent_session_id 指向源 Session）
                  ├── n SkillDraft（定稿前只落表；确定后写该 Session 所属 Agent 的 skills）
                  └── n Chat
@@ -885,15 +885,16 @@ Session current Plan 保持当前状态，后续 Chat 可继续执行。
 
 ### 4.10 CronJob
 
-按当前登录身份（user / tenant / workspace）隔离的定时任务。MVP **仅支持 agent 执行**：到点或手动触发时，Host 新建一条 `channel=console` 的 Session 与 Chat（`user_input=message`，绑定 `datasource_id`），再走既有 `ChatRuntime`；执行过程与产物通过该 Chat 的 snapshot / SSE / trace 查看，**不**另开推送通道。到点执行时经 `generate_temporary_token` 现查成员/role 并签短时 access 后跑 agent（CM 再校验可见性）；**不**依赖用户在线 cookie。
+按当前登录身份隔离的定时任务。MVP **仅 agent**：每个任务自有 console Session，**创建时不建**，第一次触发才建。到点把 `message` 当用户输入开 Chat，走 `ChatRuntime`。结果不进用户正在聊的 Session。
 
 行为约定：
 
-- 创建 / 全量替换请求体见 §6 `CronJobWrite`；响应中的任务见 §6 `CronJob`。
+- Write 不含 `session_id`。控制台任务使用 `reuse`（默认）时，首次触发创建会话并回写只读 `session_id`。变更数据源或渠道时清除该绑定。`new_each_run` 每次新建、不回写。
+- 附件 `POST/DELETE .../attachments`，落到任务目录。控制台任务每次触发都会把当前附件带入该轮 Chat。会话已有同名同内容文件时复用，内容变化时用新文件名保留新旧两份。工具可用当前对话的 `attachment_filenames`（文件名）拷到任务目录。
 - `schedule.type=cron`：客户端提交 **5 段** crontab 字符串（分 时 日 月 周）。「每天 9:30」等 UI 拼装由**前端**完成后再提交；Host 校验段数，并将星期数字规范为 `sun`/`mon`/… 以便解析。
 - `schedule.type=once`：必须带 `run_at`；Host 清掉 `cron`。
 - `POST .../pause` / `resume` 等价于把 `enabled` 设为 `false` / `true`。Host 按库中的下次时间触发，不另同步本机调度器。
-- `POST .../run`：立即异步触发一次（不改变 schedule，停用任务也可）；HTTP 只回执已受理，跑完后的对话在会话列表中出现。空 `session_id` 时新建一条 console Session。
+- `POST .../run`：立即异步触发一次（不改变 schedule，停用任务也可）；HTTP 只回执已受理，跑完后的对话在会话列表中出现。
 - 「从分析计划提炼为定时任务」为**前端**预填 `name` / `message`（及当前 Chat 的 `datasource_id`）后调创建接口；Host 无单独提炼端点。无数据源时前端应拦截，勿提交空 `datasource_id`。
 
 #### `GET /cron/jobs`
@@ -981,6 +982,32 @@ Session current Plan 保持当前状态，后续 Chat 可继续执行。
 | --- | --- | --- |
 | ok | bool | `true` |
 | job | CronJob | 触发时的任务快照 |
+
+#### `POST /cron/jobs/{job_id}/attachments`
+
+上传一个文件到任务目录。校验同 `POST /console/upload`：空文件、超过 20MB、不安全文件名、同名 → `VALIDATION`。尚未物化到 Session。
+
+请求字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| file | multipart | 文件本体 |
+
+响应字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| job | CronJob | `attachments` 已含新文件名 |
+
+#### `DELETE /cron/jobs/{job_id}/attachments/{filename}`
+
+从任务目录删除该文件。已物化进某个 Session 的副本不撤回。
+
+响应字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| job | CronJob | |
 
 ### 4.11 我的用量
 
@@ -1907,13 +1934,18 @@ Agent `workspace/skills` 中已安装的一项。
 | enabled | bool | `false` 时到点不触发（pause） |
 | message | str | 到点写入新 Chat 的 `user_input` |
 | datasource_id | str | 必填；到点绑定到新 Session/Chat |
+| channel | str | 默认 `console` |
+| session_policy | enum | `reuse` / `new_each_run` |
+| session_id | str \| null | 只读。`reuse` 首次触发后回写；Write / PUT 不接受此字段 |
+| target_external_key | str \| null | IM 推送目标；console 为 null |
+| attachments | str[] | 任务目录中的文件名 |
 | schedule | ScheduleSpec | 见下 |
 | created_at | datetime | |
 | updated_at | datetime | |
 
 ### CronJobWrite
 
-创建 / 全量替换请求体。
+创建 / 全量替换请求体。不含 `session_id`、不含附件二进制（附件走独立接口）。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -1921,6 +1953,9 @@ Agent `workspace/skills` 中已安装的一项。
 | enabled | bool | 默认 `true` |
 | message | str | 非空（trim 后） |
 | datasource_id | str | 非空（trim 后） |
+| channel | str | 默认 `console` |
+| session_policy | enum | `reuse`（默认）/ `new_each_run` |
+| target_external_key | str \| null | IM 必填；console 忽略 |
 | schedule | ScheduleSpec | |
 
 ### ScheduleSpec

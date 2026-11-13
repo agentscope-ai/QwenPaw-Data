@@ -18,6 +18,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import time
@@ -91,13 +92,17 @@ def provision_registered(dsn: str, workspace: Any) -> int:
 
 
 def run(*args: str, capture: bool = False) -> str:
-    result = subprocess.run(
-        args,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE if capture else None,
-        stderr=subprocess.PIPE if capture else None,
-    )
+    try:
+        result = subprocess.run(
+            args,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as exc:
+        # The command and Docker's error output may contain NEO4J_AUTH.
+        raise RuntimeError(f"{args[0]} {args[1]} failed (exit {exc.returncode})") from None
     return result.stdout.strip() if capture else ""
 
 
@@ -106,6 +111,58 @@ def safe_name(workspace_id: str) -> str:
     if not normalized:
         raise ValueError("workspace_id cannot be converted to a safe container name")
     return normalized[:48].lower()
+
+
+class WorkspaceSecretExists(RuntimeError):
+    """A credential path was already present and was not overwritten."""
+
+
+def write_workspace_secret(path: Path, secret: dict) -> None:
+    """Create a private credential file without replacing an existing path."""
+    data = json.dumps(secret)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise WorkspaceSecretExists("workspace secret file already exists; refusing to replace it") from None
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            if os.name != "nt":
+                os.fchmod(stream.fileno(), 0o600)
+            stream.write(data)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def ensure_pool_secret(path: Path, secret: dict) -> bool:
+    """Create a secret or reuse an identical existing regular file without overwriting it."""
+    try:
+        write_workspace_secret(path, secret)
+        return True
+    except WorkspaceSecretExists:
+        pass
+    try:
+        if path.is_symlink():
+            raise ValueError("symlink")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, encoding="utf-8") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError("not a regular file")
+            existing = json.load(stream)
+            if not isinstance(existing, dict) or existing.keys() != secret.keys() or any(
+                not isinstance(existing[key], str)
+                or not secrets.compare_digest(existing[key], value)
+                for key, value in secret.items()
+            ):
+                raise ValueError("different credential")
+            if os.name != "nt":
+                os.fchmod(stream.fileno(), 0o600)
+    except (OSError, ValueError, TypeError):
+        raise WorkspaceSecretExists(
+            "workspace secret file already exists and cannot be safely reused"
+        ) from None
+    return False
 
 
 def wait_until_ready(container: str, user: str, password: str, timeout: int) -> None:
@@ -247,7 +304,7 @@ def write_manifest(manifest_path: Path, manifest: dict) -> None:
     )
 
 
-def claim_pool_instance(manifest_path: Path, workspace_id: str) -> dict:
+def claim_pool_instance(manifest_path: Path, workspace_id: str) -> tuple[dict, bool]:
     """Reserve one pool instance for this Workspace, reusing a prior claim.
 
     Re-running provisioning for a Workspace that already holds an instance must
@@ -265,7 +322,8 @@ def claim_pool_instance(manifest_path: Path, workspace_id: str) -> dict:
             ),
             None,
         )
-        if chosen is None:
+        created = chosen is None
+        if created:
             chosen = next(
                 (item for item in instances if not str(item.get("claimed_by") or "")),
                 None,
@@ -277,7 +335,7 @@ def claim_pool_instance(manifest_path: Path, workspace_id: str) -> dict:
                 )
             chosen["claimed_by"] = workspace_id
             write_manifest(manifest_path, manifest)
-        return dict(chosen)
+        return dict(chosen), created
 
 
 def release_pool_instance(manifest_path: Path, workspace_id: str) -> None:
@@ -304,11 +362,12 @@ def provision_from_pool(
     secret_path: Path,
 ) -> int:
     """Activate one Workspace against a pre-started pool instance."""
-    instance = claim_pool_instance(manifest_path, workspace_id)
+    instance, claim_created = claim_pool_instance(manifest_path, workspace_id)
     port = str(instance.get("port") or "").strip()
     password = str(instance.get("password") or "")
     if not port.isdigit() or not password:
-        release_pool_instance(manifest_path, workspace_id)
+        if claim_created:
+            release_pool_instance(manifest_path, workspace_id)
         raise RuntimeError(
             f"pool instance claimed for {workspace_id} has no usable port/password: "
             f"{ {key: value for key, value in instance.items() if key != 'password'} }"
@@ -320,12 +379,9 @@ def provision_from_pool(
         "database": str(instance.get("database") or "neo4j"),
     }
 
+    secret_created = False
     try:
-        secret_path.write_text(
-            json.dumps(secret),
-            encoding="utf-8",
-        )
-        secret_path.chmod(0o600)
+        secret_created = ensure_pool_secret(secret_path, secret)
         prepare_graph(workspace, endpoint, secret)
         activate_workspace(
             conn,
@@ -337,8 +393,10 @@ def provision_from_pool(
         )
     except Exception:
         conn.rollback()
-        secret_path.unlink(missing_ok=True)
-        release_pool_instance(manifest_path, workspace_id)
+        if secret_created:
+            secret_path.unlink(missing_ok=True)
+        if claim_created:
+            release_pool_instance(manifest_path, workspace_id)
         raise
 
     print(
@@ -445,6 +503,7 @@ def main() -> int:
         == 0
     )
     started_here = False
+    secret_created = False
     try:
         if not existing:
             run(
@@ -467,6 +526,12 @@ def main() -> int:
                 f"NEO4J_AUTH={user}/{password}",
                 "-e",
                 "NEO4J_server_http_enabled=false",
+                "-e",
+                "NEO4J_dbms_usage__report_enabled=false",
+                "-e",
+                'NEO4J_PLUGINS=["apoc"]',
+                "-e",
+                "NEO4J_dbms_security_procedures_unrestricted=apoc.*",
                 args.image,
             )
             started_here = True
@@ -482,11 +547,10 @@ def main() -> int:
             raise RuntimeError(f"Unexpected Docker port mapping: {mapping}")
         endpoint = f"bolt://127.0.0.1:{port}"
 
-        secret_path.write_text(
-            json.dumps({"user": user, "password": password, "database": "neo4j"}),
-            encoding="utf-8",
+        write_workspace_secret(
+            secret_path, {"user": user, "password": password, "database": "neo4j"}
         )
-        secret_path.chmod(0o600)
+        secret_created = True
         prepare_graph(
             workspace,
             endpoint,
@@ -516,7 +580,8 @@ def main() -> int:
         )
         return 0
     except Exception:
-        secret_path.unlink(missing_ok=True)
+        if secret_created:
+            secret_path.unlink(missing_ok=True)
         if started_here:
             subprocess.run(
                 ["docker", "rm", "-f", container],

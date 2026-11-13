@@ -25,6 +25,7 @@ from qwenpaw_data.host.core.db.engine import (
     reset_engine,
 )
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.ui import UI_TOOL_NAMES
 from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.repositories import ChatRepository, SessionRepository
@@ -159,11 +160,29 @@ async def test_build_qwenpaw_data_toolkit_registers_workspace_and_local_tools() 
 
     assert {"Read", "Write", "Bash"} <= tool_names
     assert PLAN_TOOL_NAMES <= tool_names
+    assert UI_TOOL_NAMES <= tool_names
+    assert "cm_dataset_lookup" in tool_names
     assert "ask_user_question" in tool_names
     assert "CronJob" in tool_names
     assert "trigger_review_agent" not in tool_names
     assert "mcp__fake-mcp__execute_sql" in tool_names
     assert "reset_tools" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_build_qwenpaw_data_toolkit_omits_ui_tools_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_TOOL_UI_ENABLED", "false")
+    clear_settings()
+    toolkit = await DataAgentBuilder().build_toolkit(
+        run_context=_run_context(FakeWorkspace())
+    )
+    tool_names = {
+        schema["function"]["name"] for schema in await toolkit.get_tool_schemas()
+    }
+    assert tool_names.isdisjoint(UI_TOOL_NAMES)
+    assert "cm_dataset_lookup" in tool_names
 
 
 @pytest.mark.asyncio

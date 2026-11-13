@@ -95,6 +95,9 @@ def test_existing_graph_uses_queue_and_only_becomes_ready_after_schema(
     def runner(command, **kwargs):
         expected = override or REPO_ROOT / "scripts/common/provision_workspace_neo4j.py"
         assert Path(command[1]) == expected
+        assert list(command[2:]) == ["--workspace-id", "ws-b"]
+        assert kwargs["env"]["QWENPAW_DATA_DB_URL"] == dsn
+        monkeypatch.setenv("QWENPAW_DATA_DB_URL", kwargs["env"]["QWENPAW_DATA_DB_URL"])
         monkeypatch.setattr(sys, "argv", list(command[1:]))
         try:
             return subprocess.CompletedProcess(command, module.main(), "", "")

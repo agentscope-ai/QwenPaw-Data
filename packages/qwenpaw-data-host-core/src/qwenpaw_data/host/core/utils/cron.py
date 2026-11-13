@@ -4,30 +4,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from qwenpaw_data.host.core.api.models.cron import ScheduleSpec
-from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.repositories.session import SessionRepository
 from qwenpaw_data.host.core.utils.time import utcnow
-
-
-async def check_session_exists(
-    db: AsyncSession,
-    identity: Identity,
-    session_id: str | None,
-    channel: str,
-) -> None:
-    if not session_id:
-        return
-    try:
-        session = await SessionRepository(db, identity).get(session_id)
-    except LookupError:
-        raise ValueError("session not found") from None
-    if session.identity != identity:
-        raise ValueError("session does not belong to this identity")
-    if session.channel != channel:
-        raise ValueError("session channel does not match job channel")
 
 
 def compute_next_run_at(

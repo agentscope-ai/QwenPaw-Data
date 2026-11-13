@@ -1,5 +1,6 @@
 import { message } from '@/design';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { isEmbedded, resolveCmUrl } from '../embedded/context';
 import { transformKeysToSnake } from '@/utils';
 import {
   ApiRequestError,
@@ -44,6 +45,10 @@ export const request = {
 };
 
 request.interceptors.request.use((config) => {
+  if (isEmbedded()) {
+    config.baseURL = '';
+    if (config.url) config.url = resolveCmUrl(config.url);
+  }
   if (config.params) config.params = transformKeysToSnake(config.params);
   for (const [name, value] of Object.entries(buildAuthHeaders())) {
     if (!config.headers.has(name)) config.headers.set(name, value);
@@ -98,7 +103,7 @@ request.interceptors.response.use(
         message?.error(error.message || '没有权限访问');
         const forbiddenPath = `${getContextBasePath().replace(/\/$/, '')}/403`;
         if (
-          requestConfig?.redirectOnForbidden !== false &&
+          !isEmbedded() && requestConfig?.redirectOnForbidden !== false &&
           window.location.pathname !== forbiddenPath
         ) {
           window.location.assign(forbiddenPath);

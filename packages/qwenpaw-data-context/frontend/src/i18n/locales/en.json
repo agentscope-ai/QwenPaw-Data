@@ -1267,6 +1267,7 @@
     "add": "Add Dataset",
     "addTitle": "Add Dataset",
     "editTitle": "Edit Dataset",
+    "savedWithoutDatasource": "Dataset configuration saved. Graph sync requires a data source for this dataset.",
     "nameExtra": "Use snake_case and keep the name unique."
   },
   "metricFormula": {

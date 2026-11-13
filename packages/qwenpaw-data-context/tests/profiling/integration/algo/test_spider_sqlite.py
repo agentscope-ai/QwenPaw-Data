@@ -31,7 +31,7 @@ spider 数据集的三条前提 → 三处配置
 LLM 是真实客户端（.env 的 OPENAI_API_KEY），会产生费用。out_dir 固定在
 包内 ``data/profile/spider2/{库名}``（已被 .gitignore 覆盖）：
 source_table 快照指纹命中即不重拉，LLM 响应缓存命中即不花钱 ——
-参数不变的重跑近乎免费。跑完打印真实调用次数，同 ``test_holo_pg``。
+参数不变的重跑近乎免费。跑完打印真实调用次数。
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ _CJK = re.compile(r"[一-鿿]")
 
 
 class _CountingLlm(OpenAiCompatClient):
-    """真实客户端 + 真实调用计数（缓存命中不计），同 ``test_holo_pg``。"""
+    """真实客户端 + 真实调用计数（缓存命中不计）。"""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)

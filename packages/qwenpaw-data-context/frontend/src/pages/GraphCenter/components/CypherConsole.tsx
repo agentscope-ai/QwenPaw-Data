@@ -28,7 +28,7 @@ interface CypherConsoleContextValue {
   cypherInput: string;
   cypherMsg: string;
   cypherRunning: boolean;
-  cypherInputRef: RefObject<HTMLInputElement>;
+  cypherInputRef: RefObject<HTMLInputElement | null>;
   setConsoleOpen: (open: boolean) => void;
   setConsoleMode: (mode: CypherMode) => void;
   setCypherInput: (value: string) => void;

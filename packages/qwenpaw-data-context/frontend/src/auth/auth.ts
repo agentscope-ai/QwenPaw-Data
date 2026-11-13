@@ -20,6 +20,8 @@ import type {
   RawCypherGrantResponse,
 } from './types';
 import { buildAuthApiUrl, buildLoginUrl, getAuthFrontendUrl } from './config';
+import { buildAuthHeaders } from '@/services/authHeaders';
+import { getConsoleConfig, isConsolePortal } from '@/services/consoleConfig';
 
 export type AuthSessionPlane = 'public' | 'tenant' | 'platform';
 export type CurrentUserSession = Exclude<AuthSessionPlane, 'public'> | 'auto';
@@ -128,6 +130,9 @@ async function readAuthError(response: Response): Promise<AuthApiError> {
 
 function buildHeaders(init?: RequestInit): Headers {
   const headers = new Headers(init?.headers);
+  for (const [key, value] of Object.entries(buildAuthHeaders())) {
+    if (!headers.has(key)) headers.set(key, value);
+  }
   const body = init?.body;
   if (
     body != null &&
@@ -195,7 +200,13 @@ export async function authFetch<T>(
       session === 'tenant' &&
       retryOnUnauthorized
     ) {
-      const refreshed = await refreshToken();
+      const refreshed = await refreshSession().then(
+        () => true,
+        (refreshError: unknown) => {
+          if (refreshError instanceof AuthApiError && refreshError.status === 401) return false;
+          throw refreshError;
+        },
+      );
       if (refreshed) {
         try {
           return await performAuthRequest<T>(path, init);
@@ -219,6 +230,16 @@ export async function authFetch<T>(
 }
 
 export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
+  if (isConsolePortal() || (typeof window !== 'undefined' && getConsoleConfig()?.auth_mode === 'portal')) {
+    const status = await authFetch<{ required?: boolean }>('/api/auth/status');
+    if (status.required !== false) throw new Error('Portal authentication status is invalid');
+    ssoLoginPath = null;
+    return {
+      enabled: false, has_users: false, has_platform_admin: false,
+      platform_bootstrap_required: false, legacy_registration_enabled: false,
+      sso_enabled: false, sso_login_path: '',
+    };
+  }
   const status = await authFetch<AuthStatusResponse>('/api/auth/status');
   ssoLoginPath = status.sso_enabled ? status.sso_login_path : null;
   return status;
@@ -451,19 +472,25 @@ export async function logout(): Promise<void> {
   );
 }
 
-let refreshInFlight: Promise<boolean> | null = null;
+let refreshInFlight: Promise<void> | null = null;
 let ssoLoginPath: string | null = null;
 
-export async function refreshToken(): Promise<boolean> {
+function refreshSession(): Promise<void> {
   if (!refreshInFlight) {
-    refreshInFlight = performAuthRequest('/api/auth/refresh', { method: 'POST' })
-      .then(() => true)
-      .catch(() => false)
-      .finally(() => {
+    refreshInFlight = performAuthRequest<void>('/api/auth/refresh', { method: 'POST' }).finally(
+      () => {
         refreshInFlight = null;
-      });
+      },
+    );
   }
   return refreshInFlight;
+}
+
+export async function refreshToken(): Promise<boolean> {
+  return refreshSession().then(
+    () => true,
+    () => false,
+  );
 }
 
 export async function exchangeCode(code: string, redirectUri: string): Promise<void> {

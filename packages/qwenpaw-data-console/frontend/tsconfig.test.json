@@ -11,6 +11,7 @@
     "types": ["node"]
   },
   "include": [
+    "src/types/*.d.ts",
     "src/features/console/model/__test__/*.test.ts",
     "src/features/console/model/tests/*.test.ts",
     "src/services/__test__/*.test.ts"

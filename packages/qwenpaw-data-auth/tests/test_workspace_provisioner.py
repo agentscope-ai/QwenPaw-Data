@@ -135,8 +135,9 @@ def test_worker_claims_workspace_of_active_tenant(tmp_path: Path):
     assert workspace["instance_status"] == "ready"
 
 
+@pytest.mark.parametrize("holo_backend", ["holo_age", "holoage", " HOLO-AGE "])
 def test_default_provision_script_follows_graph_backend(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, holo_backend: str
 ):
     script_dir = REPO_ROOT / "scripts" / "common"
     monkeypatch.setenv("GRAPH_BACKEND", "neo4j")
@@ -144,7 +145,7 @@ def test_default_provision_script_follows_graph_backend(
         workspace_provisioner._default_provision_script(script_dir).name
         == "provision_workspace_neo4j.py"
     )
-    monkeypatch.setenv("GRAPH_BACKEND", "holo_age")
+    monkeypatch.setenv("GRAPH_BACKEND", holo_backend)
     # The Holo AGE provisioning script is not part of the open-source tree.
     with pytest.raises(RuntimeError, match="not included"):
         workspace_provisioner._default_provision_script(script_dir)

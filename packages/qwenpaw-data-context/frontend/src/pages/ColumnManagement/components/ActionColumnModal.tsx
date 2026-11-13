@@ -5,6 +5,7 @@ import { queryDatasetMeta } from '@/services/datasetManagement';
 import { useBusinessDomainOptions, useDataSourceOptions, useDataSourceOptionsStore } from '@/store';
 import type { ColumnCreateRequest, ColumnItem, ColumnUpdateRequest } from '@/types/column';
 import { isFormValidationError } from '@/utils';
+import { AutoComplete } from 'antd';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -100,18 +101,19 @@ const ActionColumnModal: React.FC<ActionColumnModalProps> = ({
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      const dataType = values.data_type.trim();
       setLoading(true);
       if (isEdit) {
         const update: ColumnUpdateRequest = {
           field_name: values.field_name,
           description: values.description,
-          data_type: values.data_type,
+          data_type: dataType,
           is_primary: values.is_primary,
           is_nullable: values.is_nullable,
         };
         await updateColumn(record!.id!, update);
       } else {
-        await createColumn(values);
+        await createColumn({ ...values, data_type: dataType });
       }
       message.success(isEdit ? t('common.editSuccess') : t('common.createSuccess'));
       onCancel();
@@ -184,8 +186,17 @@ const ActionColumnModal: React.FC<ActionColumnModalProps> = ({
         <Form.Item name="description" label={t('fields.description')}>
           <Input.TextArea rows={3} />
         </Form.Item>
-        <Form.Item name="data_type" label={t('fields.dataType')} rules={[{ required: true }]}>
-          <Select options={DATA_TYPE_OPTIONS} showSearch />
+        <Form.Item
+          name="data_type"
+          label={t('fields.dataType')}
+          rules={[{ required: true, whitespace: true }]}
+        >
+          <AutoComplete
+            options={DATA_TYPE_OPTIONS}
+            filterOption={(input, option) =>
+              option?.value.toLowerCase().includes(input.toLowerCase()) ?? false
+            }
+          />
         </Form.Item>
         <Form.Item name="is_primary" label="is_primary" rules={[{ required: true }]}>
           <Select options={SEMANTIC_YES_NO_OPTIONS} />

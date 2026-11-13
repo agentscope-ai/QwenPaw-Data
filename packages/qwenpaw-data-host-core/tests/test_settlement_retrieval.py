@@ -12,7 +12,6 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from agentscope.agent._config import ReActConfig
 from agentscope.formatter import DashScopeChatFormatter
 from agentscope.mcp import MCPClient
 from agentscope.message import TextBlock, ToolCallBlock, ToolResultState
@@ -1089,7 +1088,7 @@ async def test_native_fallback_passes_model_text_to_confirmer(
 
 
 @pytest.mark.parametrize("phase", ["model", "tool"])
-async def test_native_fallback_timeout_uses_framework_behavior(mcp_transport, phase):
+async def test_native_fallback_timeout_fails_closed(mcp_transport, phase):
     mcp_transport.output["block"] = True
     unit, _, _ = _confirmer({"status": "no_match"}, cm_timeout=0.1)
     model = ScriptedModel(
@@ -1109,13 +1108,9 @@ async def test_native_fallback_timeout_uses_framework_behavior(mcp_transport, ph
     confirmed, details = await unit.confirm_with_details([item])
     detail = details[0]
     assert detail["cm_calls"] == [{"status": "ok"}]
-    # 模型和工具的取消均可能由框架转成中断文本，不再强制判定检索失败。
-    assert confirmed == [item]
-    assert detail["retrieval_status"] == "ok"
-    unit._llm_judge.assert_awaited_once()
-    assert unit._llm_judge.call_args.args[1].split("\n\n", 1)[1] == (
-        ReActConfig().interruption_message
-    )
+    assert confirmed == []
+    assert detail["retrieval_status"] == "error"
+    unit._llm_judge.assert_not_awaited()
     if phase == "model":
         model._call_api.assert_awaited_once()
         assert mcp_transport.calls == []
@@ -1396,7 +1391,7 @@ async def test_native_tool_whitelist_blocks_business_sql(mcp_transport):
     assert mcp_transport.calls == []
 
 
-async def test_tool_cancellation_returns_framework_text_and_closes_sessions(
+async def test_tool_cancellation_propagates_and_closes_sessions(
     mcp_transport,
 ):
     mcp_transport.output["block"] = True
@@ -1413,8 +1408,9 @@ async def test_tool_cancellation_returns_framework_text_and_closes_sessions(
         while not any(name == "query_graph" for name, _ in mcp_transport.calls):
             await asyncio.sleep(0.001)
     task.cancel()
-    assert await task == ReActConfig().interruption_message
-    assert not task.cancelled()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
     assert mcp_transport.sessions.count("open") == mcp_transport.sessions.count("close")
 
 

@@ -13,8 +13,7 @@ scripts/init_context.sh
 scripts/start_context.sh
 ```
 
-这会同时启动 `http://localhost:3000` 的管理前端和
-`http://localhost:8765` 的 Context API。
+这会同时启动 `http://localhost:3000` 的管理前端和 `http://localhost:8765` 的 Context API。
 
 如需单独运行前端，先确保后端已启动：
 
@@ -31,8 +30,7 @@ npm run dev
 SERVICE_BASE_URL=http://localhost:8765
 ```
 
-开发服务固定监听 `3000` 并启用 `strictPort`。如果端口被占用，Vite 会直接失败，
-避免 QwenPawData 的 Context Management 入口跳到错误端口。
+开发服务固定监听 `3000` 并启用 `strictPort`。如果端口被占用，Vite 会直接失败，避免 QwenPawData 的 Context Management 入口跳到错误端口。
 
 ## 可用脚本
 
@@ -51,19 +49,13 @@ packages/qwenpaw-data-context/frontend/dist
 
 ## 后端配合
 
-后端位于 `packages/qwenpaw-data-context`，FastAPI 入口是：
+后端 FastAPI 入口是 `context_manager.server:app`。从仓库根目录统一启动服务：
 
 ```bash
-cd packages/qwenpaw-data-context
-./.venv/bin/python scripts/serve.py --host 0.0.0.0 --port 8765
+bash scripts/start.sh
 ```
 
-后端需要 Neo4j 和仓库根目录 `.env` 配置。依赖服务可用包根目录下的 `docker-compose.yml` 启动：
-
-```bash
-cd packages/qwenpaw-data-context
-docker compose up -d neo4j
-```
+启动入口会同时运行 CM 前端，无需重复执行 `npm run dev`。图存储由仓库根目录 `.env` 的 `GRAPH_BACKEND` 选择 Neo4j 或 Holo AGE。账号、模型和聊天验证见[统一启动与聊天准备说明](../../../scripts/chat_setup/README.md)。
 
 ## 生产构建
 
@@ -129,7 +121,7 @@ server {
 
 ## 部署检查清单
 
-1. 后端 `scripts/serve.py` 正常监听 `8765`。
+1. CM 后端正常监听配置的端口（默认 `8765`）。
 2. 服务器上的仓库根目录 `.env` 已配置 Neo4j、LLM 和 OSS 等参数。
 3. 前端构建时的 `VITE_API_BASE_URL` 与部署方式一致。
 4. Nginx 已代理 `/api/` 到后端。
@@ -149,6 +141,10 @@ server {
 - `src/i18n`：国际化文案
 
 应用代码中的 UI 组件应优先从 `@/design` 引入。这里封装了 `@agentscope-ai/design`、Ant Design Pro Table，以及项目内统一表格行为。不要在业务页面里直接从 `antd` 或 `@ant-design/*` 引入组件，除非封装层暂时没有提供对应能力。
+
+## 本地登录快捷账号
+
+开发登录页读取与聊天初始化相同的 `QWENPAW_DATA_ENV_FILE` 和 `accounts` 字段，默认使用初始化工具示例中的账号矩阵。账号文件的相对路径以所选 env 文件目录为基准；修改 env 或账号文件后开发服务自动更新。快捷密码优先读取单账号的 `VITE_DEV_LOGIN_PASSWORD_OVERRIDES`，其次读取 `VITE_DEV_LOGIN_PASSWORD`。均未配置时手动输入密码。名单表示初始化配置，不代表账号已经创建成功。生产构建不展示快捷账号，也不包含快捷密码。
 
 ## Packaged Console deployment
 

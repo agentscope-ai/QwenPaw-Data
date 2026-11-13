@@ -61,7 +61,7 @@ test('settings read/save use the actual Host API and preserve server return valu
   const original = globalThis.fetch;
   const requests: RequestInit[] = [];
   globalThis.fetch = async (input, init) => {
-    assert.equal(input, '/api/preferences/runtime-settings');
+    assert.equal(input, '/api/v1/preferences/runtime-settings');
     assert.equal(init?.credentials, 'include');
     requests.push(init!);
     return Response.json({ runtime_settings: settings });

@@ -19,13 +19,13 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from qwenpaw_data_auth import Principal
-from sqlalchemy import insert
+from sqlalchemy import insert, select, update
 
 from semantic_config.config import get_settings
 from semantic_config.db import init_db, now_iso
 from semantic_config.engine import get_session_factory
 from semantic_config.services import excel_export_service, excel_import_service
-from semantic_config.tables import datasource
+from semantic_config.tables import datasource, dimension_dict
 
 
 def _principal() -> Principal:
@@ -288,6 +288,28 @@ async def test_export_reimports_losslessly(tmp_path, monkeypatch):
 
     for sheet in ("table", "table_column", "physical_join", "verified_query"):
         assert _rows(wb1[sheet])[1] == _rows(wb2[sheet])[1], sheet
+
+
+async def test_export_reimports_dimension_with_legacy_numeric_priority(
+    tmp_path, monkeypatch
+):
+    await _setup_db(tmp_path, monkeypatch)
+    assert (await _import(_full_workbook()))["success"] is True
+    async with get_session_factory()() as db:
+        await db.execute(update(dimension_dict).values(priority="50"))
+        await db.commit()
+
+    workbook = await _export()
+    _, [dimension] = _rows(workbook["dimension"])
+    assert dimension["priority"] == "NORMAL"
+    async with get_session_factory()() as db:
+        assert (
+            await db.execute(select(dimension_dict.c.priority))
+        ).scalar_one() == "50"
+
+    content = io.BytesIO()
+    workbook.save(content)
+    assert (await _import(content.getvalue()))["success"] is True
 
 
 async def test_logical_layer_reimports_losslessly(tmp_path, monkeypatch):

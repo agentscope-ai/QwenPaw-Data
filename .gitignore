@@ -234,6 +234,11 @@ yarn-debug.log*
 yarn-error.log*
 .vite/
 dist-ssr/
+dist-embedded/
+*.chat-setup/
+*.chat-setup.json
+*.services.lock/
+*.services.json
 
 # Common misspelling of AGENTS.md.
 AGENTS.md

@@ -22,8 +22,7 @@ from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext, ModelUs
 from qwenpaw_data.host.core.domain.preference import ActiveModel
 from qwenpaw_data.host.core.providers.factory import build_model
 from qwenpaw_data.tracing.core.names import Step, Tracer
-from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
-from qwenpaw_data.tracing.runtime.host.chat import ChatTracer
+from qwenpaw_data.tracing.runtime.host.chat import ChatTracer, tracer_session
 
 _USAGE = ModelUsageContext(
     source=ModelUsageSource.BIZTRACE,
@@ -75,7 +74,7 @@ class _FakeModel:
 
 def _chat_tracer() -> ChatTracer:
     return ChatTracer(
-        session=BaseSessionTracer(user_id="u1", session_id="ses-1"),
+        tracer_session("u1", "ses-1"),
         chat_id="chat-" + "ab" * 16,
         step="biztrace",
     )

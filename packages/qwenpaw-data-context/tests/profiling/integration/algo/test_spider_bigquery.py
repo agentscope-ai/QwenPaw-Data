@@ -72,7 +72,7 @@ _CJK = re.compile(r"[一-鿿]")
 
 
 class _CountingLlm(OpenAiCompatClient):
-    """真实客户端 + 真实调用计数（缓存命中不计），同 ``test_holo_pg``。"""
+    """真实客户端 + 真实调用计数（缓存命中不计）。"""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)

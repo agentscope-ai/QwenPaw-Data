@@ -2,7 +2,9 @@
 
 Standalone command-line interface for QwenPaw Data.
 
-This package provides the `qwenpaw-data` command and connects local host workflows through `qwenpaw-data-host-core`.
+This package provides the `qwenpaw-data` command for datasource administration,
+semantic configuration, and deployment diagnostics. Run interactive agent tasks
+through the [Console](../qwenpaw-data-console/README.md), backed by Host.
 
 The command automatically loads `QWENPAW_DATA_ENV_FILE` when set. Otherwise, an
 editable checkout is discovered from the CLI package location and the
@@ -12,13 +14,12 @@ working directory is used as the fallback configuration root.
 
 Available command groups:
 
-- `plan`
-- `execute`
-- `run`
-- `chat`
 - `datasource`
 - `semantic`
 - `doctor`
+
+The former `plan`, `execute`, `run`, and `chat` commands are retired in 0.4.
+They are not aliases for the Host server or Console.
 
 Run `qwenpaw-data doctor` before the first task to check supported Python/Node
 versions, uv, model and authentication configuration, QwenPaw Data Home, DataBridge

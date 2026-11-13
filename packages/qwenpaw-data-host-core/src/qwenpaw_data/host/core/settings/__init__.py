@@ -20,6 +20,7 @@ from qwenpaw_data.host.core.settings.runtime import RuntimeSettings
 from qwenpaw_data.host.core.settings.security import SecuritySettings
 from qwenpaw_data.host.core.settings.stream import StreamSettings
 from qwenpaw_data.host.core.settings.tool_confirmation import ToolConfirmationSettings
+from qwenpaw_data.host.core.settings.tools import ToolSettings
 from qwenpaw_data.host.core.settings.workspace import WorkspaceSettings
 
 
@@ -36,6 +37,7 @@ class Settings:
         runtime: RuntimeSettings | None = None,
         clarification: ClarificationSettings | None = None,
         tool_confirmation: ToolConfirmationSettings | None = None,
+        tools: ToolSettings | None = None,
         security: SecuritySettings | None = None,
         fallback: FallbackSettings | None = None,
         followup: FollowUpSettings | None = None,
@@ -55,6 +57,7 @@ class Settings:
         self.runtime = runtime or RuntimeSettings()
         self.clarification = clarification or ClarificationSettings()
         self.tool_confirmation = tool_confirmation or ToolConfirmationSettings()
+        self.tools = tools or ToolSettings()
         self.security = security or SecuritySettings()
         self.fallback = fallback or FallbackSettings()
         self.followup = followup or FollowUpSettings()
@@ -88,6 +91,7 @@ __all__ = [
     "RuntimeSettings",
     "ClarificationSettings",
     "ToolConfirmationSettings",
+    "ToolSettings",
     "SecuritySettings",
     "FallbackSettings",
     "FollowUpSettings",

@@ -1,8 +1,6 @@
 """LLM 响应校验器与值归一工具。
 
-校验器移植自 ``profiling/algorithm/profiler_dimension_and_metric.py`` 与
-``profiler_dataset.py``（逐字保真）；值归一工具移植自 ``handler.py`` 顶部的
-私有函数。校验风格统一：结构非法 / 期望 key 有遗漏 → ``ValueError``（由
+校验风格统一：结构非法 / 期望 key 有遗漏 → ``ValueError``（由
 handler 决定降级），模型多返回的条目静默忽略。
 """
 

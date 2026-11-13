@@ -4,11 +4,11 @@ import json
 
 import httpx
 import pytest
-from fastapi import FastAPI
+
+from context_manager.api.app import create_api_app
 
 from context_manager.runtime_model_binding import (
     HEADER,
-    RuntimeModelBindingMiddleware,
     llm_binding,
 )
 
@@ -26,8 +26,7 @@ def header(model, key="private-key"):
 @pytest.fixture
 def app(monkeypatch):
     monkeypatch.setenv("QWENPAW_DATA_API_TOKEN", "service-key")
-    application = FastAPI()
-    application.add_middleware(RuntimeModelBindingMiddleware)
+    application = create_api_app()
 
     @application.get("/model")
     async def current():

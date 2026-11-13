@@ -26,7 +26,7 @@ Environment:
   QWENPAW_DATA_ENV_FILE           Optional dotenv file. Default: repository root .env
   UV                          uv command when --uv is omitted
   NPM                         npm-compatible command when --npm is omitted
-  NPM_REGISTRY                npm registry. Default: https://registry.npmjs.org
+  NPM_REGISTRY                npm registry. Default: https://registry.npmmirror.com
   UV_DEFAULT_INDEX            Optional Python package index mirror used by uv
 EOF
 }
@@ -57,7 +57,7 @@ if [[ -f "${context_root}/.python-version" ]]; then
 fi
 uv_cmd="${UV:-uv}"
 npm_cmd="${NPM:-npm}"
-npm_registry="${NPM_REGISTRY:-https://registry.npmjs.org}"
+npm_registry="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 skip_build=0
 skip_npm_install=0
 
@@ -150,16 +150,16 @@ if [[ ! -x "${python_cmd}" ]]; then
   exit 1
 fi
 
-run "${uv_cmd}" pip install --python "${python_cmd}" -r "${requirements_file}"
-# context 以 --no-deps 方式 editable 安装，workspace 依赖（qwenpaw-data-tracing 等）需单独装。
-run "${uv_cmd}" pip install --python "${python_cmd}" --editable "${repo_root}/packages/qwenpaw-data-tracing"
+run "${uv_cmd}" pip install --python "${python_cmd}" -r "${requirements_file}" \
+  --editable "${repo_root}/packages/qwenpaw-data-auth" --editable "${repo_root}/packages/qwenpaw-data-tracing"
 run "${uv_cmd}" pip install --python "${python_cmd}" --editable "${context_root}" --no-deps
 
 if [[ "${skip_npm_install}" != "1" ]]; then
   if [[ -f "${frontend_root}/package-lock.json" ]]; then
-    run "${npm_cmd}" ci --prefix "${frontend_root}"
+    run "${npm_cmd}" ci --prefix "${frontend_root}" --registry="${npm_registry}" \
+      --replace-registry-host=registry.npmmirror.com
   else
-    run "${npm_cmd}" install --prefix "${frontend_root}"
+    run "${npm_cmd}" install --prefix "${frontend_root}" --registry="${npm_registry}"
   fi
 fi
 

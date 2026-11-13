@@ -8,7 +8,11 @@ import pytest
 from qwenpaw_data.tracing.core.trace.handles import _Generation
 from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
 from qwenpaw_data.tracing.core.trace.tracer import BaseTracer
-from qwenpaw_data.tracing.runtime.host.chat import tracer_end, tracer_start
+from qwenpaw_data.tracing.runtime.host.chat import (
+    tracer_end,
+    tracer_session,
+    tracer_start,
+)
 from opentelemetry import baggage, context
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import StatusCode
@@ -92,7 +96,7 @@ def test_session_labels_and_baggage() -> None:
 def test_start_with_step_is_independent_root(in_memory_tracer) -> None:
     provider, exporter = in_memory_tracer
     started = tracer_start(
-        session=BaseSessionTracer(user_id="u1", session_id="ses-1"),
+        tracer_session("u1", "ses-1"),
         chat_id="chat-" + "ab" * 16,
         step="biztrace",
     )

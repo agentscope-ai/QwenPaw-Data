@@ -76,7 +76,9 @@ with ExitStack() as stack:
     token = root.activate()
     root.deactivate(token)
     root.end()
-    session = tracing.BaseSessionTracer(user_id="u", session_id="s")
+    from qwenpaw_data.tracing.runtime.host.chat import tracer_session
+
+    session = tracer_session(user_id="u", session_id="s")
 
     async def exercise():
         async with tracer(chat_id="chat-" + "ab" * 16, session=session) as chat:

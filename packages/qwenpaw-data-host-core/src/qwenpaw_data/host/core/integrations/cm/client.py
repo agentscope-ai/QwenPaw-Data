@@ -13,6 +13,7 @@ import httpx
 from qwenpaw_data.host.core.settings import CmSettings, get_settings
 
 DATASOURCE_LIST_PATH = "/api/semantic-config/datasource"
+DATASOURCE_METADATA_PATH = "/api/v1/cm/datasources"
 DATASET_LIST_PATH = "/api/semantic-config/dataset-meta"
 ACTIVE_DATASOURCE_PATH = "/api/datasources/active"
 GLOBAL_MEMORIES_PATH = "/api/v1/ug/me/global-memories"
@@ -199,6 +200,12 @@ def _parse_dataset(record: Any, *, index: int) -> CMDataset:
     )
 
 
+def _parse_datasource_metadata(record: Any, *, index: int) -> CMDatasource:
+    if isinstance(record, dict) and "config" in record:
+        raise CMClientError(f"CM datasource metadata item {index} unexpectedly contains config")
+    return _parse_datasource(record, index=index)
+
+
 class ContextManagerClient:
     """Minimal synchronous client used by the administrative CLI."""
 
@@ -229,6 +236,15 @@ class ContextManagerClient:
         items, total = self._collect_pages(
             path=DATASOURCE_LIST_PATH,
             parse=_parse_datasource,
+            subject="datasource",
+        )
+        return CMDatasourceList(items=items, total=total)
+
+    def list_datasource_metadata(self) -> CMDatasourceList:
+        """List datasource names without fetching connection credentials."""
+        items, total = self._collect_pages(
+            path=DATASOURCE_METADATA_PATH,
+            parse=_parse_datasource_metadata,
             subject="datasource",
         )
         return CMDatasourceList(items=items, total=total)
@@ -279,6 +295,58 @@ class ContextManagerClient:
         if not token:
             return {}
         return {"Authorization": f"Bearer {token}"}
+
+    def lookup_datasets(
+        self,
+        *,
+        dataset_id=None,
+        datasource_id=None,
+        domain_id=None,
+        name=None,
+        page=1,
+        size=20,
+    ) -> dict:
+        if not self.access_token:
+            raise CMClientError("CM identity required")
+        path = (
+            f"{DATASET_LIST_PATH}/{dataset_id}"
+            if dataset_id is not None
+            else DATASET_LIST_PATH
+        )
+        params = (
+            None
+            if dataset_id is not None
+            else {
+                key: value
+                for key, value in {
+                    "datasource_id": datasource_id,
+                    "domain_id": domain_id,
+                    "dataset_name": name,
+                    "page": page,
+                    "size": min(size, 50),
+                }.items()
+                if value is not None
+            }
+        )
+        with httpx.Client(
+            timeout=self.timeout,
+            transport=self.transport,
+            trust_env=_trust_env_for_url(self.base_url),
+        ) as client:
+            response = client.get(
+                f"{self.base_url}{path}", params=params, headers=self._headers()
+            )
+            response.raise_for_status()
+            value = response.json()
+        if not isinstance(value, dict):
+            raise CMClientError("Invalid dataset response")
+        if dataset_id is None and (
+            not isinstance(value.get("records"), list)
+            or not isinstance(value.get("total"), int)
+            or len(value["records"]) > size
+        ):
+            raise CMClientError("Invalid dataset page")
+        return value
 
     def _collect_pages(
         self,

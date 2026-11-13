@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from qwenpaw_data.host.core.api.deps import get_db, get_identity
+from qwenpaw_data.host.core.api.auth_middleware import auth_enabled
 from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.settings.mcp import McpSettings
 from qwenpaw_data.host.core.utils.mcp_headers import parse_mcp_headers
@@ -28,7 +29,6 @@ from qwenpaw_data.host.core.api.models.requests import (
     ChatAdmissionFields,
     ConsoleChatRequest,
 )
-from qwenpaw_data.host.core.api.models.runtime_models import RuntimeModels
 from qwenpaw_data.host.core.api.routers.datasources import (
     get_context_manager_client,
     require_known_datasets,
@@ -37,6 +37,7 @@ from qwenpaw_data.host.core.db.engine import get_session_factory
 from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
 from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.integrations.cm import ContextManagerClient
 from qwenpaw_data.host.core.paths import UserAgentPaths
@@ -50,7 +51,10 @@ from qwenpaw_data.host.core.query_log import Step, log_info
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
 from qwenpaw_data.host.core.runtime.registry import get_runtime_registry
 from qwenpaw_data.host.core.settings import get_settings
-from qwenpaw_data.host.core.utils.auth import generate_temporary_token
+from qwenpaw_data.host.core.utils.auth import (
+    generate_temporary_token,
+    resolve_context_access_token,
+)
 from qwenpaw_data.host.core.utils.session import access_session
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -133,7 +137,7 @@ async def console_chat(
 ) -> dict[str, Any]:
     try:
         mcp_headers = parse_mcp_headers(request.headers.get(McpSettings.HEADERS_HEADER))
-        chat, access_token = await admit_chat(
+        chat, access_token, runtime_config, context_model_header = await admit_chat(
             db,
             identity,
             session_id=body.session_id,
@@ -156,7 +160,8 @@ async def console_chat(
         identity=identity,
         access_token=access_token,
         mcp_headers=mcp_headers,
-        model_binding_request=body.runtime_models,
+        runtime_config=runtime_config,
+        context_model_header=context_model_header,
     )
     return response
 
@@ -170,7 +175,7 @@ async def admit_chat(
     cm: ContextManagerClient,
     attachment_ids: list[str] | None = None,
     artifact_comments: list[dict[str, Any]] | None = None,
-) -> tuple[Chat, str | None]:
+) -> tuple[Chat, str | None, UserRuntimeConfig, str | None]:
     """Admit one chat turn for every chat-creation route (native and 0.3 compat).
 
     Write access to the session, a resolvable model configuration and a
@@ -180,7 +185,18 @@ async def admit_chat(
     session_repo = SessionRepository(db, identity)
     session = await access_session(db, identity, session_id, write=True)
     prefs = await PreferencesRepository(db, identity).load()
-    prefs.resolve()
+    binding = body.runtime_models
+    runtime_config = binding.runtime_config(prefs) if binding else prefs.resolve()
+    context_model_header = (
+        binding.resolved_context_header(runtime_config) if binding else None
+    )
+    if context_model_header and (
+        auth_enabled() or not resolve_context_access_token(None)
+    ):
+        raise ValueError(
+            "DataBridge model binding requires local mode and a configured "
+            "Context service credential"
+        )
     dataset_names = await require_known_datasets(
         cm,
         datasource_id=(body.datasource_id or "").strip()
@@ -206,7 +222,7 @@ async def admit_chat(
     )
     await db.commit()
     access_token = await asyncio.to_thread(generate_temporary_token, identity)
-    return chat, access_token
+    return chat, access_token, runtime_config, context_model_header
 
 
 def launch_chat(
@@ -216,7 +232,8 @@ def launch_chat(
     identity: Identity,
     access_token: str | None,
     mcp_headers: dict[str, dict[str, str]],
-    model_binding_request: RuntimeModels | None,
+    runtime_config: UserRuntimeConfig,
+    context_model_header: str | None,
 ) -> None:
     """Run an admitted turn after the response (native and 0.3 compat routes).
 
@@ -224,13 +241,9 @@ def launch_chat(
     stop can await its unwind (``ChatRuntime.cancel``). Registration before the
     background task starts would leave a stale entry if the task never runs.
 
-    ``model_binding_request`` is the request-scoped model binding (0.3
-    ``runtime_models``, #81): validated, never persisted. ``ChatRuntime.run``
-    has no per-turn model override yet, so it stops here and
-    ``/console/capabilities`` reports ``runtime_model_bindings: false``.
-    Model binding plugs in at this single point.
+    Model settings are an admission-time snapshot, held only by this task.
+    Credentials never become part of the persisted Chat or preferences.
     """
-    del model_binding_request
     runtime = ChatRuntime(get_session_factory(), chat.id)
     registry = get_runtime_registry()
 
@@ -246,6 +259,8 @@ def launch_chat(
                 identity=identity,
                 access_token=access_token,
                 mcp_headers=mcp_headers,
+                runtime_config=runtime_config,
+                context_model_header=context_model_header,
             )
         finally:
             registry.unregister(chat.id)

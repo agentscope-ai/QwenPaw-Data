@@ -25,6 +25,7 @@ from qwenpaw_data.host.core.api.routers import (
     tool_confirmation,
     trace,
     tracking,
+    ui,
     usage,
 )
 
@@ -55,6 +56,7 @@ def _include_native_routes(router: APIRouter) -> None:
     router.include_router(mcp.router)
     router.include_router(cron.router)
     router.include_router(usage.router)
+    router.include_router(ui.router)
 
 
 # The 0.4 Host contract is unversioned beneath /api.

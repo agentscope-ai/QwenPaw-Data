@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import aclosing
 from pathlib import Path
 
@@ -121,6 +122,11 @@ class SettlementRetriever:
             async for event in events:
                 if isinstance(event, Msg):
                     result = event.get_text_content()
+        # Some AgentScope versions turn cancellation into an interruption
+        # message. A timeout or caller cancellation must not become evidence.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError
         return result
 
     def _build_user_message(

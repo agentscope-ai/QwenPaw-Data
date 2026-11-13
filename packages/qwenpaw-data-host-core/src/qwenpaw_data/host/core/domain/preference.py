@@ -73,9 +73,11 @@ class UserPreferences:
     tool_timeout_seconds: Optional[float] = None
     tool_confirmation_level: Optional[str] = None
 
-    def resolve(self) -> UserRuntimeConfig:
+    def resolve(
+        self, *, default: ActiveModel | None = None, light: ActiveModel | None = None
+    ) -> UserRuntimeConfig:
         try:
-            return self._build()
+            return self._build(default=default, light=light)
         except ValueError:
             fb = get_settings().fallback
             # 0.3 env contract: provider defaults to "openai" (FallbackSettings
@@ -117,17 +119,18 @@ class UserPreferences:
                 tool_timeout_enabled=self.tool_timeout_enabled,
                 tool_timeout_seconds=self.tool_timeout_seconds,
                 tool_confirmation_level=self.tool_confirmation_level,
-            )._build()
+            )._build(default=default, light=light)
 
-    def _build(self) -> UserRuntimeConfig:
-        if not self.default_provider_id or not self.default_model_id:
+    def _build(
+        self, *, default: ActiveModel | None = None, light: ActiveModel | None = None
+    ) -> UserRuntimeConfig:
+        if default is None and (not self.default_provider_id or not self.default_model_id):
             raise ValueError("active models are not configured")
-        if bool(self.light_provider_id) != bool(self.light_model_id):
+        if light is None and bool(self.light_provider_id) != bool(self.light_model_id):
             raise ValueError(
                 "light_provider_id and light_model_id must be set together"
             )
-        light = None
-        if self.light_provider_id and self.light_model_id:
+        if light is None and self.light_provider_id and self.light_model_id:
             light = self._active_model(self.light_provider_id, self.light_model_id)
         runtime = get_settings().runtime
         trigger = _or(self.context_trigger_ratio, runtime.context_trigger_ratio)
@@ -137,7 +140,7 @@ class UserPreferences:
                 "context_reserve_ratio must be smaller than context_trigger_ratio"
             )
         return UserRuntimeConfig(
-            default=self._active_model(self.default_provider_id, self.default_model_id),
+            default=default or self._active_model(self.default_provider_id, self.default_model_id),
             light=light,
             react_max_iters=_or(self.react_max_iters, runtime.react_max_iters),
             llm_retry_enabled=_or(self.llm_retry_enabled, runtime.llm_retry_enabled),

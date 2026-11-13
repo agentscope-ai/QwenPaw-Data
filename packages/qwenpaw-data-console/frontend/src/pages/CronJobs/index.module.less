@@ -242,6 +242,31 @@
   justify-content: flex-end;
 }
 
+.fileInput {
+  display: none !important;
+}
+
+.attachmentList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .grayedOut {
   filter: grayscale(100%);
 }

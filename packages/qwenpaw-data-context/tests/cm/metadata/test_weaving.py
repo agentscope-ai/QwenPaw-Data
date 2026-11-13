@@ -1,6 +1,7 @@
 """Editor HTTP commits, graph publication, task feedback and user mirrors agree."""
 
 import asyncio
+import json
 import os
 from types import SimpleNamespace
 from uuid import uuid4
@@ -36,7 +37,7 @@ from semantic_config.engine import get_session_factory, reset_engine
 from semantic_config.principal import current_principal
 from semantic_config.services import weave_assembler, weave_task_service
 from semantic_config.services.autoexplore import trigger
-from sqlalchemy import create_engine, insert, inspect, select, text
+from sqlalchemy import create_engine, insert, inspect, select, text, update
 from sqlalchemy.engine import make_url
 
 from cm.infrastructure.access.support import authorization
@@ -207,7 +208,8 @@ async def editor(tmp_path, monkeypatch, request, editor_database):
 
 
 async def seed(editor):
-    post = lambda path, **body: editor.request("POST", path, json=body)
+    def post(path, **body):
+        return editor.request("POST", path, json=body)
     source = await post(
         "/datasource",
         datasource_name="订单仓库",
@@ -289,6 +291,49 @@ async def seed(editor):
 
 def graph_nodes(editor, spec):
     return editor.store.list_nodes(spec, scope=editor.scope, limit=1000)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("datasource_id", [None, " "])
+async def test_unscoped_legacy_dataset_does_not_block_domain_publication(
+    editor, datasource_id
+):
+    data = await seed(editor)
+    dataset_id = data["dataset"]["dataset_id"]
+    async with get_session_factory()() as db:
+        await db.execute(
+            update(tables.dataset)
+            .where(tables.dataset.c.id == dataset_id)
+            .values(datasource_id=datasource_id)
+        )
+        await db.commit()
+
+    saved = await editor.request(
+        "PUT",
+        f"/dataset-meta/{dataset_id}",
+        json={"description": "Updated description"},
+    )
+    assert saved["description"] == "Updated description"
+    assert saved["datasource_id"] == datasource_id
+    [graph_dataset] = graph_nodes(editor, DATASET)
+    assert graph_dataset.properties["description"] == data["dataset"]["description"]
+    dataset_log = (await editor.rows(sync_log))[-1]
+    assert dataset_log["entity"] == "dataset-meta"
+    assert dataset_log["applied"] == 0
+    assert json.loads(dataset_log["skipped"]) == [
+        {"dataset_id": dataset_id, "reason": "missing_datasource_id"}
+    ]
+
+    domain = await editor.request(
+        "POST", "/biz-domain", json={"domain_name": "Support", "description": "Tickets"}
+    )
+    await editor.request(
+        "PUT", f"/biz-domain/{domain['domain_id']}", json={"domain_name": "Operations"}
+    )
+    assert {row.properties["name"] for row in graph_nodes(editor, DOMAIN)} == {
+        "零售",
+        "Operations",
+    }
 
 
 @pytest.mark.asyncio

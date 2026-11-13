@@ -5,6 +5,12 @@ function getEnvApiBaseUrl(): string {
 }
 
 export function getApiUrl(path: string): string {
+  if (isEmbedded())
+    return resolveCmUrl(
+      path.startsWith('/api/') || path.startsWith('/web/')
+        ? path
+        : `/api${path.startsWith('/') ? path : `/${path}`}`,
+    );
   const base = getEnvApiBaseUrl().replace(/\/$/, '');
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const prefixedPath = normalizedPath.startsWith('/api/')
@@ -12,3 +18,4 @@ export function getApiUrl(path: string): string {
     : `/api${normalizedPath}`;
   return `${base}${prefixedPath}`;
 }
+import { isEmbedded, resolveCmUrl } from '../embedded/context';

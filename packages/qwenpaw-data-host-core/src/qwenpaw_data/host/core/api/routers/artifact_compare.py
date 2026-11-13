@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -290,12 +291,37 @@ async def upload_workspace_file(
     )
     artifact_root = paths.artifact_dir.resolve()
     dest_dir = artifact_root / "uploads"
+    if dest_dir.is_symlink() or dest_dir.resolve() != dest_dir:
+        raise_api("FORBIDDEN", "unsafe upload directory", status=403)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    candidate = dest_dir / filename
-    stem, suffix = candidate.stem, candidate.suffix
-    counter = 1
-    while candidate.exists():
-        candidate = dest_dir / f"{stem}-{counter}{suffix}"
-        counter += 1
-    candidate.write_bytes(data)
-    return {"path": candidate.relative_to(artifact_root).as_posix()}
+    # Pin the directory on platforms supporting dir_fd so concurrent renames
+    # cannot redirect writes through an agent-created uploads symlink.
+    directory_fd = None
+    try:
+        if os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW"):
+            try:
+                directory_fd = os.open(dest_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except OSError:
+                raise_api("FORBIDDEN", "unsafe upload directory", status=403)
+        stem, suffix = Path(filename).stem, Path(filename).suffix
+        counter = 0
+        while True:
+            name = filename if counter == 0 else f"{stem}-{counter}{suffix}"
+            try:
+                if directory_fd is not None:
+                    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                 0o600, dir_fd=directory_fd)
+                    stream = os.fdopen(fd, "wb")
+                else:
+                    if dest_dir.is_symlink() or dest_dir.resolve() != dest_dir:
+                        raise_api("FORBIDDEN", "unsafe upload directory", status=403)
+                    stream = (dest_dir / name).open("xb")
+                with stream:
+                    stream.write(data)
+                return {"path": f"uploads/{name}"}
+            except FileExistsError:
+                # Includes dangling symlinks and concurrent duplicate uploads.
+                counter += 1
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)

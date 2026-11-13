@@ -680,7 +680,7 @@ class BaseChannel(abc.ABC):
             return
         try:
             client = ContextManagerClient(access_token=access_token)
-            result = await run_in_threadpool(client.list_datasources)
+            result = await run_in_threadpool(client.list_datasource_metadata)
         except Exception:
             logger.exception("datasource list failed: channel=%s", self.channel)
             await self.send(native, "数据源列表获取失败，请稍后重试")

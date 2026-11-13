@@ -10,6 +10,7 @@ from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.safe_name import require_safe_name
 from qwenpaw_data.host.core.utils.time import utcnow
+from qwenpaw_data.host.core.utils.session_naming import derive_session_title
 
 ShareScope = Literal["none", "workspace", "tenant", "anyone"]
 
@@ -120,6 +121,8 @@ class Session:
     ) -> Chat:
         if has_active_chat:
             raise RuntimeError("CONFLICT: session already has an active chat")
+        if self.chat_count == 0 and not self.title.strip():
+            self.title = derive_session_title(text)
         # datasource: bind if have value; use current session otherwise
         if datasource_id is not None and datasource_id.strip():
             self.bind_datasource(datasource_id)

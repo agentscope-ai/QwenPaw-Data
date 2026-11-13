@@ -21,6 +21,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from .config import ConsoleConfig
+from .host_routes import feature_methods, safe_host_path
 
 STATIC = Path(__file__).parent / "static"
 FRONTEND = STATIC / "chat"
@@ -29,9 +30,10 @@ ROUTES = re.compile(
     r"^(auth/status|datasources|datasets|"
     r"console/(chat(?:/stop)?|upload|attachments/[A-Za-z0-9_-]+|capabilities)|"
     r"preferences/(providers(?:/[^/]+(?:/models(?:/[^/]+)?)?)?|active-models|runtime-settings)|"
-    r"cron/jobs(?:/[A-Za-z0-9_-]+(?:/(pause|resume|run))?)?|"
+    r"usage/(summary|timeseries|sessions|background-tasks)|"
+    r"cron/(targets|jobs(?:/[A-Za-z0-9_-]+(?:/(pause|resume|run|attachments(?:/[^/]+)?))?)?)|"
     r"sessions(?:/[A-Za-z0-9_-]+(?:/(snapshot|fork|skill-drafts)|"
-    r"/chats(?:/[A-Za-z0-9_-]+(?:/(events|trace|stop|steer|clarification/answer|plan/edit|feedback(?:/reaction)?))?)?|"
+    r"/chats(?:/[A-Za-z0-9_-]+(?:/(events|trace|stop|steer|clarification/answer|tool-confirmation/answer|ui/answer|plan/edit|feedback(?:/reaction)?))?)?|"
     r"/settlement/(cards(?:/[A-Za-z0-9_-]+/(confirm|dismiss))?|skill-proposals)|"
     r"/artifacts(?:/file)?|/files/access)?)?)$"
 )
@@ -134,7 +136,7 @@ def create_app(
             "testclient",
         }:
             return Response("Loopback only", status_code=403)
-        if request.url.path.startswith(("/api/", "/portal/", "/databridge/api/")):
+        if request.url.path.startswith(("/api/", "/portal/", "/databridge/api/", "/cm-api/", "/cm-web/")):
             # A custom header plus same-origin checks prevent cross-site pages
             # from using this local proxy as an authenticated API relay.
             # The Console opens HTML previews in a new tab. Permit only same-origin
@@ -144,7 +146,7 @@ def create_app(
                 and (
                     request.url.path.endswith("/files/access")
                     or re.fullmatch(
-                        r"/databridge/api/v1/docs/[^/]+/download", request.url.path
+                        r"/(?:databridge/api|cm-api)/v1/docs/[^/]+/download", request.url.path
                     )
                 )
                 and request.headers.get("sec-fetch-site") == "same-origin"
@@ -170,6 +172,8 @@ def create_app(
             )
         return response
 
+    @app.api_route("/cm-api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @app.api_route("/cm-web/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     @app.api_route(
         "/databridge/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
     )
@@ -189,7 +193,7 @@ def create_app(
             if path == "auth/status" and request.method == "GET":
                 # The local portal authenticates to DataBridge on the user's behalf.
                 # Verify that credential before allowing the UI to enter.
-                checked = await client.get("/api/auth/check")
+                checked = await client.get("/api/v1/cm/datasources", params={"size": 1})
                 if checked.status_code != 200:
                     raise HTTPException(
                         502,
@@ -198,7 +202,7 @@ def create_app(
                 return {"required": False}
             upstream = client.build_request(
                 request.method,
-                "/api/" + path,
+                ("/web/" if request.url.path.startswith("/cm-web/") else "/api/") + path,
                 params=request.query_params,
                 content=await request.body(),
                 headers={
@@ -229,7 +233,11 @@ def create_app(
                 if isinstance(value, list):
                     return [local_urls(v) for v in value]
                 if isinstance(value, str) and value.startswith(bridge_url + "/api/"):
-                    return "/databridge" + value[len(bridge_url) :]
+                    return (
+                        "/cm-api/" + value[len(bridge_url + "/api/"):]
+                        if request.url.path.startswith(("/cm-api/", "/cm-web/"))
+                        else "/databridge" + value[len(bridge_url) :]
+                    )
                 return value
 
             return JSONResponse(
@@ -268,6 +276,18 @@ def create_app(
             raise HTTPException(404)
         return FileResponse(bridge_frontend / "index.html")
 
+    @app.get("/api/auth/status")
+    async def unified_auth_status(request: Request):
+        # The browser never receives the credential. Verify the gateway's Host
+        # identity before advertising the local, no-login session to both UIs.
+        try:
+            checked = await request.app.state.client.get("/api/v1/sessions", params={"limit": 1})
+        except httpx.HTTPError:
+            raise HTTPException(502, "Host unavailable") from None
+        if checked.status_code != 200:
+            raise HTTPException(502, "Host authentication failed")
+        return {"required": False, "enabled": False, "sso_enabled": False, "sso_login_path": ""}
+
     @app.get("/portal/config")
     async def public_config():
         return browser_config
@@ -285,8 +305,18 @@ def create_app(
         "/api/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
     )
     async def proxy(path, request: Request):
-        if not ROUTES.fullmatch(path):
+        if not safe_host_path(path, request.scope.get("raw_path", b"")):
             raise HTTPException(404, "Unsupported portal route")
+        methods = feature_methods(path)
+        if methods is not None:
+            if request.method not in methods:
+                raise HTTPException(405, "Unsupported portal method")
+        elif not ROUTES.fullmatch(path):
+            raise HTTPException(404, "Unsupported portal route")
+        if (path.startswith("usage/") and request.method != "GET") or (
+            path.endswith(("/tool-confirmation/answer", "/ui/answer")) and request.method != "POST"
+        ):
+            raise HTTPException(405, "Unsupported portal method")
         try:
             upstream = request.app.state.client.build_request(
                 request.method,
@@ -329,7 +359,7 @@ def create_app(
     @app.get("/{path:path}")
     async def frontend_file(path, request: Request):
         if (
-            path.startswith(("api/", "portal/"))
+            path.startswith(("api/", "portal/", "cm-api/", "cm-web/"))
             or "\\" in path
             or ".." in path.split("/")
         ):
@@ -340,6 +370,8 @@ def create_app(
             if exc.status_code != 404:
                 raise
         if path == "" or path == "console" or path.startswith("console/"):
+            return FileResponse(frontend / "index.html")
+        if bridge_url and not Path(path).suffix and not path.startswith("assets/"):
             return FileResponse(frontend / "index.html")
         raise HTTPException(404)
 

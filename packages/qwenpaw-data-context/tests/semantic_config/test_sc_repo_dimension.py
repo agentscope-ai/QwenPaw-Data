@@ -125,6 +125,27 @@ async def test_insert_and_response_contract():
     await db.close()
 
 
+async def test_update_accepts_omitted_legacy_priority():
+    db = await new_memory_session()
+    try:
+        domain_id = await _seed_domain(db)
+        dimension_id = await repo.insert(
+            db,
+            DimensionCreate(domain_id=domain_id, dimension_name="城市", priority="50"),
+            tenant_id=TID,
+            workspace_id=WID,
+            created_by="alice",
+        )
+
+        updated = await service.update(
+            db, dimension_id, DimensionUpdate(description="新版描述"), _principal()
+        )
+        assert updated.description == "新版描述"
+        assert updated.priority == "50"
+    finally:
+        await db.close()
+
+
 async def test_priority_defaults_normal():
     db = await new_memory_session()
     domain_id = await _seed_domain(db)

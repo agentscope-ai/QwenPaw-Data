@@ -91,6 +91,7 @@ class ChatSchema(ApiModel):
 
 class SessionSchema(ApiModel):
     id: str
+    display_code: str = ""
     owner_user_id: str
     agent_id: str
     title: str

@@ -12,9 +12,9 @@
     config.py      全部参数。**叶子** —— 不 import algo 内任何模块
     snapshots/     6 个产出类型。**叶子** —— 只 import config
     inputs/        外部来源（远程库 → 原始数据）。不引入 sqlglot
-    parser/        原始 SQL → 四类证据（算法移植自 profiling/algorithm）
+    parser/        原始 SQL → 四类证据
     stores.py      落盘去向：parquet / excel / emit / memory
-    contexts/      7 个 context：管理 snapshot 的本地生命周期
+    contexts/      11 个 context：管理 snapshot 的本地生命周期
     evidence.py    投影 → 装配 → 门禁
     handlers/      LLM handler 层：④ 的四个任务实现（算法移植自 algorithm）
     profiler.py    五步流水线 + 组合根

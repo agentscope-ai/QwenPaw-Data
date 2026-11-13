@@ -3,12 +3,14 @@ from __future__ import annotations
 import aiosqlite
 from qwenpaw_data_auth import Principal
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from semantic_config.db import get_db
 from semantic_config.models.datasource import (
     ConnectionTestRequest,
     ConnectionTestResponse,
     DatasourceCreate,
+    DatasourceMetadataResponse,
     DatasourceResponse,
     DatasourceUpdate,
 )
@@ -17,6 +19,17 @@ from semantic_config.principal import current_principal
 from semantic_config.services import datasource_service as service
 
 router = APIRouter(prefix="/api/semantic-config/datasource", tags=["datasource"])
+metadata_router = APIRouter(prefix="/api/v1/cm", tags=["datasource"])
+
+
+@metadata_router.get("/datasources", response_model=Page[DatasourceMetadataResponse])
+async def list_datasource_metadata(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=100, ge=1, le=500),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    return await service.list_metadata_page(db, page, size, principal)
 
 
 @router.post("", response_model=DatasourceResponse)

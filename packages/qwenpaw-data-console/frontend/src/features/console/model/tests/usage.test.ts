@@ -306,10 +306,10 @@ test('four clients encode snapshot, preserve signal and cookies, and omit identi
     assert.deepEqual(
       seen.map(({ url }) => url.pathname),
       [
-        '/api/usage/summary',
-        '/api/usage/timeseries',
-        '/api/usage/sessions',
-        '/api/usage/background-tasks',
+        '/api/v1/usage/summary',
+        '/api/v1/usage/timeseries',
+        '/api/v1/usage/sessions',
+        '/api/v1/usage/background-tasks',
       ],
     );
     for (const { url, init } of seen) {

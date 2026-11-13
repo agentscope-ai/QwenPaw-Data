@@ -35,6 +35,7 @@ import { createCMModelConfigGate } from '@/services/cmModelConfig';
 import { useAppI18n } from '@/i18n';
 import { dataConsoleApi } from '../../api/client';
 import { subscribeChatEvents } from '../../api/events';
+import { dispatchPendingUi, setUiSession } from '../../ui-runtime/runtime';
 import type {
   AskUserQuestionToolResult,
   ArtifactComment,
@@ -62,11 +63,6 @@ import {
 } from './toolConfirmationSubmission';
 import { createMcpFailureMessage } from './mcpFailureMessage';
 import { createDraftQueueSessionId } from './draftQueueSessionId';
-import {
-  selectCronFollowUpChat,
-  selectCronFollowUpExpectation,
-  type CronFollowUpExpectation,
-} from './cronFollowUp';
 import { clearAcceptedRuntimeInputDraft, moveRuntimeInputCache } from './runtimeInputCache';
 import { selectPendingAskUserQuestion } from './askUserQuestion';
 import { withRunningChatClarification } from './sessionClarification';
@@ -197,8 +193,6 @@ interface ConsoleState {
 }
 
 const EMPTY_HISTORICAL_SEGMENT_KEYS: ReadonlySet<string> = new Set();
-const CRON_FOLLOW_UP_POLL_INTERVAL_MS = 500;
-const CRON_FOLLOW_UP_POLL_ATTEMPTS = 20;
 const SIDEBAR_SESSION_PAGE_SIZE = 20;
 
 function matchesSidebarQuery(session: ConsoleSession, searchText: string) {
@@ -348,8 +342,6 @@ export function useConsoleChat(
   const uploadedAttachmentSessionsRef = useRef(new Map<string, string>());
   const onSessionResolvedRef = useRef(onSessionResolved);
   const hasLoadedSessionCatalogRef = useRef(false);
-  const cronFollowUpPollAbortRef = useRef<AbortController | null>(null);
-  const processedCronTriggerChatIdsRef = useRef(new Set<string>());
   const reportedSessionRevisitRef = useRef<string | null>(null);
   const [steerArrival] = useState(() => createSteerArrival());
   onSessionResolvedRef.current = onSessionResolved;
@@ -357,6 +349,13 @@ export function useConsoleChat(
   const accessRef = useRef(new SessionAccess(auth.revision));
   if (accessRef.current.revision !== auth.revision)
     accessRef.current = new SessionAccess(auth.revision);
+  useEffect(() => {
+    const session = state.session;
+    if (!session || !accessRef.current.canWrite(session.id)) return;
+    for (const projection of state.projections) {
+      if (projection.chat.session_id === session.id) dispatchPendingUi(projection);
+    }
+  }, [state.session, state.projections]);
   const [, refreshAccess] = useState(0);
   const navigationRef = useRef({
     id: requestedSessionId ?? null,
@@ -909,137 +908,6 @@ export function useConsoleChat(
     }
   }, []);
 
-  const applyCronFollowUpSnapshot = useCallback(
-    async ({
-      expectation,
-      snapshot,
-      triggeringSequence,
-      signal,
-    }: {
-      expectation: CronFollowUpExpectation;
-      snapshot: Awaited<ReturnType<typeof dataConsoleApi.getSnapshot>>;
-      triggeringSequence: number;
-      signal: AbortSignal;
-    }): Promise<boolean> => {
-      const followUpChat = selectCronFollowUpChat(snapshot.chats, expectation, triggeringSequence);
-      if (!followUpChat) return false;
-
-      const current = stateRef.current;
-      if (current.session?.id !== expectation.sessionId) return true;
-      const knownChatIds = new Set(current.projections.map(({ chat }) => chat.id));
-      const discoveredChats = snapshot.chats
-        .filter((chat) => chat.sequence > triggeringSequence && !knownChatIds.has(chat.id))
-        .sort((left, right) => left.sequence - right.sequence);
-      if (!discoveredChats.length) return true;
-
-      if (signal.aborted) return true;
-      const latest = stateRef.current;
-      if (latest.session?.id !== expectation.sessionId) return true;
-      const latestKnownChatIds = new Set(latest.projections.map(({ chat }) => chat.id));
-      const newProjections = discoveredChats
-        .filter((chat) => !latestKnownChatIds.has(chat.id))
-        .map((chat) => createChatStreamProjection(chat));
-      if (!newProjections.length) return true;
-
-      const next: ConsoleState = {
-        session: snapshot.session,
-        projections: [...latest.projections, ...newProjections].sort(
-          (left, right) => left.chat.sequence - right.chat.sequence,
-        ),
-        currentChatId: followUpChat.id,
-        initialHistoricalSegmentKeys: latest.initialHistoricalSegmentKeys,
-      };
-      stateRef.current = next;
-      setState(next);
-      if (accessRef.current.canWrite(snapshot.session.id)) {
-        setSessions((items) =>
-          items.map((item) => (item.id === snapshot.session.id ? snapshot.session : item)),
-        );
-      }
-      setRuntimeSnapshotVersion((version) => version + 1);
-      setConnectionStatus(followUpChat.status === 'running' ? 'connecting' : 'idle');
-
-      void hydrateTraces(discoveredChats, signal);
-      return true;
-    },
-    [hydrateTraces],
-  );
-
-  const pollForCronFollowUp = useCallback(
-    (expectation: CronFollowUpExpectation, triggeringSequence: number) => {
-      cronFollowUpPollAbortRef.current?.abort();
-      const controller = new AbortController();
-      cronFollowUpPollAbortRef.current = controller;
-
-      void (async () => {
-        for (let attempt = 0; attempt < CRON_FOLLOW_UP_POLL_ATTEMPTS; attempt += 1) {
-          if (attempt > 0) {
-            await new Promise((resolve) => {
-              window.setTimeout(resolve, CRON_FOLLOW_UP_POLL_INTERVAL_MS);
-            });
-          }
-          if (controller.signal.aborted) return;
-
-          try {
-            const snapshot = await dataConsoleApi.getSnapshot(
-              expectation.sessionId,
-              controller.signal,
-            );
-            if (controller.signal.aborted) return;
-            const applied = await applyCronFollowUpSnapshot({
-              expectation,
-              snapshot,
-              triggeringSequence,
-              signal: controller.signal,
-            });
-            if (applied) return;
-          } catch {
-            if (controller.signal.aborted) return;
-          }
-        }
-      })().finally(() => {
-        if (cronFollowUpPollAbortRef.current === controller) {
-          cronFollowUpPollAbortRef.current = null;
-        }
-      });
-    },
-    [applyCronFollowUpSnapshot],
-  );
-
-  let latestProjection: ChatStreamProjection | null = null;
-  for (const projection of state.projections) {
-    if (!latestProjection || projection.chat.sequence > latestProjection.chat.sequence) {
-      latestProjection = projection;
-    }
-  }
-  const latestChatId = latestProjection?.chat.id ?? null;
-  const latestChatStatus = latestProjection?.chat.status ?? null;
-  const currentSessionId = state.session?.id ?? null;
-  const observedLatestChatRef = useRef({
-    chatId: latestChatId,
-    status: latestChatStatus,
-  });
-
-  useEffect(() => {
-    const previous = observedLatestChatRef.current;
-    observedLatestChatRef.current = {
-      chatId: latestChatId,
-      status: latestChatStatus,
-    };
-    const chatJustFinished =
-      previous.chatId === latestChatId &&
-      previous.status === 'running' &&
-      latestChatStatus !== null &&
-      latestChatStatus !== 'running';
-    if (!chatJustFinished || !latestProjection || !currentSessionId) return;
-    if (processedCronTriggerChatIdsRef.current.has(latestProjection.chat.id)) return;
-
-    const expectation = selectCronFollowUpExpectation(latestProjection.messages, currentSessionId);
-    if (!expectation) return;
-    processedCronTriggerChatIdsRef.current.add(latestProjection.chat.id);
-    pollForCronFollowUp(expectation, latestProjection.chat.sequence);
-  }, [latestChatId, latestChatStatus, latestProjection, currentSessionId, pollForCronFollowUp]);
-
   useEffect(
     () => () => {
       historyRequestRef.current?.abort();
@@ -1052,7 +920,6 @@ export function useConsoleChat(
       artifactController.dispose();
       sessionLoadAbortRef.current?.abort();
       runtimeStreamAbortRef.current?.abort();
-      cronFollowUpPollAbortRef.current?.abort();
     },
     [artifactController],
   );
@@ -1138,8 +1005,6 @@ export function useConsoleChat(
       return;
     }
 
-    cronFollowUpPollAbortRef.current?.abort();
-    processedCronTriggerChatIdsRef.current.clear();
     historyRequestRef.current?.abort();
     historyRequestRef.current = null;
     historyCursorRef.current = null;
@@ -1835,6 +1700,7 @@ export function useConsoleChat(
 
   const startNewSession = useCallback(() => {
     artifactController.ensureScope(null);
+    setUiSession(null);
     historyRequestRef.current?.abort();
     historyRequestRef.current = null;
     historyCursorRef.current = null;
@@ -1844,8 +1710,6 @@ export function useConsoleChat(
     sessionEpochRef.current += 1;
     sessionLoadAbortRef.current?.abort();
     runtimeSessionCreationRef.current = null;
-    cronFollowUpPollAbortRef.current?.abort();
-    processedCronTriggerChatIdsRef.current.clear();
     runtimeStreamAbortRef.current?.abort();
     runtimeStreamAbortRef.current = null;
 

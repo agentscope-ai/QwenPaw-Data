@@ -1,6 +1,6 @@
 """四个任务的全部 LLM prompt（仅通过 build 函数对外暴露）。
 
-移植自 ``profiling/algorithm/prompts.py``。dataset / column-role /
+dataset / column-role /
 name-normalization / dimension / metric 五段以旧实现为基础；新增 CALIBER
 实体语义匹配段，domain 段按 D2
 重写输出契约——不再要求模型生成 ``domain_of`` Python 代码（旧版 AST 校验后

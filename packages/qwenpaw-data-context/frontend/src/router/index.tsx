@@ -1,12 +1,12 @@
 import React from 'react';
-import { getContextBasePath } from '@/services/consoleConfig';
 import Layout from '@/layout/index';
 import AuthLayout from '@/layout/AuthLayout';
 import PermissionGuard from '@/components/PermissionGuard';
 import { getAgentCenterLanding } from '@/utils/redirectAfterAuth';
 import { useAuthStore } from '@/store/authStore';
 import type { Role } from '@/auth';
-import { Navigate, createBrowserRouter, redirect, useLocation } from 'react-router-dom';
+import { PageReady } from '../embedded/bridge';
+import { Navigate, redirect, useLocation, type RouteObject } from 'react-router-dom';
 
 export const ROUTES = {
   HOME: '/',
@@ -90,8 +90,6 @@ const NotFoundPage = React.lazy(() => import('@/pages/NotFoundPage'));
 const RouteErrorBoundary = React.lazy(() => import('@/pages/RouteErrorBoundary'));
 const NoPermissionPage = React.lazy(() => import('@/pages/NoPermissionPage'));
 const LoginPage = React.lazy(() => import('@/pages/Auth/Login'));
-const OnboardingPage = React.lazy(() => import('@/pages/Auth/Onboarding'));
-const ChooseAccountPage = React.lazy(() => import('@/pages/Auth/ChooseAccount'));
 const PlatformLoginPage = React.lazy(() => import('@/pages/Auth/PlatformLogin'));
 const RegisterPage = React.lazy(() => import('@/pages/Auth/Register'));
 const UserCenterConsolePage = React.lazy(() => import('@/pages/UserCenter/Console'));
@@ -105,7 +103,11 @@ const RawCypherPage = React.lazy(() => import('@/pages/RawCypher'));
 const guard = (
   resource: React.ComponentProps<typeof PermissionGuard>['resource'],
   element: React.ReactNode,
-) => <PermissionGuard resource={resource}>{element}</PermissionGuard>;
+) => (
+  <PermissionGuard resource={resource}>
+    <PageReady>{element}</PageReady>
+  </PermissionGuard>
+);
 
 /** Role-based guard for User Center pages (permission matrix does not cover them). */
 function RoleGuard({ roles, children }: { roles: Role[]; children: React.ReactNode }) {
@@ -186,13 +188,14 @@ async function homeLoader() {
   return null;
 }
 
-const router = createBrowserRouter([
+export function createContextRoutes(): RouteObject[] {
+  return [
   {
     element: <AuthLayout />,
     children: [
       { path: ROUTES.LOGIN, element: <LoginPage /> },
-      { path: ROUTES.ONBOARDING, element: <OnboardingPage /> },
-      { path: ROUTES.CHOOSE_ACCOUNT, element: <ChooseAccountPage /> },
+      { path: ROUTES.ONBOARDING, element: <Navigate to={ROUTES.LOGIN} replace /> },
+      { path: ROUTES.CHOOSE_ACCOUNT, element: <Navigate to={ROUTES.LOGIN} replace /> },
       { path: ROUTES.PLATFORM_LOGIN, element: <PlatformLoginPage /> },
       { path: ROUTES.REGISTER, element: <RegisterPage /> },
     ],
@@ -481,6 +484,5 @@ const router = createBrowserRouter([
       },
     ],
   },
-], { basename: getContextBasePath() });
-
-export default router;
+  ];
+}

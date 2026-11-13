@@ -48,6 +48,7 @@ async def get_dataset(
 @router.get("", response_model=Page[DatasetMetaResponse])
 async def list_dataset(
     datasource_id: str | None = Query(default=None),
+    source_datasource: str | None = Query(default=None, deprecated=True),
     domain_id: int | None = Query(default=None),
     dataset_name: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
@@ -57,7 +58,7 @@ async def list_dataset(
 ):
     return await service.list_page(
         db,
-        datasource_id,
+        datasource_id if datasource_id is not None else source_datasource,
         domain_id,
         dataset_name,
         page,

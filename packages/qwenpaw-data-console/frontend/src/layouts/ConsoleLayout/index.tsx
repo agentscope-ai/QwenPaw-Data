@@ -1,8 +1,8 @@
 import { getAgentSettingsReturnPath } from '@/shared/navigation/sessionNavigation';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import GlobalProductNav from '@/features/console/components/GlobalProductNav';
+import GlobalProductNav from '@/features/console/components/GlobalProductNav/index';
 import {
   buildAllConsoleSessionsPath,
   buildConsoleSessionPath,
@@ -26,6 +26,7 @@ import { useAppI18n } from '@/i18n';
 import type { ConsoleLayoutContext } from './context';
 import { useSettlementCenter } from '@/features/console/model/settlement/useSettlementCenter';
 import ownerStyles from './index.module.less';
+import { RuntimeProvider } from '@/features/console/ui-runtime/RuntimeProvider';
 
 const styles = mergeStyleModules(ownerStyles, sharedStyles);
 const NARROW_LAYOUT_QUERY = '(max-width: 760px)';
@@ -35,6 +36,9 @@ export default function ConsoleLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const retainedSession = useRef<string | null>(null);
+  const retainedDatasource = useRef<string | null>(null);
+  const onConsoleRoute = location.pathname.startsWith('/console');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [navCollapsed, setNavCollapsed] = useState(false);
   const allSessionsPath = buildAllConsoleSessionsPath();
@@ -66,14 +70,23 @@ export default function ConsoleLayout() {
         showingChannelConfiguration ||
         showingMcpConfiguration ||
         showingUsage
-      ? null
-      : searchParams.get('session_id');
-  const requestedDatasourceId = showingUsage ? null : searchParams.get('datasource_id');
+      ? retainedSession.current
+      : onConsoleRoute
+        ? searchParams.get('session_id')
+        : retainedSession.current;
+  useLayoutEffect(() => {
+    if (location.pathname === '/console') retainedSession.current = requestedSessionId;
+  }, [location.pathname, requestedSessionId]);
+  if (location.pathname === '/console')
+    retainedDatasource.current = searchParams.get('datasource_id');
+  const requestedDatasourceId = retainedDatasource.current;
   const handleSessionResolved = useCallback(
     (session: { id: string }) => {
-      navigate(buildConsoleSessionPath(session.id), { replace: true });
+      retainedSession.current = session.id;
+      if (location.pathname === '/console')
+        navigate(buildConsoleSessionPath(session.id), { replace: true });
     },
-    [navigate],
+    [navigate, location.pathname],
   );
   const consoleController = useConsoleChat(
     requestedSessionId,
@@ -122,7 +135,7 @@ export default function ConsoleLayout() {
     [consoleController, settlementController, openMobileNav],
   );
 
-  return (
+  const hostShell = (
     <div className={`${styles.page} ${navCollapsed ? styles.pageNavCollapsed : ''}`}>
       {mobileNavOpen ? (
         <button
@@ -144,18 +157,12 @@ export default function ConsoleLayout() {
         settlementCenterActive={showingSettlementCenter}
         settlementUnreadCount={settlementController.unreadCount}
         onCreateSession={() => {
+          retainedSession.current = null;
           consoleController.startNewSession();
           navigate(buildNewConsoleSessionPath(), { replace: true });
         }}
         onSelectSession={(sessionId) => {
-          if (
-            sessionId !== consoleController.session?.id ||
-            showingAllSessions ||
-            showingSkillsHub ||
-            showingCronJobs ||
-            showingSettlementCenter ||
-            showingUsage
-          ) {
+          if (location.pathname !== '/console' || searchParams.get('session_id') !== sessionId) {
             navigate(buildConsoleSessionPath(sessionId));
           }
         }}
@@ -197,5 +204,18 @@ export default function ConsoleLayout() {
         </Suspense>
       </div>
     </div>
+  );
+
+  return (
+    <>
+      <RuntimeProvider sessionId={consoleController.session?.id ?? requestedSessionId} />
+      {!onConsoleRoute ? (
+        <Suspense fallback={<div role="status">{t('common.loading')}</div>}>
+          <Outlet context={layoutContext} />
+        </Suspense>
+      ) : (
+        hostShell
+      )}
+    </>
   );
 }

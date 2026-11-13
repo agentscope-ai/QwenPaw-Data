@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -51,6 +53,17 @@ class FakeStructuredLLM:
             raise item
         return item
 
+    async def generate_structured_output(self, *, messages, structured_model, **kwargs):
+        def text(message):
+            content = message.content
+            return content if isinstance(content, str) else "\n".join(block.text for block in content)
+
+        payload = await self.complete(
+            system=text(messages[0]), user=text(messages[-1]),
+            schema=structured_model, schema_name=structured_model["title"],
+        )
+        return SimpleNamespace(content=payload)
+
 
 class FakeCm:
     """Scripted SettlementCmClient.call replacement."""
@@ -58,6 +71,7 @@ class FakeCm:
     def __init__(self, records: dict[str, dict[str, Any]]):
         self.records = records
         self.datasource_id = "ds1"
+        self.access_token = None
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def call(self, tool_name, kwargs=None, *, max_len=2000, mode=None):
@@ -228,12 +242,12 @@ def _record(result: Any, status: str = "ok") -> dict[str, Any]:
 
 def test_cm_result_useful_search_metrics() -> None:
     item = _metric_item()
-    assert _cm_result_useful("search_metrics", _record([{"name": "GMV"}]), item)
-    assert not _cm_result_useful("search_metrics", _record([]), item)
+    assert _cm_result_useful("search_metrics", [{"metric_name": "GMV", "description": "支付金额"}], item)
+    assert not _cm_result_useful("search_metrics", [], item)
     assert not _cm_result_useful(
-        "search_metrics", _record({"status": "no_match"}), item
+        "search_metrics", {"status": "no_match"}, item
     )
-    assert not _cm_result_useful("search_metrics", _record("x", status="error: y"), item)
+    assert not _cm_result_useful("search_metrics", [{"metric_name": "GMV"}], item)
 
 
 def test_cm_result_useful_get_dataset_column_meaning() -> None:
@@ -243,19 +257,20 @@ def test_cm_result_useful_get_dataset_column_meaning() -> None:
     )
     with_desc = {"dataset_name": "orders", "columns": [{"column_name": "amt", "description": "金额"}]}
     without_desc = {"dataset_name": "orders", "columns": [{"column_name": "amt", "description": ""}]}
-    assert _cm_result_useful("get_dataset", _record(with_desc), item)
-    assert not _cm_result_useful("get_dataset", _record(without_desc), item)
-    assert not _cm_result_useful("get_dataset", _record({"ambiguous": True}), item)
+    assert _cm_result_useful("get_dataset", with_desc, item)
+    assert not _cm_result_useful("get_dataset", without_desc, item)
+    assert not _cm_result_useful("get_dataset", {"ambiguous": True}, item)
 
 
-def test_cm_result_useful_search_context() -> None:
+def test_cm_result_useful_dimension_and_retired_search_context() -> None:
     item = _metric_item()
     assert _cm_result_useful(
-        "search_context", _record({"relevance": {"status": "high"}}), item
+        "get_dimension", {"dimension_name": "渠道", "description": "订单来源"}, item
     )
     assert not _cm_result_useful(
-        "search_context", _record({"relevance": {"status": "no_match"}}), item
+        "get_dimension", {"dimension_name": "渠道", "ambiguous": True}, item
     )
+    assert not _cm_result_useful("search_context", {"relevance": {"status": "high"}}, item)
 
 
 # --- confirmer flow -----------------------------------------------------------
@@ -263,31 +278,34 @@ def test_cm_result_useful_search_context() -> None:
 
 async def test_confirmer_recommends_when_cm_has_no_hit() -> None:
     cm = FakeCm({"search_metrics": {"status": "ok", "result": "[]"}})
-    llm = FakeStructuredLLM()
-    confirmer = SettlementConfirmer(llm, cm=cm, datasource_id="ds1", domain_names=["交易"])
+    llm = FakeStructuredLLM([{"duplicate": False, "reason": "new knowledge"}])
+    confirmer = SettlementConfirmer(llm, session_id="s1", chat_id="c1", cm=cm, datasource_id="ds1", domain_names=["交易"])
+    confirmer._retriever.retrieve = AsyncMock(return_value='{"results": []}')
 
     confirmed, details = await confirmer.confirm_with_details([_metric_item()])
-    # primary + fallback search_context (down) → transport ok → new knowledge
+    # Empty metadata is not enough: graph retrieval and judgement must succeed.
     assert len(confirmed) == 1
     assert details[0]["recommend"] is True
-    assert llm.calls == []
+    confirmer._retriever.retrieve.assert_awaited_once()
+    assert len(llm.calls) == 1
 
 
 async def test_confirmer_drops_when_cm_unreachable() -> None:
     cm = FakeCm({})  # every call errors
     llm = FakeStructuredLLM()
-    confirmer = SettlementConfirmer(llm, cm=cm, datasource_id="ds1")
+    confirmer = SettlementConfirmer(llm, session_id="s1", chat_id="c1", cm=cm, datasource_id="ds1", domain_names=["交易"])
 
     confirmed, details = await confirmer.confirm_with_details([_metric_item()])
     assert confirmed == []
     assert details[0]["recommend"] is False
+    assert cm.calls and not llm.calls
 
 
 async def test_confirmer_llm_judges_duplicates() -> None:
-    hit = json.dumps([{"name": "GMV", "caliber": "支付金额"}], ensure_ascii=False)
+    hit = json.dumps([{"metric_name": "GMV", "description": "支付金额"}], ensure_ascii=False)
     cm = FakeCm({"search_metrics": {"status": "ok", "result": hit}})
     llm = FakeStructuredLLM([{"duplicate": True, "reason": "same"}])
-    confirmer = SettlementConfirmer(llm, cm=cm, datasource_id="ds1", domain_names=["交易"])
+    confirmer = SettlementConfirmer(llm, session_id="s1", chat_id="c1", cm=cm, datasource_id="ds1", domain_names=["交易"])
 
     confirmed, details = await confirmer.confirm_with_details([_metric_item()])
     assert confirmed == []
@@ -296,10 +314,10 @@ async def test_confirmer_llm_judges_duplicates() -> None:
 
 
 async def test_confirmer_llm_failure_is_conservative() -> None:
-    hit = json.dumps([{"name": "GMV"}])
+    hit = json.dumps([{"metric_name": "GMV", "description": "支付金额"}])
     cm = FakeCm({"search_metrics": {"status": "ok", "result": hit}})
     llm = FakeStructuredLLM()  # raises
-    confirmer = SettlementConfirmer(llm, cm=cm, datasource_id="ds1", domain_names=["交易"])
+    confirmer = SettlementConfirmer(llm, session_id="s1", chat_id="c1", cm=cm, datasource_id="ds1", domain_names=["交易"])
 
     confirmed, _ = await confirmer.confirm_with_details([_metric_item()])
     assert confirmed == []
@@ -308,12 +326,10 @@ async def test_confirmer_llm_failure_is_conservative() -> None:
 async def test_confirmer_domain_allowlist() -> None:
     cm = FakeCm({"search_metrics": {"status": "ok", "result": "[]"}})
     confirmer = SettlementConfirmer(
-        FakeStructuredLLM(), cm=cm, datasource_id="ds1", domain_names=["交易"]
+        FakeStructuredLLM(), session_id="s1", chat_id="c1", cm=cm, datasource_id="ds1", domain_names=["交易"]
     )
-    await confirmer.confirm([_metric_item(domain="不存在的域")])
-    tool, kwargs = cm.calls[0]
-    assert tool == "search_metrics"
-    assert "domain" not in kwargs
+    assert await confirmer.confirm([_metric_item(domain="不存在的域")]) == []
+    assert cm.calls == []
 
 
 # --- detector / dismissed filter ----------------------------------------------

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite, ScheduleSpec
+from qwenpaw_data.host.core.cron.files import JobFiles
 from qwenpaw_data.host.core.cron.manager import CronManager
 from qwenpaw_data.host.core.db.engine import (
     TEST_TENANT_ID,
@@ -20,6 +21,7 @@ from qwenpaw_data.host.core.db.engine import (
 from qwenpaw_data.host.core.db.tables import CronJobRow
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.session import Session
+from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.repositories.chat import ChatRepository
 from qwenpaw_data.host.core.repositories.cron import CronJobRepository
 from qwenpaw_data.host.core.repositories.session import SessionRepository
@@ -42,29 +44,11 @@ async def _wait_runs(mgr: CronManager) -> None:
         await asyncio.gather(*mgr._runs, return_exceptions=True)
 
 
-def _job(*, session_id: str | None = None) -> dict:
-    job = {
-        "id": "cron_test",
-        "user_id": TEST_USER_ID,
-        "tenant_id": TEST_TENANT_ID,
-        "workspace_id": TEST_WORKSPACE_ID,
-        "name": "agent-job",
-        "enabled": True,
-        "message": "hello cron",
-        "datasource_id": "ds_1",
-        "channel": "console",
-        "schedule": {"type": "cron", "cron": "0 9 * * *", "timezone": "UTC"},
-    }
-    if session_id is not None:
-        job["session_id"] = session_id
-    return job
-
-
 @pytest.mark.asyncio
 async def test_agent_run_requires_datasource() -> None:
     await reset_engine()
     await init_db()
-    job = _job()
+    job = await _insert_job()
     job["datasource_id"] = ""
     with pytest.raises(ValueError, match="datasource_id"):
         await _mgr()._run_console(job)
@@ -74,6 +58,7 @@ async def test_agent_run_requires_datasource() -> None:
 async def test_agent_run_mints_temporary_token() -> None:
     await reset_engine()
     await init_db()
+    job = await _insert_job()
     runtime = MagicMock()
     runtime.run = AsyncMock()
 
@@ -87,7 +72,7 @@ async def test_agent_run_mints_temporary_token() -> None:
             return_value=runtime,
         ),
     ):
-        await _mgr()._run_console(_job())
+        await _mgr()._run_console(job)
 
     mint.assert_called_once()
     identity = mint.call_args.args[0]
@@ -96,19 +81,58 @@ async def test_agent_run_mints_temporary_token() -> None:
     assert runtime.run.await_args.kwargs["access_token"] == "tok-minted"
 
 
+async def _stored_session_id(job_id: str) -> str | None:
+    async with get_session_factory()() as db:
+        row = await db.get(CronJobRow, job_id)
+        assert row is not None
+        return row.session_id
+
+
+async def _complete_chat(chat_runtime: MagicMock) -> None:
+    chat_id = chat_runtime.call_args.args[1]
+    async with get_session_factory()() as db:
+        repo = ChatRepository(db, TEST_IDENTITY)
+        chat = await repo.get(chat_id)
+        chat.mark_status("completed")
+        await repo.save(chat)
+        await db.commit()
+
+
 @pytest.mark.asyncio
-async def test_run_console_creates_session_when_job_has_no_session_id() -> None:
+async def test_reuse_policy_creates_session_once_and_writes_back_session_id() -> None:
     await reset_engine()
     await init_db()
+    job = await _insert_job()
+    chat_runtime = MagicMock()
+    chat_runtime.return_value.run = AsyncMock()
+    with patch("qwenpaw_data.host.core.cron.manager.ChatRuntime", chat_runtime):
+        await _mgr()._run_console(job)
+        session_id = await _stored_session_id(job["id"])
+        assert session_id
+        await _complete_chat(chat_runtime)
+        await _mgr()._run_console({**job, "session_id": session_id})
+    async with get_session_factory()() as db:
+        items, total = await SessionRepository(db, TEST_IDENTITY).list()
+    assert total == 1
+    assert items[0][0].id == session_id
+    assert items[0][0].chat_count == 2
+
+
+@pytest.mark.asyncio
+async def test_new_each_run_policy_creates_a_session_per_run() -> None:
+    await reset_engine()
+    await init_db()
+    job = await _insert_job(session_policy="new_each_run")
     runtime = MagicMock()
     runtime.run = AsyncMock()
     with patch("qwenpaw_data.host.core.cron.manager.ChatRuntime", return_value=runtime):
-        await _mgr()._run_console(_job())
-        await _mgr()._run_console(_job())
+        await _mgr()._run_console(job)
+        await _mgr()._run_console(job)
     async with get_session_factory()() as db:
         items, total = await SessionRepository(db, TEST_IDENTITY).list()
     assert total == 2
     assert items[0][0].id != items[1][0].id
+    assert await _stored_session_id(job["id"]) is None
 
 
 @pytest.mark.asyncio
@@ -124,11 +148,12 @@ async def test_run_console_reuses_existing_session() -> None:
     async with get_session_factory()() as db:
         await SessionRepository(db, TEST_IDENTITY).add(existing)
         await db.commit()
+    job = await _insert_job(session_id=existing.id)
 
     runtime = MagicMock()
     runtime.run = AsyncMock()
     with patch("qwenpaw_data.host.core.cron.manager.ChatRuntime", return_value=runtime):
-        await _mgr()._run_console(_job(session_id=existing.id))
+        await _mgr()._run_console(job)
     async with get_session_factory()() as db:
         items, total = await SessionRepository(db, TEST_IDENTITY).list()
     assert total == 1
@@ -137,11 +162,91 @@ async def test_run_console_reuses_existing_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_console_does_not_create_when_session_id_missing() -> None:
+async def test_change_datasource_replaces_bound_session_on_next_run() -> None:
     await reset_engine()
     await init_db()
-    with pytest.raises(ValueError, match="session not found"):
-        await _mgr()._run_console(_job(session_id="ses_missing"))
+    job = await _insert_job()
+    runtime = MagicMock()
+    runtime.run = AsyncMock()
+    with patch("qwenpaw_data.host.core.cron.manager.ChatRuntime", return_value=runtime):
+        await _mgr()._run_console(job)
+        original_id = await _stored_session_id(job["id"])
+        assert original_id
+        async with get_session_factory()() as db:
+            updated = await CronJobRepository(db, TEST_IDENTITY).replace(
+                job["id"],
+                CronJobWrite(
+                    name=job["name"],
+                    message=job["message"],
+                    datasource_id="ds_2",
+                    schedule=ScheduleSpec.model_validate(job["schedule"]),
+                ),
+            )
+            await db.commit()
+        assert updated["session_id"] is None
+        await _mgr()._run_console(updated)
+        new_id = await _stored_session_id(job["id"])
+        assert new_id and new_id != original_id
+        async with get_session_factory()() as db:
+            session = await SessionRepository(db, TEST_IDENTITY).get(new_id)
+        assert session.datasource_id == "ds_2"
+
+
+@pytest.mark.asyncio
+async def test_run_console_fails_when_bound_session_is_missing() -> None:
+    await reset_engine()
+    await init_db()
+    job = await _insert_job(session_id="ses_missing")
+    with pytest.raises(LookupError, match="session not found"):
+        await _mgr()._run_console(job)
+
+
+@pytest.mark.asyncio
+async def test_run_console_copies_job_files_into_session_uploads_every_run() -> None:
+    await reset_engine()
+    await init_db()
+    job = await _insert_job()
+    files = JobFiles(TEST_IDENTITY, job["id"])
+    files.add("a.txt", b"hello")
+    chat_runtime = MagicMock()
+    chat_runtime.return_value.run = AsyncMock()
+    try:
+        with patch("qwenpaw_data.host.core.cron.manager.ChatRuntime", chat_runtime):
+            await _mgr()._run_console(job)
+            session_id = await _stored_session_id(job["id"])
+            assert session_id
+            await _complete_chat(chat_runtime)
+            await _mgr()._run_console({**job, "session_id": session_id})
+            await _complete_chat(chat_runtime)
+            files.remove("a.txt")
+            files.add("a.txt", b"updated")
+            await _mgr()._run_console({**job, "session_id": session_id})
+            await _complete_chat(chat_runtime)
+            await _mgr()._run_console({**job, "session_id": session_id})
+        async with get_session_factory()() as db:
+            session = await SessionRepository(db, TEST_IDENTITY).get(session_id)
+            chats = [
+                await ChatRepository(db, TEST_IDENTITY).get(call.args[1])
+                for call in chat_runtime.call_args_list
+            ]
+        uploaded = (
+            UserAgentPaths.from_identity(
+                home=get_settings().paths.home,
+                identity=TEST_IDENTITY,
+                agent_id=session.agent_id,
+                session_id=session.id,
+            ).uploads_dir
+            / "a.txt"
+        )
+        assert uploaded.read_bytes() == b"hello"
+        first, second, third, fourth = (chat.attachments for chat in chats)
+        assert [ref["filename"] for ref in first] == ["a.txt"]
+        assert second == first
+        assert third != first
+        assert fourth == third
+        assert (uploaded.parent / third[0]["filename"]).read_bytes() == b"updated"
+    finally:
+        files.clear()
 
 
 async def _insert_once_due() -> dict:
@@ -166,6 +271,7 @@ async def _insert_once_due() -> dict:
 async def _insert_job(
     *,
     session_id: str | None = None,
+    session_policy: str = "reuse",
     due: bool = False,
     enabled: bool = True,
 ) -> dict:
@@ -175,13 +281,16 @@ async def _insert_job(
         message="hello cron",
         datasource_id="ds_1",
         channel="console",
-        session_id=session_id,
+        session_policy=session_policy,
         schedule=ScheduleSpec(type="cron", cron="0 9 * * *", timezone="UTC"),
     )
     async with get_session_factory()() as db:
         job = await CronJobRepository(db, TEST_IDENTITY).create(body)
         row = await db.get(CronJobRow, job["id"])
         assert row is not None
+        if session_id is not None:
+            row.session_id = session_id
+            job["session_id"] = session_id
         if due:
             row.next_run_at = utcnow() - timedelta(seconds=1)
         await db.commit()

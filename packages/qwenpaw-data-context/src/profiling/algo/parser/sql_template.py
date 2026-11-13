@@ -1,9 +1,5 @@
 """SQL 模板抽取。供 DATASET —— 高频重复的查询模式就是语义视图的候选。
 
-移植自 ``profiling/algorithm/profiler_dataset.py``（normalize_predicate /
-norm_key_and_template_from_root / is_dataset_select_kept /
-iter_dataset_occurrences）+ ``query_context._extract_dataset_records`` 的聚合。
-
 原版关键行为（全部保留）：
 
 - **宽表过滤**：只保留全 ``*`` 投影或投影数 >= 5 的 Select，

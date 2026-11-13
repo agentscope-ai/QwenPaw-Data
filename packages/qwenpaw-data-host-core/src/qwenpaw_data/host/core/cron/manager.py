@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from qwenpaw_data.host.core.channels.manager import ChannelManager
 from qwenpaw_data.host.core.channels.schema import ChannelType
+from qwenpaw_data.host.core.cron.files import JobFiles
 from qwenpaw_data.host.core.db.tables import CronJobRow
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.session import Session
@@ -23,7 +24,6 @@ from qwenpaw_data.host.core.repositories.session import SessionRepository
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
 from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.utils.auth import generate_temporary_token
-from qwenpaw_data.host.core.utils.cron import check_session_exists
 from qwenpaw_data.host.core.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,8 @@ class CronManager:
             task.add_done_callback(self._runs.discard)
 
     async def _session_busy(self, job: dict[str, Any]) -> bool:
+        if (job.get("session_policy") or "reuse") == "new_each_run":
+            return False
         session_id = (job.get("session_id") or "").strip()
         if not session_id:
             return False
@@ -174,20 +176,23 @@ class CronManager:
                 await db.commit()
 
     async def _run_console(self, job: dict[str, Any]) -> None:
-        identity = Identity(
-            user_id=job["user_id"],
-            tenant_id=job["tenant_id"],
-            workspace_id=job["workspace_id"],
-        )
         datasource_id = (job.get("datasource_id") or "").strip()
         if not datasource_id:
             raise ValueError("datasource_id is required for agent cron")
-        wanted_id = (job.get("session_id") or "").strip() or None
+        reuse = (job.get("session_policy") or "reuse") != "new_each_run"
+        session_id = (job.get("session_id") or "").strip() if reuse else ""
         async with self._session_factory() as db:
+            row = await db.get(CronJobRow, job["id"])
+            if row is None:
+                raise LookupError(f"cron job not found: {job['id']}")
+            identity = Identity(
+                user_id=row.user_id,
+                tenant_id=row.tenant_id,
+                workspace_id=row.workspace_id,
+            )
             session_repo = SessionRepository(db, identity)
-            if wanted_id:
-                await check_session_exists(db, identity, wanted_id, _CONSOLE)
-                session = await session_repo.get(wanted_id)
+            if session_id:
+                session = await session_repo.get(session_id)
             else:
                 session = Session.create(
                     identity=identity,
@@ -195,16 +200,19 @@ class CronManager:
                     channel=_CONSOLE,
                     datasource_id=datasource_id,
                 )
+                await session_repo.add(session)
+                if reuse:
+                    job["session_id"] = session.id
+                    row.session_id = session.id
+            attachments = await JobFiles(identity, row.id).copy_to_session(db, session)
             chat = session.open_chat(
                 text=job["message"],
                 datasource_id=datasource_id,
                 has_active_chat=await session_repo.has_active_chat(session.id),
                 enable_clarification=False,
+                attachments=attachments,
             )
-            if wanted_id:
-                await session_repo.save(session)
-            else:
-                await session_repo.add(session)
+            await session_repo.save(session)
             await ChatRepository(db, identity).add(chat)
             await db.commit()
             chat_id = chat.id

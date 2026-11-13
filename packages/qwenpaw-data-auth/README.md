@@ -15,7 +15,7 @@ QwenPawData 统一认证与授权服务，负责平台/租户/Workspace 三级�
 
 ## 服务与端口
 
-由仓库根目录 `scripts/start_all.sh` 一键启动（首次运行会自动生成缺失的密钥并写入根目录 `.env`）：
+由仓库根目录 `scripts/start.sh` 一键启动（首次运行会自动生成缺失的密钥并写入根目录 `.env`）：
 
 | 服务 | 默认地址 | 说明 |
 | --- | --- | --- |
@@ -113,7 +113,7 @@ QwenPawData 统一认证与授权服务，负责平台/租户/Workspace 三级�
 
 平台首次初始化需要 Bootstrap Token，它就是环境变量 `QWENPAW_DATA_PLATFORM_BOOTSTRAP_TOKEN` 的值：
 
-- 运行过 `scripts/start_all.sh` 后，会自动生成并写入仓库根目录 `.env`，直接查看即可：
+- 运行过 `scripts/start.sh` 后，会自动生成并写入仓库根目录 `.env`，直接查看即可：
 
   ```bash
   grep QWENPAW_DATA_PLATFORM_BOOTSTRAP_TOKEN .env
@@ -151,7 +151,7 @@ curl -X POST http://localhost:8088/api/platform/tenants \
 新租户初始为 `provisioning` 状态，其 tenant_admin 账号为 `pending`，**在 Workspace 的 Neo4j 实例就绪前无法登录**。开发环境流程：
 
 1. `POST /api/platform/tenants/{tenant_id}/provision`（或控制台按钮）把默认 Workspace 加入开通队列；
-2. `scripts/common/workspace_provisioner.py`（`start_all.sh` 已后台启动）领取任务，用 Docker 启动该 Workspace 专属 Neo4j 并回写 `endpoint_ref/secret_ref`；
+2. `scripts/common/workspace_provisioner.py`（`scripts/start.sh` 已后台启动）领取任务，用 Docker 启动该 Workspace 专属 Neo4j 并回写 `endpoint_ref/secret_ref`；
 3. 就绪后租户与 tenant_admin 自动转为 `active`。
 
 生产环境由外部 provisioner 完成后调用 `POST /api/platform/tenants/{tenant_id}/resume` 上报实例信息。

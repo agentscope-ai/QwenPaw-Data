@@ -26,7 +26,7 @@ Environment:
   DOCKER_START_TIMEOUT        Seconds to wait after opening Docker Desktop on macOS. Default: 120
   CONTEXT_PYTHON              Python executable. Default: packages/qwenpaw-data-context/.venv/bin/python
 
-The Context frontend binds to 127.0.0.1:3000 with Vite strictPort enabled.
+The Context frontend binds to 127.0.0.1:${CONTEXT_FRONTEND_PORT:-3000} with Vite strictPort enabled.
 EOF
 }
 
@@ -46,6 +46,7 @@ frontend_port="3000"
 # shellcheck source=scripts/common/env.sh
 source "${script_dir}/common/env.sh"
 load_qwenpaw_data_env
+frontend_port="${CONTEXT_FRONTEND_PORT:-3000}"
 
 host="${CONTEXT_HOST:-127.0.0.1}"
 port="${CONTEXT_PORT:-8765}"
@@ -172,52 +173,6 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-ensure_docker_running() {
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "Docker CLI was not found. Install Docker Desktop to start local Neo4j." >&2
-    exit 1
-  fi
-
-  if docker info >/dev/null 2>&1; then
-    return
-  fi
-
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    local timeout="${DOCKER_START_TIMEOUT:-120}"
-    if [[ ! "${timeout}" =~ ^[0-9]+$ || "${timeout}" -le 0 ]]; then
-      echo "DOCKER_START_TIMEOUT must be a positive integer: ${timeout}" >&2
-      exit 2
-    fi
-
-    echo "Docker daemon is not running. Opening Docker Desktop..."
-    if ! open -a Docker >/dev/null 2>&1; then
-      echo "Failed to open Docker Desktop. Start Docker manually, then retry." >&2
-      exit 1
-    fi
-
-    local start_time now elapsed
-    start_time="$(date +%s)"
-    while true; do
-      if docker info >/dev/null 2>&1; then
-        echo "Docker daemon is running."
-        return
-      fi
-
-      now="$(date +%s)"
-      elapsed=$((now - start_time))
-      if [[ "${elapsed}" -ge "${timeout}" ]]; then
-        echo "Timed out waiting for Docker Desktop to start after ${timeout}s." >&2
-        echo "Start Docker manually, then retry." >&2
-        exit 1
-      fi
-      sleep 2
-    done
-  fi
-
-  echo "Docker daemon is not running. Start Docker to start local Neo4j." >&2
-  exit 1
-}
-
 start_databases() {
   local backend
   backend="$(qwenpaw_data_graph_backend)" || exit $?
@@ -232,18 +187,40 @@ start_databases() {
     env_args=(--env-file "${QWENPAW_DATA_ENV_FILE}")
   fi
   echo "Graph backend: neo4j (starting local container)"
-  ensure_docker_running
-  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    run docker compose "${env_args[@]}" -f "${context_root}/docker-compose.yml" up -d
-    return
+  qwenpaw_data_ensure_docker_running
+  local compose
+  if docker compose version >/dev/null 2>&1; then
+    compose=(docker compose)
+  elif command -v docker-compose >/dev/null 2>&1; then
+    compose=(docker-compose)
+  else
+    echo "Docker Compose was not found. Install Docker Compose to start local Neo4j." >&2
+    exit 1
   fi
-  if command -v docker-compose >/dev/null 2>&1; then
-    run docker-compose "${env_args[@]}" -f "${context_root}/docker-compose.yml" up -d
-    return
+
+  local http_port="${NEO4J_HTTP_PORT:-7474}" bolt_port="${NEO4J_BOLT_PORT:-7687}"
+  local project="${COMPOSE_PROJECT_NAME:-}" legacy
+  if [[ -z "${project}" ]]; then
+    project="qwenpaw-data-context-${http_port}-${bolt_port}"
+    # Keep the original volume for the default ports and for an existing
+    # legacy container on matching custom ports.
+    legacy="$(docker container inspect --format \
+      '{{index .Config.Labels "com.docker.compose.project"}}:{{(index (index .HostConfig.PortBindings "7474/tcp") 0).HostPort}}:{{(index (index .HostConfig.PortBindings "7687/tcp") 0).HostPort}}' \
+      qwenpaw-data-neo4j 2>/dev/null)" || legacy=""
+    if [[ "${legacy}" == "qwenpaw-data-context:${http_port}:${bolt_port}" ||
+          ( "${legacy}" != qwenpaw-data-context:* && "${http_port}:${bolt_port}" == "7474:7687" ) ]]; then
+      project=qwenpaw-data-context
+    fi
   fi
-  echo "Docker Compose was not found. Install Docker Compose to start local Neo4j." >&2
-  exit 1
+
+  run "${compose[@]}" ${env_args[@]+"${env_args[@]}"} --project-name "${project}" \
+    -f "${context_root}/docker-compose.yml" up -d --no-recreate
 }
+
+qwenpaw_data_require_free_port "Context API" "${port}"
+if [[ "${skip_frontend}" != "1" ]]; then
+  qwenpaw_data_require_free_port "Context frontend" "${frontend_port}"
+fi
 
 cd "${context_root}"
 
@@ -281,7 +258,7 @@ if [[ "${skip_frontend}" != "1" ]]; then
   # .tsx and the browser fails to parse the TS `!` / JSX).
   (
     cd "${frontend_root}"
-    VITE_API_BASE_URL="" SERVICE_BASE_URL="${context_url}" \
+    exec env VITE_API_BASE_URL="" SERVICE_BASE_URL="${context_url}" \
       "${vite_bin}" \
         --host "127.0.0.1" \
         --port "${frontend_port}" \

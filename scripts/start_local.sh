@@ -17,6 +17,7 @@ Options:
   --context-log-level LEVEL   DataBridge service log level. Default: info
   --context-reload            Enable DataBridge service reload mode
   --skip-frontend             Start only the database and DataBridge API
+  --skip-neo4j                Use the configured Neo4j without starting a local instance
   -h, --help                  Show this help
 
 Environment:
@@ -48,6 +49,7 @@ context_frontend_port="3000"
 context_log_level="${CONTEXT_LOG_LEVEL:-info}"
 context_reload=0
 skip_frontend=0
+skip_neo4j=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-frontend)
       skip_frontend=1
+      shift
+      ;;
+    --skip-neo4j)
+      skip_neo4j=1
       shift
       ;;
     -h|--help)
@@ -120,6 +126,9 @@ if [[ "${context_reload}" == "1" ]]; then
 fi
 if [[ "${skip_frontend}" == "1" ]]; then
   context_cmd+=(--skip-frontend)
+fi
+if [[ "${skip_neo4j}" == "1" ]]; then
+  context_cmd+=(--skip-neo4j)
 fi
 
 run "${context_cmd[@]}"

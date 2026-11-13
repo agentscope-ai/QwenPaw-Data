@@ -24,7 +24,7 @@ import {
   normalizeRuntimeSettings,
   saveRuntimeSettingsDraft,
 } from '@/features/console/model/chat/toolConfirmationSettings';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import SecretInput from '@/features/console/components/SecretInput';
 import ContextCompressionSettings from './ContextCompressionSettings';
 import type { ModelProvider, ProviderModel, RuntimeSettings } from '@/features/console/api/types';
@@ -376,13 +376,7 @@ function ProviderModels({ provider, onChange }: ProviderModelsProps) {
                     cancelText={t('common.cancel')}
                     onConfirm={() => void deleteModel(model)}
                   >
-                    <Button
-                      className={styles.modelResetButton}
-                      danger
-                      size="small"
-                      type="text"
-                      loading={deletingId === model.id}
-                    >
+                    <Button danger size="small" type="text" loading={deletingId === model.id}>
                       {model.source === 'override' ? t('agent.restoreBuiltin') : t('common.delete')}
                     </Button>
                   </Popconfirm>
@@ -693,6 +687,7 @@ export default function AgentSettingsPage() {
 
         {!loading && !loadError ? (
           <Tabs
+            className={styles.tabs}
             defaultActiveKey="models"
             items={[
               {

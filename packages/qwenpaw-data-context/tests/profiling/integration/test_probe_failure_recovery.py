@@ -191,6 +191,41 @@ async def _readback(env):
     return task, stage, rows, latest
 
 
+@pytest.mark.parametrize("wait_for_provider", [False, True])
+async def test_shutdown_settles_running_probe_in_sqlite(
+    probe_env, monkeypatch, wait_for_provider
+):
+    from unittest.mock import AsyncMock
+
+    from profiling.provider import ProbeContext
+
+    entered = asyncio.Event()
+
+    class Provider:
+        async def probe_biz_domains(self, ctx, sink):
+            entered.set()
+            await asyncio.Event().wait()
+
+    ctx = ProbeContext(probe_env.datasource_id, "POSTGRESQL", {}, probe_env.admin)
+    monkeypatch.setattr(
+        orchestrator.ctx_builder, "build_context", AsyncMock(return_value=ctx)
+    )
+    monkeypatch.setattr(orchestrator, "load_provider", Provider)
+    async with probe_env.factory() as conn:
+        await orchestrator.submit(conn, probe_env.datasource_id, "BIZ_DOMAIN", probe_env.admin)
+        if wait_for_provider:
+            await asyncio.wait_for(entered.wait(), 5)
+        async with asyncio.timeout(5):
+            await orchestrator.shutdown_probes()
+
+    task, stage, _, latest = await _readback(probe_env)
+    assert task.status == "STOPPED"
+    assert latest["status"] == "STOPPED"
+    assert stage["status"] != "PROBING"
+    assert not orchestrator._REGISTRY
+    assert not orchestrator._TOKENS
+
+
 @pytest.mark.parametrize("mode", ["create", "rerun", "refine"])
 async def test_probe_usage_detaches_session_but_preserves_auth(
     probe_env, monkeypatch, mode

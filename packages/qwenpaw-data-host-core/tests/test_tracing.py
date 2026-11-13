@@ -17,11 +17,14 @@ from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext, ModelUs
 from qwenpaw_data.host.core.domain.preference import ActiveModel
 from qwenpaw_data.host.core.providers.factory import build_model
 from qwenpaw_data.host.core.tracing.adapters import (
-    SessionTracer,
+    _ctx_fields,
     _HostSpanProcessor,
     _inject_cm_traceparent,
     attach_generation_span,
     attach_saved_chat_trace,
+)
+from qwenpaw_data.host.core.tracing.adapters import (
+    tracer as host_tracer,
 )
 from qwenpaw_data.host.core.tracing.records import (
     normalize_question,
@@ -41,7 +44,6 @@ from qwenpaw_data.tracing import (
     reset_warn_once,
 )
 from qwenpaw_data.tracing.core.trace.handles import _Generation
-from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
 from qwenpaw_data.tracing.runtime.common.propagation import (
     bind_trace_labels,
     reset_trace_labels,
@@ -49,6 +51,7 @@ from qwenpaw_data.tracing.runtime.common.propagation import (
 from qwenpaw_data.tracing.runtime.host.chat import (
     ChatTracer,
     tracer_end,
+    tracer_session,
     tracer_span,
     tracer_start,
 )
@@ -95,7 +98,7 @@ def test_new_trace_opens_an_independent_root(monkeypatch: pytest.MonkeyPatch) ->
             reply_trace_id = format(reply_span.get_span_context().trace_id, "032x")
             assert reply_trace_id == source_trace_id
             child = tracer_start(
-                session=BaseSessionTracer(user_id="u1", session_id="ses-1"),
+                tracer_session("u1", "ses-1"),
                 chat_id=chat_id,
                 step="settlement",
             )
@@ -191,7 +194,17 @@ def test_identity_from_principal_matches_row_identity() -> None:
     assert Identity.from_principal(principal) == from_row
 
 
-def test_session_tracer_uses_public_user_id() -> None:
+def _host_ctx(session_id: str = "ses-1", **request_context: object) -> SimpleNamespace:
+    return SimpleNamespace(
+        identity=Identity(user_id="seat-1", tenant_id="t1", workspace_id="w1"),
+        session_id=session_id,
+        chat_id="chat-" + "ab" * 16,
+        session_factory=None,
+        request_context=request_context,
+    )
+
+
+def test_host_tracer_uses_public_user_id() -> None:
     token = principal_ctx.set(
         Principal(
             user_id="seat-1",
@@ -201,25 +214,16 @@ def test_session_tracer_uses_public_user_id() -> None:
         )
     )
     try:
-        ctx = SimpleNamespace(
-            identity=Identity(user_id="seat-1", tenant_id="t1", workspace_id="w1"),
-            session_id="ses-1",
-            request_context={},
-        )
-        labels = SessionTracer.from_context(ctx).labels()
+        labels = host_tracer(_host_ctx())._labels_for_chat()
         assert labels["user.id"] == "seat-1"
         assert labels["langfuse.user.id"] == "seat-1"
     finally:
         principal_ctx.reset(token)
 
 
-def test_session_tracer_child_hangs_on_parent_session() -> None:
-    ctx = SimpleNamespace(
-        identity=Identity(user_id="seat-1", tenant_id="t1", workspace_id="w1"),
-        session_id="ses-child",
-        request_context={"parent_session_id": "ses-main"},
-    )
-    labels = SessionTracer.from_context(ctx).labels()
+def test_host_tracer_child_hangs_on_parent_session() -> None:
+    ctx = _host_ctx("ses-child", parent_session_id="ses-main")
+    labels = host_tracer(ctx)._labels_for_chat()
     assert labels["session.id"] == "ses-main"
     assert labels["langfuse.session.id"] == "ses-main"
     assert json.loads(labels["langfuse.trace.metadata"])["parent_session_id"] == (
@@ -227,15 +231,22 @@ def test_session_tracer_child_hangs_on_parent_session() -> None:
     )
 
 
-def test_session_tracer_falls_back_to_seat_id() -> None:
-    ctx = SimpleNamespace(
-        identity=Identity(user_id="seat-1", tenant_id="t1", workspace_id="w1"),
-        session_id="ses-1",
-        request_context={},
-    )
-    labels = SessionTracer.from_context(ctx).labels()
+def test_host_tracer_falls_back_to_seat_id() -> None:
+    labels = host_tracer(_host_ctx())._labels_for_chat()
     assert labels["user.id"] == "seat-1"
     assert labels["langfuse.user.id"] == "seat-1"
+
+
+def test_ctx_fields_normalize_datasource_and_datasets() -> None:
+    ctx = _host_ctx(datasource_id=" ds-1 ", dataset_names=[" a ", 1, " "])
+    _, _, extra = _ctx_fields(ctx)
+    assert extra == {
+        "workspace_id": "w1",
+        "datasource_id": "ds-1",
+        "dataset_names": [" a ", "1"],
+    }
+    _, _, bare = _ctx_fields(_host_ctx(datasource_id="  ", dataset_names=[]))
+    assert bare == {"workspace_id": "w1"}
 
 
 def test_trace_labels_reach_a_reply_end_task_without_baggage() -> None:
@@ -374,26 +385,50 @@ def test_stop_and_real_errors_stay_error() -> None:
     assert "exception" in [event.name for event in failed.events]
 
 
-def test_stamp_tool_state_keeps_terminal_values_only() -> None:
+@pytest.mark.asyncio
+async def test_stamp_tool_state_keeps_terminal_values_only() -> None:
     provider = TracerProvider()
     tracer = provider.get_tracer("test")
     with tracer.start_as_current_span("execute_tool") as span:
-        stamp_tool_state(SimpleNamespace(state="error"))
+        await stamp_tool_state(SimpleNamespace(state="error"))
         assert span.attributes["langfuse.observation.metadata.tool_state"] == "error"
         assert span.attributes["langfuse.observation.level"] == "ERROR"
         assert span.status.status_code == StatusCode.ERROR
         assert span.status.description == "error"
-        stamp_tool_state(SimpleNamespace(state="running"))
+        await stamp_tool_state(SimpleNamespace(state="running"))
         assert span.attributes["langfuse.observation.metadata.tool_state"] == "error"
         assert span.status.status_code == StatusCode.ERROR
     with tracer.start_as_current_span("execute_tool") as span:
-        stamp_tool_state(SimpleNamespace(state="success"))
+        await stamp_tool_state(SimpleNamespace(state="success"))
         assert span.attributes["langfuse.observation.level"] == "DEFAULT"
         assert span.status.status_code == StatusCode.OK
     with tracer.start_as_current_span("execute_tool") as span:
-        stamp_tool_state(SimpleNamespace(state="denied"))
+        await stamp_tool_state(SimpleNamespace(state="denied"))
         assert span.status.status_code == StatusCode.ERROR
         assert span.status.description == "denied"
+
+
+@pytest.mark.asyncio
+async def test_stamp_tool_state_sends_tool_failed_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from qwenpaw_data.host.core.agent.middleware import tracing as middleware
+
+    sent: list[tuple[str, float, str]] = []
+
+    async def fake_send(name: str, value: float) -> None:
+        sent.append((state, name, value))
+
+    monkeypatch.setattr(middleware, "tracer_send_span_score", fake_send)
+    tracer = TracerProvider().get_tracer("test")
+    for state in ("success", "error", "interrupted", "denied"):
+        with tracer.start_as_current_span("execute_tool"):
+            await stamp_tool_state(SimpleNamespace(state=state))
+    assert sent == [
+        ("success", "tool_failed", 0.0),
+        ("error", "tool_failed", 1.0),
+        ("interrupted", "tool_failed", 1.0),
+    ]
 
 
 @pytest.mark.asyncio
@@ -422,7 +457,7 @@ async def test_tracing_middleware_forwards_on_model_call() -> None:
 
 def _reply_middleware_with_captured_bound_stream():
     mw = TracingMiddleware()
-    mw._tracer = ChatTracer(session=BaseSessionTracer(user_id="u1", session_id="ses-1"))
+    mw._tracer = ChatTracer(session=tracer_session("u1", "ses-1"))
     captured = []
 
     async def passthrough(_agent, input_kwargs, next_handler):
@@ -506,7 +541,7 @@ async def test_reply_stream_cross_task_close_with_agentscope(
     monkeypatch.setattr(agentscope_trace, "_check_tracing_enabled", lambda: True)
     monkeypatch.setattr(agentscope_trace, "_get_tracer", lambda: tracer)
     mw = TracingMiddleware()
-    mw._tracer = ChatTracer(session=BaseSessionTracer(user_id="u1", session_id="ses-1"))
+    mw._tracer = ChatTracer(session=tracer_session("u1", "ses-1"))
     agent = SimpleNamespace(
         name="agent",
         state=SimpleNamespace(session_id="agentscope-session", reply_id=None),
@@ -538,7 +573,7 @@ def _end_tool_span(state: str | None, *, overwrite_ok: bool):  # -> ReadableSpan
     tracer = provider.get_tracer("test")
     with tracer.start_as_current_span("execute_tool") as span:
         if state is not None:
-            stamp_tool_state(SimpleNamespace(state=state))
+            asyncio.run(stamp_tool_state(SimpleNamespace(state=state)))
         if overwrite_ok:
             # AgentScope closes every clean tool stream with set_status(OK),
             # and the OTEL SDK lets OK overwrite ERROR — never the reverse.
@@ -1116,7 +1151,7 @@ async def test_biztrace_pipeline_opens_a_detached_root_span(
     chat_id = "chat-f33fa5fa9c8b4cb28ae4055f394f3ee5"
     source_trace_id = chat_id[5:]
     chat_tracer = ChatTracer(
-        session=BaseSessionTracer(user_id="u1", session_id="ses-1"),
+        tracer_session("u1", "ses-1"),
         chat_id=chat_id,
         step="biztrace",
     )

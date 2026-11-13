@@ -17,8 +17,9 @@ Initialize missing or changed dependencies and start the local QwenPawData stack
 Options:
   --install               Reinstall Python and frontend dependencies
   --skip-install          Do not install missing dependencies
-  --skip-host             Do not start QwenPaw Host
-  --skip-host-api         Start Host frontend only; skip Host API
+  --skip-host             Do not start QwenPaw Host (shared DB must already be initialized)
+  --skip-host-api         Start Host frontend only (shared DB must already be initialized)
+  --skip-neo4j            Use the configured Neo4j without starting a local instance
   --reload                Enable backend reload mode
   --context-reload        Alias of --reload
   --no-reload             Disable backend reload mode (default)
@@ -58,6 +59,7 @@ install_mode="auto"
 reload=0
 skip_host=0
 skip_host_api=0
+skip_neo4j=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,6 +77,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-host-api)
       skip_host_api=1
+      shift
+      ;;
+    --skip-neo4j)
+      skip_neo4j=1
       shift
       ;;
     --reload|--context-reload)
@@ -234,11 +240,13 @@ resolve_command() {
   return 1
 }
 
-if ! uv_cmd="$(resolve_command "${uv_cmd}")"; then
-  echo "uv was not found. Install it with: brew install uv" >&2
-  exit 1
+if [[ "${install_mode}" != "skip" ]]; then
+  if ! uv_cmd="$(resolve_command "${uv_cmd}")"; then
+    echo "uv was not found. Install it with: brew install uv" >&2
+    exit 1
+  fi
 fi
-if [[ "${graph_backend}" == "neo4j" ]] && ! command -v docker >/dev/null 2>&1; then
+if [[ "${graph_backend}" == "neo4j" && "${skip_neo4j}" != "1" ]] && ! command -v docker >/dev/null 2>&1; then
   echo "Docker CLI was not found. Install Docker Desktop to start local Neo4j." >&2
   exit 1
 fi
@@ -300,8 +308,10 @@ EOF
   echo "Docker daemon is ready."
 }
 
-if [[ "${graph_backend}" == "neo4j" ]]; then
+if [[ "${graph_backend}" == "neo4j" && "${skip_neo4j}" != "1" ]]; then
   ensure_docker_running
+elif [[ "${graph_backend}" == "neo4j" ]]; then
+  echo "Using configured Neo4j without starting a local instance."
 else
   echo "Graph backend: holo_age (${HOLO_AGE_HOST}:${HOLO_AGE_PORT:-8099}/${HOLO_AGE_DATABASE})"
 fi
@@ -313,7 +323,7 @@ install_python_dependencies() {
   if [[ ! -x "${python_cmd}" ]]; then
     create_venv=1
     install_requirements=1
-  elif ! "${python_cmd}" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
+  elif ! "${python_cmd}" -c "import fastapi, uvicorn, sqlalchemy, aiosqlite, neo4j, mcp" >/dev/null 2>&1; then
     install_requirements=1
   fi
   if [[ "${install_mode}" == "force" ]]; then
@@ -425,6 +435,11 @@ if [[ ! -x "${python_cmd}" ]]; then
   echo "Rerun without --skip-install." >&2
   exit 1
 fi
+if ! "${python_cmd}" -c "import fastapi, uvicorn, sqlalchemy, aiosqlite, neo4j, mcp"; then
+  echo "Context Python environment is missing or cannot import a core runtime dependency." >&2
+  echo "Install the Context requirements before starting, or rerun without --skip-install." >&2
+  exit 1
+fi
 if ! "${python_cmd}" -c "import qwenpaw_data_auth, context_manager, qwenpaw_data.tracing" >/dev/null 2>&1; then
   echo "Auth, Context or Tracing Python package is not installed." >&2
   echo "Rerun without --skip-install." >&2
@@ -498,28 +513,6 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-context_args=(--context-port "${context_port}")
-if [[ "${reload}" == "1" ]]; then
-  context_args+=(--context-reload)
-fi
-"${script_dir}/start_local.sh" "${context_args[@]+"${context_args[@]}"}" &
-context_pid="$!"
-
-auth_api_args=(
-  -m uvicorn
-  qwenpaw_data_auth.server:app
-  --host 127.0.0.1
-  --port 8088
-)
-if [[ "${reload}" == "1" ]]; then
-  # 只监听 auth 自己的源码；否则默认监听整个仓库根目录，
-  # context/host 包的改动（甚至别的 worktree 活动）都会把 auth 重启，
-  # 顺带打断登录态刷新与正在进行的请求。
-  auth_api_args+=(--reload --reload-dir "packages/qwenpaw-data-auth/src")
-fi
-"${python_cmd}" "${auth_api_args[@]}" &
-auth_api_pid="$!"
-
 if [[ "${start_host_api}" == "1" ]]; then
   host_api_args=(
     -m uvicorn
@@ -538,7 +531,49 @@ if [[ "${start_host_api}" == "1" ]]; then
   fi
   "${host_api_python}" "${host_api_args[@]}" &
   host_api_pid="$!"
+
+  # Context validates Host-owned tables during startup, so wait for Host's
+  # lifespan initialization before launching Context against a fresh database.
+  host_ready=0
+  for _attempt in {1..120}; do
+    if curl --fail --silent --connect-timeout 2 --max-time 3 --output /dev/null "http://localhost:${host_api_port}/api/auth/status"; then
+      host_ready=1
+      break
+    fi
+    if ! kill -0 "${host_api_pid}" >/dev/null 2>&1; then
+      echo "Host API exited before it became ready." >&2
+      exit 1
+    fi
+    sleep 1
+  done
+  if [[ "${host_ready}" != "1" ]]; then
+    echo "Timed out waiting for Host API on port ${host_api_port}." >&2
+    exit 1
+  fi
 fi
+
+context_args=(--context-port "${context_port}")
+if [[ "${reload}" == "1" ]]; then
+  context_args+=(--context-reload)
+fi
+if [[ "${skip_neo4j}" == "1" ]]; then
+  context_args+=(--skip-neo4j)
+fi
+"${script_dir}/start_local.sh" "${context_args[@]+"${context_args[@]}"}" &
+context_pid="$!"
+
+auth_api_args=(
+  -m uvicorn
+  qwenpaw_data_auth.server:app
+  --host 127.0.0.1
+  --port 8088
+)
+if [[ "${reload}" == "1" ]]; then
+  # Watch only Auth code so unrelated changes do not interrupt requests.
+  auth_api_args+=(--reload --reload-dir "packages/qwenpaw-data-auth/src")
+fi
+"${python_cmd}" "${auth_api_args[@]}" &
+auth_api_pid="$!"
 
 if [[ "${start_host_frontend}" == "1" ]]; then
   (
@@ -559,13 +594,20 @@ wait_for_url() {
   local started_at now
   started_at="$(date +%s)"
 
-  while ! curl --fail --silent --output /dev/null "${url}"; do
+  while true; do
     if ! kill -0 "${context_pid}" >/dev/null 2>&1 ||
        ! kill -0 "${auth_api_pid}" >/dev/null 2>&1 ||
        { [[ -n "${host_api_pid}" ]] &&
-         ! kill -0 "${host_api_pid}" >/dev/null 2>&1; }; then
+         ! kill -0 "${host_api_pid}" >/dev/null 2>&1; } ||
+       { [[ -n "${host_frontend_pid}" ]] &&
+         ! kill -0 "${host_frontend_pid}" >/dev/null 2>&1; } ||
+       { [[ -n "${provisioner_pid}" ]] &&
+         ! kill -0 "${provisioner_pid}" >/dev/null 2>&1; }; then
       echo "A service exited while waiting for ${label}." >&2
       return 1
+    fi
+    if curl --fail --silent --connect-timeout 2 --max-time 3 --output /dev/null "${url}"; then
+      break
     fi
     now="$(date +%s)"
     if (( now - started_at >= timeout )); then

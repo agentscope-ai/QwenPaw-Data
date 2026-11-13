@@ -91,8 +91,10 @@ class WorkspaceResolver:
     def health(self) -> bool:
         """Check the fixed runtime or the shared Workspace registry."""
         if self._connection is not None:
-            self.resolve(self._connection.tenant_id, self._connection.workspace_id)
-            return True
+            runtime = self.resolve(
+                self._connection.tenant_id, self._connection.workspace_id
+            )
+            return runtime.health().get("ok") is True
         try:
             with get_database().engine.connect() as connection:
                 row = connection.execute(

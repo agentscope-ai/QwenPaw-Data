@@ -170,6 +170,22 @@ async def test_sweep_isolates_each_pool_failure_and_stops_after_current_pass(mon
     assert visits.count("pass") == 1
 
 
+async def test_sweep_does_not_open_async_pool_after_success(monkeypatch):
+    visits = []
+
+    def sync():
+        visits.append("sync")
+
+    async def asynchronous():
+        visits.append("async")
+
+    monkeypatch.setattr(sweep_module, "_sweep_sync_engine", sync)
+    monkeypatch.setattr(sweep_module, "_sweep_async_engine", asynchronous)
+    monkeypatch.setattr(sweep_module, "_sweep_expired_csv", lambda: visits.append("csv"))
+    await sweep_module._sweep_once()
+    assert visits == ["sync", "csv"]
+
+
 def test_csv_cleanup_is_retention_bounded_and_never_follows_symlinks(monkeypatch):
     # Path doubles ensure this test never writes or deletes a real file.
     root = Mock()

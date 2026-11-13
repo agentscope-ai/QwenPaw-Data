@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -96,6 +97,49 @@ class _RecordingChannel(BaseChannel):
 
 def _native() -> NativePayload:
     return NativePayload(channel_id="test", sender_id="ou_s", content_parts=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bound", [False, True])
+async def test_datasource_card_uses_scoped_metadata(monkeypatch, bound: bool) -> None:
+    from qwenpaw_data.host.core.integrations import cm
+
+    items = [SimpleNamespace(datasource_id=f"source-{index}") for index in range(12)]
+    tokens = []
+
+    class Client:
+        def __init__(self, *, access_token):
+            tokens.append(access_token)
+
+        def list_datasource_metadata(self):
+            return SimpleNamespace(items=items)
+
+    monkeypatch.setattr(cm, "ContextManagerClient", Client)
+    channel = _RecordingChannel()
+    channel._resolve_access_token = AsyncMock(return_value="delegated-query-token")
+    channel.send_datasource_card = AsyncMock()
+    session = SimpleNamespace(id="session-test", datasource_id="source-0" if bound else None)
+    native = _native()
+    await channel._send_datasource_selection(native, session)
+    assert tokens == ["delegated-query-token"]
+    channel.send_datasource_card.assert_awaited_once_with(
+        native, session, items=items[:10], selectable=not bound,
+    )
+
+
+@pytest.mark.asyncio
+async def test_datasource_card_does_not_query_without_user_token(monkeypatch) -> None:
+    from qwenpaw_data.host.core.integrations import cm
+
+    def unexpected_client(**_kwargs):
+        pytest.fail("channel must not query Context without its user's token")
+
+    monkeypatch.setattr(cm, "ContextManagerClient", unexpected_client)
+    channel = _RecordingChannel()
+    channel._resolve_access_token = AsyncMock(return_value=None)
+    channel.send = AsyncMock()
+    await channel._send_datasource_selection(_native(), SimpleNamespace(id="session-test", datasource_id=None))
+    assert channel.send.await_count == 1
 
 
 class _FakeHub:

@@ -17,7 +17,7 @@ class WeavingRepository:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def record(self, task_id, entity, scope, changes, error):
+    def record(self, task_id, entity, scope, changes, error, *, skipped_dataset_ids):
         timestamp = datetime.now(timezone.utc).isoformat()
         audit = dict(
             tenant_id=scope.tenant_id,
@@ -36,7 +36,15 @@ class WeavingRepository:
                     status="failed" if error else "success",
                     applied=0 if error else len(changes),
                     change_count=len(changes),
-                    skipped="[]",
+                    skipped=json.dumps(
+                        [
+                            {
+                                "dataset_id": dataset_id,
+                                "reason": "missing_datasource_id",
+                            }
+                            for dataset_id in sorted(skipped_dataset_ids)
+                        ]
+                    ),
                     errors=json.dumps([error] if error else [], ensure_ascii=False),
                     **audit,
                 )

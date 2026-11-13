@@ -173,7 +173,7 @@ _DIMENSION = SheetSpec(
         _c("synonyms", multi=True, note="同义词，$$$ 分隔"),
         _c("dimension_type", note="维度类型，见附录 A"),
         _c("child_dimensions", multi=True, note="子维度名称，$$$ 分隔"),
-        _c("priority", note="HIGH / MEDIUM / LOW，缺省 MEDIUM"),
+        _c("priority", note="high / normal，兼容 HIGH / MEDIUM / LOW，缺省 MEDIUM"),
     ),
 )
 
@@ -340,8 +340,7 @@ def sheet_names(include_meta: bool = False) -> list[str]:
 def canonicalize_sheet_name(name: str) -> str | None:
     """把工作簿 sheet 名规范成 SPEC 01 名；未知则返回 None。
 
-    已移除旧 12-sheet 别名兼容：仅受理 SPEC 01 正名，旧工作簿先用
-    ``scripts/convert_workbook_spec01.py`` 一次性转换。
+    仅受理当前模板定义的 sheet 名；旧工作簿需按 SHEET_SPECS 的表头调整后导入。
     """
     if name in SHEET_SPECS:
         return name

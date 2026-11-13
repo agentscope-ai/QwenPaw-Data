@@ -42,7 +42,6 @@ dependencies = [
   "pyyaml>=6.0,<7.0",
   "aiosqlite>=0.22,<1.0",
   "neo4j>=5.28,<7.0",
-  "psycopg[binary]>=3.3.4,<4.0",
   "duckdb>=1.5,<2.0",
   # --- LLM / 检索 ---
   # openai 上限放宽以兼容 QwenPaw 主应用（QwenPaw 要求 openai>=2.0.0,<=2.33.0）
@@ -51,6 +50,7 @@ dependencies = [
   # --- SQL / 元数据 ---
   "sqlglot>=30.0,<31.0",
   "openpyxl>=3.1.5,<4.0",
+  "pandas>=2,<4",
   "pymysql>=1.1,<2.0",
   "jaydebeapi>=1.2,<2.0",
   "pyodps>=0.13,<1.0",
@@ -72,6 +72,8 @@ dependencies = [
 [project.optional-dependencies]
 bigquery = ["google-cloud-bigquery>=3.25,<4.0"]
 duckdb = ["duckdb>=1.0,<2.0", "duckdb-engine>=0.13,<1.0"]
+hologres = ["psycopg[binary]>=3.3.4,<4.0", "psycopg-pool>=3.2,<4.0"]
+postgres = ["psycopg[binary]>=3.3.4,<4.0"]
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/QwenPaw-Data"
@@ -89,6 +91,7 @@ packages = [
   "src/qwenpaw_data/context",
   "src/context_manager",
   "src/semantic_config",
+  "src/profiling",
 ]
 
 [tool.hatch.build.targets.sdist]

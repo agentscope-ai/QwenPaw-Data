@@ -29,6 +29,7 @@ async def test_set_cm_mcp_headers_writes_runtime_headers() -> None:
         dataset_names=["orders", "users"],
         session_id="ses_1",
         chat_id="chat_1",
+        context_model_header="private-model-binding",
     )
 
     assert client.mcp_config.headers == {"X-Keep": "yes"}
@@ -38,6 +39,7 @@ async def test_set_cm_mcp_headers_writes_runtime_headers() -> None:
         "dataset_name": "orders,users",
         "session_id": "ses_1",
         "chat_id": "chat_1",
+        "x-qwenpaw-model-binding": "private-model-binding",
     }
 
 
@@ -61,6 +63,7 @@ async def test_set_cm_mcp_headers_replaces_stale_runtime_headers() -> None:
         dataset_names=["stale"],
         session_id="ses_old",
         chat_id="chat_old",
+        context_model_header="old-private-model-binding",
     )
 
     await set_cm_mcp_headers(client, "fresh", datasource_id="postgresql-a")
@@ -70,3 +73,18 @@ async def test_set_cm_mcp_headers_replaces_stale_runtime_headers() -> None:
         "Authorization": "Bearer fresh",
         "datasource_id": "postgresql-a",
     }
+
+
+async def test_local_service_credential_never_replaces_delegated_access(monkeypatch):
+    from qwenpaw_data.host.core.utils import auth
+
+    client = _cm_client()
+    monkeypatch.setenv("QWENPAW_DATA_CONTEXT_API_TOKEN", "service-token")
+    monkeypatch.delenv("QWENPAW_DATA_CLIENT_API_TOKEN", raising=False)
+    await set_cm_mcp_headers(client, None)
+    assert client._runtime_headers == {"Authorization": "Bearer service-token"}
+    await set_cm_mcp_headers(client, "delegated-user")
+    assert client._runtime_headers == {"Authorization": "Bearer delegated-user"}
+    monkeypatch.setattr(auth, "auth_enabled", lambda: True)
+    await set_cm_mcp_headers(client, None)
+    assert client._runtime_headers == {}

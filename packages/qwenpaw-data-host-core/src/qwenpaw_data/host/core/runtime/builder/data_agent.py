@@ -24,18 +24,65 @@ from qwenpaw_data.host.core.agent.middleware import (
     ToolConfirmationMiddleware,
     ToolTimeoutMiddleware,
     TraceForwardMiddleware,
+    UiMiddleware,
 )
 from qwenpaw_data.host.core.agent.tools import (
     AskUserQuestionTool,
     CronJobTool,
 )
 from qwenpaw_data.host.core.agent.tools.plan_tools import build_plan_tools
+from qwenpaw_data.host.core.agent.tools.ui import build_ui_tools
 from qwenpaw_data.host.core.domain.model_usage import ModelUsageSource
+from qwenpaw_data.host.core.domain.ui import ui_tools_enabled
 from qwenpaw_data.host.core.providers.factory import build_model
 from qwenpaw_data.host.core.repositories.skill_store import SkillStoreRepo
 from qwenpaw_data.host.core.runtime.context import RunContext
 from qwenpaw_data.host.core.runtime.envelope import Envelope
 from qwenpaw_data.host.core.utils.mcp import bind_mcp_tool_timeout
+
+
+def _middlewares(run_context: RunContext, envelope: Envelope) -> list:
+    items = [
+        TracingMiddleware(run_context=run_context),
+        SteerMiddleware(run_context=run_context),
+        CompressTriggerMiddleware(run_context=run_context),
+        QueryLogMiddleware(run_context=run_context),
+    ]
+    if ui_tools_enabled():
+        items.append(UiMiddleware(run_context=run_context))
+    items.extend(
+        [
+            ToolConfirmationMiddleware(run_context=run_context),
+            ToolTimeoutMiddleware(run_context=run_context),
+            SqlArtifactMiddleware(run_context=run_context),
+            GlobalMemoryPromptMiddleware(run_context=run_context),
+            QwenPawDataPromptMiddleware(run_context=run_context),
+            DatasourcePromptMiddleware(run_context=run_context),
+            ContextUsageMiddleware(envelope=envelope),
+            TraceForwardMiddleware(
+                run_context=run_context,
+                envelope=envelope,
+            ),
+            FollowUpMiddleware(
+                run_context=run_context,
+                envelope=envelope,
+            ),
+            SettlementDetectionMiddleware(
+                run_context=run_context,
+                envelope=envelope,
+            ),
+            SkillEvolutionDetectionMiddleware(
+                run_context=run_context,
+                envelope=envelope,
+            ),
+            ConfirmedSettlementPromptMiddleware(
+                run_context=run_context,
+                envelope=envelope,
+            ),
+            PlanPromptMiddleware(),
+        ]
+    )
+    return items
 
 
 class DataAgentBuilder:
@@ -53,9 +100,14 @@ class DataAgentBuilder:
         tool_timeout = (
             config.tool_timeout_seconds if config.tool_timeout_enabled else None
         )
+        workspace_tools = await workspace.list_tools()
+        ui_tools = build_ui_tools(run_context)
+        if {tool.name for tool in workspace_tools} & {tool.name for tool in ui_tools}:
+            raise ValueError("UI tool name collision")
         return Toolkit(
             tools=[
-                *await workspace.list_tools(),
+                *workspace_tools,
+                *ui_tools,
                 *build_plan_tools(),
                 AskUserQuestionTool(),
                 CronJobTool(run_context),
@@ -87,40 +139,7 @@ class DataAgentBuilder:
                 usage=run_context.model_usage(ModelUsageSource.DATA_AGENT),
             ),
             toolkit=toolkit,
-            middlewares=[
-                TracingMiddleware(run_context=run_context),
-                SteerMiddleware(run_context=run_context),
-                CompressTriggerMiddleware(run_context=run_context),
-                QueryLogMiddleware(run_context=run_context),
-                ToolConfirmationMiddleware(run_context=run_context),
-                ToolTimeoutMiddleware(run_context=run_context),
-                SqlArtifactMiddleware(run_context=run_context),
-                GlobalMemoryPromptMiddleware(run_context=run_context),
-                QwenPawDataPromptMiddleware(run_context=run_context),
-                DatasourcePromptMiddleware(run_context=run_context),
-                ContextUsageMiddleware(envelope=envelope),
-                TraceForwardMiddleware(
-                    run_context=run_context,
-                    envelope=envelope,
-                ),
-                FollowUpMiddleware(
-                    run_context=run_context,
-                    envelope=envelope,
-                ),
-                SettlementDetectionMiddleware(
-                    run_context=run_context,
-                    envelope=envelope,
-                ),
-                SkillEvolutionDetectionMiddleware(
-                    run_context=run_context,
-                    envelope=envelope,
-                ),
-                ConfirmedSettlementPromptMiddleware(
-                    run_context=run_context,
-                    envelope=envelope,
-                ),
-                PlanPromptMiddleware(),
-            ],
+            middlewares=_middlewares(run_context, envelope),
             state=state,
             offloader=workspace,
             context_config=ContextConfig(

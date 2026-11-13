@@ -43,6 +43,8 @@ const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
   const { t } = useTranslation();
   const [form] = Form.useForm<DimensionFormValues>();
   const isEdit = record != null;
+  const initialPriority: DimensionPriority =
+    record?.priority?.trim().toLowerCase() === 'high' ? 'high' : 'normal';
   const [loading, setLoading] = useState(false);
   const [childOptions, setChildOptions] = useState<Array<{ label: string; value: string }>>([]);
   const { loadDomains, loadDimensionNames } = useCascadeFilterOptions();
@@ -73,7 +75,7 @@ const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
           synonyms: record.synonyms,
           dimension_type: record.dimension_type,
           child_dimensions: record.child_dimensions?.split('$$$').filter(Boolean),
-          priority: record.priority,
+          priority: initialPriority,
         });
         await Promise.all([loadDomains(), loadChildren(record.domain_id)]);
         return;
@@ -85,7 +87,7 @@ const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
       }
     };
     void initialize();
-  }, [form, initialFilter, loadChildren, loadDomains, record, visible]);
+  }, [form, initialFilter, initialPriority, loadChildren, loadDomains, record, visible]);
 
   const handleDomainChange = async (domainId?: number) => {
     form.setFieldValue('child_dimensions', undefined);
@@ -101,7 +103,7 @@ const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
         synonyms: values.synonyms || null,
         dimension_type: values.dimension_type || null,
         child_dimensions: values.child_dimensions?.join('$$$') || null,
-        priority: values.priority,
+        priority: !isEdit || values.priority !== initialPriority ? values.priority : undefined,
       };
       setLoading(true);
       if (record) {

@@ -4,7 +4,6 @@ Callers apply the supplied scope to every node and relationship. Unlike the
 retired query adapter, this does not parse queries or decode graph entities.
 """
 
-from psycopg import sql
 from pydantic_core import to_json
 
 from ..auth import GLOBAL_OWNER_ID, AccessMode
@@ -48,6 +47,7 @@ def execute(store, query, parameters, *, columns, scope, order_by=(), limit=None
         return store.execute_query(query, values, scope=scope)
     if store.backend != "holoage":
         raise ValueError("Unsupported fixed Cypher backend")
+    from psycopg import sql
 
     declaration = ", ".join(f"{name} ag_catalog.agtype" for name in columns)
     projection = ", ".join(f"'{name}', {name}" for name in columns)

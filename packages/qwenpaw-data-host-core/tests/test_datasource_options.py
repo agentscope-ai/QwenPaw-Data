@@ -33,7 +33,7 @@ class StubContextManagerClient:
         self.dataset_error = None
         self.list_datasets_calls: list[str] = []
 
-    def list_datasources(self) -> CMDatasourceList:
+    def list_datasource_metadata(self) -> CMDatasourceList:
         if self.error is not None:
             raise self.error
         assert self.result is not None

@@ -69,14 +69,26 @@ async def api_lifespan(application: FastAPI) -> AsyncIterator[None]:
                 await stack.enter_async_context(mcp.session_manager.run())
             yield
     finally:
-        if lag_monitor is not None:
-            lag_monitor.cancel()
+        try:
+            if getattr(application.state, "semantic_config_mounted", False):
+                from profiling.services.orchestrator import shutdown_probes
+
+                await shutdown_probes()
+        finally:
             try:
-                await lag_monitor
-            except asyncio.CancelledError:
-                pass
-        if runtime is not None:
-            await runtime.aclose()
+                if lag_monitor is not None:
+                    lag_monitor.cancel()
+                    try:
+                        await lag_monitor
+                    except asyncio.CancelledError:
+                        pass
+                if runtime is not None:
+                    await runtime.aclose()
+            finally:
+                if getattr(application.state, "semantic_config_mounted", False):
+                    from semantic_config.engine import reset_engine
+
+                    await reset_engine()
 
 
 __all__ = ["_event_loop_lag_monitor", "api_lifespan"]

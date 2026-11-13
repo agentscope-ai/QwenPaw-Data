@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 import type { MeResponse, Resource, Role, TenantRole } from '@/auth';
 import {
+  AuthApiError,
   fetchAuthStatus,
   fetchPlatformCurrentUser,
   fetchTenantCurrentUser,
@@ -315,7 +316,7 @@ export const useAuthStore = create<AuthStoreState>()(
         const previous = get();
         const me = await fetchMeForPlane(previous.sessionPlane);
         if (!me) {
-          throw new Error('Session expired');
+          throw new AuthApiError('Session expired', { status: 401 });
         }
         const next = authStateFromMe(me, previous.sessionPlane);
         set(next, false, 'refresh/success');

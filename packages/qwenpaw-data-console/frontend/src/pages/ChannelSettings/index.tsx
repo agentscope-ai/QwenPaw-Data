@@ -13,7 +13,7 @@ import {
   type WecomConfig,
 } from '@/features/console/api/channelConfig';
 import ChannelIcon from '@/features/console/components/ChannelIcon';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import QrcodeAuthBlock from '@/features/console/components/QrcodeAuthBlock';
 import SecretInput from '@/features/console/components/SecretInput';
 import { useAppI18n } from '@/i18n';

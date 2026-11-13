@@ -32,6 +32,7 @@ export const DIMENSION_TYPE = [
 
 export const DATA_TYPE_OPTIONS = [
   { label: 'STRING', value: 'STRING' },
+  { label: 'TEXT', value: 'text' },
   { label: 'INT', value: 'INT' },
   { label: 'BIGINT', value: 'BIGINT' },
   { label: 'DOUBLE', value: 'DOUBLE' },

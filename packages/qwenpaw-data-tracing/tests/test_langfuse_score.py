@@ -7,10 +7,14 @@ import pytest
 from qwenpaw_data.tracing.core.names import Score
 from qwenpaw_data.tracing.core.score import ScoreEvent
 from qwenpaw_data.tracing.export.score import (
+    ScoreResult,
     score_body,
     tracer_delete_score,
     tracer_send_score,
+    tracer_send_score_event,
+    tracer_send_span_score,
 )
+from opentelemetry.sdk.trace import TracerProvider
 
 
 def test_score_event_scenarios() -> None:
@@ -36,13 +40,17 @@ async def test_score_event_send_noop_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TRACING_ENABLED", raising=False)
-    ScoreEvent.terminal(
+    score = ScoreEvent.terminal(
         chat_id="chat-1", name=Score.STOP, value=1, data_type="BOOLEAN"
     )
-    await tracer_send_score(
-        name=Score.STOP, value=1, chat_id="chat-1", data_type="BOOLEAN"
+    assert await tracer_send_score_event(score) is ScoreResult.NOT_CONFIGURED
+    assert (
+        await tracer_send_score(
+            name=Score.STOP, value=1, chat_id="chat-1", data_type="BOOLEAN"
+        )
+        is ScoreResult.NOT_CONFIGURED
     )
-    await tracer_delete_score(id="stop:chat-1")
+    assert await tracer_delete_score(id="stop:chat-1") is ScoreResult.NOT_CONFIGURED
 
 
 def test_score_event_rejects_missing_identity() -> None:
@@ -100,17 +108,67 @@ async def test_score_event_send_and_retract(monkeypatch: pytest.MonkeyPatch) -> 
     import httpx
 
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
-    await tracer_send_score(
-        name=Score.STOP,
-        value=1,
-        chat_id="chat-1",
-        data_type="BOOLEAN",
-        trace_id="a" * 32,
+    assert (
+        await tracer_send_score(
+            name=Score.STOP,
+            value=1,
+            chat_id="chat-1",
+            data_type="BOOLEAN",
+            trace_id="a" * 32,
+        )
+        is ScoreResult.OK
     )
-    await tracer_delete_score(id="stop:chat-1")
+    assert await tracer_delete_score(id="stop:chat-1") is ScoreResult.OK
     assert posted[0][0] == "https://lf.example/api/public/scores"
     assert posted[0][1]["id"] == "stop:chat-1"
     assert deleted == ["https://lf.example/api/public/scores/stop:chat-1"]
+
+    await tracer_send_span_score(Score.TOOL_FAILED, 1.0)
+    assert len(posted) == 1
+    with TracerProvider().get_tracer("test").start_as_current_span("tool") as span:
+        await tracer_send_span_score(Score.TOOL_FAILED, 1.0)
+    span_id = format(span.get_span_context().span_id, "016x")
+    assert posted[1][1] == {
+        "id": f"tool_failed:{span_id}",
+        "traceId": format(span.get_span_context().trace_id, "032x"),
+        "observationId": span_id,
+        "name": "tool_failed",
+        "value": 1.0,
+        "dataType": "NUMERIC",
+    }
+
+
+@pytest.mark.asyncio
+async def test_score_send_returns_failed_on_http_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRACING_ENABLED", "1")
+    monkeypatch.setenv("TRACING_HOST", "https://lf.example")
+    monkeypatch.setenv("TRACING_PUBLIC_KEY", "pk")
+    monkeypatch.setenv("TRACING_SECRET_KEY", "sk")
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json=None, auth=None):
+            raise RuntimeError("boom")
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    assert (
+        await tracer_send_score(
+            name=Score.STOP, value=1, chat_id="chat-1", data_type="BOOLEAN"
+        )
+        is ScoreResult.FAILED
+    )
 
 
 def test_score_body_boolean_and_categorical() -> None:

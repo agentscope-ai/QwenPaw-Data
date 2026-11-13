@@ -78,5 +78,5 @@ class SetRuntimeSettingsRequest(ApiModel):
     context_reserve_ratio: float | None = Field(default=None, gt=0, lt=0.9)
     tool_result_limit: int | None = Field(default=None, gt=0)
     tool_timeout_enabled: bool | None = None
-    tool_timeout_seconds: float | None = Field(default=None, ge=1)
+    tool_timeout_seconds: float | None = Field(default=None, ge=1, allow_inf_nan=False)
     tool_confirmation_level: ToolConfirmationLevel | None = None

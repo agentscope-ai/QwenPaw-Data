@@ -3,16 +3,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from qwenpaw_data.host.core.api.deps import get_db, get_identity
 from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite
+from qwenpaw_data.host.core.cron.files import JobFiles
 from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.utils.cron import check_session_exists
 from qwenpaw_data.host.core.repositories.channel_binding import ChannelBindingRepository
 from qwenpaw_data.host.core.repositories.cron import CronJobRepository
 
@@ -24,12 +25,6 @@ def _map(exc: Exception) -> None:
     if http:
         raise http from exc
     raise
-
-
-async def _ensure_can_write(
-    db: AsyncSession, identity: Identity, body: CronJobWrite
-) -> None:
-    await check_session_exists(db, identity, body.session_id, body.channel)
 
 
 @router.get("/targets")
@@ -75,8 +70,8 @@ async def create_job(
     identity: Identity = Depends(get_identity),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    _ = request
     try:
-        await _ensure_can_write(db, identity, body)
         return {"job": await CronJobRepository(db, identity).create(body)}
     except Exception as exc:
         _map(exc)
@@ -102,8 +97,8 @@ async def replace_job(
     identity: Identity = Depends(get_identity),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    _ = request
     try:
-        await _ensure_can_write(db, identity, body)
         return {"job": await CronJobRepository(db, identity).replace(job_id, body)}
     except Exception as exc:
         _map(exc)
@@ -157,5 +152,41 @@ async def run_job(
             "ok": True,
             "job": await CronJobRepository(db, identity).run_now(job_id),
         }
+    except Exception as exc:
+        _map(exc)
+
+
+@router.post("/jobs/{job_id}/attachments")
+async def upload_job_attachment(
+    job_id: str,
+    file: UploadFile = File(...),
+    identity: Identity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        if not file.filename:
+            raise ValueError("filename is required")
+        repo = CronJobRepository(db, identity)
+        await repo.get(job_id)
+        from qwenpaw_data.host.core.utils.files import MAX_SIZE_BYTES
+
+        JobFiles(identity, job_id).add(Path(file.filename).name, await file.read(MAX_SIZE_BYTES + 1))
+        return {"job": await repo.get(job_id)}
+    except Exception as exc:
+        _map(exc)
+
+
+@router.delete("/jobs/{job_id}/attachments/{filename}")
+async def delete_job_attachment(
+    job_id: str,
+    filename: str,
+    identity: Identity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        repo = CronJobRepository(db, identity)
+        await repo.get(job_id)
+        JobFiles(identity, job_id).remove(filename)
+        return {"job": await repo.get(job_id)}
     except Exception as exc:
         _map(exc)

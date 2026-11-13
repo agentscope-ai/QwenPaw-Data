@@ -21,9 +21,15 @@ from qwenpaw_data.host.core.db.engine import (
     init_db,
     reset_engine,
 )
+from qwenpaw_data.host.core.cron.files import JobFiles
+from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories.attachment import AttachmentRepository
+from qwenpaw_data.host.core.repositories.session import SessionRepository
 from qwenpaw_data.host.core.runtime.context import RunContext
+from qwenpaw_data.host.core.settings import get_settings
 
 TEST_IDENTITY = Identity(
     user_id=TEST_USER_ID,
@@ -38,16 +44,51 @@ _SCHEDULE = {
 }
 
 
+def test_job_files_reject_symlinked_job_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        'qwenpaw_data.host.core.cron.files.get_settings',
+        lambda: SimpleNamespace(paths=SimpleNamespace(home=tmp_path)),
+    )
+    files = JobFiles(TEST_IDENTITY, 'job-safe')
+    root = files.root
+    root.parent.mkdir(parents=True)
+    outside = tmp_path / 'another-user'
+    outside.mkdir()
+    (outside / 'keep.txt').write_text('private')
+    root.symlink_to(outside, target_is_directory=True)
+    for operation in (files.filenames, files.clear, lambda: files.add('x.txt', b'payload')):
+        with pytest.raises(ValueError, match='unsafe job attachment directory'):
+            operation()
+    assert (outside / 'keep.txt').read_text() == 'private'
+
+
+def test_job_files_do_not_read_or_overwrite_symlinked_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        'qwenpaw_data.host.core.cron.files.get_settings',
+        lambda: SimpleNamespace(paths=SimpleNamespace(home=tmp_path)),
+    )
+    files = JobFiles(TEST_IDENTITY, 'job-safe')
+    files.root.mkdir(parents=True)
+    outside = tmp_path / 'private.txt'
+    outside.write_bytes(b'private')
+    (files.root / 'link.txt').symlink_to(outside)
+    assert files.filenames() == []
+    with pytest.raises(ValueError, match='duplicate filename'):
+        files.add('link.txt', b'replace')
+    assert outside.read_bytes() == b'private'
+
+
 def _run_context(
     *,
     identity: Identity = TEST_IDENTITY,
     datasource_id: str | None = "ds_demo",
+    session_id: str = "session-a",
 ) -> RunContext:
     request_context: dict = {}
     if datasource_id is not None:
         request_context["datasource_id"] = datasource_id
     return RunContext(
-        session_id="session-a",
+        session_id=session_id,
         chat_id="chat-a",
         workspace=SimpleNamespace(),
         paths=UserAgentPaths(
@@ -210,3 +251,74 @@ async def test_run_only_marks_pending(cron_mgr: CronManager) -> None:
             await asyncio.gather(*cron_mgr._runs, return_exceptions=True)
         run.assert_awaited_once()
         assert run.await_args.args[0]["id"] == job_id
+
+
+async def _session_with_attachment(filename: str, data: bytes) -> Session:
+    session = Session.create(
+        identity=TEST_IDENTITY,
+        title="source",
+        channel="console",
+        datasource_id="ds_demo",
+    )
+    uploads_dir = UserAgentPaths.from_identity(
+        home=get_settings().paths.home,
+        identity=TEST_IDENTITY,
+        agent_id=session.agent_id,
+        session_id=session.id,
+    ).uploads_dir
+    attachment = Attachment.receive(
+        session_id=session.id,
+        identity=TEST_IDENTITY,
+        filename=filename,
+        data=data,
+        dest_dir=uploads_dir,
+    )
+    async with get_session_factory()() as db:
+        await SessionRepository(db, TEST_IDENTITY).add(session)
+        await AttachmentRepository(db, TEST_IDENTITY).add(attachment)
+        await db.commit()
+    return session
+
+
+@pytest.mark.asyncio
+async def test_create_copies_current_session_attachment_by_filename(
+    cron_mgr: CronManager,
+) -> None:
+    _ = cron_mgr
+    session = await _session_with_attachment("a.txt", b"hello")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="带附件",
+        message="读取附件",
+        attachment_filenames=["a.txt"],
+        **_SCHEDULE,
+    )
+    assert created.state != ToolResultState.ERROR, _text(created)
+    job = json.loads(_text(created))["job"]
+    files = JobFiles(TEST_IDENTITY, job["id"])
+    try:
+        assert job["attachments"] == ["a.txt"]
+        assert (files.root / "a.txt").read_bytes() == b"hello"
+    finally:
+        files.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_fails_when_attachment_is_not_in_current_session(
+    cron_mgr: CronManager,
+) -> None:
+    _ = cron_mgr
+    session = await _session_with_attachment("a.txt", b"hello")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="带附件",
+        message="读取附件",
+        attachment_filenames=["missing.txt"],
+        **_SCHEDULE,
+    )
+    assert created.state == ToolResultState.ERROR
+    assert "missing.txt" in _text(created)
+    listed = json.loads(_text(await tool(action="list")))
+    assert listed["count"] == 0

@@ -160,10 +160,10 @@ import { useAppI18n } from '@/i18n';
 import RuntimeBizEventCard, {
   RuntimeToolBizEventCard,
   runtimeToolRenderConfig,
-} from '../RuntimeBizEventCard';
+} from '../RuntimeBizEventCard/index';
 import ExecutionDuration from '../ExecutionDuration';
 import type { ExecutionTiming } from '../../api/types';
-import RuntimeClarificationCard from '../RuntimeClarificationCard';
+import RuntimeClarificationCard from '../RuntimeClarificationCard/index';
 import clarificationStyles from '../RuntimeClarificationCard/index.module.less';
 import RuntimeToolConfirmationCard from '../RuntimeToolConfirmationCard';
 import {
@@ -171,7 +171,7 @@ import {
   visibleToolConfirmations,
 } from '../../model/chat/toolConfirmation';
 import { confirmationKey } from '../../model/chat/toolConfirmationSubmission';
-import RuntimeSegmentCard from '../RuntimeSegmentCard';
+import RuntimeSegmentCard from '../RuntimeSegmentCard/index';
 import RuntimeThinkingCard from '../RuntimeThinkingCard';
 import ContextUsagePanel, { ContextUsageButton } from '../ContextUsage';
 import { selectLatestContextUsage } from '../../model/runtime/contextUsage';

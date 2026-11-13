@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import contextmanager
@@ -24,7 +25,8 @@ from qwenpaw_data.tracing.core.context.labels import (
     reset_trace_tags,
     stamp_trace_labels,
 )
-from qwenpaw_data.tracing.core.names import Tracer
+from qwenpaw_data.tracing.core.context.ids import check_trace_id
+from qwenpaw_data.tracing.core.names import Step, Tracer, TraceName
 from qwenpaw_data.tracing.core.trace.handles import _RootSpan
 from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
 from qwenpaw_data.tracing.core.trace.tracer import BaseTracer, _step_name
@@ -43,6 +45,32 @@ from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
 
+_RESERVED_METADATA = frozenset({"source_trace_id", "session_id", "user_id"})
+
+
+class tracer_session(BaseSessionTracer):
+    def __init__(self, user_id: str, session_id: str) -> None:
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise ValueError("user_id is empty")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("session_id is empty")
+        super().__init__(user_id=user_id, session_id=session_id)
+
+
+def _caller_metadata(metadata: dict | None) -> dict | None:
+    if metadata is None:
+        return None
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata must be a dict")
+    blocked = _RESERVED_METADATA.intersection(metadata)
+    if blocked:
+        raise ValueError("metadata must not contain " + ", ".join(sorted(blocked)))
+    try:
+        json.dumps(metadata, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("metadata is not JSON serializable") from exc
+    return dict(metadata) or None
+
 
 class ChatTracer(BaseTracer):
     """One chat. ``with`` continues this chat; ``with`` plus ``step`` opens a related root."""
@@ -51,8 +79,9 @@ class ChatTracer(BaseTracer):
 
     def __init__(
         self,
+        session: tracer_session | None = None,
         *,
-        session: BaseSessionTracer | None = None,
+        metadata: dict | None = None,
         save_span_id: Callable[[str], Awaitable[None]] | None = None,
         attach_saved: Callable[[], Awaitable[object | None]] | None = None,
         chat_id: str | None = None,
@@ -61,7 +90,10 @@ class ChatTracer(BaseTracer):
         headers: Any = None,
         tags: Sequence[str] | None = None,
     ) -> None:
+        if session is not None and not isinstance(session, tracer_session):
+            raise ValueError("session must come from tracer_session()")
         self._session = session
+        self._metadata = _caller_metadata(metadata)
         self._save_span_id = save_span_id
         self._attach_saved = attach_saved
         self._chat_id = chat_id
@@ -98,7 +130,9 @@ class ChatTracer(BaseTracer):
 
     def _open_root(self, step: object) -> None:
         name = _step_name(step)
-        metadata = trace_metadata(source_trace_id=self._source_trace_id)
+        metadata = trace_metadata(
+            source_trace_id=self._source_trace_id, extra=self._metadata
+        )
         labels = self._session.labels(metadata_json=metadata)
         labels["langfuse.trace.name"] = name
         self._labels = put_tags(labels, self._tags)
@@ -225,8 +259,10 @@ class ChatTracer(BaseTracer):
         self._span_id_stored = True
 
     def _labels_for_chat(self) -> dict[str, str]:
-        labels = self._session.labels()
-        labels["langfuse.trace.name"] = "chat"
+        labels = self._session.labels(
+            metadata_json=trace_metadata(extra=self._metadata)
+        )
+        labels["langfuse.trace.name"] = TraceName.CHAT
         return put_tags(labels, [*bound_trace_tags(), *self._tags])
 
     @staticmethod
@@ -246,10 +282,11 @@ class ChatTracer(BaseTracer):
 
 
 def tracer(
+    session: tracer_session | None = None,
     *,
     chat_id: str | None = None,
     step: object | None = None,
-    session: BaseSessionTracer | None = None,
+    metadata: dict | None = None,
     headers: Any = None,
     attach_saved: Callable[[], Awaitable[object | None]] | None = None,
     save_span_id: Callable[[str], Awaitable[None]] | None = None,
@@ -257,7 +294,8 @@ def tracer(
 ) -> ChatTracer:
     """Construct a tracer for ``with`` / ``async with``. The root opens on enter."""
     return ChatTracer(
-        session=session,
+        session,
+        metadata=metadata,
         chat_id=chat_id,
         step=step,
         headers=headers,
@@ -268,10 +306,11 @@ def tracer(
 
 
 def tracer_start(
+    session: tracer_session | None = None,
     *,
     chat_id: str | None = None,
     step: object | None = None,
-    session: BaseSessionTracer | None = None,
+    metadata: dict | None = None,
     headers: Any = None,
     attach_saved: Callable[[], Awaitable[object | None]] | None = None,
     save_span_id: Callable[[str], Awaitable[None]] | None = None,
@@ -279,13 +318,14 @@ def tracer_start(
 ) -> ChatTracer:
     """Open now; pair with ``tracer_end``. Do not use with ``async with``."""
     started = tracer(
-        session=session,
+        session,
         chat_id=chat_id,
         step=step,
         headers=headers,
         attach_saved=attach_saved,
         save_span_id=save_span_id,
         tags=tags,
+        metadata=metadata,
     )
     started._ensure_root()
     return started
@@ -299,4 +339,19 @@ def tracer_end(started: ChatTracer, error: BaseException | str | None = None) ->
     started.end(error)
 
 
-__all__ = ["ChatTracer", "tracer", "tracer_end", "tracer_span", "tracer_start"]
+def tracer_chat_ref(chat_trace_id: str) -> None:
+    """Record one member Chat under the open Task root. Call once per Chat."""
+    source = check_trace_id(chat_trace_id, "chat_trace_id")
+    with ChatTracer.span(Step.CHAT_REF, metadata={"source_trace_id": source}):
+        pass
+
+
+__all__ = [
+    "ChatTracer",
+    "tracer",
+    "tracer_chat_ref",
+    "tracer_end",
+    "tracer_session",
+    "tracer_span",
+    "tracer_start",
+]

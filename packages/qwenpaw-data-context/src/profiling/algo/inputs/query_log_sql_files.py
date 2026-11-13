@@ -21,7 +21,7 @@ DOMAIN 的聚类，GROUP BY / 聚合列点亮 CALIBER 的用法证据。
   ``query_log_index`` / ``query_log_dir`` / ``query_log_db``
 
 后者是生产路径的入口 —— ``AlgoProvider`` 只透传数据源 connection，
-``scripts/spider2_import.py`` 注册数据源时把三键写进去即可。
+注册数据源时将上述三键写入 connection 即可。
 
 ------------------------------------------------------------------------
 与基类模板的差异

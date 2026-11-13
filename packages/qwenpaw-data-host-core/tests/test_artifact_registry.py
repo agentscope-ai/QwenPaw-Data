@@ -186,7 +186,7 @@ async def test_bridge_registers_files_no_tool_call_named(
     monkeypatch.setattr(
         "qwenpaw_data.host.core.agent.middleware.trace_forward.tracer_span",
         lambda step, **kwargs: (
-            spans.append(kwargs.get("attributes") or {}) or nullcontext()
+            spans.append(kwargs.get("metadata") or {}) or nullcontext()
         ),
     )
     mw, tr = _bridge(paths, stream, monkeypatch)
@@ -201,7 +201,7 @@ async def test_bridge_registers_files_no_tool_call_named(
     assert len(registered) == 1
     assert registered[0]["name"] == "dau.csv"
     assert registered[0]["path"] == "charts/dau.csv"
-    assert [span["artifact.path"] for span in spans] == [
+    assert [span["artifact_path"] for span in spans] == [
         str((artifact_dir / "charts" / "dau.csv").resolve())
     ]
     deltas = [e for e in tr.entries if e.get("kind") == "artifact_delta"]

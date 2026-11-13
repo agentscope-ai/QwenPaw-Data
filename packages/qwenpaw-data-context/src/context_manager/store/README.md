@@ -109,7 +109,7 @@ Neo4j 等待索引上线，Holo 保留完整 DDL 与 VACUUM 流程；sync 仅初
 外部 provisioner 同样须在上报完成前调用 Store 初始化函数；Auth `/resume` 保留原有
 “外部开通已完成”的上报契约，不执行图初始化。
 
-本地和评测的 `start_all.sh` 使用同一个 worker。存量 Workspace 在上线新业务进程前停止业务流量，
+本地和评测的 `scripts/start.sh` 使用同一个 worker。存量 Workspace 在上线新业务进程前停止业务流量，
 通过以下显式入口补齐 schema（仓库根目录执行；控制面由 `QWENPAW_DATA_DB_URL` 指定）：
 
 ```bash

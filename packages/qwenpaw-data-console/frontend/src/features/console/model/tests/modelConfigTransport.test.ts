@@ -99,7 +99,7 @@ test('Host JSON and file requests retain their existing API path and response be
       assert.equal(await (await requestFile('/attachments/file')).text(), 'file');
     },
   );
-  assert.deepEqual(calls, ['/api/sessions', '/api/attachments/file']);
+  assert.deepEqual(calls, ['/api/v1/sessions', '/api/v1/attachments/file']);
 });
 
 test('Resolved URL requests support 204 and encode job IDs', async () => {

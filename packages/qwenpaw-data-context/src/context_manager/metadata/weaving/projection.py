@@ -44,6 +44,7 @@ class Projection:
     bindings: frozenset[tuple[str, str]] = (
         frozenset()
     )  # Dimension/Dataset row identities, independent of expr.
+    datasets_without_datasource: frozenset[int] = frozenset()
 
 
 def members(value) -> list[str]:
@@ -55,6 +56,12 @@ def project(snapshot: dict, schema, owner_id: str) -> Projection:
     nodes, edges, datasources = {}, {}, {}
     domains = {row["id"]: row for row in snapshot.get("domain", ())}
     datasets = {row["id"]: row for row in snapshot.get("dataset", ())}
+    # Legacy rows without a datasource have no graph scope or datasource anchor.
+    datasets_without_datasource = frozenset(
+        dataset_id
+        for dataset_id, row in datasets.items()
+        if not (row["datasource_id"] or "").strip()
+    )
     dimensions = {row["id"]: row for row in snapshot.get("dimension_dict", ())}
     metrics = {row["id"]: row for row in snapshot.get("metric_dict", ())}
     sources = {row["datasource_id"]: row for row in snapshot.get("datasource", ())}
@@ -105,6 +112,8 @@ def project(snapshot: dict, schema, owner_id: str) -> Projection:
             },
         )
     for row in datasets.values():
+        if row["id"] in datasets_without_datasource:
+            continue
         key = node(
             DATASET,
             {
@@ -130,6 +139,8 @@ def project(snapshot: dict, schema, owner_id: str) -> Projection:
         )
         edge(AVAILABLE_IN, key, source_key)
     for row in snapshot.get("dataset_column_meta", ()):
+        if row["dataset_id"] in datasets_without_datasource:
+            continue
         parent = datasets[row["dataset_id"]]
         key = node(
             DATASET_FIELD,
@@ -167,6 +178,8 @@ def project(snapshot: dict, schema, owner_id: str) -> Projection:
             refs[(kind, row["id"])] = key
             edge(relation, refs[("domain", row["domain_id"])], key)
     for row in snapshot.get("dataset_dimension", ()):
+        if row["dataset_id"] in datasets_without_datasource:
+            continue
         binding = (
             refs[("dimension", row["dimension_id"])],
             refs[("dataset", row["dataset_id"])],
@@ -209,6 +222,8 @@ def project(snapshot: dict, schema, owner_id: str) -> Projection:
             transient={"binding": binding},
         )
     for row in snapshot.get("metric_formula_lib", ()):
+        if row["dataset_id"] in datasets_without_datasource:
+            continue
         parent = datasets[row["dataset_id"]]
         metric = metrics[row["metric_id"]]
         key = node(
@@ -241,4 +256,10 @@ def project(snapshot: dict, schema, owner_id: str) -> Projection:
             },
         )
         edge(ANCHORED_TO, key, refs[("domain", row["domain_id"])])
-    return Projection(nodes, edges, datasources, frozenset(bindings))
+    return Projection(
+        nodes,
+        edges,
+        datasources,
+        bindings=frozenset(bindings),
+        datasets_without_datasource=datasets_without_datasource,
+    )

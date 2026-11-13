@@ -60,6 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from semantic_config.db import now_iso
 from semantic_config.errors import BadRequestError
 from semantic_config.principal import require_admin
+from semantic_config.services.dimension_service import validate_priority
 from semantic_config.services.domain_scope import recompute_domain_scopes
 from semantic_config.tables import SC_TABLES
 from semantic_config.template_contract import (
@@ -674,6 +675,11 @@ def _prep_dataset_field(maps: _Maps, r: dict) -> tuple[tuple, dict] | None:
 def _prep_dimension(maps: _Maps, r: dict) -> tuple[tuple, dict] | None:
     dom_id = _need_domain(maps, r, "dimension")
     name = _norm(r.get("dimension_name"))
+    priority = (_norm(r.get("priority")) or "MEDIUM").upper()
+    try:
+        validate_priority(priority)
+    except BadRequestError as exc:
+        raise _RowError("dimension", r["_row"], exc.message) from exc
     # 维度字典挂业务域、不挂数据源（12 实体重构），故不写 datasource_id。
     return (dom_id, name), {
         "domain_id": dom_id,
@@ -682,7 +688,7 @@ def _prep_dimension(maps: _Maps, r: dict) -> tuple[tuple, dict] | None:
         "synonyms": _norm(r.get("synonyms")),
         "dimension_type": _norm(r.get("dimension_type") or r.get("dimension_role")),
         "child_dimensions": _norm(r.get("child_dimensions")),
-        "priority": (_norm(r.get("priority")) or "MEDIUM").upper(),
+        "priority": priority,
     }
 
 

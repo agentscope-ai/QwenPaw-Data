@@ -11,7 +11,8 @@ import {
   CRON_CHANNELS,
 } from '@/features/console/api/cron';
 import { channelConfigApi } from '@/features/console/api/channelConfig';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import { getRuntimeConfig } from '@/services/runtimeConfig';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import { formatCronSchedule } from '@/features/cron/model/cronSchedule';
 import { buildCronJobsPath } from '@/shared/navigation/sessionNavigation';
 import ChannelIcon from '@/features/console/components/ChannelIcon';
@@ -19,6 +20,7 @@ import { useConsoleLayout } from '@/layouts/ConsoleLayout/context';
 import { useAppI18n } from '@/i18n';
 import type { MessageKey } from '@/i18n/locales';
 import CronJobDrawer from './CronJobDrawer';
+import type { CronJobAttachmentEdits } from './CronJobDrawer';
 import styles from './index.module.less';
 
 const CHANNEL_LABEL: Record<string, MessageKey> = {
@@ -63,6 +65,8 @@ export default function CronJobsPage() {
   const [editing, setEditing] = useState<CronJob | null>(null);
   const [draft, setDraft] = useState<CronJobDraft | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const stagedJobId = useRef<string | null>(null);
+  const attemptedUploads = useRef(new Map<string, File>());
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
   const [jobStatus, setJobStatus] = useState('');
@@ -84,7 +88,10 @@ export default function CronJobsPage() {
         signal,
       );
       setJobs(response.jobs);
-      const channelConfigResponse = await channelConfigApi.get();
+      // Local Console deployments can omit IM channel administration entirely.
+      const channelConfigResponse = window.QWENPAW_DATA_CONSOLE && !getRuntimeConfig().capabilities.channels
+        ? {}
+        : await channelConfigApi.get();
       setLoadError(null);
       const channelEnabled = new Map<string, boolean>();
       channelEnabled.set('feishu', channelConfigResponse?.feishu?.enabled || false);
@@ -172,18 +179,57 @@ export default function CronJobsPage() {
     [t],
   );
 
-  const handleSubmit = async (body: CronJobWriteBody) => {
+  const handleSubmit = async (body: CronJobWriteBody, files: CronJobAttachmentEdits) => {
+    if (submitting) return;
     setSubmitting(true);
+    const creating = !editing;
     try {
-      if (editing) {
-        const response = await cronApi.replaceJob(editing.id, body);
-        replaceInList(response.job);
-        message.success(t('cron.saved'));
+      let jobId = editing?.id ?? stagedJobId.current;
+      if (!jobId && !files.upload.length) {
+        const { job } = await cronApi.createJob(body);
+        setJobs((current) => [job, ...current]);
       } else {
-        const response = await cronApi.createJob(body);
-        setJobs((current) => [response.job, ...current]);
-        message.success(t('cron.created'));
+        if (!jobId) {
+          const { job } = await cronApi.createJob({ ...body, enabled: false });
+          jobId = job.id;
+          stagedJobId.current = jobId;
+          setJobs((current) => [job, ...current]);
+        }
+        if (files.remove.length || files.upload.length || attemptedUploads.current.size) {
+          const { job } = await cronApi.getJob(jobId);
+          const persisted = new Set(job.attachments);
+          const selected = new Map(files.upload.map((file) => [file.name, file]));
+          const toRemove = new Set(files.remove);
+          for (const [name, file] of attemptedUploads.current) {
+            if (selected.get(name) === file) {
+              toRemove.delete(name);
+            } else {
+              toRemove.add(name);
+            }
+          }
+          for (const name of toRemove) {
+            if (persisted.has(name)) {
+              const response = await cronApi.deleteAttachment(jobId, name);
+              replaceInList(response.job);
+              persisted.delete(name);
+            }
+            attemptedUploads.current.delete(name);
+          }
+          for (const file of files.upload) {
+            if (attemptedUploads.current.get(file.name) === file && persisted.has(file.name)) {
+              continue;
+            }
+            if (!persisted.has(file.name)) attemptedUploads.current.set(file.name, file);
+            const response = await cronApi.uploadAttachment(jobId, file);
+            replaceInList(response.job);
+          }
+        }
+        const response = await cronApi.replaceJob(jobId, body);
+        replaceInList(response.job);
       }
+      message.success(creating ? t('cron.created') : t('cron.saved'));
+      stagedJobId.current = null;
+      attemptedUploads.current.clear();
       setDrawerOpen(false);
       setEditing(null);
       setDraft(null);
@@ -499,6 +545,8 @@ export default function CronJobsPage() {
         datasources={consoleController.datasources}
         submitting={submitting}
         onClose={() => {
+          stagedJobId.current = null;
+          attemptedUploads.current.clear();
           setDrawerOpen(false);
           setEditing(null);
           setDraft(null);

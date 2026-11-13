@@ -160,7 +160,7 @@ class ChatCommandRow(IdentityColumns, Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     chat_id: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[
-        Literal["cancel", "steer", "clarification", "plan", "tool_confirmation"]
+        Literal["cancel", "steer", "clarification", "plan", "tool_confirmation", "ui"]
     ] = mapped_column(String, nullable=False)
     status: Mapped[Literal["waiting", "done"]] = mapped_column(
         String, nullable=False, default="waiting"
@@ -169,6 +169,7 @@ class ChatCommandRow(IdentityColumns, Base):
     clarification_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     plan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     tool_confirmation_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    ui_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
@@ -371,6 +372,9 @@ class CronJobRow(IdentityColumns, Base):
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     datasource_id: Mapped[str] = mapped_column(String, nullable=False)
     channel: Mapped[str] = mapped_column(String, nullable=False, default="console")
+    session_policy: Mapped[str] = mapped_column(
+        String, nullable=False, default="reuse", server_default="reuse"
+    )
     session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     target_external_key: Mapped[str | None] = mapped_column(String, nullable=True)
     schedule_json: Mapped[dict] = mapped_column(JSON, nullable=False)

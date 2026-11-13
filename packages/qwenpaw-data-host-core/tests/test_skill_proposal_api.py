@@ -281,6 +281,32 @@ def test_reject_does_not_write_files(skill_app) -> None:
     assert asyncio.run(_revision_rows()) == []
 
 
+def test_workspace_list_omits_proposals_of_deleted_session(skill_app) -> None:
+    app, session_id, _proposal_id, _home = skill_app
+
+    async def seed_kept() -> str:
+        async with get_session_factory()() as db:
+            session = Session.create(identity=TEST_IDENTITY, title="kept")
+            await SessionRepository(db, TEST_IDENTITY).add(session)
+            row = await SkillProposalRepository(db, TEST_IDENTITY).upsert_pending(
+                **_add_kwargs(
+                    _sample_proposal(),
+                    session_id=session.id,
+                    agent_id=session.agent_id,
+                ),
+            )
+            await db.commit()
+            return row["id"]
+
+    kept_id = asyncio.run(seed_kept())
+    with TestClient(app) as client:
+        deleted = client.delete(f"/api/sessions/{session_id}")
+        assert deleted.status_code == 200, deleted.text
+        listed = client.get("/api/settlement/skill-proposals")
+        assert listed.status_code == 200, listed.text
+        assert {item["id"] for item in listed.json()["skill_proposals"]} == {kept_id}
+
+
 def test_upsert_after_reject_creates_new_pending(skill_app) -> None:
     app, session_id, proposal_id, _home = skill_app
     with TestClient(app) as client:

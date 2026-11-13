@@ -85,6 +85,7 @@ class MetadataWeavingService:
         self._require_scope(scope)
         task_id = f"SYNC_{uuid4().hex}"
         error, changes = None, ()
+        skipped_dataset_ids = frozenset()
         # TODO: coordinate publication order across instances and reconcile SQL/graph commits.
         try:
 
@@ -94,6 +95,7 @@ class MetadataWeavingService:
                 return old, new, self._changes(old, new)
 
             old, new, changes = await self._executor.run(project_changes)
+            skipped_dataset_ids = new.datasets_without_datasource
             with bind_usage_context(
                 source="语义资产导入",
                 source_step=f"semantic_asset_import#{task_id}",
@@ -119,6 +121,7 @@ class MetadataWeavingService:
                 scope,
                 changes,
                 str(error) if error is not None else None,
+                skipped_dataset_ids=skipped_dataset_ids,
             )
         except Exception:
             log.exception(

@@ -1,5 +1,6 @@
 /** Central URL discovery for every frontend. */
 import { getConsoleConfig } from '@/services/consoleConfig';
+import { isEmbedded } from '../embedded/context';
 
 function runtimeValue(name: string): string {
   if (typeof window !== 'undefined') {
@@ -20,6 +21,7 @@ function trimTrailingSlash(value: string): string {
 }
 
 export function getAuthApiUrl(): string {
+  if (isEmbedded()) return '';
   return trimTrailingSlash(runtimeValue('VITE_AUTH_API_URL') || runtimeValue('VITE_AUTH_URL'));
 }
 
@@ -44,6 +46,7 @@ export function getContextFrontendUrl(): string {
  * 这里明确返回空串，由调用方据此隐藏入口 —— 没有部署 Host 就不该出现这个入口。
  */
 export function getHostFrontendUrl(): string {
+  if (isEmbedded()) return '/console';
   // Packaged console: the portal-provided console URL is the Host entry.
   const consoleUrl = typeof window === 'undefined' ? '' : getConsoleConfig()?.console_url;
   return trimTrailingSlash(consoleUrl || runtimeValue('VITE_HOST_FRONTEND_URL'));
@@ -51,6 +54,7 @@ export function getHostFrontendUrl(): string {
 
 /** Unified model settings require an explicitly configured Host deployment. */
 export function resolveHostModelConfigUrl(): string {
+  if (isEmbedded()) return '/console/settings/agent';
   const base = getHostFrontendUrl();
   if (!base || typeof window === 'undefined') return '';
   try {
@@ -73,6 +77,7 @@ export function currentPageDatasourceId(): string {
 
 /** Host console URL. Never use Context `/` for platform_admin — that redirects back here. */
 export function resolveAgentCenterUrl(): string {
+  if (isEmbedded()) return '/console';
   const configured = getHostFrontendUrl();
   let base = configured;
   if (!base || base === '/') {
@@ -145,6 +150,7 @@ export function buildLoginUrl(redirectUrl?: string): string {
 }
 
 export function buildAuthApiUrl(path: string): string {
-  const base = getAuthApiUrl();
+  const portal = typeof window === 'undefined' ? undefined : getConsoleConfig();
+  const base = !isEmbedded() && portal?.auth_mode === 'portal' ? trimTrailingSlash(portal.api_base_url) : getAuthApiUrl();
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }

@@ -13,7 +13,6 @@ from decimal import Decimal
 from threading import Lock
 from time import monotonic
 
-import psycopg
 import pymysql
 import sqlglot
 from sqlglot import exp
@@ -78,7 +77,7 @@ def _timeout_marker(error: BaseException) -> str | None:
     message = str(error).lower()
     code = error.args[0] if error.args else None
     if (isinstance(error, pymysql.Error) and code == 3024) or (
-        isinstance(error, psycopg.Error)
+        isinstance(error, _sdk_error("psycopg", "Error"))
         and error.sqlstate == "57014"
         and "statement timeout" in message
     ):
@@ -103,13 +102,20 @@ class SqlExecutionError(RuntimeError):
     @classmethod
     def from_driver(cls, message: str, error: BaseException) -> SqlExecutionError:
         """Preserve driver diagnostics through the connector's lifecycle wrappers."""
+        backend = error.backend if isinstance(error, RdbError) else None
         while isinstance(error, RdbError) and error.__cause__ is not None:
             error = error.__cause__
+        if (
+            backend in (RdbBackend.POSTGRES, RdbBackend.HOLOGRES)
+            and isinstance(error, ModuleNotFoundError)
+            and error.name == "psycopg"
+        ):
+            return cls(f"{message}: PostgreSQL/Hologres driver psycopg is not installed")
         google_error = _sdk_error("google.api_core.exceptions", "GoogleAPICallError")
         if not isinstance(
             error,
             (
-                psycopg.Error,
+                _sdk_error("psycopg", "Error"),
                 pymysql.Error,
                 sqlite3.Error,
                 _sdk_error("odps.errors", "ODPSError"),
@@ -119,7 +125,7 @@ class SqlExecutionError(RuntimeError):
         ):
             return cls(message)
         details = str(error)
-        if isinstance(error, psycopg.Error) and error.sqlstate:
+        if isinstance(error, _sdk_error("psycopg", "Error")) and error.sqlstate:
             details = f"SQLSTATE {error.sqlstate}: {details}"
         elif isinstance(error, sqlite3.Error):
             code = getattr(error, "sqlite_errorcode", None)

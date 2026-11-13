@@ -10,6 +10,7 @@ from profiling.db import init_probe_db
 from profiling.integration import mount_profiling
 from semantic_config.config import get_settings
 from semantic_config.db import init_db
+from semantic_config.engine import reset_engine
 from semantic_config.errors import register_exception_handlers
 from semantic_config.routers import (
     biz_domain_router,
@@ -31,9 +32,17 @@ from semantic_config.routers import (
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await init_db()
-    await init_probe_db()
-    yield
+    try:
+        await init_db()
+        await init_probe_db()
+        yield
+    finally:
+        try:
+            from profiling.services.orchestrator import shutdown_probes
+
+            await shutdown_probes()
+        finally:
+            await reset_engine()
 
 
 def create_app() -> FastAPI:

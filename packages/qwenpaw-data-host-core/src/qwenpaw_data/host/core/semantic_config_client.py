@@ -87,10 +87,14 @@ class SemanticConfigClient:
         params: Mapping[str, Any] | None = None,
         json: Any | None = None,
         files: Any | None = None,
+        timeout: float | None = None,
     ) -> Any:
         """Issue one request and return the decoded JSON body (or ``{}``)."""
 
         url = f"{self.base_url}{path}"
+        request_timeout = self.timeout if timeout is None else timeout
+        if request_timeout <= 0:
+            raise ValueError("timeout must be positive")
         headers = (
             {"Authorization": f"Bearer {self.api_token}"}
             if self.api_token
@@ -98,7 +102,7 @@ class SemanticConfigClient:
         )
         try:
             with httpx.Client(
-                timeout=self.timeout,
+                timeout=request_timeout,
                 transport=self.transport,
                 trust_env=_trust_env_for_url(self.base_url),
                 headers=headers,
@@ -143,8 +147,11 @@ class SemanticConfigClient:
         cleaned = {key: value for key, value in params.items() if value is not None}
         return cleaned or None
 
-    def get(self, path: str, *, params: Mapping[str, Any] | None = None) -> Any:
-        return self.request("GET", path, params=params)
+    def get(
+        self, path: str, *, params: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> Any:
+        return self.request("GET", path, params=params, timeout=timeout)
 
     def post(
         self,

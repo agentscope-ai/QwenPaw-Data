@@ -24,8 +24,9 @@ from qwenpaw_data.host.core.agent.middleware import (
     TraceForwardMiddleware,
 )
 from qwenpaw_data.host.core.domain.clarification import ClarificationWithExecutor
-from qwenpaw_data.host.core.domain.tool_confirmation import ToolConfirmation
 from qwenpaw_data.host.core.domain.exception import IterationLimitExceeded
+from qwenpaw_data.host.core.domain.tool_confirmation import ToolConfirmation
+from qwenpaw_data.host.core.domain.ui import UiExecution
 from qwenpaw_data.host.core.runtime.context import RunContext
 from qwenpaw_data.host.core.runtime.envelope import Envelope
 from qwenpaw_data.host.core.runtime.turn import TurnInput, compose_agent_input
@@ -49,6 +50,7 @@ class AgentExecutor:
             run_context.chat_id,
             level=run_context.user_runtime_config.tool_confirmation_level,
         )
+        self._ui = UiExecution(run_context.session_factory, run_context.chat_id)
         self._task: asyncio.Task[None] | None = None
         self._agent: Agent | None = None
         self._after_event_callback: Callable[[Any], Awaitable[None]] | None = None
@@ -151,6 +153,10 @@ class AgentExecutor:
             metadata=event.metadata,
         )
         self._tool_confirmation.add_metadata(
+            tool_name=event.tool_call_name,
+            metadata=event.metadata,
+        )
+        self._ui.add_metadata(
             tool_name=event.tool_call_name,
             metadata=event.metadata,
         )

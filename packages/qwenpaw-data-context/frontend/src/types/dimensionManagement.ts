@@ -22,10 +22,10 @@ export type DimensionUpdateRequest = Partial<
   >
 >;
 
-export interface DimensionResponse extends DimensionCreateRequest {
+export interface DimensionResponse extends Omit<DimensionCreateRequest, 'priority'> {
   dimension_id: number; // 维度 ID
   domain_name: string; // 业务域名称
-  priority: DimensionPriority; // 优先级
+  priority: string | null; // 优先级，包含旧版与历史导入值
 }
 
 export type DimensionItem = DimensionResponse;

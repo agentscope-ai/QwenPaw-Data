@@ -58,6 +58,10 @@ class FakeSession:
         """Invoke one managed read callback."""
         return work(FakeTransaction(self._driver))
 
+    def run(self, query: str, **parameters: object) -> tuple[Record, ...]:
+        """Run the health probe without managed-transaction retries."""
+        return FakeTransaction(self._driver).run(query, **parameters)
+
     def execute_write(self, work: Any) -> object:
         """Invoke one managed write callback."""
         return work(FakeTransaction(self._driver))
@@ -263,9 +267,14 @@ def test_production_app_resolves_runtime_from_authenticated_workspace(
     ]
     assert factory.driver.session_options
     assert all(
-        options == {"database": "workspace-database"}
+        options.get("database") == "workspace-database"
         for options in factory.driver.session_options
     )
+    assert {"database": "workspace-database"} in factory.driver.session_options
+    assert {
+        "database": "workspace-database",
+        "connection_acquisition_timeout": 2.0,
+    } in factory.driver.session_options
     assert (
         sum(
             "n_scope_workspace_id" in parameters

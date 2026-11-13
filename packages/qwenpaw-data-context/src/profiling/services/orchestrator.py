@@ -50,6 +50,26 @@ logger = logging.getLogger(__name__)
 _REGISTRY: dict[tuple[str, ...], asyncio.Task] = {}
 _TOKENS: dict[tuple[str, ...], "_CancelToken"] = {}
 
+
+async def shutdown_probes() -> None:
+    """Cancel and drain local probes before their shared database is closed."""
+    # A task cancelled before its first step cannot run its settlement handler.
+    await asyncio.sleep(0)
+    tasks = tuple(_REGISTRY.values())
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(
+                result, asyncio.CancelledError
+            ):
+                logger.error(
+                    "probe failed during shutdown",
+                    exc_info=(type(result), result, result.__traceback__),
+                )
+
+
 _PREREQ_MSG = {
     "BIZ_DOMAIN": "请先完成业务域探查",
     "DATASET": "请先完成数据集探查",

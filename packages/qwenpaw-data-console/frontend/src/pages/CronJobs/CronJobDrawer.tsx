@@ -1,16 +1,7 @@
 import { Button, Input, Select } from '@agentscope-ai/design';
-import {
-  AutoComplete,
-  DatePicker,
-  Form,
-  InputNumber,
-  Space,
-  Switch,
-  TimePicker,
-  message,
-} from 'antd';
+import { DatePicker, Form, InputNumber, Space, Switch, TimePicker, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   cronApi,
   isCronImChannel,
@@ -18,6 +9,7 @@ import {
   type CronJobDraft,
   type CronJobWriteBody,
   type CronScheduleType,
+  type CronSessionPolicy,
   type CronTarget,
 } from '@/features/console/api/cron';
 import {
@@ -25,8 +17,7 @@ import {
   type ChannelConfigResponse,
   type ChannelKey,
 } from '@/features/console/api/channelConfig';
-import { dataConsoleApi } from '@/features/console/api/client';
-import type { ConsoleSession, DatasourceOption } from '@/features/console/api/types';
+import type { DatasourceOption } from '@/features/console/api/types';
 import type { MessageKey } from '@/i18n/locales';
 import {
   buildCronExpression,
@@ -38,9 +29,15 @@ import {
   type CronFrequency,
   type CronIntervalUnit,
 } from '@/features/cron/model/cronSchedule';
+import { validateAttachmentFile } from '@/features/console/model/chat/attachments';
 import RouteDrawer from '@/features/console/components/RouteDrawer';
 import styles from './index.module.less';
 import { useAppI18n } from '@/i18n';
+
+export interface CronJobAttachmentEdits {
+  upload: File[];
+  remove: string[];
+}
 
 interface CronJobDrawerProps {
   open: boolean;
@@ -49,7 +46,7 @@ interface CronJobDrawerProps {
   datasources: DatasourceOption[];
   submitting: boolean;
   onClose: () => void;
-  onSubmit: (body: CronJobWriteBody) => Promise<void>;
+  onSubmit: (body: CronJobWriteBody, files: CronJobAttachmentEdits) => Promise<void>;
 }
 
 const IM_CHANNELS: ChannelKey[] = ['feishu', 'dingtalk', 'wecom', 'wechat'];
@@ -72,7 +69,7 @@ interface FormValues {
   enabled: boolean;
   datasource_id: string;
   channel: string;
-  session_id?: string;
+  session_policy: CronSessionPolicy;
   target_external_key?: string;
   scheduleType: CronScheduleType;
   timezone: string;
@@ -110,7 +107,7 @@ function scheduleToForm(job: CronJob | null, draft: CronJobDraft | null): FormVa
     enabled: job?.enabled ?? true,
     datasource_id: job?.datasource_id || draft?.datasource_id || '',
     channel: job?.channel || draft?.channel || 'console',
-    session_id: job?.session_id || draft?.session_id || undefined,
+    session_policy: job?.session_policy || 'reuse',
     target_external_key: job?.target_external_key || undefined,
     scheduleType: schedule?.type || 'cron',
     timezone,
@@ -141,17 +138,15 @@ export default function CronJobDrawer({
   const { language, t } = useAppI18n();
   const [form] = Form.useForm<FormValues>();
   const [channelConfig, setChannelConfig] = useState<ChannelConfigResponse | null>(null);
-  const [sessions, setSessions] = useState<ConsoleSession[]>([]);
-  const [lookedUpSession, setLookedUpSession] = useState<ConsoleSession | null>(null);
   const [targets, setTargets] = useState<CronTarget[]>([]);
+  const [keptAttachments, setKeptAttachments] = useState<string[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const initialValues = useMemo(() => scheduleToForm(editing, draft), [draft, editing]);
   const scheduleType = Form.useWatch('scheduleType', form) ?? initialValues.scheduleType;
   const channel = Form.useWatch('channel', form) ?? initialValues.channel;
-  const sessionId = Form.useWatch('session_id', form);
   const isIm = isCronImChannel(channel);
   const needsTarget = isIm;
-  const lockedDatasourceId = lookedUpSession?.datasource_id || null;
-  const datasourceLocked = Boolean(lockedDatasourceId);
   const frequency = Form.useWatch('frequency', form) ?? initialValues.frequency;
   const intervalUnit = Form.useWatch('intervalUnit', form) ?? initialValues.intervalUnit;
   const minuteOptions = useMemo(
@@ -183,9 +178,10 @@ export default function CronJobDrawer({
   }, [form, initialValues, open]);
 
   useEffect(() => {
-    if (!lockedDatasourceId) return;
-    form.setFieldValue('datasource_id', lockedDatasourceId);
-  }, [form, lockedDatasourceId]);
+    if (!open) return;
+    setKeptAttachments([...(editing?.attachments ?? [])]);
+    setPendingFiles([]);
+  }, [editing, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -197,52 +193,6 @@ export default function CronJobDrawer({
       cancelled = true;
     };
   }, [open]);
-
-  useEffect(() => {
-    if (!open || !channel) return;
-    let cancelled = false;
-    void dataConsoleApi
-      .listSessions({
-        channel,
-        page: 1,
-        page_size: 100,
-        sort: 'updated_desc',
-      })
-      .then((response) => {
-        if (!cancelled) setSessions(response.items);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [channel, open]);
-
-  useEffect(() => {
-    const id = String(sessionId || '').trim();
-    if (!open || !id) {
-      setLookedUpSession(null);
-      return;
-    }
-    const fromList = sessions.find((item) => item.id === id);
-    if (fromList) {
-      setLookedUpSession(fromList);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void dataConsoleApi
-        .getSession(id)
-        .then((response) => {
-          if (!cancelled) setLookedUpSession(response.session);
-        })
-        .catch(() => {
-          if (!cancelled) setLookedUpSession(null);
-        });
-    }, 400);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [open, sessionId, sessions]);
 
   useEffect(() => {
     if (!open || !isIm) {
@@ -272,18 +222,6 @@ export default function CronJobDrawer({
     }));
   }, [channel, channelConfig, t]);
 
-  const sessionOptions = useMemo(() => {
-    const options = sessions.map((item) => ({
-      value: item.id,
-      label: `${item.title.trim() || t('common.unnamedSession')}（${item.id}）`,
-    }));
-    const current = editing?.session_id || draft?.session_id;
-    if (current && !options.some((item) => item.value === current)) {
-      options.unshift({ value: current, label: current });
-    }
-    return options;
-  }, [draft?.session_id, editing?.session_id, sessions, t]);
-
   const targetOptions = useMemo(() => {
     const options = targets.map((item) => ({
       value: item.external_key,
@@ -302,6 +240,39 @@ export default function CronJobDrawer({
       ? t('cron.distillTitle')
       : t('cron.createTitle');
 
+  const existingNames = useMemo(
+    () => [...keptAttachments, ...pendingFiles.map((file) => file.name)],
+    [keptAttachments, pendingFiles],
+  );
+
+  const handlePickFiles = (fileList: FileList | null) => {
+    if (!fileList) return;
+    const next = [...pendingFiles];
+    const names = [...keptAttachments, ...next.map((file) => file.name)];
+    for (const file of Array.from(fileList)) {
+      const reason = validateAttachmentFile(file, names);
+      if (reason === 'empty') {
+        message.warning(t('runtime.attachmentEmpty'));
+        continue;
+      }
+      if (reason === 'tooLarge') {
+        message.warning(t('runtime.attachmentTooLarge'));
+        continue;
+      }
+      if (reason === 'type') {
+        message.warning(t('runtime.attachmentType'));
+        continue;
+      }
+      if (reason === 'duplicate') {
+        message.warning(t('runtime.attachmentDuplicate'));
+        continue;
+      }
+      next.push(file);
+      names.push(file.name);
+    }
+    setPendingFiles(next);
+  };
+
   const handleFinish = async (values: FormValues) => {
     try {
       const runAt = values.runAt
@@ -314,9 +285,11 @@ export default function CronJobDrawer({
         name: values.name.trim(),
         enabled: values.enabled,
         message: values.message.trim(),
-        datasource_id: (lockedDatasourceId || values.datasource_id).trim(),
+        datasource_id: values.datasource_id.trim(),
         channel: values.channel,
-        session_id: values.session_id?.trim() || null,
+        session_policy: isCronImChannel(values.channel)
+          ? (editing?.session_policy ?? 'reuse')
+          : values.session_policy,
         target_external_key: isCronImChannel(values.channel)
           ? values.target_external_key?.trim() || null
           : null,
@@ -344,7 +317,18 @@ export default function CronJobDrawer({
                 timezone: values.timezone,
               },
       };
-      await onSubmit(body);
+      if (
+        isCronImChannel(values.channel) &&
+        !isCronImChannel(editing?.channel ?? '') &&
+        (keptAttachments.length || pendingFiles.length)
+      ) {
+        throw new Error(t('cron.removeAttachmentsBeforeSwitchingChannel'));
+      }
+      const original = editing?.attachments ?? [];
+      await onSubmit(body, {
+        upload: pendingFiles,
+        remove: original.filter((name) => !keptAttachments.includes(name)),
+      });
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     }
@@ -383,6 +367,7 @@ export default function CronJobDrawer({
         form={form}
         layout="vertical"
         initialValues={initialValues}
+        disabled={submitting}
         onFinish={(values) => void handleFinish(values)}
       >
         <Form.Item
@@ -401,37 +386,32 @@ export default function CronJobDrawer({
           <Select
             options={channelOptions}
             onChange={() => {
-              form.setFieldValue('session_id', undefined);
               form.setFieldValue('target_external_key', undefined);
             }}
           />
         </Form.Item>
 
-        <Form.Item label={fieldLabel(t('cron.session'), t('cron.sessionExtra'))} name="session_id">
-          <AutoComplete
-            allowClear
-            options={sessionOptions}
-            placeholder={t('cron.sessionPlaceholder')}
-            filterOption={(input, option) => {
-              const label = String(option?.label ?? '');
-              const value = String(option?.value ?? '');
-              const needle = input.trim().toLowerCase();
-              return label.toLowerCase().includes(needle) || value.toLowerCase().includes(needle);
-            }}
+        {isIm && <p>{t('cron.consoleOnlyOptions')}</p>}
+        <Form.Item
+          hidden={isIm}
+          label={fieldLabel(t('cron.sessionPolicy'), t('cron.sessionPolicyExtra'))}
+          name="session_policy"
+        >
+          <Select
+            options={[
+              { value: 'reuse', label: t('cron.sessionPolicy.reuse') },
+              { value: 'new_each_run', label: t('cron.sessionPolicy.newEachRun') },
+            ]}
           />
         </Form.Item>
 
         <Form.Item
-          label={fieldLabel(
-            t('cron.datasource'),
-            datasourceLocked ? t('cron.datasourceLocked') : t('cron.datasourceExtra'),
-          )}
+          label={fieldLabel(t('cron.datasource'), t('cron.datasourceExtra'))}
           name="datasource_id"
           rules={[{ required: true, message: t('cron.datasourceRequired') }]}
         >
           <Select
             showSearch
-            disabled={datasourceLocked}
             optionFilterProp="label"
             placeholder={datasources.length ? t('cron.selectDatasource') : t('cron.noDatasource')}
             options={datasources.map((item) => ({
@@ -628,6 +608,61 @@ export default function CronJobDrawer({
             showCount
             placeholder={t('cron.instructionPlaceholder')}
           />
+        </Form.Item>
+
+        <Form.Item
+          hidden={isIm}
+          label={fieldLabel(t('cron.attachments'), t('cron.attachmentsExtra'))}
+        >
+          <input
+            ref={fileInputRef}
+            className={styles.fileInput}
+            type="file"
+            multiple
+            onChange={(event) => {
+              handlePickFiles(event.target.files);
+              event.target.value = '';
+            }}
+          />
+          <Button disabled={submitting} onClick={() => fileInputRef.current?.click()}>
+            {t('cron.addAttachment')}
+          </Button>
+          {existingNames.length ? (
+            <ul className={styles.attachmentList}>
+              {keptAttachments.map((name) => (
+                <li key={`kept-${name}`}>
+                  <span title={name}>{name}</span>
+                  <Button
+                    type="link"
+                    size="small"
+                    disabled={submitting}
+                    onClick={() =>
+                      setKeptAttachments((current) => current.filter((item) => item !== name))
+                    }
+                  >
+                    {t('runtime.detach')}
+                  </Button>
+                </li>
+              ))}
+              {pendingFiles.map((file) => (
+                <li key={`pending-${file.name}`}>
+                  <span title={file.name}>{file.name}</span>
+                  <Button
+                    type="link"
+                    size="small"
+                    disabled={submitting}
+                    onClick={() =>
+                      setPendingFiles((current) =>
+                        current.filter((item) => item.name !== file.name),
+                      )
+                    }
+                  >
+                    {t('runtime.detach')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </Form.Item>
 
         <Form.Item label={t('cron.enableJob')} name="enabled" valuePropName="checked">

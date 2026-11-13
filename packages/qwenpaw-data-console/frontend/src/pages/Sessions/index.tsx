@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useNavigate } from 'react-router-dom';
 import ChannelIcon from '@/features/console/components/ChannelIcon';
 import type { ConsoleSession } from '@/features/console/api/types';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import OverflowTooltip from '@/features/console/components/OverflowTooltip';
 import SessionActions from '@/features/console/components/SessionActions';
 import {

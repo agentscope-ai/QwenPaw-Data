@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 from typing import Callable
+from urllib.parse import urlsplit
 
 _OK = "OK"
 _WARN = "WARN"
@@ -111,23 +112,45 @@ def _check_node() -> CheckResult:
 
 
 def _check_model_config() -> CheckResult:
-    model = (os.getenv("QWENPAW_DATA_MODEL_NAME") or os.getenv("LLM_MODEL") or "").strip()
-    api_key = (
-        os.getenv("QWENPAW_DATA_MODEL_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    ).strip()
-    provider = (os.getenv("QWENPAW_DATA_MODEL_PROVIDER") or "openai").strip().lower()
-    missing = [
-        name for name, value in (("model", model), ("API key", api_key)) if not value
-    ]
-    if missing:
+    from qwenpaw_data.host.core.semantic_config_client import (
+        SemanticConfigClient,
+        SemanticConfigClientError,
+    )
+
+    try:
+        payload = SemanticConfigClient().get("/api/v1/config")
+    except (SemanticConfigClientError, ValueError):
         return CheckResult(
             "Model config",
-            _FAIL,
-            f"provider={provider}; missing {', '.join(missing)}",
-            ["Set LLM_MODEL and OPENAI_API_KEY (or QWENPAW_DATA_MODEL_* overrides)."],
+            _WARN,
+            "saved model configuration could not be checked",
+            ["Start DataBridge and use a CLI credential with credentials:manage scope."],
+        )
+    if not isinstance(payload, dict) or not all(
+        isinstance(payload.get(key), dict) for key in ("llm", "embedding", "errors")
+    ):
+        return CheckResult("Model config", _WARN, "saved model configuration response is invalid")
+    missing = [
+        channel for channel in ("embedding", "llm")
+        if channel in payload["errors"]
+        or not payload[channel].get("model")
+        or not payload[channel].get("api_key")
+    ]
+    if "embedding" in missing:
+        return CheckResult(
+            "Model config", _FAIL,
+            "embedding model is not configured; semantic publication requires one",
+            ["Configure a Host provider and select an embedding model in DataBridge."],
+        )
+    if "llm" in missing:
+        return CheckResult(
+            "Model config", _WARN,
+            "embedding configured; chat model is not configured",
+            ["Configure a Host provider and select a chat model before using chat."],
         )
     return CheckResult(
-        "Model config", _OK, f"provider={provider}; model={model}; credentials=set"
+        "Model config", _OK,
+        "saved chat and embedding models configured; provider connectivity not tested",
     )
 
 
@@ -314,13 +337,30 @@ def _check_docker_compose() -> CheckResult:
 
 
 def _check_neo4j() -> CheckResult:
-    port = int(os.getenv("NEO4J_BOLT_PORT", "7687"))
-    if _port_reachable("127.0.0.1", port):
-        return CheckResult("Neo4j (bolt)", _OK, f"127.0.0.1:{port} reachable")
+    backend = (os.getenv("GRAPH_BACKEND") or "neo4j").strip().lower()
+    if backend in {"holoage", "holo_age", "holo-age"}:
+        return CheckResult("Neo4j (bolt)", _INFO, "not used with Holo AGE; Holo connectivity not checked")
+    if backend != "neo4j":
+        return CheckResult("Neo4j (bolt)", _FAIL, "invalid GRAPH_BACKEND")
+    try:
+        uri = urlsplit((os.getenv("NEO4J_URI") or "bolt://localhost:7687").strip())
+        host = uri.hostname
+        port = uri.port if uri.port is not None else 7687
+        if (uri.scheme not in {"bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"}
+                or not host or uri.username or uri.password or uri.path not in ("", "/")
+                or uri.fragment or not 1 <= port <= 65535):
+            raise ValueError("invalid URI")
+    except ValueError:
+        return CheckResult("Neo4j (bolt)", _FAIL, "NEO4J_URI is invalid")
+    if _port_reachable(host, port):
+        return CheckResult(
+            "Neo4j (bolt)", _OK,
+            f"{host}:{port} TCP reachable; authentication and database not checked",
+        )
     return CheckResult(
         "Neo4j (bolt)",
         _FAIL,
-        f"127.0.0.1:{port} not reachable",
+        f"{host}:{port} not reachable",
         [
             "Start with scripts/start_local.ps1 on Windows or "
             "scripts/start_local.sh on macOS/Linux."

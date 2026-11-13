@@ -28,6 +28,8 @@ export interface CronTarget {
   last_active_at: string;
 }
 
+export type CronSessionPolicy = 'reuse' | 'new_each_run';
+
 export interface CronJob {
   id: string;
   name: string;
@@ -35,8 +37,10 @@ export interface CronJob {
   message: string;
   datasource_id: string;
   channel: string;
+  session_policy: CronSessionPolicy;
   session_id: string | null;
   target_external_key: string | null;
+  attachments: string[];
   schedule: CronSchedule;
   created_at: string;
   updated_at: string;
@@ -48,7 +52,7 @@ export interface CronJobWriteBody {
   message: string;
   datasource_id: string;
   channel: string;
-  session_id?: string | null;
+  session_policy: CronSessionPolicy;
   target_external_key?: string | null;
   schedule: CronSchedule;
 }
@@ -58,7 +62,6 @@ export interface CronJobDraft {
   message: string;
   datasource_id: string;
   channel?: string;
-  session_id?: string | null;
 }
 
 export interface CronJobListParams {
@@ -127,5 +130,21 @@ export const cronApi = {
   listTargets(channel: string) {
     const search = new URLSearchParams({ channel });
     return request<{ targets: CronTarget[]; count: number }>(`/cron/targets?${search.toString()}`);
+  },
+
+  uploadAttachment(jobId: string, file: File) {
+    const body = new FormData();
+    body.append('file', file);
+    return request<{ job: CronJob }>(`/cron/jobs/${encodeURIComponent(jobId)}/attachments`, {
+      method: 'POST',
+      body,
+    });
+  },
+
+  deleteAttachment(jobId: string, filename: string) {
+    return request<{ job: CronJob }>(
+      `/cron/jobs/${encodeURIComponent(jobId)}/attachments/${encodeURIComponent(filename)}`,
+      { method: 'DELETE' },
+    );
   },
 };

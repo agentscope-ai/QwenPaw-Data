@@ -36,7 +36,7 @@ class ChatAdmissionFields(ApiModel):
 
     ``runtime_models`` is the 0.3 / #81 request-scoped model binding. It is
     validated but never serialized, logged or persisted; handlers route it to
-    the single ``model_binding_request`` launch parameter.
+    an admission-time runtime snapshot.
     """
 
     text: str

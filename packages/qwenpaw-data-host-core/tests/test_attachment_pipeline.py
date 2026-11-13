@@ -16,10 +16,10 @@ from pathlib import Path
 import pytest
 
 from qwenpaw_data.host.core.domain.attachment import (
-    MAX_SIZE_BYTES,
     Attachment,
     uploads_relative_path,
 )
+from qwenpaw_data.host.core.utils.files import MAX_SIZE_BYTES
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.runtime.turn import compose_agent_input

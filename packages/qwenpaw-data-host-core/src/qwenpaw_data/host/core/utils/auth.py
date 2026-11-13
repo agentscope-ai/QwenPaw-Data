@@ -11,6 +11,18 @@ from qwenpaw_data.host.core.api.auth_middleware import auth_enabled
 from qwenpaw_data.host.core.domain.identity import Identity
 
 
+def resolve_context_access_token(access_token: str | None) -> str | None:
+    """Use local deployment credentials only when no delegated identity is active."""
+    if access_token or auth_enabled():
+        return access_token
+    return (
+        os.environ.get("QWENPAW_DATA_CLIENT_API_TOKEN", "").strip()
+        or os.environ.get("QWENPAW_DATA_CONTEXT_API_TOKEN", "").strip()
+        or os.environ.get("QWENPAW_DATA_API_TOKEN", "").strip()
+        or None
+    )
+
+
 def generate_temporary_token(
     identity: Identity, *, ttl: int | None = None
 ) -> str | None:

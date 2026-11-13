@@ -9,12 +9,15 @@ import {
 import { setActiveDataSource } from '@/services/dataSource';
 import { useAppI18n } from '@/i18n/useAppI18n';
 import { useAuthStore } from '@/store/authStore';
+import { useNavigate } from 'react-router-dom';
+import { isEmbedded } from '../embedded/context';
 
 interface BackToHostButtonProps {
   variant?: 'icon' | 'sider';
 }
 
 export default function BackToHostButton({ variant = 'icon' }: BackToHostButtonProps) {
+  const navigate = useNavigate();
   const { t } = useAppI18n();
   const isPlatformAdmin = useAuthStore((state) => state.isPlatformAdmin);
   const label = variant === 'sider' ? t('layout.goToAgentCenter') : t('layout.goToAgentCenterFull');
@@ -38,6 +41,11 @@ export default function BackToHostButton({ variant = 'icon' }: BackToHostButtonP
         target={variant === 'icon' ? '_blank' : undefined}
         rel={variant === 'icon' ? 'noopener noreferrer' : undefined}
         onClick={(event) => {
+          if (isEmbedded() && !isPlatformAdmin) {
+            event.preventDefault();
+            navigate('/console');
+            return;
+          }
           if (isPlatformAdmin && isAgentCenterSameApp(agentCenterUrl)) {
             event.preventDefault();
             message.info(t('layout.agentCenterNeedsTenant'));

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import { useAppI18n } from '@/i18n';
 import { useConsoleLayout } from '@/layouts/ConsoleLayout/context';
 import Content from './Content';

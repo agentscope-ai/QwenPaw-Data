@@ -22,7 +22,7 @@ import {
   type McpTool,
   type McpWriteBody,
 } from '@/features/console/api/mcp';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import RouteDrawer from '@/features/console/components/RouteDrawer';
 import { useAppI18n } from '@/i18n';
 import styles from './index.module.less';

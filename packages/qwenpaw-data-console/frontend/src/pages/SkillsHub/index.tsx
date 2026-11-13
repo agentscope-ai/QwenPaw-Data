@@ -28,7 +28,7 @@ import {
   type SkillRevision,
   type SkillRevisionDetail,
 } from '@/features/console/api/skills';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import RouteDrawer from '@/features/console/components/RouteDrawer';
 import { useAppI18n } from '@/i18n';
 import type { MessageKey } from '@/i18n/locales';

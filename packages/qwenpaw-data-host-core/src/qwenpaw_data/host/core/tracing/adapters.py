@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
@@ -29,7 +28,6 @@ from qwenpaw_data.tracing import (
 from qwenpaw_data.tracing import (
     tracer_shutdown as _shutdown,
 )
-from qwenpaw_data.tracing.core.trace.session import BaseSessionTracer
 from qwenpaw_data.tracing.runtime.common.propagation import (
     apply_trace_labels,
     attach_remote_parent,
@@ -37,6 +35,7 @@ from qwenpaw_data.tracing.runtime.common.propagation import (
 from qwenpaw_data.tracing.runtime.host.chat import (
     tracer as public_tracer,
     tracer_end,
+    tracer_session,
     tracer_span,
     tracer_start as public_tracer_start,
 )
@@ -44,7 +43,6 @@ from qwenpaw_data.tracing.runtime.host.chat_id import (
     ChatTraceIdGenerator,
     trace_id_from_chat_id,
 )
-from qwenpaw_data.tracing.runtime.host.metadata import trace_metadata
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import ReadableSpan, Span
 
@@ -102,55 +100,6 @@ class _HostSpanProcessor(BaggageAttributeProcessor):
 # --- session / chat identity ------------------------------------------------ #
 
 
-class SessionTracer(BaseSessionTracer):
-    """Host session identity. A child session hangs on the parent's sessionId."""
-
-    def __init__(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        datasource_id: str | None = None,
-        dataset_names: list | None = None,
-        parent_session_id: str | None = None,
-    ) -> None:
-        super().__init__(user_id=user_id, session_id=session_id)
-        self._datasource_id = datasource_id
-        self._dataset_names = dataset_names
-        self._parent_session_id = parent_session_id
-
-    @classmethod
-    def from_context(cls, ctx: RunContext) -> SessionTracer:
-        datasource_id, dataset_names = datasource_and_datasets(ctx.request_context)
-        parent = ctx.request_context.get("parent_session_id")
-        parent_id = parent if isinstance(parent, str) and parent.strip() else None
-        if parent_id:
-            session_id, metadata_parent = parent_id, ctx.session_id
-        else:
-            session_id, metadata_parent = ctx.session_id, None
-        return cls(
-            user_id=ctx.identity.user_id,
-            session_id=session_id,
-            datasource_id=datasource_id,
-            dataset_names=dataset_names,
-            parent_session_id=metadata_parent,
-        )
-
-    def labels(self, *, metadata_json: str | None = None) -> dict[str, str]:
-        source = None
-        if metadata_json:
-            extra = json.loads(metadata_json)
-            raw = extra.get("source_trace_id")
-            source = raw if isinstance(raw, str) else None
-        metadata = trace_metadata(
-            datasource_id=self._datasource_id,
-            dataset_names=self._dataset_names,
-            parent_session_id=self._parent_session_id,
-            source_trace_id=source,
-        )
-        return super().labels(metadata_json=metadata)
-
-
 async def attach_saved_chat_trace(
     session_factory: Any,
     chat_id: str,
@@ -174,16 +123,38 @@ async def attach_saved_chat_trace(
     return attach_remote_parent(trace_id, row.otel_span_id)
 
 
+def _ctx_fields(ctx: Any) -> tuple[str, str, dict]:
+    """(user_id, session_id, metadata). A child session hangs on the parent's."""
+    datasource_id, dataset_names = datasource_and_datasets(ctx.request_context)
+    parent = ctx.request_context.get("parent_session_id")
+    parent_id = parent if isinstance(parent, str) and parent.strip() else None
+    if parent_id:
+        session_id, child_id = parent_id, ctx.session_id
+    else:
+        session_id, child_id = ctx.session_id, None
+    extra: dict[str, Any] = {"workspace_id": ctx.identity.workspace_id}
+    if datasource_id and datasource_id.strip():
+        extra["datasource_id"] = datasource_id.strip()
+    names = [str(name) for name in dataset_names or () if str(name).strip()]
+    if names:
+        extra["dataset_names"] = names
+    if child_id and child_id.strip():
+        extra["parent_session_id"] = child_id.strip()
+    return ctx.identity.user_id, session_id, extra
+
+
 def _host_tracer_kwargs(
     ctx: Any, step: object | None, tags: Sequence[str] | None
 ) -> dict[str, Any]:
     async def attach() -> object | None:
         return await attach_saved_chat_trace(ctx.session_factory, ctx.chat_id)
 
+    user_id, session_id, extra = _ctx_fields(ctx)
     return {
         "chat_id": ctx.chat_id,
         "step": step,
-        "session": SessionTracer.from_context(ctx),
+        "session": tracer_session(user_id, session_id),
+        "metadata": extra,
         "attach_saved": attach if step is None else None,
         "save_span_id": _tracer_save_span_id(ctx),
         "tags": tags,
@@ -289,7 +260,6 @@ async def _inject_cm_traceparent(
 
 
 __all__ = [
-    "SessionTracer",
     "attach_saved_chat_trace",
     "tracer",
     "tracer_end",

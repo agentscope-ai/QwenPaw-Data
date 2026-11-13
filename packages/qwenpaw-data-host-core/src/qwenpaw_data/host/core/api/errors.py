@@ -70,8 +70,9 @@ def map_domain_error(exc: Exception) -> HTTPException | None:
 async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail
     if isinstance(detail, dict) and "code" in detail:
-        return JSONResponse(status_code=exc.status_code, content=detail)
+        return JSONResponse(status_code=exc.status_code, content=detail, headers=exc.headers)
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorBodySchema(code="VALIDATION", message=str(detail)).model_dump(),
+        headers=exc.headers,
     )

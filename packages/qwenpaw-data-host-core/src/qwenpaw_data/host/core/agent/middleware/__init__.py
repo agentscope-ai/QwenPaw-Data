@@ -26,6 +26,7 @@ from qwenpaw_data.host.core.agent.middleware.tool_confirmation import (
 )
 from qwenpaw_data.host.core.agent.middleware.tool_timeout import ToolTimeoutMiddleware
 from qwenpaw_data.host.core.agent.middleware.trace_forward import TraceForwardMiddleware
+from qwenpaw_data.host.core.agent.middleware.ui import UiMiddleware
 
 __all__ = [
     "CompressTriggerMiddleware",
@@ -45,4 +46,5 @@ __all__ = [
     "ToolConfirmationMiddleware",
     "ToolTimeoutMiddleware",
     "TraceForwardMiddleware",
+    "UiMiddleware",
 ]

@@ -118,6 +118,7 @@ def _context(client, *, seconds=1800, enabled=True):
         paths=SimpleNamespace(agent_id="agent"),
         session_id="session",
         disabled_skills=frozenset(),
+        request_context={},
         user_runtime_config=SimpleNamespace(
             tool_timeout_enabled=enabled, tool_timeout_seconds=seconds
         ),

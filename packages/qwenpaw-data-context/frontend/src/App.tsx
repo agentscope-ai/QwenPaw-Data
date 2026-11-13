@@ -4,13 +4,15 @@ import { ConfigProvider } from '@/design';
 import { Alert, App as AntdApp, Button, Modal } from 'antd';
 import enUS from 'antd/locale/en_US';
 import zhCN from 'antd/locale/zh_CN';
-import { RouterProvider } from 'react-router-dom';
-import router from './router';
+import { RouterProvider, createBrowserRouter } from 'react-router-dom';
+import { createContextRoutes } from './router';
+import { getContextBasePath } from './services/consoleConfig';
 import './i18n';
 import { useAppI18n } from './i18n/useAppI18n';
 import { useTranslation } from 'react-i18next';
 import { createContextThemeProviderProps } from './theme';
 import styles from './App.module.css';
+const router = createBrowserRouter(createContextRoutes(), { basename: getContextBasePath() });
 import {
   buildLocalLoginUrl,
   useAuthInitialized,

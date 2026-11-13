@@ -38,6 +38,8 @@ class Result:
 
 class Session(FakeSession):
     def run(self, query, **params):
+        if query == "RETURN 1 AS ok":
+            return super().run(query, **params)
         self._driver.console_calls.append((query, params))
         return self._driver.result
 

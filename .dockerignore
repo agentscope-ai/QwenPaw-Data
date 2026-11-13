@@ -8,7 +8,8 @@
 **/dist
 **/.turbo
 data
-scripts/walkthrough/env/generated
+**/*.chat-setup
+**/*.services.lock
 **/*.db
 **/*.db-shm
 **/*.db-wal
