@@ -33,6 +33,33 @@ TEST_IDENTITY = Identity(
 
 _BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
+_PAYLOADS = ("steer", "clarification", "plan", "tool_confirmation", "ui")
+
+
+def test_direct_command_payload_defaults_are_data_not_factory_methods() -> None:
+    command = ChatCommand(
+        id="cmd-direct", chat_id="chat-1", identity=TEST_IDENTITY,
+        kind="cancel", status="waiting", created_at=_BASE,
+    )
+    assert {name: getattr(command, name) for name in _PAYLOADS} == dict.fromkeys(_PAYLOADS)
+
+
+@pytest.mark.parametrize("kind,kwargs", [
+    ("steer", {"text": "updated question", "artifact_comments": []}),
+    ("clarification", {"clarification_id": "q1", "result": {"answer": "yes"}}),
+    ("plan", {"reason": "revise", "plan": {"nodes": []}}),
+    ("tool_confirmation", {"call_id": "t1", "decision": "approved"}),
+    ("ui", {"call_id": "u1", "outcome": {"status": "executed", "result": {}}}),
+])
+def test_command_factories_set_only_their_own_payload(kind, kwargs) -> None:
+    chat = _chat()
+    command = getattr(ChatCommand, f"for_{kind}")(chat, **kwargs)
+    assert command.kind == kind
+    assert command.chat_id == chat.id
+    assert command.identity == chat.identity
+    assert isinstance(getattr(command, kind), dict)
+    assert all(getattr(command, name) is None for name in _PAYLOADS if name != kind)
+
 
 def _chat(chat_id: str = "chat-1") -> Chat:
     chat = Chat.start(
@@ -53,7 +80,7 @@ def _steer(
     *,
     offset: int = 0,
 ) -> ChatCommand:
-    command = ChatCommand.steer(chat, text, list(comments or []))
+    command = ChatCommand.for_steer(chat, text, list(comments or []))
     command.created_at = _BASE + timedelta(seconds=offset)
     return command
 
@@ -214,4 +241,4 @@ async def test_steer_keeps_artifact_comments() -> None:
 def test_empty_text_rejected() -> None:
     chat = _chat()
     with pytest.raises(ValueError, match="text is required"):
-        ChatCommand.steer(chat, "   ", [])
+        ChatCommand.for_steer(chat, "   ", [])

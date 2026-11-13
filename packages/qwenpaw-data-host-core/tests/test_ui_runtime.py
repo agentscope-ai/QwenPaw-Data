@@ -82,7 +82,7 @@ async def test_wait_reads_persistent_answer(environment):
         await asyncio.sleep(0.05)
         async with factory() as db:
             await ChatCommandRepository(db).add(
-                ChatCommand.ui(
+                ChatCommand.for_ui(
                     _chat(),
                     call_id="call",
                     outcome=_answer().model_dump(mode="json", exclude={"call_id"}),
@@ -120,7 +120,7 @@ async def test_middleware_does_not_execute_on_host(environment):
     await asyncio.sleep(0.05)
     async with factory() as db:
         await ChatCommandRepository(db).add(
-            ChatCommand.ui(
+            ChatCommand.for_ui(
                 _chat(),
                 call_id="call",
                 outcome=_answer().model_dump(mode="json", exclude={"call_id"}),

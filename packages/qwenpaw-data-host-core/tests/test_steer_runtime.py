@@ -173,7 +173,7 @@ async def _steer_count(chat_id: str) -> int:
 async def _enqueue_steer(chat_id: str, text: str) -> None:
     async with get_session_factory()() as db:
         chat = SimpleNamespace(id=chat_id, identity=TEST_IDENTITY)
-        await ChatCommandRepository(db).add(ChatCommand.steer(chat, text, []))
+        await ChatCommandRepository(db).add(ChatCommand.for_steer(chat, text, []))
         await db.commit()
 
 

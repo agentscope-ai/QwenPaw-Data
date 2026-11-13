@@ -38,7 +38,7 @@ async def answer_tool_confirmation(
         if not chat.is_active():
             raise RuntimeError("CONFLICT: chat is not active")
         await ChatCommandRepository(db).add(
-            ChatCommand.tool_confirmation(
+            ChatCommand.for_tool_confirmation(
                 chat, call_id=body.call_id, decision=body.decision
             )
         )

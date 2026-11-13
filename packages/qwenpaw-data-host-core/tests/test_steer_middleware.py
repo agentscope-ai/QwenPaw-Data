@@ -78,7 +78,7 @@ async def enqueue_steer():
         async with get_session_factory()() as db:
             for text, comments in items:
                 await ChatCommandRepository(db).add(
-                    ChatCommand.steer(chat, text, comments)
+                    ChatCommand.for_steer(chat, text, comments)
                 )
             await db.commit()
 

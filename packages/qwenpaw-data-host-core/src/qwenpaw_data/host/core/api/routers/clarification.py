@@ -69,7 +69,7 @@ async def answer_clarification_core(
     if not chat.is_active():
         raise ClarificationNotFound()
     await ChatCommandRepository(db).add(
-        ChatCommand.clarification(
+        ChatCommand.for_clarification(
             chat,
             clarification_id=body.clarification_id,
             result=body.result.model_dump(mode="json"),

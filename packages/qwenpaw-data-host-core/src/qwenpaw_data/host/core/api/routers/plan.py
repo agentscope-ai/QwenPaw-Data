@@ -57,7 +57,7 @@ async def plan_edit(
         context = to_task_context(payload)
         if chat.is_active():
             await ChatCommandRepository(db).add(
-                ChatCommand.plan(chat, reason=body.reason, plan=payload)
+                ChatCommand.for_plan(chat, reason=body.reason, plan=payload)
             )
         else:
             chat.plan = context

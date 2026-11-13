@@ -114,7 +114,7 @@ async def _write_answer(
     """Frontend answers a clarification by writing a command row."""
     async with get_session_factory()() as db:
         await ChatCommandRepository(db).add(
-            ChatCommand.clarification(
+            ChatCommand.for_clarification(
                 _chat(chat_id), clarification_id=clarification_id, result=result
             )
         )

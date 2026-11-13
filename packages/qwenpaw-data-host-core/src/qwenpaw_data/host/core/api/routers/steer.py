@@ -44,7 +44,7 @@ async def steer(
         if not chat.is_active():
             raise SteerChatEndedError()
         await ChatCommandRepository(db).add(
-            ChatCommand.steer(chat, body.text, comments)
+            ChatCommand.for_steer(chat, body.text, comments)
         )
         await db.commit()
         return {"ok": True}

@@ -30,7 +30,7 @@ class ChatCommand:
         return cls._new(chat, "cancel")
 
     @classmethod
-    def steer(  # noqa: F811 - factory named after its field
+    def for_steer(
         cls,
         chat: Chat,
         text: str,
@@ -45,7 +45,7 @@ class ChatCommand:
         )
 
     @classmethod
-    def clarification(  # noqa: F811 - factory named after its field
+    def for_clarification(
         cls,
         chat: Chat,
         *,
@@ -59,7 +59,7 @@ class ChatCommand:
         )
 
     @classmethod
-    def plan(  # noqa: F811 - factory named after its field
+    def for_plan(
         cls,
         chat: Chat,
         *,
@@ -69,7 +69,7 @@ class ChatCommand:
         return cls._new(chat, "plan", plan={"reason": reason, "plan": plan})
 
     @classmethod
-    def tool_confirmation(  # noqa: F811 - factory named after its field
+    def for_tool_confirmation(
         cls,
         chat: Chat,
         *,
@@ -87,7 +87,7 @@ class ChatCommand:
         )
 
     @classmethod
-    def ui(
+    def for_ui(
         cls,
         chat: Chat,
         *,

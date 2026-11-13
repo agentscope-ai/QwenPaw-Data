@@ -198,7 +198,7 @@ async def test_active_chat_plan_edit_hot_replaces_without_interrupt(
         async with session_factory() as db:
             active = await ChatRepository(db, TEST_IDENTITY).get(chat.id)
             await ChatCommandRepository(db).add(
-                ChatCommand.plan(
+                ChatCommand.for_plan(
                     active,
                     reason="new priority",
                     plan={

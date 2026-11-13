@@ -38,7 +38,7 @@ async def answer_ui(
         if not chat.is_active():
             raise RuntimeError("CONFLICT: chat is not active")
         await ChatCommandRepository(db).add(
-            ChatCommand.ui(
+            ChatCommand.for_ui(
                 chat,
                 call_id=body.call_id,
                 outcome=body.model_dump(mode="json", exclude={"call_id"}),
