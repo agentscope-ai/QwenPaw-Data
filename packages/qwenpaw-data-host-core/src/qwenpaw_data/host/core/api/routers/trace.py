@@ -27,7 +27,12 @@ async def trace(
         raise_api("VALIDATION", "invalid view", status=400)
     try:
         await state.chats.get(chat_id, session_id=session_id)
-        events = await state.events.read_after(chat_id, -1)
+        objects = {
+            "raw": ("message",),
+            "business": ("biz_event",),
+            "both": ("message", "biz_event"),
+        }[view]
+        events = await state.events.read_after(chat_id, -1, objects=objects)
     except Exception as exc:
         http = map_domain_error(exc)
         if http:

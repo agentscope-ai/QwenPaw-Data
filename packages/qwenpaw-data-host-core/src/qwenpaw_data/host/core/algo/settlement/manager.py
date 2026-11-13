@@ -322,7 +322,9 @@ class SettlementManager:
 
         window_events: list[Any] = []
         for chat in window_chats:
-            events = await self._events.read_after(chat.id, -1)
+            events = await self._events.read_after(
+                chat.id, -1, objects=("message",)
+            )
             window_events.extend(events)
 
         return window_events

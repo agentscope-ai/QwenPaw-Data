@@ -8,6 +8,7 @@ runtime.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -231,7 +232,14 @@ class ChatEventStore(Protocol):
         payload: dict[str, Any],
     ) -> StreamObject: ...
 
-    async def read_after(self, chat_id: str, after: int) -> list[StreamObject]: ...
+    async def read_after(
+        self,
+        chat_id: str,
+        after: int,
+        objects: Collection[str] | None = None,
+    ) -> list[StreamObject]:
+        """Events after ``after``, optionally limited to ``objects`` types."""
+        ...
 
     async def last_sequence_number(self, chat_id: str) -> int: ...
 

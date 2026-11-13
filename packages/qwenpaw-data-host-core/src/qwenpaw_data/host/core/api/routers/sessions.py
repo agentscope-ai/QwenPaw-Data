@@ -20,6 +20,13 @@ from qwenpaw_data.host.core.store.protocols import ChatEventStore
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
+_BUNDLE_OBJECTS = (
+    "segment",
+    "biz_event",
+    "artifact.registered",
+    "followup.generated",
+)
+
 
 @router.post("")
 async def create_session(
@@ -176,7 +183,9 @@ async def bundle_extras(
     biz_events: list[dict[str, Any]] = []
     artifacts: list[dict[str, Any]] = []
     followup: dict[str, Any] | None = None
-    for obj in await events.read_after(chat_id, -1):
+    for obj in await events.read_after(
+        chat_id, -1, objects=_BUNDLE_OBJECTS
+    ):
         if obj.object == "segment":
             segments.append(obj.segment.model_dump(mode="json"))
         elif obj.object == "biz_event" and obj.biz_event.channel == "main":

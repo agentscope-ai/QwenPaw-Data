@@ -18,6 +18,11 @@ router = APIRouter(tags=["events"])
 
 _HEARTBEAT_ENV = "QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS"
 
+# Replaying a long chat means tens of thousands of events. Yielding each one
+# separately also costs a ``request.is_disconnected()`` poll per event, which
+# dominates the request time, so replay chunks are batched.
+_REPLAY_BATCH_EVENTS = 128
+
 
 def _heartbeat_seconds() -> float:
     raw = (os.environ.get(_HEARTBEAT_ENV) or "").strip()
@@ -63,18 +68,28 @@ async def chat_events(
             status = chat.status
             last = await state.events.last_sequence_number(chat_id)
 
+            pending: list[str] = []
             for obj in replay:
+                pending.append(format_sse(obj))
+                cursor = obj.sequence_number
+                if len(pending) >= _REPLAY_BATCH_EVENTS:
+                    if await request.is_disconnected():
+                        return
+                    yield "".join(pending)
+                    pending.clear()
+            if pending:
                 if await request.is_disconnected():
                     return
-                yield format_sse(obj)
-                cursor = obj.sequence_number
+                yield "".join(pending)
 
             if status in TERMINAL and cursor >= last:
                 # Chat status is saved before its terminal response is appended.
                 # A caught-up cursor alone cannot prove the stream is finished.
                 # On reconnect, the response may precede the requested cursor.
                 history = (
-                    await state.events.read_after(chat_id, -1)
+                    await state.events.read_after(
+                        chat_id, -1, objects=("response",)
+                    )
                     if after >= 0
                     else replay
                 )

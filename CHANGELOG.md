@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Filter chat-event reads by object type in the store so history endpoints no
+  longer deserialize every streamed delta to return a handful of messages,
+  segments, or artifacts. Event reads also select only the payload column, and
+  SSE replay is batched so long chats are not gated on a per-event
+  disconnection poll.
+
 ## [0.3.4] - 2026-11-05
 
 ### Added

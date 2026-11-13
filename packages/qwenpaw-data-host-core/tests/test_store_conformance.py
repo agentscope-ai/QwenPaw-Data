@@ -201,6 +201,39 @@ async def test_event_append_read_after(backend: Backend) -> None:
     assert await backend.events.last_sequence_number("chat_missing") == -1
 
 
+async def test_event_read_after_filters_by_object(backend: Backend) -> None:
+    chat = await _add_chat(backend)
+    await backend.events.append(
+        session_id=chat.session_id,
+        chat_id=chat.id,
+        payload={"object": "response", "id": "resp_1", "status": "created"},
+    )
+    for sequence, role in ((1, "assistant"), (2, "user")):
+        await backend.events.append(
+            session_id=chat.session_id,
+            chat_id=chat.id,
+            payload={
+                "object": "message",
+                "id": f"msg_{sequence}",
+                "sequence": sequence,
+                "type": "message",
+                "role": role,
+                "content": [],
+            },
+        )
+
+    messages = await backend.events.read_after(
+        chat.id, -1, objects=("message",)
+    )
+    assert [event.sequence_number for event in messages] == [1, 2]
+    assert all(event.object == "message" for event in messages)
+
+    assert await backend.events.read_after(chat.id, -1, objects=()) == []
+    assert await backend.events.read_after(
+        chat.id, -1, objects=("followup.generated",)
+    ) == []
+
+
 async def test_event_store_rejects_invalid_payload(backend: Backend) -> None:
     chat = await _add_chat(backend)
     with pytest.raises(ValueError):
