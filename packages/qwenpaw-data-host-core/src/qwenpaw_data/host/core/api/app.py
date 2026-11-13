@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from qwenpaw_data_auth import AuthConfig, bootstrap_local
 
@@ -16,6 +16,7 @@ from qwenpaw_data.host.core.api.routers import api_router, legacy_api_router
 from qwenpaw_data.host.core.channels import ChannelManager
 from qwenpaw_data.host.core.cron.manager import CronManager
 from qwenpaw_data.host.core.db.engine import get_session_factory, init_db, reset_engine
+from qwenpaw_data.host.core.settings.db import validate_legacy_store_mode
 from qwenpaw_data.host.core.tracing import (
     tracer_install,
     tracer_shutdown,
@@ -42,6 +43,7 @@ def _cors_origins() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_legacy_store_mode()
     validate_startup_configuration()
     # Identity schema and the local principal come first: Host tables share
     # the control-plane DB and every request is authorized against it.
@@ -49,32 +51,33 @@ async def lifespan(app: FastAPI):
         bootstrap_local, AuthConfig.from_env()
     )
     await reset_engine()
-    reset_hub()
-    await init_db()
-    recovery = ChatRecovery(get_session_factory())
-    await recovery.start()
-    # channel 子系统：按配置启动 enabled channel（无 enabled 则空跑）。
-    channel_manager = await ChannelManager.from_config()
-    await channel_manager.start_all()
-    app.state.channel_manager = channel_manager
-    await get_workspace_manager().start()
-
-    cron_manager = CronManager(get_session_factory(), channel_manager)
-    await cron_manager.start()
-    tracer_install()
-    tracer_score_flusher = TracerScoreFlusher(get_session_factory())
-    tracer_score_flusher.start()
-    try:
-        yield
-    finally:
-        await tracer_score_flusher.shutdown()
-        await recovery.shutdown()
-        await stop_workspace_manager()
-        await cron_manager.shutdown()
-        await channel_manager.stop_all()
-        tracer_shutdown()
+    async with AsyncExitStack() as cleanup:
+        # Register cleanup before starting each service: initialization can fail
+        # or be cancelled after allocating resources, before reaching yield.
+        cleanup.push_async_callback(reset_engine)
+        cleanup.callback(reset_hub)
         reset_hub()
-        await reset_engine()
+        await init_db()
+        recovery = ChatRecovery(get_session_factory())
+        cleanup.push_async_callback(recovery.shutdown)
+        await recovery.start()
+        # channel 子系统：按配置启动 enabled channel（无 enabled 则空跑）。
+        channel_manager = await ChannelManager.from_config()
+        cleanup.push_async_callback(channel_manager.stop_all)
+        await channel_manager.start_all()
+        app.state.channel_manager = channel_manager
+        cleanup.push_async_callback(stop_workspace_manager)
+        await get_workspace_manager().start()
+
+        cron_manager = CronManager(get_session_factory(), channel_manager)
+        cleanup.push_async_callback(cron_manager.shutdown)
+        await cron_manager.start()
+        cleanup.callback(tracer_shutdown)
+        tracer_install()
+        tracer_score_flusher = TracerScoreFlusher(get_session_factory())
+        cleanup.push_async_callback(tracer_score_flusher.shutdown)
+        tracer_score_flusher.start()
+        yield
 
 
 def create_app() -> FastAPI:

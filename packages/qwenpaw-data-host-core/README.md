@@ -43,15 +43,17 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 
 ### Storage backends
 
-The service persists sessions/chats/events/preferences through a store
-protocol with two interchangeable backends:
+The current service uses SQL repositories backed by the shared control-plane
+database. SQLite is the default; `QWENPAW_DATA_DB_URL` can select PostgreSQL.
 
-- **sqlite (default)**: `<home>/host/host.db` (WAL); point
-  `QWENPAW_DATA_DB_URL` at another SQLAlchemy async URL (e.g. postgres).
-- **JSON files**: set `QWENPAW_DATA_STORE=json` for the zero-dependency
-  file layout (`<home>/host/{chats,sessions,preferences}/`).
+**Open compatibility gap:** the legacy JSON stores remain in the source tree,
+but are not connected to the current HTTP runtime. `QWENPAW_DATA_STORE=json`
+now stops startup before database initialization instead of silently using SQL.
+Existing JSON data is neither imported nor deleted. Keep the previous compatible
+release for that data until JSON support or an explicit migration is available;
+do not unset the variable expecting old sessions to appear. This is a protective
+check, not retirement of the JSON compatibility requirement.
 
-A conformance test suite runs every store test against both backends.
 When no explicit model is passed, the service resolves the local user's
 configured active model from preferences and falls back to env vars.
 
@@ -69,8 +71,9 @@ calls and outputs, media) · `task_status` (DAG plan snapshots) ·
 ### Environment variables
 
 - `QWENPAW_DATA_API_TOKEN` — bearer token; unset = loopback-only
-- `QWENPAW_DATA_STORE` — `json` to use file-backed stores (default: sqlite)
-- `QWENPAW_DATA_DB_URL` — SQLAlchemy async URL (default `sqlite+aiosqlite:///<home>/host/host.db`)
+- `QWENPAW_DATA_STORE` — legacy selector; `json` is rejected until compatibility is restored
+- `QWENPAW_DATA_DB_URL` — SQLAlchemy async URL (default: shared local control-plane database)
+- `QWENPAW_DATA_WORKSPACE_BACKEND` — `docker` by default; `local` is explicit, unsandboxed opt-in
 - `QWENPAW_DATA_PREFS_MASTER_SECRET` — hex secret (≥32 bytes) to encrypt stored provider API keys at rest
 - `QWENPAW_DATA_CORS_ALLOW_ORIGINS` — comma-separated origins (default loopback)
 - `QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS` — keepalive interval (default 15)

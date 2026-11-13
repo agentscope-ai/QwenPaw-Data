@@ -172,6 +172,7 @@ def test_usage_and_confirmation_reach_a_real_local_host(tmp_path, frontend):
         QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
         QWENPAW_DATA_AUTH_MODE="local",
         QWENPAW_DATA_API_TOKEN=token,
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
         QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'host.sqlite'}",
         PYTHONDONTWRITEBYTECODE="1",
         PYTHONPATH=os.pathsep.join(str(path) for path in root.glob("packages/*/src")),
@@ -270,6 +271,7 @@ def test_model_config_gateway_reaches_context_without_graph(tmp_path, frontend):
         QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
         QWENPAW_DATA_AUTH_MODE="local",
         QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'context.sqlite'}",
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
         QWENPAW_DATA_API_KEYS=json.dumps([
             {"id": "credentials", "token": credentials, "scopes": ["credentials:manage"]},
             {"id": "query", "token": query_key, "scopes": ["query"]},

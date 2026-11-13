@@ -48,6 +48,7 @@ class QwenPawDataWorkspaceManager:
             WeakValueDictionary()
         )
         self._sweep_task: asyncio.Task[None] | None = None
+        self._start_lock = asyncio.Lock()
         self._sweep_jobs: dict[str, asyncio.Task[None]] = {}
         self._stopping = False
 
@@ -56,10 +57,17 @@ class QwenPawDataWorkspaceManager:
         return self._workspace_locks.setdefault(workspace_id, asyncio.Lock())
 
     async def start(self) -> None:
-        if self._sweep_task is not None:
-            return
-        self._sweep_task = asyncio.create_task(self._sweep_loop())
-        await self._warm_docker_image()
+        async with self._start_lock:
+            if self._stopping:
+                raise RuntimeError("workspace manager is shutting down")
+            if self._sweep_task is not None:
+                return
+            # Failed/cancelled warmup must not leave a running marker that lets
+            # subsequent callers bypass initialization or leaks a sweeper.
+            await self._warm_docker_image()
+            if self._stopping:
+                raise RuntimeError("workspace manager is shutting down")
+            self._sweep_task = asyncio.create_task(self._sweep_loop())
 
     async def _warm_docker_image(self) -> None:
         settings = get_settings().workspace

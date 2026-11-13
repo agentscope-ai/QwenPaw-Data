@@ -1,6 +1,7 @@
 """Product features must cross the public gateway, not only work on Host."""
 
 import json
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -168,8 +169,8 @@ def test_feature_contract_has_matching_host_routes():
             assert any(method.lower() in operations for operations in matches), (path, method)
 
 
-@pytest.fixture
-def live_host(tmp_path):
+@contextmanager
+def _live_host(tmp_path):
     """Real disposable local Host; no model, graph or channel credentials."""
     root = Path(__file__).resolve().parents[3]
     env = {key: value for key, value in os.environ.items()
@@ -180,6 +181,7 @@ def live_host(tmp_path):
         QWENPAW_DATA_HOME=str(tmp_path / "home"),
         QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
         QWENPAW_DATA_AUTH_MODE="local", QWENPAW_DATA_API_TOKEN=token,
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
         QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'host.sqlite'}",
         PYTHONDONTWRITEBYTECODE="1",
         PYTHONPATH=os.pathsep.join(str(path) for path in root.glob("packages/*/src")),
@@ -194,6 +196,7 @@ def live_host(tmp_path):
              "--host", "127.0.0.1", "--port", str(port)],
             cwd=tmp_path, env=env, stdout=log, stderr=subprocess.STDOUT,
         )
+        started = False
         try:
             deadline = time.monotonic() + 30
             with httpx.Client(trust_env=False, timeout=2) as client:
@@ -207,6 +210,7 @@ def live_host(tmp_path):
                 else:
                     log.seek(0)
                     pytest.fail(f"Host startup failed: {log.read()}")
+            started = True
             yield url, token
         finally:
             process.terminate()
@@ -215,6 +219,84 @@ def live_host(tmp_path):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+                pytest.fail("Host failed to shut down gracefully within 10 seconds")
+            if started:
+                log.seek(0)
+                assert "Application shutdown complete." in log.read()
+
+
+@pytest.fixture
+def live_host(tmp_path):
+    with _live_host(tmp_path) as host:
+        yield host
+
+
+def test_product_state_survives_real_host_restart(frontend, tmp_path):
+    """Fresh processes must recover the same local principal and persisted data."""
+    skill = "/api/v1/skills/agents/default/restart-skill"
+    content = "---\nname: restart-skill\ndescription: Restart acceptance\n---\n\n# Original\n"
+    edited = content.replace("# Original", "# Persisted revision")
+    payload = b"persistent artifact across process restart\n"
+    mcp = {"name": "restart-mcp", "enabled": False, "is_stateful": False,
+           "mcp_config": {"type": "http_mcp", "url": "http://127.0.0.1:9/mcp"}}
+
+    with _live_host(tmp_path) as (url, token):
+        with TestClient(create_app(host_url=url, token=token, frontend=frontend),
+                        headers=HEADERS) as client:
+            response = client.post("/api/v1/sessions", json={"title": "Restart acceptance"})
+            assert response.status_code == 200, response.text
+            session = response.json()["session"]["id"]
+            files = f"/api/v1/sessions/{session}/files"
+            response = client.post(files + "/upload", files={"file": ("retained.txt", payload)})
+            assert response.status_code == 200, response.text
+            artifact = response.json()["path"]
+            assert client.post(skill.rsplit("/", 1)[0], json={
+                "name": "restart-skill", "content": content,
+            }).status_code == 200
+            assert client.put(skill, json={
+                "name": "restart-skill", "content": edited, "base_content": content,
+            }).status_code == 200
+            assert client.post(skill + "/disable").status_code == 200
+            revisions = client.get(skill + "/revisions").json()["revisions"]
+            assert len(revisions) >= 2
+            assert client.post("/api/v1/mcp", json=mcp).status_code == 200
+            assert client.put("/api/v1/mcp/restart-mcp/tools", json={
+                "disable_tools": ["danger"],
+            }).status_code == 200
+            response = client.put("/api/v1/system/channel-config/dingtalk", json={
+                "enabled": False, "client_id": "restart-fixture",
+                "client_secret": "disposable-restart-secret",
+            })
+            assert response.status_code == 200, response.text
+            assert "disposable-restart-secret" not in response.text
+
+    # Same home and database, new Host process and new gateway instance.
+    with _live_host(tmp_path) as (url, token):
+        with TestClient(create_app(host_url=url, token=token, frontend=frontend),
+                        headers=HEADERS) as client:
+            response = client.get(f"/api/v1/sessions/{session}")
+            assert response.status_code == 200, response.text
+            assert response.json()["session"]["title"] == "Restart acceptance"
+            downloaded = client.get(files + "/access", params={
+                "path": artifact, "purpose": "download",
+            })
+            assert downloaded.status_code == 200
+            assert downloaded.content == payload
+            persisted = client.get(skill).json()
+            assert persisted["content"] == edited
+            assert persisted["enabled"] is False
+            assert client.get(skill + "/revisions").json()["revisions"] == revisions
+            first = min(r["revision_no"] for r in revisions)
+            assert client.post(f"{skill}/revisions/{first}/revert").status_code == 200
+            assert client.get(skill).json()["content"] == content
+            persisted_mcp = client.get("/api/v1/mcp/restart-mcp").json()
+            assert persisted_mcp["enabled"] is False
+            assert persisted_mcp["disable_tools"] == ["danger"]
+            response = client.get("/api/v1/system/channel-config/")
+            assert response.status_code == 200, response.text
+            assert response.json()["dingtalk"]["client_id"] == "restart-fixture"
+            assert response.json()["dingtalk"]["enabled"] is False
+            assert "disposable-restart-secret" not in response.text
 
 
 def test_real_host_skill_lifecycle_and_product_reads_through_gateway(frontend, live_host):

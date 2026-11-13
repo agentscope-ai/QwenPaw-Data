@@ -358,13 +358,13 @@ DataBridge-only `.sh` 脚本仅作为 macOS/Linux 便捷入口。
 ## 工作区隔离
 
 Host 服务在启动时通过 `QWENPAW_DATA_WORKSPACE_BACKEND` 选择工作区后端。
-服务设置默认为 `local`，不提供沙箱隔离；需要容器隔离时，应在启动 Host 前
-显式设置为 `docker`。已停用的 CLI `--workspace` 参数不能配置当前服务。
+默认值为 `docker`，需要运行中的 Docker daemon；初始化失败会停止启动，不会
+自动回退到本地执行。已停用的 CLI `--workspace` 参数不能配置当前服务。
 
 | 后端 | 隔离级别 | 依赖 | 适用场景 |
 |------|---------|------|---------|
-| `docker` | 容器工作区执行 | Docker daemon 和 `QWENPAW_DATA_WORKSPACE_BACKEND=docker` | 需要与宿主机分离的任务 |
-| `local`（服务默认） | shell 使用宿主机用户权限，不是沙箱 | 可信部署及输入 | 仅限可信开发 |
+| `docker`（默认） | 容器工作区执行 | 运行中的 Docker daemon | 需要与宿主机分离的任务 |
+| `local`（显式启用） | shell 使用宿主机用户权限，不是沙箱 | 可信部署及输入；设置 `QWENPAW_DATA_WORKSPACE_BACKEND=local` | 仅限可信开发 |
 
 ```bash
 # 先自检环境（Docker daemon、Neo4j、DataBridge API）
@@ -402,8 +402,8 @@ QwenPaw-Data 面向**本地优先、单用户部署**设计。将任何服务暴
   `QWENPAW_DATA_API_TOKEN` 或带 scope 的 `QWENPAW_DATA_API_KEYS`，使 DataBridge REST
   与 HTTP MCP 强制 Bearer token 认证，并用 `QWENPAW_DATA_CORS_ORIGINS` 限制
   精确可信来源。
-- **执行**：Host 服务默认使用 **local** 工作区，不提供沙箱。需要容器执行时，
-  在启动前设置 `QWENPAW_DATA_WORKSPACE_BACKEND=docker`。本地 shell 工具即使经过
+- **执行**：Host 服务默认使用 **Docker** 工作区，Docker 不可用时不会回退到本地。
+  显式设置 `QWENPAW_DATA_WORKSPACE_BACKEND=local` 后，本地 shell 工具即使经过
   确认仍具有宿主机用户权限；路径检查与确认提示都不是沙箱。Docker 的资源和
   网络限制仍如上文所述。
 - **授权**：API key 可分别授予 `query`、`write`、`manage`、

@@ -1,6 +1,39 @@
 {
   "followups": [
     {
+      "area": "Execution safety, startup rollback and persisted product state",
+      "status": "Implemented and focused verification passed; not full migration acceptance",
+      "base_commit": "a97637a24ff4147a934261534d7bd637b0e9f51c",
+      "committed": false,
+      "implemented": [
+        "Docker restored as the default workspace backend; local execution requires explicit opt-in",
+        "Failed or cancelled Docker warmup leaves no sweeper and retries initialization",
+        "Host lifespan unwinds acquired resources on startup failure, cancellation and shutdown errors",
+        "Explicit legacy JSON mode stops before bootstrap or database initialization instead of silently using SQL"
+      ],
+      "verification": {
+        "startup_workspace_auth_console_passed": 149,
+        "cron_channels_recovery_tracing_passed": 88,
+        "real_process_restart_passed": 1,
+        "graceful_shutdown_recheck": "2 overlapping real-Host checks passed again with shutdown-completion assertions; not additional unique coverage",
+        "host_collection": {"collected": 1567, "errors": 23, "status": "still blocked"},
+        "restart_scope": "Same disposable SQLite/home, new Host process and gateway: session title, artifact bytes, disabled skill and revisions/revert, disabled MCP tool settings, masked disabled channel configuration",
+        "evidence": [
+          "/tmp/qpd-product-compat-safety-tests.xml",
+          "/tmp/qpd-product-lifecycle-regression.xml",
+          "/tmp/qpd-product-restart-acceptance.xml",
+          "/tmp/qpd-product-restart-shutdown.xml",
+          "/tmp/qpd-product-host-collection-current.log"
+        ]
+      },
+      "remaining": [
+        "JSON persistence is NOT restored or migrated; old embedding and CLI compatibility remains unresolved",
+        "Real Docker execution, active-run cancellation/SSE replay, live model/graph/channel acceptance and upgrade/rollback",
+        "Full-suite collection and complete source-difference disposition",
+        "Full clean installation of all packages and browser acceptance"
+      ]
+    },
+    {
       "area": "P0-01 gateway integration",
       "status": "Identified route gaps repaired; full feature acceptance remains open",
       "implemented": [
@@ -20,11 +53,13 @@
         "Live channels, model-backed draft/proposal execution and external sharing acceptance",
         "Browser interaction verification",
         "JSON persistence and old embedding compatibility",
-        "Execution default and full-suite/source-disposition review"
+        "Full-suite/source-disposition review; execution default is addressed in the newer follow-up"
       ],
       "historical_notice": "The initial gateway 404 probe and initial evidence hashes below are discovery snapshots, not current gateway results.",
       "staged_checkpoint": "076fe133ce0cb9099bb625d1e91f37b08d04c68f",
-      "committed": false
+      "committed": true,
+      "commit": "a97637a24ff4147a934261534d7bd637b0e9f51c",
+      "pushed_to": "origin/sync/cloud-0.4.0"
     }
   ],
   "title": "Whole-product Cloud to OSS migration assessment",

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Live checks for workspace backend (local vs docker).
 
-Same machine as Host. Reads ``QWENPAW_DATA_WORKSPACE_BACKEND`` (default local),
+Same machine as Host. Reads ``QWENPAW_DATA_WORKSPACE_BACKEND`` (default docker),
 same env the Host uses — only the matching case runs.
 """
 
@@ -19,7 +19,7 @@ from .base import LiveAPITestCase
 
 
 def _require_backend(expected: str) -> None:
-    raw = os.environ.get("QWENPAW_DATA_WORKSPACE_BACKEND", "local").strip().lower()
+    raw = os.environ.get("QWENPAW_DATA_WORKSPACE_BACKEND", "docker").strip().lower()
     if raw != expected:
         raise unittest.SkipTest(f"QWENPAW_DATA_WORKSPACE_BACKEND={raw!r}, need {expected!r}")
 

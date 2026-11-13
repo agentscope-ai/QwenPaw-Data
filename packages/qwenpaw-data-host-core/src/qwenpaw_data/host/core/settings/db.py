@@ -1,10 +1,30 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import os
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from qwenpaw_data_auth.database import shared_database_url
 from sqlalchemy.engine import make_url
+
+
+def validate_legacy_store_mode() -> None:
+    """Do not silently replace an explicitly selected legacy file store."""
+    mode = os.environ.get("QWENPAW_DATA_STORE", "sqlite").strip().lower()
+    if mode in {"", "sqlite"}:
+        return
+    if mode == "json":
+        raise RuntimeError(
+            "QWENPAW_DATA_STORE=json is not connected to the current Host runtime. "
+            "Startup stopped before database initialization; existing JSON data "
+            "has not been migrated. Keep using the previous compatible release "
+            "for that data until JSON compatibility or an explicit migration is available."
+        )
+    raise RuntimeError(
+        "Unsupported QWENPAW_DATA_STORE value. The current Host uses SQL storage; "
+        "select its database with QWENPAW_DATA_DB_URL."
+    )
 
 
 class DbSettings(BaseSettings):

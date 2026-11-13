@@ -126,6 +126,74 @@ async def test_docker_warmup_initializes_then_closes(
         clear_settings()
 
 
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_default_docker_failure_is_retryable_and_never_falls_back(
+    monkeypatch, tmp_path, cancelled,
+):
+    from unittest.mock import Mock
+    from qwenpaw_data.host.core.workspace import workspace_manager
+
+    monkeypatch.delenv("QWENPAW_DATA_WORKSPACE_BACKEND", raising=False)
+    clear_settings()
+    calls = []
+
+    class BrokenDockerWorkspace:
+        def __init__(self, **kwargs):
+            pass
+
+        async def initialize(self):
+            calls.append("initialize")
+            if cancelled:
+                raise asyncio.CancelledError()
+            raise RuntimeError("Docker unavailable")
+
+        async def close(self):
+            calls.append("close")
+
+    local = Mock(side_effect=AssertionError("must never fall back to host execution"))
+    monkeypatch.setattr("agentscope.workspace.DockerWorkspace", BrokenDockerWorkspace)
+    monkeypatch.setattr(workspace_manager, "LocalWorkspace", local)
+    manager = QwenPawDataWorkspaceManager()
+    error = asyncio.CancelledError if cancelled else RuntimeError
+    try:
+        for _ in range(2):
+            with pytest.raises(error):
+                async with manager.lease(_paths(tmp_path)):
+                    pytest.fail("failed initialization produced a lease")
+            assert manager._sweep_task is None
+            assert not manager._cache
+        assert calls == ["initialize", "close", "initialize", "close"]
+        local.assert_not_called()
+    finally:
+        await manager.stop()
+        clear_settings()
+
+
+async def test_concurrent_start_waits_for_one_successful_warmup(monkeypatch):
+    manager = QwenPawDataWorkspaceManager()
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def warmup():
+        started.set()
+        await release.wait()
+
+    warm = AsyncMock(side_effect=warmup)
+    monkeypatch.setattr(manager, "_warm_docker_image", warm)
+    tasks = [asyncio.create_task(manager.start()) for _ in range(2)]
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        assert not any(task.done() for task in tasks)
+        assert manager._sweep_task is None
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 2)
+        warm.assert_awaited_once()
+        assert manager._sweep_task is not None
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await manager.stop()
+
+
 async def test_sweeper_keeps_renewing_other_workspaces(
     tmp_path,
     monkeypatch,

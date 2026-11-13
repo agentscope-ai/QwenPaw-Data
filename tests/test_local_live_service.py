@@ -57,6 +57,7 @@ def test_local_services_host_mcp_and_sql_artifact(tmp_path, monkeypatch, block_o
         QWENPAW_DATA_HOME=str(tmp_path / "home"),
         QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
         QWENPAW_DATA_AUTH_MODE="local",
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
         QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'shared.db'}",
         GRAPH_BACKEND="neo4j",
         NEO4J_URI=uri,

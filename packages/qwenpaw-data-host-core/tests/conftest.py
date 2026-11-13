@@ -51,6 +51,10 @@ def _hermetic_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     for name in _AMBIENT_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("QWENPAW_DATA_HOME", str((tmp_path / "home").resolve()))
+    # Unit/API tests opt out of Docker explicitly. Default/backend tests remove
+    # or override this setting; production must never inherit this test choice.
+    monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_BACKEND", "local")
+    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     # Entity-linking vocabulary fetches add network waits to every chat turn;
     # linking tests opt back in explicitly.
     monkeypatch.setenv("QWENPAW_DATA_BIZ_LINK_ENABLED", "0")

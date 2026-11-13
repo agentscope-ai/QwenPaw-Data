@@ -121,7 +121,8 @@ class WorkspaceSettings(BaseSettings):
         populate_by_name=True,
     )
 
-    backend: WorkspaceBackend = "local"
+    # Preserve the public execution-isolation default; local is explicit opt-in.
+    backend: WorkspaceBackend = "docker"
     ttl: float = 3600.0
     sweep_interval: float = 300.0
     # The QWENPAW_DATA_DOCKER_* names are the 0.3 spellings.

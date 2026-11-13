@@ -384,15 +384,15 @@ The DataBridge-only `.sh` helpers in this block are macOS/Linux conveniences.
 ## Workspace Isolation
 
 The Host server selects its workspace backend at startup using
-`QWENPAW_DATA_WORKSPACE_BACKEND`. Its setting defaults to `local`, which is not
-sandboxed. Explicitly select `docker` before starting Host when container
-isolation is required. The retired CLI `--workspace` flag does not configure
+`QWENPAW_DATA_WORKSPACE_BACKEND`. The default is `docker`, which requires a running
+Docker daemon. Initialization errors stop startup; there is no fallback to local
+execution. The retired CLI `--workspace` flag does not configure
 the current server.
 
 | Backend | Isolation | Requirements | When to use |
 |---------|-----------|--------------|-------------|
-| `docker` | Container-based workspace execution | a running Docker daemon and `QWENPAW_DATA_WORKSPACE_BACKEND=docker` | Tasks requiring separation from the host |
-| `local` (server default) | Shell commands execute with host-user privileges; not a sandbox | trusted deployment and inputs | Trusted development only |
+| `docker` (default) | Container-based workspace execution | a running Docker daemon | Tasks requiring separation from the host |
+| `local` (explicit opt-in) | Shell commands execute with host-user privileges; not a sandbox | trusted deployment and inputs; `QWENPAW_DATA_WORKSPACE_BACKEND=local` | Trusted development only |
 
 ```bash
 # Check the environment first (Docker daemon, Neo4j, DataBridge API)
@@ -434,9 +434,9 @@ section before exposing any service beyond `127.0.0.1`.
   opt-in; configure `QWENPAW_DATA_API_TOKEN` or scoped `QWENPAW_DATA_API_KEYS` first so
   the DataBridge REST and HTTP MCP endpoints require a `Bearer` token, and
   restrict `QWENPAW_DATA_CORS_ORIGINS` to trusted origins.
-- **Execution**: the Host server defaults to a **local**, unsandboxed workspace.
-  Set `QWENPAW_DATA_WORKSPACE_BACKEND=docker` before startup to select container
-  execution. Local shell tools can act with the host user's privileges even
+- **Execution**: the Host server defaults to a **Docker** workspace and does not
+  fall back to local execution when Docker is unavailable. Explicitly selecting
+  `QWENPAW_DATA_WORKSPACE_BACKEND=local` gives shell tools host-user privileges even
   after confirmation. Neither path checks nor confirmation prompts are a
   sandbox. Docker's resource and network limits remain as stated above.
 - **Authorization**: scoped API keys separate `query`, `write`, `manage`, and
