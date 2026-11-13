@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Collection
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -552,9 +553,16 @@ class JSONChatEventStore:
             self._counters[chat_id] = sequence_number
             return obj
 
-    async def read_after(self, chat_id: str, after: int) -> list[StreamObject]:
+    async def read_after(
+        self,
+        chat_id: str,
+        after: int,
+        objects: Collection[str] | None = None,
+    ) -> list[StreamObject]:
         path = self._events_path(chat_id)
-        return await asyncio.to_thread(self._read_after_locked, path, after)
+        return await asyncio.to_thread(
+            self._read_after_locked, path, after, objects
+        )
 
     async def last_sequence_number(self, chat_id: str) -> int:
         async with self._lock_for(chat_id):
@@ -577,7 +585,12 @@ class JSONChatEventStore:
                 handle.flush()
 
     @staticmethod
-    def _read_after_locked(path: Path, after: int) -> list[StreamObject]:
+    def _read_after_locked(
+        path: Path,
+        after: int,
+        objects: Collection[str] | None = None,
+    ) -> list[StreamObject]:
+        wanted = set(objects) if objects is not None else None
         with file_lock(path):
             if not path.exists():
                 return []
@@ -587,8 +600,11 @@ class JSONChatEventStore:
             if not line.strip():
                 continue
             data = json.loads(line)
-            if data["sequence_number"] > after:
-                events.append(parse_stream_object(data))
+            if data["sequence_number"] <= after:
+                continue
+            if wanted is not None and data.get("object") not in wanted:
+                continue
+            events.append(parse_stream_object(data))
         return events
 
 

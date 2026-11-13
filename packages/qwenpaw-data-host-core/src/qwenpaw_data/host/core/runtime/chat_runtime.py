@@ -371,7 +371,9 @@ class ChatRuntime:
             for prior in chats:
                 if prior.id == chat.id:
                     continue
-                for obj in await self.events.read_after(prior.id, -1):
+                for obj in await self.events.read_after(
+                    prior.id, -1, objects=("followup.generated",)
+                ):
                     if obj.object == "followup.generated":
                         questions.extend(obj.followup.questions)
             return tuple(questions)

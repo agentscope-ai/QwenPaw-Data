@@ -11,6 +11,7 @@ the routers rely on.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -639,17 +640,30 @@ class SQLChatEventStore:
                 await db.commit()
                 return obj
 
-    async def read_after(self, chat_id: str, after: int) -> list[StreamObject]:
+    async def read_after(
+        self,
+        chat_id: str,
+        after: int,
+        objects: Collection[str] | None = None,
+    ) -> list[StreamObject]:
+        if objects is not None and not objects:
+            return []
         async with self._sessions() as db:
-            result = await db.scalars(
-                select(ChatEventRow)
-                .where(
-                    ChatEventRow.chat_id == chat_id,
-                    ChatEventRow.sequence_number > after,
-                )
-                .order_by(ChatEventRow.sequence_number)
+            # Selecting only the payload skips ORM entity hydration, which is
+            # a large share of the cost when replaying long chats.
+            stmt = select(ChatEventRow.payload).where(
+                ChatEventRow.chat_id == chat_id,
+                ChatEventRow.sequence_number > after,
             )
-            return [parse_stream_object(r.payload) for r in result.all()]
+            if objects is not None:
+                # The ``object`` column is stored alongside the payload, so
+                # filtering here avoids decoding and validating events the
+                # caller does not need — history views want only a few types.
+                stmt = stmt.where(ChatEventRow.object.in_(tuple(objects)))
+            result = await db.scalars(
+                stmt.order_by(ChatEventRow.sequence_number)
+            )
+            return [parse_stream_object(payload) for payload in result.all()]
 
     async def last_sequence_number(self, chat_id: str) -> int:
         async with self._sessions() as db:
