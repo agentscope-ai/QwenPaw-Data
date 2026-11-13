@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Stream tool-result text as incremental `delta=true` fragments instead of
+  re-persisting the whole accumulated output on every chunk, which grew
+  `chat_events` quadratically for long tool results (a 600 KB result could
+  write more than 1.5 GB). Media block snapshots are throttled by time and
+  size, and oversized payloads are truncated as a guardrail.
+
 ## [0.3.4] - 2026-11-05
 
 ### Added
