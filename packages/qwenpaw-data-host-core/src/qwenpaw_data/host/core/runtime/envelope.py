@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from agentscope.event import EventBase, EventType
@@ -13,6 +14,13 @@ from qwenpaw_data.host.core.stream.output_stream import OutputStream
 from qwenpaw_data.host.core.utils.ids import create_id
 
 logger = logging.getLogger(__name__)
+
+# Tool results are persisted as snapshots (delta=false), so re-emitting the
+# whole accumulated payload on every chunk makes storage quadratic in the
+# output size. Text chunks stream as deltas; block payloads (base64 media)
+# cannot be appended as text, so their snapshots are throttled instead.
+_TOOL_PARTIAL_MIN_INTERVAL_S = 1.0
+_TOOL_PARTIAL_MIN_BYTES = 64 * 1024
 
 _IGNORED_EVENTS = frozenset(
     {
@@ -291,6 +299,9 @@ class Envelope:
                     "seq": None,
                     "output_text_acc": "",
                     "output_data_blocks": {},
+                    "output_data_size": 0,
+                    "output_partial_at": None,
+                    "output_partial_size": 0,
                     "output_msg_id": None,
                     "output_seq": None,
                 }
@@ -301,6 +312,9 @@ class Envelope:
             state["output_seq"] = out_seq
             state["output_text_acc"] = ""
             state["output_data_blocks"] = {}
+            state["output_data_size"] = 0
+            state["output_partial_at"] = None
+            state["output_partial_size"] = 0
             await self.stream.message_start(
                 msg_id=out_msg_id,
                 sequence=out_seq,
@@ -329,8 +343,24 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None or state.get("output_msg_id") is None:
                 return
-            state["output_text_acc"] += getattr(event, "delta", "") or ""
-            await self._emit_tool_result_content(call_id, state, delta=False)
+            fragment = getattr(event, "delta", "") or ""
+            if not fragment:
+                return
+            state["output_text_acc"] += fragment
+            if state.get("output_data_blocks"):
+                # Mixed text + block output is serialized as one JSON string,
+                # so a raw fragment cannot be appended to it.
+                await self._emit_tool_result_partial(call_id, state)
+            else:
+                await self.stream.data_delta(
+                    msg_id=state["output_msg_id"],
+                    index=0,
+                    data={
+                        "call_id": call_id,
+                        "name": state["name"],
+                        "output": fragment,
+                    },
+                )
             return
 
         if evt_type == EventType.TOOL_RESULT_DATA_DELTA.value:
@@ -339,7 +369,7 @@ class Envelope:
             if state is None or state.get("output_msg_id") is None:
                 return
             self._accumulate_tool_data_block(event, state)
-            await self._emit_tool_result_content(call_id, state, delta=False)
+            await self._emit_tool_result_partial(call_id, state)
             return
 
         if evt_type == EventType.TOOL_RESULT_END.value:
@@ -575,6 +605,9 @@ class Envelope:
         blocks_dict: dict[str, Any] = state["output_data_blocks"]
         url = getattr(event, "url", None)
         b64 = getattr(event, "data", None)
+        state["output_data_size"] = (
+            state.get("output_data_size", 0) + len(b64 or "") + len(url or "")
+        )
         if block_id in blocks_dict:
             existing = blocks_dict[block_id]
             if b64:
@@ -621,6 +654,31 @@ class Envelope:
         if tool_state is not None:
             data["state"] = tool_state
         return data
+
+    async def _emit_tool_result_partial(
+        self,
+        call_id: str,
+        state: dict[str, Any],
+    ) -> None:
+        """Emit a snapshot for output that cannot be represented as deltas.
+
+        Timed/size throttled so a media stream cannot re-persist the whole
+        accumulated payload on every chunk.
+        """
+        now = time.monotonic()
+        size = state.get("output_data_size", 0)
+        last_at = state.get("output_partial_at")
+        if last_at is not None:
+            elapsed = now - last_at
+            grown = size - state.get("output_partial_size", 0)
+            if (
+                elapsed < _TOOL_PARTIAL_MIN_INTERVAL_S
+                and grown < _TOOL_PARTIAL_MIN_BYTES
+            ):
+                return
+        state["output_partial_at"] = now
+        state["output_partial_size"] = size
+        await self._emit_tool_result_content(call_id, state, delta=False)
 
     async def _emit_tool_result_content(
         self,

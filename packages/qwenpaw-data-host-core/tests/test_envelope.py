@@ -12,6 +12,7 @@ from agentscope.event import (
     TextBlockStartEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
+    ToolResultDataDeltaEvent,
     ToolResultEndEvent,
     ToolResultStartEvent,
     ToolResultTextDeltaEvent,
@@ -19,7 +20,11 @@ from agentscope.event import (
 )
 from agentscope.message import ToolResultState
 
+from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.runtime.envelope import Envelope
+from qwenpaw_data.host.core.store.json_store import JSONChatEventStore
+from qwenpaw_data.host.core.stream.hub import reset_hub
+from qwenpaw_data.host.core.stream.output_stream import OutputStream
 
 
 class RecordingStream:
@@ -227,3 +232,127 @@ async def test_envelope_rejects_unknown_event() -> None:
 
     with pytest.raises(ValueError, match="unsupported agent event"):
         await envelope.translate_event(MysteryEvent())
+
+
+async def test_tool_result_text_deltas_are_stored_incrementally(tmp_path) -> None:
+    reset_hub()
+    try:
+        events = JSONChatEventStore(tmp_path)
+        stream = OutputStream(
+            events,
+            session_id="sess1",
+            chat_id="chat-1",
+            identity=Identity.anonymous(),
+        )
+        envelope = Envelope(stream)
+
+        await envelope.translate_event(
+            ToolCallStartEvent(
+                reply_id="reply-1",
+                tool_call_id="call-1",
+                tool_call_name="spawn_subagent",
+            )
+        )
+        await envelope.translate_event(
+            ToolCallEndEvent(reply_id="reply-1", tool_call_id="call-1")
+        )
+        await envelope.translate_event(
+            ToolResultStartEvent(
+                reply_id="reply-1",
+                tool_call_id="call-1",
+                tool_call_name="spawn_subagent",
+            )
+        )
+        chunks = ["The ", "quick ", "brown ", "fox"]
+        for chunk in chunks:
+            await envelope.translate_event(
+                ToolResultTextDeltaEvent(
+                    reply_id="reply-1",
+                    tool_call_id="call-1",
+                    delta=chunk,
+                )
+            )
+        await envelope.translate_event(
+            ToolResultEndEvent(
+                reply_id="reply-1",
+                tool_call_id="call-1",
+                state=ToolResultState.SUCCESS,
+            )
+        )
+
+        stored = [
+            obj
+            for obj in await events.read_after("chat-1", -1)
+            if obj.object == "content" and obj.type == "data"
+        ]
+        # The tool-call envelope also emits argument deltas; keep the tool
+        # output ones only.
+        deltas = [obj for obj in stored if obj.delta and "output" in obj.data]
+        # Each chunk is persisted on its own instead of re-writing the whole
+        # accumulated output (which grew the database quadratically).
+        assert [obj.data["output"] for obj in deltas] == chunks
+        assert max(len(obj.data["output"]) for obj in deltas) == len("brown ")
+        assert stored[-1].delta is False
+        assert stored[-1].data["output"] == "".join(chunks)
+        assert all(obj.data["call_id"] == "call-1" for obj in stored)
+    finally:
+        reset_hub()
+
+
+async def test_tool_result_data_blocks_are_throttled(
+    tmp_path, monkeypatch
+) -> None:
+    from qwenpaw_data.host.core.runtime import envelope as envelope_module
+
+    # Keep the time threshold out of the way; exercise the byte threshold.
+    monkeypatch.setattr(envelope_module, "_TOOL_PARTIAL_MIN_INTERVAL_S", 3600.0)
+    reset_hub()
+    try:
+        events = JSONChatEventStore(tmp_path)
+        stream = OutputStream(
+            events,
+            session_id="sess1",
+            chat_id="chat-1",
+            identity=Identity.anonymous(),
+        )
+        envelope = Envelope(stream)
+
+        await envelope.translate_event(
+            ToolResultStartEvent(
+                reply_id="reply-1",
+                tool_call_id="call-1",
+                tool_call_name="render_chart",
+            )
+        )
+        for payload in ("a" * 10, "b" * 10, "c" * 70000):
+            await envelope.translate_event(
+                ToolResultDataDeltaEvent(
+                    reply_id="reply-1",
+                    tool_call_id="call-1",
+                    block_id="block-1",
+                    media_type="image/png",
+                    data=payload,
+                )
+            )
+        await envelope.translate_event(
+            ToolResultEndEvent(
+                reply_id="reply-1",
+                tool_call_id="call-1",
+                state=ToolResultState.SUCCESS,
+            )
+        )
+
+        stored = [
+            obj
+            for obj in await events.read_after("chat-1", -1)
+            if obj.object == "content" and obj.type == "data"
+        ]
+        # Empty start snapshot + first delta + size-threshold snapshot + end.
+        assert len(stored) == 4
+        assert stored[-1].delta is False
+        # Both small chunks are present even though only the first snapshot
+        # and the 64 KiB growth snapshot were persisted.
+        assert "a" * 10 in stored[-1].data["output"]
+        assert "c" * 70000 in stored[-1].data["output"]
+    finally:
+        reset_hub()

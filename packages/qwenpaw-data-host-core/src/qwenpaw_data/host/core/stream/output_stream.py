@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from qwenpaw_data.host.core.api.models.stream_objects import StreamObject
@@ -8,6 +10,90 @@ from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.store.protocols import ChatEventStore
 from qwenpaw_data.host.core.stream.hub import get_hub
 from qwenpaw_data.host.core.utils.ids import create_id
+
+logger = logging.getLogger(__name__)
+
+# Guardrail against any producer that re-persists an ever-growing snapshot.
+# Legitimate tool results are expected to stay well below this; the limit is
+# configurable because deployments may stream larger artifacts.
+_MAX_EVENT_BYTES = int(
+    os.environ.get("QWENPAW_DATA_MAX_EVENT_BYTES", str(1024 * 1024))
+)
+_HEAD_RATIO = 0.7
+
+
+def _cap_text(value: str, limit: int) -> str | None:
+    """Return a head+tail truncation, or None when ``value`` fits."""
+    raw = value.encode("utf-8")
+    if len(raw) <= limit:
+        return None
+    head_bytes = max(0, int(limit * _HEAD_RATIO))
+    tail_bytes = max(0, limit - head_bytes)
+    head = raw[:head_bytes].decode("utf-8", "ignore")
+    tail = raw[-tail_bytes:].decode("utf-8", "ignore") if tail_bytes else ""
+    omitted = len(raw) - head_bytes - tail_bytes
+    return f"{head}\n…[truncated {omitted} bytes]…\n{tail}"
+
+
+def _cap_block(block: dict[str, Any], limit: int) -> bool:
+    """Truncate oversized text inside one content block; report a change."""
+    if not isinstance(block, dict):
+        return False
+    block_type = block.get("type")
+    if block_type == "data":
+        data = block.get("data")
+        if not isinstance(data, dict):
+            return False
+        changed = False
+        for key in ("output", "arguments"):
+            value = data.get(key)
+            if not isinstance(value, str):
+                continue
+            capped = _cap_text(value, limit)
+            if capped is not None:
+                data[key] = capped
+                changed = True
+        if changed:
+            data["truncated"] = True
+        return changed
+    for key in ("text", "refusal"):
+        value = block.get(key)
+        if not isinstance(value, str):
+            continue
+        capped = _cap_text(value, limit)
+        if capped is not None:
+            block[key] = capped
+            return True
+    return False
+
+
+def _cap_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if _MAX_EVENT_BYTES <= 0:
+        return payload
+    # Deltas are fragments; truncating one would corrupt the reconstruction
+    # performed by the client. Only full snapshots are capped.
+    if payload.get("delta"):
+        return payload
+    obj = payload.get("object")
+    changed = False
+    if obj == "content":
+        changed = _cap_block(payload, _MAX_EVENT_BYTES)
+    elif obj == "message":
+        blocks = payload.get("content")
+        if isinstance(blocks, list):
+            for block in blocks:
+                if _cap_block(block, _MAX_EVENT_BYTES):
+                    changed = True
+    if changed:
+        logger.warning(
+            "event payload exceeded %s bytes and was truncated "
+            "(object=%s type=%s msg_id=%s)",
+            _MAX_EVENT_BYTES,
+            obj,
+            payload.get("type"),
+            payload.get("msg_id") or payload.get("id"),
+        )
+    return payload
 
 
 class OutputStream:
@@ -31,6 +117,7 @@ class OutputStream:
     async def append(self, payload: dict[str, Any]) -> StreamObject:
         if "object" not in payload:
             raise ValueError("object is required")
+        payload = _cap_event_payload(payload)
         obj = await self.events.append(
             session_id=self.session_id,
             chat_id=self.chat_id,
