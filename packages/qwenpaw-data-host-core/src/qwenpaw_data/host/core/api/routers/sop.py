@@ -31,7 +31,7 @@ async def plan_sop(
     session_id: str,
     body: GenerateSopRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     try:
         if not body.text.strip():

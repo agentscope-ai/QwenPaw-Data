@@ -38,7 +38,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def create_session(
     body: CreateSessionRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     session_repo = SessionRepository(db, identity)
     try:
@@ -68,7 +68,7 @@ async def create_session(
 @router.get("")
 async def list_sessions(
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     session_id: str | None = None,
     search_text: str | None = None,
     status: str | None = None,
@@ -107,7 +107,7 @@ async def list_sessions(
 async def get_session(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     session_repo = SessionRepository(db, identity)
     try:
@@ -129,7 +129,7 @@ async def patch_session(
     session_id: str,
     body: PatchSessionRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     session_repo = SessionRepository(db, identity)
     try:
@@ -173,7 +173,7 @@ async def patch_session(
 async def delete_session(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, str]:
     session_repo = SessionRepository(db, identity)
     try:
@@ -202,7 +202,7 @@ async def fork_session(
     session_id: str,
     body: ForkSessionRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         session = await SessionForkRepository(db, identity).execute(
@@ -220,7 +220,7 @@ async def fork_session(
 async def snapshot(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     limit: int = Query(15, ge=1, le=100),
     before_sequence: int | None = Query(None, ge=1),
 ) -> dict[str, Any]:

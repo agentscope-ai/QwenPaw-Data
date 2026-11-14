@@ -15,6 +15,13 @@ from qwenpaw_data.host.core.domain.identity import Identity
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
+    """Route transaction; use Depends(get_db, scope="function").
+
+    Commit/rollback must finish before HTTP success is sent. Request-scoped
+    cleanup runs too late: immediate follow-up requests can miss new rows and
+    commit failures can no longer replace an already-sent success response.
+    Streams and background tasks must acquire their own sessions.
+    """
     async with get_session_factory()() as db:
         try:
             yield db

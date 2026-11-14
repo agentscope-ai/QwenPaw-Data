@@ -52,7 +52,7 @@ def usage_window(
 async def get_usage_summary(
     window: UsageWindow = Depends(usage_window),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     return await UsageQueryRepository(db, identity).summary(window)
 
@@ -61,7 +61,7 @@ async def get_usage_summary(
 async def get_usage_timeseries(
     window: UsageWindow = Depends(usage_window),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     return await UsageQueryRepository(db, identity).timeseries(window)
 
@@ -72,7 +72,7 @@ async def get_usage_sessions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     return await UsageQueryRepository(db, identity).sessions(
         window, page=page, page_size=page_size
@@ -85,7 +85,7 @@ async def get_usage_background_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     return await UsageQueryRepository(db, identity).background_tasks(
         window, page=page, page_size=page_size

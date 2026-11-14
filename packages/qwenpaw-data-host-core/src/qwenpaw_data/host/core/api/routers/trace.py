@@ -22,7 +22,7 @@ async def trace(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     view: str = Query("raw"),
 ) -> dict[str, Any]:
     if view not in ("raw", "business", "both"):

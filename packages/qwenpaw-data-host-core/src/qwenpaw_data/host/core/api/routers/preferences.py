@@ -27,7 +27,7 @@ router = APIRouter(prefix="/preferences", tags=["preferences"])
 @router.get("/providers")
 async def list_providers(
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         prefs = await PreferencesRepository(db, identity).load()
@@ -42,7 +42,7 @@ async def upsert_provider(
     provider_id: str,
     body: UpsertProviderRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         repo = PreferencesRepository(db, identity)
@@ -62,7 +62,7 @@ async def upsert_provider(
 async def clear_provider(
     provider_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await PreferencesRepository(db, identity).delete_provider(provider_id)
@@ -75,7 +75,7 @@ async def clear_provider(
 async def list_provider_models(
     provider_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         prefs = await PreferencesRepository(db, identity).load()
@@ -91,7 +91,7 @@ async def upsert_provider_model(
     model_id: str,
     body: UpsertProviderModelRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         repo = PreferencesRepository(db, identity)
@@ -116,7 +116,7 @@ async def delete_provider_model(
     provider_id: str,
     model_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await PreferencesRepository(db, identity).delete_model(provider_id, model_id)
@@ -128,7 +128,7 @@ async def delete_provider_model(
 @router.get("/active-models")
 async def get_active_models(
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         item = await PreferencesRepository(db, identity).get_active_models()
@@ -141,7 +141,7 @@ async def get_active_models(
 async def set_active_models(
     body: SetActiveModelsRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         item = await PreferencesRepository(db, identity).set_active_models(
@@ -155,7 +155,7 @@ async def set_active_models(
 @router.get("/runtime-settings")
 async def get_runtime_settings(
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         item = await PreferencesRepository(db, identity).get_runtime_settings()
@@ -168,7 +168,7 @@ async def get_runtime_settings(
 async def set_runtime_settings(
     body: SetRuntimeSettingsRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         item = await PreferencesRepository(db, identity).set_runtime_settings(

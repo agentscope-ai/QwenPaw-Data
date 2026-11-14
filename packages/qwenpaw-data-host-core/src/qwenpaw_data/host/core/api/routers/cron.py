@@ -31,7 +31,7 @@ def _map(exc: Exception) -> None:
 async def list_targets(
     channel: str = Query(..., description="channel key, e.g. feishu"),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     """Groups/people this user's bot has talked to, for a later frontend picker. Does not expose send_meta."""
     targets = await ChannelBindingRepository(db).list_by_channel(identity, str(channel))
@@ -50,7 +50,7 @@ async def list_targets(
 @router.get("/jobs")
 async def list_jobs(
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     keyword: str | None = None,
     enabled: bool | None = None,
     channel: str | None = None,
@@ -68,7 +68,7 @@ async def create_job(
     body: CronJobWrite,
     request: Request,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     _ = request
     try:
@@ -81,7 +81,7 @@ async def create_job(
 async def get_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         return {"job": await CronJobRepository(db, identity).get(job_id)}
@@ -95,7 +95,7 @@ async def replace_job(
     body: CronJobWrite,
     request: Request,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     _ = request
     try:
@@ -108,7 +108,7 @@ async def replace_job(
 async def delete_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await CronJobRepository(db, identity).delete(job_id)
@@ -121,7 +121,7 @@ async def delete_job(
 async def pause_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         return {"job": await CronJobRepository(db, identity).set_enabled(job_id, False)}
@@ -133,7 +133,7 @@ async def pause_job(
 async def resume_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         return {"job": await CronJobRepository(db, identity).set_enabled(job_id, True)}
@@ -145,7 +145,7 @@ async def resume_job(
 async def run_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         return {
@@ -161,7 +161,7 @@ async def upload_job_attachment(
     job_id: str,
     file: UploadFile = File(...),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         if not file.filename:
@@ -181,7 +181,7 @@ async def delete_job_attachment(
     job_id: str,
     filename: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         repo = CronJobRepository(db, identity)

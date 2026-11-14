@@ -47,7 +47,7 @@ def _manager(
 async def list_workspace_skill_proposals(
     status: str | None = Query(default=None),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         items = await SkillProposalRepository(db, identity).list(
@@ -66,7 +66,7 @@ async def list_skill_proposals(
     session_id: str,
     status: str | None = Query(default=None),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)
@@ -87,7 +87,7 @@ async def get_skill_proposal(
     session_id: str,
     proposal_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)
@@ -108,7 +108,7 @@ async def accept_skill_proposal(
     proposal_id: str,
     body: SkillProposalAcceptRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         session = await access_session(db, identity, session_id, write=True)
@@ -135,7 +135,7 @@ async def reject_skill_proposal(
     session_id: str,
     proposal_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)

@@ -4465,7 +4465,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44,<51" },
     { name = "dingtalk-stream", marker = "extra == 'channels'", specifier = ">=0.24.3,<0.25" },
     { name = "e2b", marker = "extra == 'cloud'", specifier = "==2.31.0" },
-    { name = "fastapi", specifier = ">=0.115,<1.0" },
+    { name = "fastapi", specifier = ">=0.121,<1.0" },
     { name = "httpx", specifier = ">=0.28,<0.29" },
     { name = "lark-oapi", marker = "extra == 'channels'", specifier = ">=1.5.3,<2.0" },
     { name = "pycryptodome", marker = "extra == 'channels'", specifier = ">=3.20,<4.0" },

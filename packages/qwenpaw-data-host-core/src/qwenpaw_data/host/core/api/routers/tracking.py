@@ -33,7 +33,7 @@ class ConsoleEventRequest(ApiModel):
 async def post_console_event(
     body: ConsoleEventRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, bool]:
     try:
         await access_session(db, identity, body.session_id)

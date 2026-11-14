@@ -32,7 +32,7 @@ async def answer_clarification(
     chat_id: str,
     body: ClarificationAnswerRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     """Accept ask_user_question tool result; response shape is ``{ chat }``."""
     try:

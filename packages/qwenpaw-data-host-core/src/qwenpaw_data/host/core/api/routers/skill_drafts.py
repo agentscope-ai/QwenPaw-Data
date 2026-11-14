@@ -76,7 +76,7 @@ async def create_skill_draft(
     body: CreateSkillDraftRequest,
     background: BackgroundTasks,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         session, drafts = await _get_session_and_drafts(session_id, identity, db)
@@ -104,7 +104,7 @@ async def create_skill_draft(
 async def list_skill_drafts(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         _session, drafts = await _get_session_and_drafts(session_id, identity, db)
@@ -119,7 +119,7 @@ async def get_skill_draft(
     session_id: str,
     draft_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         _session, drafts = await _get_session_and_drafts(session_id, identity, db)
@@ -136,7 +136,7 @@ async def revise_skill_draft(
     body: SkillDraftReviseRequest,
     background: BackgroundTasks,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         text = body.text.strip()
@@ -168,7 +168,7 @@ async def confirm_skill_draft(
     session_id: str,
     draft_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         session, drafts = await _get_session_and_drafts(session_id, identity, db)
@@ -198,7 +198,7 @@ async def dismiss_skill_draft(
     session_id: str,
     draft_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         _session, drafts = await _get_session_and_drafts(session_id, identity, db)

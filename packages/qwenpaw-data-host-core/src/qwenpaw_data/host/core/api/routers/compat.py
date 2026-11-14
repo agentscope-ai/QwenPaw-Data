@@ -102,7 +102,7 @@ async def create_chat(
     request: Request,
     background: BackgroundTasks,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     cm: ContextManagerClient = Depends(get_context_manager_client),
 ) -> dict[str, Any]:
     """0.3 chat creation: the native console admission for the path session."""
@@ -134,7 +134,7 @@ async def create_chat(
 async def list_chats(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id)
@@ -163,7 +163,7 @@ async def stop_chat(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     """0.3 stop: answers once the turn has unwound (the App waits up to 180s)."""
     try:
@@ -192,7 +192,7 @@ async def download_artifact(
     session_id: str,
     path: str = Query("", description="Path relative to the session artifacts"),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> FileResponse:
     """0.3 raw artifact bytes; every lookup or containment failure is a 404."""
     try:

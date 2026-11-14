@@ -63,7 +63,7 @@ def _revision_summary(item: dict[str, Any]) -> dict[str, Any]:
 async def list_agent_skills(
     agent_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         items = await _manager(db, identity, agent_id).list_skills()
@@ -88,7 +88,7 @@ async def create_agent_skill(
     agent_id: str,
     body: SkillDocumentRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         name = await _manager(db, identity, agent_id).create(body.name, body.content)
@@ -103,7 +103,7 @@ async def import_agent_zip(
     agent_id: str,
     file: UploadFile = File(...),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     if not file.filename:
         raise_api("VALIDATION", "zip filename is required", status=400)
@@ -124,7 +124,7 @@ async def get_agent_skill(
     agent_id: str,
     name: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         info, content = await _manager(db, identity, agent_id).read_skill(name)
@@ -146,7 +146,7 @@ async def save_agent_skill(
     name: str,
     body: SkillDocumentRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     if body.name != name:
         raise_api(
@@ -169,7 +169,7 @@ async def enable_agent_skill(
     agent_id: str,
     name: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await _manager(db, identity, agent_id).enable(name)
@@ -184,7 +184,7 @@ async def disable_agent_skill(
     agent_id: str,
     name: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await _manager(db, identity, agent_id).disable(name)
@@ -199,7 +199,7 @@ async def uninstall_agent_skill(
     agent_id: str,
     name: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await _manager(db, identity, agent_id).uninstall(name)
@@ -214,7 +214,7 @@ async def list_skill_revisions(
     agent_id: str,
     name: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         items = await _manager(db, identity, agent_id).history(name)
@@ -233,7 +233,7 @@ async def get_skill_revision(
     name: str,
     revision_no: int,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         item = await _manager(db, identity, agent_id).revision(name, revision_no)
@@ -251,7 +251,7 @@ async def revert_skill_revision(
     name: str,
     revision_no: int,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         created = await _manager(db, identity, agent_id).revert(name, revision_no)

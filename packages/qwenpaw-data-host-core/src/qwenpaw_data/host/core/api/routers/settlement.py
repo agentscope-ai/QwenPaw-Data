@@ -22,7 +22,7 @@ workspace_router = APIRouter(prefix="/settlement", tags=["settlement"])
 async def list_workspace_settlement_cards(
     status: str | None = Query(default=None),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         cards = await SettlementRepository(db, identity).list(
@@ -41,7 +41,7 @@ async def list_settlement_cards(
     session_id: str,
     status: str | None = Query(default=None),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)
@@ -71,7 +71,7 @@ async def confirm_settlement_card(
     card_id: str,
     body: SettlementConfirmRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         from qwenpaw_data.host.core.algo.settlement import SettlementManager
@@ -100,7 +100,7 @@ async def dismiss_settlement_card(
     session_id: str,
     card_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)

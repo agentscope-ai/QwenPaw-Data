@@ -81,7 +81,7 @@ async def upload_attachment(
     session_id: str = Form(...),
     file: UploadFile = File(...),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         if not file.filename:
@@ -114,7 +114,7 @@ async def upload_attachment(
 async def delete_attachment(
     attachment_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> Response:
     try:
         repo = AttachmentRepository(db, identity)
@@ -137,7 +137,7 @@ async def console_chat(
     request: Request,
     background: BackgroundTasks,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     cm: ContextManagerClient = Depends(get_context_manager_client),
 ) -> dict[str, Any]:
     try:
@@ -283,7 +283,7 @@ async def stop_chat(
     session_id: str = Query(...),
     chat_id: str = Query(...),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)

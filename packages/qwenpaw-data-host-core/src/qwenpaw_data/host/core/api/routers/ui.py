@@ -29,7 +29,7 @@ async def answer_ui(
     chat_id: str,
     body: UiAnswer,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         require_ui_tools()

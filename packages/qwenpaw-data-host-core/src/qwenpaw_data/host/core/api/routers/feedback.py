@@ -23,7 +23,7 @@ async def feedback(
     chat_id: str,
     body: FeedbackRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     chat_repo = ChatRepository(db, identity)
     try:
@@ -63,7 +63,7 @@ async def get_feedback_reaction(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id)
@@ -82,7 +82,7 @@ async def delete_feedback_reaction(
     session_id: str,
     chat_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> Response:
     chat_repo = ChatRepository(db, identity)
     try:

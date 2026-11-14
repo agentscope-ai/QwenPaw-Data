@@ -93,7 +93,7 @@ async def compare_workspace_files(
     session_id: str,
     body: CompareFilesRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, object]:
     try:
         session = await access_session(db, identity, session_id)
@@ -129,7 +129,7 @@ async def diff_workspace_files(
     session_id: str,
     body: DiffFilesRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, object]:
     try:
         session = await access_session(db, identity, session_id)
@@ -215,7 +215,7 @@ async def compare_recommendations(
     session_id: str,
     body: CompareRecommendationsRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, object]:
     try:
         await access_session(db, identity, session_id)
@@ -263,7 +263,7 @@ async def upload_workspace_file(
     session_id: str,
     file: UploadFile = File(...),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, str]:
     try:
         session = await access_session(db, identity, session_id, write=True)

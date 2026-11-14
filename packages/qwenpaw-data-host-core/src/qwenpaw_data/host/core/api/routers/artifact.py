@@ -35,7 +35,7 @@ router = APIRouter(prefix="/sessions/{session_id}", tags=["artifacts"])
 async def list_session_artifacts(
     session_id: str,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id)
@@ -93,7 +93,7 @@ async def access_workspace_file(
     path: str = Query(..., min_length=1),
     purpose: Literal["preview", "download"] = Query("preview"),
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> FileResponse:
     try:
         session = await access_session(db, identity, session_id)
@@ -164,7 +164,7 @@ async def get_oss_download_url(
     session_id: str,
     body: ShareFileRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ShareFileResponse:
     try:
         session = await access_session(db, identity, session_id, write=True)

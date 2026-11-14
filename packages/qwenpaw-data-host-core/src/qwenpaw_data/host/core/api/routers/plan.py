@@ -37,7 +37,7 @@ async def plan_edit(
     chat_id: str,
     body: PlanEditRequest,
     identity: Identity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     try:
         await access_session(db, identity, session_id, write=True)
