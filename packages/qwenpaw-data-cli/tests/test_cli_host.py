@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from qwenpaw_data.cli.host import create_client, print_turn
+from qwenpaw_data.cli.host import create_client, print_turn, read_terminal_input
 from qwenpaw_data.cli.main import build_parser
 
 
@@ -106,3 +106,24 @@ def test_no_implicit_local_execution_or_databridge_token(monkeypatch):
     args = build_parser().parse_args(["run", "hello"])
     with pytest.raises(ValueError, match="host-url"):
         create_client(args)
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_terminal_read_restores_runner_signal_handler(monkeypatch, interrupted):
+    import signal
+
+    original = signal.getsignal(signal.SIGINT)
+
+    def read():
+        assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+        if interrupted:
+            raise KeyboardInterrupt()
+        return "hello"
+
+    monkeypatch.setattr("builtins.input", read)
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt):
+            read_terminal_input()
+    else:
+        assert read_terminal_input() == "hello"
+    assert signal.getsignal(signal.SIGINT) == original

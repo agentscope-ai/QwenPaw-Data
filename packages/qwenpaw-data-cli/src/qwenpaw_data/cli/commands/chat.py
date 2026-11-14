@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 
-from qwenpaw_data.cli.host import add_host_args, create_client, print_turn
+from qwenpaw_data.cli.host import (
+    add_host_args,
+    create_client,
+    print_turn,
+    read_terminal_input,
+)
 from qwenpaw_data.cli.util import add_datasource_id_arg
 
 
@@ -26,7 +30,7 @@ async def handle(args: argparse.Namespace) -> int:
         while True:
             try:
                 print("> ", end="", file=sys.stderr, flush=True)
-                text = (await asyncio.to_thread(input)).strip()
+                text = read_terminal_input().strip()
             except EOFError:
                 return 0
             if text.lower() in {"exit", "quit"}:

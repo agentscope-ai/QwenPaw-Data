@@ -3,12 +3,27 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
+import signal
 import sys
 from contextlib import aclosing
 
 from qwenpaw_data.host.core.client import HostClient, HostClientError
+
+
+def read_terminal_input() -> str:
+    """Read on the CLI main thread without stranding an executor on Ctrl+C.
+
+    The Host keeps running remotely while the terminal waits for its user.
+    asyncio.Runner's SIGINT handler only cancels tasks, which cannot interrupt
+    a blocking input call; use the normal terminal handler for this read only.
+    Restore Runner's handler before async cleanup requests cancellation.
+    """
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        return input()
+    finally:
+        signal.signal(signal.SIGINT, previous)
 
 
 def add_host_args(parser: argparse.ArgumentParser) -> None:
@@ -113,7 +128,7 @@ async def print_turn(
                                     file=sys.stderr,
                                     flush=True,
                                 )
-                                answer = await asyncio.to_thread(input)
+                                answer = read_terminal_input()
                                 approved = answer.strip().lower() in {"y", "yes"}
                             except EOFError:
                                 pass
