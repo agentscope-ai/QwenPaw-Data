@@ -98,7 +98,9 @@ class OutputStream:
                 f"chat {self.chat_id} already sent its terminal response; "
                 f"refusing to append {payload['object']!r}"
             )
-        seq = self._next_seq()
+        # Invalid payloads must not consume a sequence number. The caller holds
+        # _lock through validation, staging and publication.
+        seq = self._seq + 1
         now = utcnow()
         data = {
             **payload,
@@ -118,6 +120,7 @@ class OutputStream:
                 created_at=now,
             )
         )
+        self._seq = seq
         terminal = is_terminal_response(obj)
         if terminal:
             self._terminal = True
@@ -371,10 +374,6 @@ class OutputStream:
         return await self.append(
             {"object": "tool.result.start", "tool_name": tool_name, "call_id": call_id}
         )
-
-    def _next_seq(self) -> int:
-        self._seq += 1
-        return self._seq
 
     @staticmethod
     def _is_delta(obj: StreamObject) -> bool:
