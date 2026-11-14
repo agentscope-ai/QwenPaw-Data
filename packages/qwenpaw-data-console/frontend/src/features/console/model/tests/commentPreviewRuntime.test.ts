@@ -5,20 +5,27 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
-import { parse } from 'parse5';
+import { parse, type DefaultTreeAdapterMap } from 'parse5';
 import { mountCommentPreview } from '../artifacts/commentPreviewRuntime.js';
 import { COMMENT_PREVIEW_CHANNEL, createCommentHtml } from '../artifacts/commentPreviewBridge.js';
 import type { CommentPreviewResult } from '../artifacts/commentSourceMap.js';
 import { mapHtmlBlocks, mapMarkdownBlocks } from '../artifacts/commentSourceMap.js';
 
 // A small deterministic DOM contract, not a browser/visual acceptance substitute.
+type EventHandler = (event: Record<string, unknown>) => void;
+type MutationStub = { type: string; target: ElementStub };
+type BridgeMessage = {
+  channel: string;
+  identity: string;
+} & ({ kind: 'ready' } | ({ kind: 'result' } & CommentPreviewResult));
+
 class Events {
-  handlers = new Map<string, Set<(event: any) => void>>();
-  addEventListener(name: string, handler: (event: any) => void) {
+  handlers = new Map<string, Set<EventHandler>>();
+  addEventListener(name: string, handler: EventHandler) {
     if (!this.handlers.has(name)) this.handlers.set(name, new Set());
     this.handlers.get(name)!.add(handler);
   }
-  removeEventListener(name: string, handler: (event: any) => void) {
+  removeEventListener(name: string, handler: EventHandler) {
     this.handlers.get(name)?.delete(handler);
   }
   fire(name: string, fields: Record<string, unknown> = {}) {
@@ -42,7 +49,7 @@ class ElementStub extends Events {
   attrs = new Map<string, string>();
   children: ElementStub[] = [];
   parentElement: ElementStub | null = null;
-  ownerDocument: any;
+  ownerDocument!: DocumentStub;
   scrollTop = 0;
   scrollLeft = 0;
   scrollHeight = 100;
@@ -88,7 +95,7 @@ class ElementStub extends Events {
     const match = /^\[([^=]+)="([^"]*)"\]$/.exec(selector);
     return this.all().find((node) => match && node.getAttribute(match[1]) === match[2]) ?? null;
   }
-  querySelectorAll(_selector: string) {
+  querySelectorAll() {
     return this.all().filter((node) => node.control);
   }
   getClientRects() {
@@ -112,14 +119,35 @@ class ElementStub extends Events {
   blur() {}
 }
 
+class DocumentStub extends Events {
+  documentElement!: ElementStub;
+  scrollingElement!: ElementStub;
+  head!: ElementStub;
+  defaultView: unknown;
+  readyState: string;
+
+  constructor(defaultView: unknown, loading: boolean) {
+    super();
+    this.defaultView = defaultView;
+    this.readyState = loading ? 'loading' : 'complete';
+  }
+
+  createElement() {
+    const node = new ElementStub();
+    node.ownerDocument = this;
+    return node;
+  }
+}
+
 function fixture(documentMode = false, loading = false) {
-  const observers: { callback: (records: any[]) => void; disconnected: boolean }[] = [];
+  const observers: { callback: (records: MutationStub[]) => void; disconnected: boolean }[] = [];
+  const bridgeMessages: BridgeMessage[] = [];
   const win = Object.assign(new Events(), {
     Element: ElementStub,
     getComputedStyle: (node: ElementStub) => node,
     MutationObserver: class {
       state: (typeof observers)[number];
-      constructor(callback: (records: any[]) => void) {
+      constructor(callback: (records: MutationStub[]) => void) {
         this.state = { callback, disconnected: false };
         observers.push(this.state);
       }
@@ -128,17 +156,9 @@ function fixture(documentMode = false, loading = false) {
         this.state.disconnected = true;
       }
     },
-    parent: { postMessage: (_message: unknown) => {} },
+    parent: { postMessage: (message: BridgeMessage) => bridgeMessages.push(message) },
   });
-  const doc: any = Object.assign(new Events(), {
-    defaultView: win,
-    readyState: loading ? 'loading' : 'complete',
-    createElement: () => {
-      const node = new ElementStub();
-      node.ownerDocument = doc;
-      return node;
-    },
-  });
+  const doc = new DocumentStub(win, loading);
   const page = new ElementStub();
   page.ownerDocument = doc;
   page.scrollHeight = 3000;
@@ -169,7 +189,7 @@ function fixture(documentMode = false, loading = false) {
       (result) => messages.push(result),
       invalidate,
     );
-  return { win, doc, page, root, a, b, messages, blocks, mount, observers };
+  return { win, doc, page, root, a, b, messages, blocks, mount, observers, bridgeMessages };
 }
 
 test('source ranges highlight the matching block, locate only the rendered pane and allow later manual scrolling', () => {
@@ -232,16 +252,16 @@ test('nested Markdown list labels remain highlighted alongside children, with in
       f.b.remove();
       f.blocks.splice(0, f.blocks.length, ...mapMarkdownBlocks(tree, attribute, source));
       let order = 0;
-      function render(node: any, parent: ElementStub) {
+      function render(node: typeof tree | (typeof tree.children)[number], parent: ElementStub) {
         if (node.type === 'text') {
           parent.textContent += node.value;
           return;
         }
         const element = parent.appendChild(new ElementStub());
         element.order = order++;
-        if (node.properties?.[attribute] !== undefined)
-          element.setAttribute(attribute, node.properties[attribute]);
-        node.children?.forEach((child: any) => render(child, element));
+        if (node.type === 'element' && node.properties?.[attribute] !== undefined)
+          element.setAttribute(attribute, String(node.properties[attribute]));
+        if ('children' in node) node.children.forEach((child) => render(child, element));
         parent.textContent += element.textContent;
       }
       render(tree, f.root);
@@ -289,15 +309,16 @@ test('HTML nested list labels and inline text highlight independently of their d
       f.b.remove();
       f.blocks.splice(0, f.blocks.length, ...mapped.blocks);
       let order = 0;
-      function render(node: any, parent: ElementStub) {
-        if (node.nodeName === '#text') {
+      function render(node: DefaultTreeAdapterMap['node'], parent: ElementStub) {
+        if ('value' in node) {
           parent.textContent += node.value;
           return;
         }
         const element = parent.appendChild(new ElementStub());
         element.order = order++;
-        for (const attr of node.attrs ?? []) element.setAttribute(attr.name, attr.value);
-        node.childNodes?.forEach((child: any) => render(child, element));
+        if ('attrs' in node)
+          for (const attr of node.attrs) element.setAttribute(attr.name, attr.value);
+        if ('childNodes' in node) node.childNodes.forEach((child) => render(child, element));
         parent.textContent += element.textContent;
       }
       render(parse(mapped.html), f.root);
@@ -401,8 +422,6 @@ test('nested report scrolling moves the inner viewport without moving the host p
 
 test('serialized iframe bridge validates parent/identity, queues only latest selection and survives ready replay', () => {
   const f = fixture(true, true);
-  const messages: any[] = [];
-  f.win.parent.postMessage = (message) => messages.push(message);
   const html = createCommentHtml(
     '<html><head></head><body>\n<p>one</p>\n\n<p>two</p></body></html>',
     'test',
@@ -433,6 +452,9 @@ test('serialized iframe bridge validates parent/identity, queues only latest sel
   f.root.scrollTop = 100;
   f.win.fire('message', { source: f.win.parent, data: { ...data, sequence: 2 } });
   assert.equal(f.root.scrollTop, 100);
-  assert.equal(messages[messages.length - 1]?.sequence, 2);
-  assert.equal(messages[messages.length - 1]?.count, 1);
+  const result = f.bridgeMessages[f.bridgeMessages.length - 1];
+  assert.equal(result?.kind, 'result');
+  if (result.kind !== 'result') assert.fail('Expected the latest bridge message to be a result');
+  assert.equal(result.sequence, 2);
+  assert.equal(result.count, 1);
 });

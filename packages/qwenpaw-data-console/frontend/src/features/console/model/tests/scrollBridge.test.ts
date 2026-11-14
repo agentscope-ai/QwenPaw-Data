@@ -3,9 +3,14 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { GT_SCROLL_CHANNEL, injectGtScrollBridge } from '../artifacts/artifactPreview.js';
 
+interface BridgeEvent {
+  source: unknown;
+  data: { channel: string; kind: string; top?: number; ratio?: number };
+}
+
 test('HTML bridge scrolls a nested report before its first user scroll and ignores other senders', () => {
-  const handlers = new Map<string, (event: any) => void>();
-  const messages: any[] = [];
+  const handlers = new Map<string, (event: BridgeEvent) => void>();
+  const messages: BridgeEvent['data'][] = [];
   const root = { scrollHeight: 500, clientHeight: 500, scrollTop: 0 };
   const main = {
     isConnected: true,
@@ -14,7 +19,7 @@ test('HTML bridge scrolls a nested report before its first user scroll and ignor
     clientWidth: 800,
     scrollTop: 0,
   };
-  const parent = { postMessage: (message: any) => messages.push(message) };
+  const parent = { postMessage: (message: BridgeEvent['data']) => messages.push(message) };
   const document = {
     scrollingElement: root,
     documentElement: root,
@@ -26,7 +31,8 @@ test('HTML bridge scrolls a nested report before its first user scroll and ignor
   const window = {
     parent,
     getComputedStyle: () => ({ overflowY: 'auto' }),
-    addEventListener: (name: string, handler: (event: any) => void) => handlers.set(name, handler),
+    addEventListener: (name: string, handler: (event: BridgeEvent) => void) =>
+      handlers.set(name, handler),
     requestAnimationFrame: (callback: () => void) => callback(),
     setTimeout: (callback: () => void) => callback(),
   };

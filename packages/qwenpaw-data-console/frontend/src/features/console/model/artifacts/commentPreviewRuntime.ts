@@ -292,9 +292,8 @@ export function mountCommentPreview(
       savedTabs.forEach((value, node) =>
         value === null ? node.removeAttribute('tabindex') : node.setAttribute('tabindex', value),
       );
-      originalTabIndex === null
-        ? root.removeAttribute('tabindex')
-        : root.setAttribute('tabindex', originalTabIndex);
+      if (originalTabIndex === null) root.removeAttribute('tabindex');
+      else root.setAttribute('tabindex', originalTabIndex);
       root.removeAttribute(`${attribute}-root`);
       style.remove();
     },

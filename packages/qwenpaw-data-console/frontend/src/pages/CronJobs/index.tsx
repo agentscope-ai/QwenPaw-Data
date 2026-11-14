@@ -73,8 +73,10 @@ export default function CronJobsPage() {
   const [channel, setChannel] = useState('');
   const isFirstLoad = useRef(true);
 
-  var channelOptions = [{ value: '', label: t('cron.allChannelTypes') }];
-  CRON_CHANNELS.map((c) => channelOptions.push({ value: c, label: t(CHANNEL_LABEL[c]) }));
+  const channelOptions = [
+    { value: '', label: t('cron.allChannelTypes') },
+    ...CRON_CHANNELS.map((c) => ({ value: c, label: t(CHANNEL_LABEL[c]) })),
+  ];
 
   const loadJobs = useCallback(
     async (signal?: AbortSignal) => {
@@ -89,9 +91,10 @@ export default function CronJobsPage() {
       );
       setJobs(response.jobs);
       // Local Console deployments can omit IM channel administration entirely.
-      const channelConfigResponse = window.QWENPAW_DATA_CONSOLE && !getRuntimeConfig().capabilities.channels
-        ? {}
-        : await channelConfigApi.get();
+      const channelConfigResponse =
+        window.QWENPAW_DATA_CONSOLE && !getRuntimeConfig().capabilities.channels
+          ? {}
+          : await channelConfigApi.get();
       setLoadError(null);
       const channelEnabled = new Map<string, boolean>();
       channelEnabled.set('feishu', channelConfigResponse?.feishu?.enabled || false);

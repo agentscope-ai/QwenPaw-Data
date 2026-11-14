@@ -1360,31 +1360,28 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
       }
     }, [controller, isCurrentRuntime]);
 
-    const beforeRuntimeSubmit = useCallback(
-      async (_data: IAgentScopeRuntimeWebUIInputData) => {
-        if (attachmentUploadsInFlightRef.current.size > 0) {
-          message.warning(t('runtime.attachmentUploading'));
-          return false;
-        }
-        if (getRuntimeInputAttachments(runtimeInputCacheKeyRef.current).length) {
-          pendingSubmitRef.current(runtimeInputTextarea(rootRef.current)?.value ?? '');
-          return false;
-        }
-        if (!(await canAdmitRuntimeInput())) return false;
-        // A later ordinary submission must not roll back a report already handed to the SDK queue.
-        lastPendingSubmissionRef.current = null;
-        liveUploads.attachments = [];
-        if (currentChatStatus === 'running') {
-          // A running Chat submits into the queue. Do not later restore text that
-          // the user intentionally queued when the current SSE completes.
-          runtimeInputDraftRef.current = '';
-          clearRuntimeInputDraft(runtimeInputCacheKeyRef.current);
-        }
-        window.setTimeout(() => runtimeInputTextarea(rootRef.current)?.blur(), 0);
-        return true;
-      },
-      [canAdmitRuntimeInput, currentChatStatus, liveUploads, t],
-    );
+    const beforeRuntimeSubmit = useCallback(async () => {
+      if (attachmentUploadsInFlightRef.current.size > 0) {
+        message.warning(t('runtime.attachmentUploading'));
+        return false;
+      }
+      if (getRuntimeInputAttachments(runtimeInputCacheKeyRef.current).length) {
+        pendingSubmitRef.current(runtimeInputTextarea(rootRef.current)?.value ?? '');
+        return false;
+      }
+      if (!(await canAdmitRuntimeInput())) return false;
+      // A later ordinary submission must not roll back a report already handed to the SDK queue.
+      lastPendingSubmissionRef.current = null;
+      liveUploads.attachments = [];
+      if (currentChatStatus === 'running') {
+        // A running Chat submits into the queue. Do not later restore text that
+        // the user intentionally queued when the current SSE completes.
+        runtimeInputDraftRef.current = '';
+        clearRuntimeInputDraft(runtimeInputCacheKeyRef.current);
+      }
+      window.setTimeout(() => runtimeInputTextarea(rootRef.current)?.blur(), 0);
+      return true;
+    }, [canAdmitRuntimeInput, currentChatStatus, liveUploads, t]);
 
     const resolveClarification = useCallback(
       async (
