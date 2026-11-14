@@ -33,11 +33,11 @@
     <section aria-labelledby="overview">
       <p class="label">整体迁移报告 · 更新于 2026-11-14</p>
       <h1 id="overview">主要能力已移植，发布验收尚未完成</h1>
-      <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 新旧实现并存、公开兼容性和 CI 阻塞仍需收敛。</p>
+      <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 功能提交快照：<code>9b154b7</code><br>
-        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）与底层 DAG Agent 恢复（9b154b7）均已提交；本报告另作独立文档提交。新提交仍需远端 CI 验收。</p>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>d9394eb</code>；Host 收敛、安全修复及 cron/followup 迁移已提交。Context 的单行测试导入修正已暂存，等待该包要求的显式提交批准；以下工作区合并验证包含此未提交修正。<br>
+        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
     </section>
     <section aria-labelledby="scope">
       <h2 id="scope">迁移范围与边界</h2>
@@ -45,7 +45,7 @@
         <table>
           <thead><tr><th scope="col">范围</th><th scope="col">当前结果与限制</th></tr></thead>
           <tbody>
-            <tr><th scope="row">CLI / Host</th><td>当前会话、任务、文件、计划、cron、复盘及追问能力已纳入；旧 CLI / 嵌入 API 和 JSON 持久化兼容性未完成。</td></tr>
+            <tr><th scope="row">CLI / Host</th><td>当前会话、任务、文件、计划、cron、复盘及追问能力已纳入；CLI / Python 集成走 Host API。旧进程内 API 不再恢复；JSON 历史数据迁移仍待完成。</td></tr>
             <tr><th scope="row">Context / DataBridge</th><td>语义管理、检索、SQL、profiling、知识与用户记忆实现已纳入；新旧实现并存，需要入口、调用关系和数据范围审计。</td></tr>
             <tr><th scope="row">Console / Skills</th><td>已修复识别出的技能修订、MCP/channel 设置、settlement/proposal/draft 和文件网关路由；保留显式方法、同源及凭据隔离约束。</td></tr>
             <tr><th scope="row">Auth / Tracing</th><td>开源本地身份、租户/工作区授权与 tracing/usage 已纳入；内部身份系统与部署凭据不移植，跨服务验收仍待完成。</td></tr>
@@ -56,13 +56,13 @@
     </section>
     <section aria-labelledby="replay">
       <h2 id="replay">功能级 replay 目标与验收</h2>
-      <p>以当前 internal 运行时为功能底座，将 OSS 契约接回所属层；暂不清理重复代码，不向 internal 仓库写入。完成标准是入口可用、行为与数据可验证，而不是文件存在。</p>
+      <p>以 internal 架构为主线；不冲突的 OSS 能力接回所属层，冲突项先说明影响与替代方案，由用户 review 后可为 internal 让路，不要求保留旧 API。安全防护、数据保护、可选基础设施和开源打包仍是要求。不向 internal 仓库写入；完成标准是入口可用、行为与数据可验证，而不是文件存在。</p>
       <div class="table-wrap"><table>
         <thead><tr><th scope="col">能力 / OSS 契约</th><th scope="col">集成边界</th><th scope="col">状态 / 验收</th></tr></thead>
         <tbody>
           <tr><th scope="row">Docker 执行安全</th><td>Host workspace → 标准 list_tools，供 data/review builder 共同使用</td><td>本地已接回；真实 Docker 超时、取消、忽略 SIGTERM 的子进程清理通过；清理不确定时关闭 workspace。不是对恶意逃逸进程组的隔离证明。</td></tr>
-          <tr><th scope="row">CLI / Python 嵌入</th><td>HostClient → 当前鉴权 API；客户端确定性调度，服务端管理工具、模型与作用域</td><td>run/chat、prompt-only plan 与逐节点 execute 已接回。execute 只在前置节点成功终态后放行后继，失败/断流/取消停止；非持久化 DAG，无自动恢复或副作用回滚。节点内部仍是 agentic 执行，不证明业务结果正确。旧进程内嵌入与工具辅助规划尚未恢复。</td></tr>
-          <tr><th scope="row">进程内 DAG Agent</th><td>共享 AgentScope Agent + 显式启用的 DAGExecution；不替换服务端 TaskContext</td><td>已恢复 DAG ID 工厂、模式切换、执行状态元数据、轨迹和审批/超时处理。底层 Agent 验证通过；完整 QwenPawDataHost 的 toolkit、workspace、SQL 产物装配尚未适配，不能宣称嵌入接口完成。</td></tr>
+          <tr><th scope="row">CLI / Python 客户端</th><td>HostClient → 当前鉴权 API；客户端确定性调度，服务端管理工具、模型与作用域</td><td>run/chat、prompt-only plan 与逐节点 execute 保留。execute 只在前置节点成功终态后放行后继，失败/断流/取消停止；非持久化 DAG，无自动恢复或副作用回滚。节点内部仍是 agentic 执行，不证明业务结果正确。旧进程内 API 不作为移植完成标准。</td></tr>
+          <tr><th scope="row">统一服务端 Agent</th><td>共享 AgentScope Agent → TaskContext / command-driven executor；不再叠加 DAGExecution</td><td>用户已批准撤除兼容扩展。73b6dfc 已移除独立 DAG 模式、回调和隐式续跑；超时统一读取 RunContext。CLI SOP 文档模型及其 ID 工厂保留。历史 toolkit / Host 等残留尚待清理，不代表支持进程内嵌入。</td></tr>
           <tr><th scope="row">旧 JSON 数据</th><td>持久化迁移边界 → SQL repositories</td><td>未完成。当前只拒绝误用；须验证备份、显式导入、重复执行、会话/文件引用与失败回滚，不自动覆盖原数据。</td></tr>
           <tr><th scope="row">Context / Skills / Console</th><td>当前服务入口、租户作用域、MCP 与显式网关</td><td>部分验证；已测技能修订和配置重启持久化，仍需语义/检索/profiling、真实模型及跨服务权限链路验收。</td></tr>
           <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>OpenTelemetry 修复已推送；七包 sdist 重建 wheel、临时环境干净安装及安装态 Host/CLI 链路通过。独立包使用与根目录一致的 LICENSE/NOTICE，消除仓库外层路径依赖。完整 CI、旧数据升级、真实模型/graph/channel 仍待验收。</td></tr>
@@ -83,7 +83,10 @@
             <tr><th scope="row">本地功能 replay</th><td>Docker 专项 16 项、CLI/SOP/SSE 选择集 144 项通过；修复 SSE 终止事件发布竞态与提示符 Ctrl+C。真实 Host/SQLite/Docker/CLI 验证三轮持久化、错误 token 拒绝、Ctrl+C 后 canceled；plan 产出有效 YAML，未创建 Chat 或执行 workspace。模型是本地协议 fixture，非真实分析效果验收。</td></tr>
             <tr><th scope="row">依赖安全修复</th><td>OpenTelemetry 1.45.2 已于 3ed8712 推送；回归包含于此前 124 项选择集，工作区与独立 Context Python 依赖审计通过。Console npm 审计仍未通过，不能泛称全供应链安全。</td></tr>
             <tr><th scope="row">严格执行 / 独立安装</th><td>CLI/SOP/打包选择集 215 项通过。七包 14 个 wheel/sdist 产物、版本/静态资源校验及全新环境 176 个依赖一致性检查通过；脱离源码 PYTHONPATH 的安装态 Host/SQLite/Docker/CLI 完成 plan、逆序 SOP 的依赖调度、run/chat 持久化、鉴权拒绝和取消。Hologres pool 未安装。模型仍为本地协议 fixture。</td></tr>
-            <tr><th scope="row">DAG Agent 兼容恢复</th><td>DAG/权限/超时/执行器选择集 91 项通过，Host API/CLI 回归 138 项、当前 data/review Agent 选择集 15 项通过（有重叠）。恢复 Colima 后真实服务链路复验通过，模型仍为本地替身；未据此声称完整进程内 Host 可用。</td></tr>
+            <tr><th scope="row">服务架构收敛 / CI 装配</th><td>锁文件对齐后，服务端计划状态、审批/取消、轨迹、模型选择、SQL 配置持久化、计划编辑命令、HostClient/CLI SOP、Profiling 与图查询边界的扩大合并选择集 594 项通过、1 项 Windows 专属检查在 macOS 跳过。真实 Host/SQLite/Docker/CLI 此前已通过 plan、严格 SOP 顺序、三轮持久化、鉴权拒绝与 Ctrl+C 取消；模型为本地替身。开发组补齐可选 SDK，普通发行包仍不强制 Hologres；测试辅助模块不再依赖收集顺序。未跳过旧测试来伪造通过，本地全量收集错误从 20 → 13 → 9 → 7 → 5；全量 CI 仍未通过。</td></tr>
+            <tr><th scope="row">当前服务替代旧 Host 测试</th><td>配置 API → SQL → builder、workspace 租户/用户/agent 作用域、session 产物路径、MCP 凭据与会话隔离已接到当前实现。HTTP/SQL/SSE 冒烟 9 项通过（包含于上述 594 项）：原生/兼容路由、游标续传、并发冲突、取消、失败、重启恢复、终态写入竞态；JSON 模式验证启动拒绝而非假称兼容。Agent/Context 使用替身，Docker 工厂初始化模拟；不等于真实模型、网络流式时延或外部后端验收。</td></tr>
+            <tr><th scope="row">附件安全 / SQL 反馈</th><td>附件与反馈旧测试迁至当前 SQL / HTTP；55 项检查包含于上述 594 项。新增回归先复现后修复附件删除路径越界、Console 上传目录符号链接越界写入；跨身份/会话引用拒绝、反馈替换不丢历史通过。独立临时 Host + SQLite 的真实 HTTP 验证正常上传/删除/重传、错误 token 401、越界操作 400、外部文件及拒删记录保留；进程已关闭，无模型/Context 调用。路径校验不构成并发恶意文件系统替换的完全隔离证明。</td></tr>
+            <tr><th scope="row">Cron / Followup 服务边界</th><td>d9394eb：cron 36 项与 followup 29 项检查包含于上述 594 项。任务操作、可信身份隔离、SQL 运行请求与重复领取保护通过；追问正常发送在终态前、迟到结果只持久化、不追加终态后的 SSE、同 session 历史去重输入和禁用开关通过。使用 SQLite 与替身模型，不代表真实推送渠道或 LLM 效果。</td></tr>
           </tbody>
         </table>
       </div>
@@ -93,11 +96,12 @@
     <section aria-labelledby="remaining">
       <h2 id="remaining">合并前必须完成</h2>
       <ol>
-        <li><strong>完成行为级 replay：</strong>逐项接回 OSS 契约并验证 internal 公共能力；暂不做重复代码清理，不机械删除 OSS 独有文件。</li>
-        <li><strong>解决公开兼容性：</strong>旧进程内嵌入依赖的 Agent 构造、工具包和 DAG 状态接口已分叉，须真正适配而非仅补导出；JSON 迁移须显式映射旧 user_id 与新租户/工作区身份，验证文件引用、凭据、备份与回滚。目前未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>93b4b46 对应 CI run 43619845198 仍失败；数据库与 Docker integration 通过。此前诊断包括 macOS 收集 30 个错误、前端 lint、Console 依赖审计 27 项（含 1 critical）；新 DAG 修复已提交，尚未完成远端 CI 和全量收集复测，不能忽略剩余失败。</li>
+        <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
+        <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。JSON 迁移须显式映射旧 user_id 与新租户/工作区身份，验证文件引用、凭据、备份与回滚。目前未读取或修改用户历史数据。</li>
+        <li><strong>修复完整 CI：</strong>1676120 对应 CI run 43635635297 中，数据库与 Docker sandbox 集成通过；Python macOS/Ubuntu、前端 lint/build、供应链及 demo smoke job 失败，整轮当时仍在运行。最新工作区全量收集剩 5 个错误：4 个 Host 旧接口/测试辅助引用，1 个 Context 旧路由检查在导入时装配真实 Neo4j。此前另有 Console 依赖审计 27 项（含 1 critical）、Windows 初始化及 demo 缺少共享数据库表；需按最新日志复核。定向回归不等于远端 CI 验收。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
       </ol>
+      <p class="warning">待 review 的行为差异：internal 澄清问题数量为提示性建议，答复经 SQL 命令排队；旧 OSS 要求硬性数量上限与同步“已答复”409。本轮未改变生产语义，等待确认后迁移对应测试。</p>
       <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
     </section>
     <footer>
