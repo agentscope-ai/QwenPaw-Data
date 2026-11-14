@@ -36,7 +36,7 @@
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>79aea6d</code>；Host 收敛、安全修复、真实 demo、Console lint、SQL 提交边界、持久化契约、旧表补列、原生 subagent、JSON 离线预检/备份、凭据转换及历史记录/事件投影转换组件已提交。Context 单行测试导入修正与初始化入口修复为两批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>f6f0247</code>；Host 收敛、安全修复、真实 demo、Console lint、SQL 提交边界、持久化契约、旧表补列、原生 subagent、JSON 离线预检/备份、凭据、历史记录/事件投影及四表用户偏好转换组件已提交。Context 单行测试导入修正与初始化入口修复为两批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
     </section>
     <section aria-labelledby="scope">
@@ -64,7 +64,7 @@
           <tr><th scope="row">CLI / Python 客户端</th><td>HostClient → 当前鉴权 API；客户端确定性调度，服务端管理工具、模型与作用域</td><td>run/chat、prompt-only plan 与逐节点 execute 保留。execute 只在前置节点成功终态后放行后继，失败/断流/取消停止；非持久化 DAG，无自动恢复或副作用回滚。节点内部仍是 agentic 执行，不证明业务结果正确。旧进程内 API 不作为移植完成标准。</td></tr>
           <tr><th scope="row">统一服务端 Agent</th><td>共享 AgentScope Agent → TaskContext / command-driven executor；不再叠加 DAGExecution</td><td>用户已批准撤除兼容扩展。73b6dfc 已移除独立 DAG 模式、回调和隐式续跑；超时统一读取 RunContext。CLI SOP 文档模型及其 ID 工厂保留。历史 toolkit / Host 等残留尚待清理，不代表支持进程内嵌入。</td></tr>
           <tr><th scope="row">子任务委派</th><td>生产 DataAgentBuilder → SpawnSubagent → 当前 RunContext / TaskContext</td><td>79237a4 接回可开关的委派工具。只读取父计划快照，不调度或修改计划；继承本轮工具、MCP、启用技能与超时，保留角色范围、流式增量、取消清理和委派次数限制。子任务需要审批的操作返回拒绝，交回父 Agent 通过原有审批入口执行；不恢复旧 DAG 或嵌入 API。</td></tr>
-          <tr><th scope="row">旧 JSON 数据</th><td>显式离线 migration inspect / backup → 后续 SQL 导入器</td><td>部分完成。身份/引用预检、私有哈希备份、凭据重加密已实现；六类记录转换和事件历史/快照投影已验证，尚未接入导入命令。运行中聊天、非空旧计划、旧 DAG 事件和水位不一致仍需显式处理；enabled cron 必须明确同意停用。完整配置转换、文件/agent state 落位、事务导入、幂等与回滚尚未完成；inspect 无发现不代表可导入。</td></tr>
+          <tr><th scope="row">旧 JSON 数据</th><td>显式离线 migration inspect / backup → 后续 SQL 导入器</td><td>部分完成。身份/引用预检、私有哈希备份、凭据重加密、六类记录、事件投影及 provider/model/active/runtime 四表偏好转换已验证，尚未接入导入命令。自定义模型缺少上下文大小必须显式补充；运行中聊天、非空旧计划、旧 DAG 事件和水位不一致仍需处理，enabled cron 必须明确同意停用。统一计划、文件/agent state 落位、事务导入、幂等与回滚未完成；inspect 无发现不代表可导入。</td></tr>
           <tr><th scope="row">Context / Skills / Console</th><td>当前服务入口、租户作用域、MCP 与显式网关</td><td>部分验证；已测技能修订和配置重启持久化，仍需语义/检索/profiling、真实模型及跨服务权限链路验收。</td></tr>
           <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>OpenTelemetry 修复已推送；七包 sdist 重建 wheel、临时环境干净安装及安装态 Host/CLI 链路通过。独立包使用与根目录一致的 LICENSE/NOTICE，消除仓库外层路径依赖。完整 CI、旧数据升级、真实模型/graph/channel 仍待验收。</td></tr>
         </tbody>
@@ -96,21 +96,21 @@
             <tr><th scope="row">SQL 持久化契约</th><td>42e2e19：旧双 store 套件迁至 SQL repositories 与单 writer OutputStream，保留跨连接读回、隔离、分页、加密、cron 和复盘状态检查。先复现非法事件消耗序号，再修复验证顺序；扩大选择集 188 项通过、1 项既有多 writer 竞态 xfail。全量收集 5,119 项，剩 3 个收集错误；JSON 转换器仍未实现。</td></tr>
             <tr><th scope="row">Fork / SQL 旧表升级</th><td>741094c：fork、快照、文件访问迁至当前 API/SQL，验证附件、事件、业务快照与 agent state 的复制及源数据保留。先复现缺少数据库默认值导致旧表补列失败，再加入空数组默认值；SQLite 回归与独立 PostgreSQL 16 真实升级均保留已有行，重复启动通过，临时容器已清理。定向选择集 46 项通过，2 项本地签名分享检查未纳入且仍保留失败；没有把定向通过视为整个 fork/share 或 subagent 套件通过。</td></tr>
             <tr><th scope="row">原生 subagent 验收</th><td>79237a4：91 项定向检查通过，6 项可选 E2B SDK 检查跳过。覆盖生产注册/开关、禁用技能继承、计划不变性、多活动任务不猜测节点、审批拒绝、超时/取消、流式增量和真实 ChatRuntime SQL 落库。另以独立 CLI/Host/Context 进程完成父 Agent → 子 Agent → 原生 MCP execute_read → PostgreSQL → 父 Agent 回执，校验 GAAP 聚合值及完成态快照；临时数据库容器已清理。模型为本地协议 fixture，非真实模型质量或 E2B/FC/ACS 后端验收。</td></tr>
-            <tr><th scope="row">JSON 迁移组件</th><td>a329fbd / c9f706a / 79aea6d：扩大联合选择集 354 项通过。覆盖全部 CLI、预检/备份安全、凭据重加密、六类记录严格转换、原始事件保留及 segment/biz_event/artifact/followup 最新投影重建；当前 SQL snapshot/replay 读回通过。另以真实隔离 Host HTTP 读取转换后的快照，重启后内容一致，错误 token 拒绝，两个进程均完成生命周期关闭。此前独立 CLI 验证重复备份且未创建 SQL/Auth secret。全部使用临时合成数据，无外部模型/Context 调用；不代表文件落位或完整导入。备份要求停写；Windows 拒绝不支持私有 mkdir 的旧 Python，原生 ACL 验收仍待完成。</td></tr>
+            <tr><th scope="row">JSON 迁移组件</th><td>a329fbd → f6f0247：扩大联合选择集 401 项通过。覆盖全部 CLI、预检/备份安全、凭据重加密、六类记录、事件原文/最新投影及四表用户偏好转换；SQL snapshot/replay 与原生默认/轻量模型配置解析通过。真实隔离 Host HTTP 重启复验保留快照、自定义模型大小、运行覆盖值和脱敏凭据；错误 token 拒绝，生命周期关闭通过。缺失/拼错的模型大小补充、移除的目录模型与未知字段明确拒绝，不用环境 fallback 掩盖问题。此前独立 CLI 验证重复备份且未创建 SQL/Auth secret。全部使用临时合成数据，无 LLM/Context 调用；不代表模型效果、文件落位或完整导入。Windows 原生备份 ACL 验收仍待完成。</td></tr>
             <tr><th scope="row">初始化入口（待批准）</th><td>Windows CI 确认漏装本地 Auth/Tracing；Bash 还漏 Console。工作区修复补齐七包，并使独立 Context 从当前 uv.lock 导出依赖，解决隔离安装发现的 6 项版本/缺包冲突。39 项检查通过、4 项平台跳过；隔离副本的 Python/Bash 安装、CLI/MCP 配置、依赖一致性与 Context API 导入通过；全新 Context 未装 Hologres pool，已有 adapter 不被删除。未做修复后的原生 Windows 验收，未重建 UI；尚未提交。</td></tr>
           </tbody>
         </table>
       </div>
       <p class="muted">以上是不同提交的定向验证，选择集有重叠，不累加为总覆盖量；不代表全套 CI、浏览器交互或真实外部后端通过。</p>
-      <p class="muted">当前工作区全量收集：5,337 项、3 个错误（Context blocking route 与 Host 两个旧澄清接口）。该结果包含待批准的 Context 导入修正和初始化测试，不代表仅已推送提交的验收结果。</p>
+      <p class="muted">当前工作区全量收集：5,378 项、3 个错误（Context blocking route 与 Host 两个旧澄清接口）。该结果包含待批准的 Context 导入修正和初始化测试，不代表仅已推送提交的验收结果。</p>
       <p>验证入口：<code>scripts/tests/run_pytest.sh</code>；对应测试位于 Host、Console 和 tracing 包。完整 CI 结果以 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">PR 检查页</a> 为准。</p>
     </section>
     <section aria-labelledby="remaining">
       <h2 id="remaining">合并前必须完成</h2>
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
-        <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。转换组件已能保留普通终态记录和事件投影；后续须完成全量配置、明确处理未完成聊天/水位、显式 SQL 导入、文件/agent state 归属、重复执行与失败回滚。旧自定义模型缺少新版所需 context_size，须显式补充，不猜测。共享 workspace、旧 DAG 状态不得静默丢弃；尚未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>最近完成的 run 43641847669：demo、数据库、Docker、发行包构建安装四项通过；对应 CodeQL 43641847618 通过；Python 两平台、前端、供应链及 Windows 仍失败。本阶段新增记录/事件转换的远端验收尚未完成。原生 subagent 接入后的 Host 扩面检查跑完所有可收集用例：1,847 通过、28 跳过、1 个既有 xfail、2 失败、2 个收集错误；失败均为本地签名分享，收集错误为 clarification 的旧 toolkit/CronToolServices 导入与 steer clarification 的旧 ClarificationConflict 导入。两类行为差异仍待 review，未删除检查。旧表补列和 subagent 的已知失败已解决；历史 toolkit/Host 残留仍需清理。Context 旧路由导入、GraphCanvas 的 12 个 lint 错误、供应链问题待修；初始化修复待批准；本地扩大回归不等于远端 CI 验收。</li>
+        <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。转换组件已覆盖普通终态记录、事件投影和持久化用户偏好；后续须完成统一迁移计划、共享 workspace 配置归属、未完成聊天/水位处理、显式 SQL 导入、文件/agent state 落位、重复执行与失败回滚。自定义模型 context_size 补充已支持，已移除的目录模型仍须明确重映射，不猜测。旧 DAG 状态不得静默丢弃；尚未读取或修改用户历史数据。</li>
+        <li><strong>修复完整 CI：</strong>最近完成的 run 43642725037：demo、数据库、Docker、发行包构建安装四项通过；对应 CodeQL 43642724971 通过；Python 两平台、前端、供应链及 Windows 仍失败。本阶段新增偏好转换的远端验收尚未完成。原生 subagent 接入后的 Host 扩面检查跑完所有可收集用例：1,847 通过、28 跳过、1 个既有 xfail、2 失败、2 个收集错误；失败均为本地签名分享，收集错误为 clarification 的旧 toolkit/CronToolServices 导入与 steer clarification 的旧 ClarificationConflict 导入。两类行为差异仍待 review，未删除检查。旧表补列和 subagent 的已知失败已解决；历史 toolkit/Host 残留仍需清理。Context 旧路由导入、GraphCanvas 的 12 个 lint 错误、供应链问题待修；初始化修复待批准；本地扩大回归不等于远端 CI 验收。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
         <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 可能分配重复序号，现有 strict xfail 仍复现；本轮只修复非法载荷消耗序号，不把单 writer 并发通过当作跨 writer 正确性证明。</li>
       </ol>
