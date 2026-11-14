@@ -56,6 +56,7 @@ def migration_lock(target_home: Path, *, target_stopped: bool = False):
 
     home_fd = lock_fd = None
     held = None
+    in_body = False
     try:
         home = Path(target_home)
         identity = _home_identity(home)
@@ -90,9 +91,15 @@ def migration_lock(target_home: Path, *, target_stopped: bool = False):
                 "Another migration process holds the target home lock"
             ) from None
         held.check()
+        in_body = True
         yield held
+        in_body = False
         held.check()
     except OSError:
+        if in_body:
+            # The operation's failure (possibly an ambiguous SQL commit) is not
+            # a lock acquisition error; its coordinator must classify it.
+            raise
         raise MigrationError(
             "Cannot safely acquire or retain the migration lock"
         ) from None

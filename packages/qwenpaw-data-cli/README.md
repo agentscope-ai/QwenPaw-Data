@@ -302,9 +302,25 @@ SQLite and PostgreSQL process checks cover first-file publication crashes,
 all-files-published/precommit crashes, lost SQL commit responses, and exact replay
 of all 15 tables plus two final files. The hook belongs inside the anchored SQL
 transaction; replay of an already committed SQL receipt must separately verify
-file publication. This is still component-level acceptance, not a supported CLI
-import. A unified coordinator, runtime-key/native file-serving acceptance,
-post-import rollback and safe journal/staging cleanup remain unfinished.
+file publication.
+
+The internal saved-plan coordinator now performs that sequence under one home
+lock: authenticate the original plan, recover/check the bound SQL receipt, stage
+or resume files, commit SQL with the publication hook, and independently verify
+published files. Uncommitted imports require the independent backup online and
+verified; the source may be offline. Already committed imports only verify SQL
+and files and may be checked without backup access. They never repair modified
+rows, changed files or files moved by the user. Errors preserve all evidence and
+must be retried with the same saved plan, not a newly generated conversion.
+
+Fresh-process SQLite/PostgreSQL acceptance covers interrupted copying, partial
+publication, all-files/precommit exit and lost commit responses through this
+entry point. A real local Host twice across restart verified artifact preview,
+download and compatibility access, native attachment resolution, authorization
+rejection, imported history/preferences and the separately provisioned local key.
+Receipts still verified after use. This does not configure remote deployments or
+prove external backends. A supported CLI `apply`, post-import rollback, safe
+journal/staging cleanup and native Windows acceptance remain unfinished.
 
 ## Output and logs
 
