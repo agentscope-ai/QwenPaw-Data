@@ -36,8 +36,8 @@
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 新旧实现并存、公开兼容性和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 已推送快照：<code>b48d4f1</code><br>
-        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 下文不包含尚未提交的依赖修复。</p>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 已推送快照：<code>85a345a</code> · 本地实现：<code>2b2d827</code><br>
+        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 五个功能提交尚未推送；OpenTelemetry 依赖修复仍待提交确认，不代表远端 CI 已通过。</p>
     </section>
     <section aria-labelledby="scope">
       <h2 id="scope">迁移范围与边界</h2>
@@ -54,6 +54,20 @@
         </table>
       </div>
     </section>
+    <section aria-labelledby="replay">
+      <h2 id="replay">功能级 replay 目标与验收</h2>
+      <p>以当前 internal 运行时为功能底座，将 OSS 契约接回所属层；暂不清理重复代码，不向 internal 仓库写入。完成标准是入口可用、行为与数据可验证，而不是文件存在。</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">能力 / OSS 契约</th><th scope="col">集成边界</th><th scope="col">状态 / 验收</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Docker 执行安全</th><td>Host workspace → 标准 list_tools，供 data/review builder 共同使用</td><td>本地已接回；真实 Docker 超时、取消、忽略 SIGTERM 的子进程清理通过；清理不确定时关闭 workspace。不是对恶意逃逸进程组的隔离证明。</td></tr>
+          <tr><th scope="row">CLI / Python 嵌入</th><td>显式 HostClient → 当前鉴权 API；模型、沙箱与作用域由服务端管理</td><td>部分完成。run/chat 服务模式、只生成 SOP 的 plan 已接回；旧进程内嵌入、工具辅助规划与严格依赖 execute 尚未恢复。当前 advisory Plan 不等价于旧 DAG 调度。</td></tr>
+          <tr><th scope="row">旧 JSON 数据</th><td>持久化迁移边界 → SQL repositories</td><td>未完成。当前只拒绝误用；须验证备份、显式导入、重复执行、会话/文件引用与失败回滚，不自动覆盖原数据。</td></tr>
+          <tr><th scope="row">Context / Skills / Console</th><td>当前服务入口、租户作用域、MCP 与显式网关</td><td>部分验证；已测技能修订和配置重启持久化，仍需语义/检索/profiling、真实模型及跨服务权限链路验收。</td></tr>
+          <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>本地 OpenTelemetry 1.45.2 审计与 tracing 回归通过；七包干净安装、完整 CI、真实外部后端仍待验收。</td></tr>
+        </tbody>
+      </table></div>
+    </section>
     <section aria-labelledby="verification">
       <h2 id="verification">已验证的内容</h2>
       <div class="table-wrap">
@@ -65,6 +79,8 @@
             <tr><th scope="row">真实进程重启</th><td>重启后保留会话标题、文件字节、技能修订/回滚、禁用 MCP 设置和脱敏 channel 配置；正常关闭检查通过。</td></tr>
             <tr><th scope="row">前端 / 打包</th><td>前端 254 项通过、1 项跳过；两个 UI 构建与 Console wheel 检查通过。Wheel 网关检查使用 stub Host，不等于全包安装验收。</td></tr>
             <tr><th scope="row">后续 CI 修复</th><td>命令载荷与工厂方法分离后 51 项检查通过；CI 静态规则、锁文件及依赖导出检查通过。PostgreSQL 驱动仅加入开发依赖。</td></tr>
+            <tr><th scope="row">本地功能 replay</th><td>Docker 专项 16 项、CLI/SOP/SSE 选择集 144 项通过；修复 SSE 终止事件发布竞态与提示符 Ctrl+C。真实 Host/SQLite/Docker/CLI 验证三轮持久化、错误 token 拒绝、Ctrl+C 后 canceled；plan 产出有效 YAML，未创建 Chat 或执行 workspace。模型是本地协议 fixture，非真实分析效果验收。</td></tr>
+            <tr><th scope="row">待提交依赖修复</th><td>OpenTelemetry 1.45.2 回归包含于此前 124 项选择集；工作区与独立 Context 依赖审计均无已知漏洞。三文件独立暂存，等待提交确认。</td></tr>
           </tbody>
         </table>
       </div>
@@ -74,9 +90,9 @@
     <section aria-labelledby="remaining">
       <h2 id="remaining">合并前必须完成</h2>
       <ol>
-        <li><strong>收敛新旧实现：</strong>明确保留的 OSS 能力、正在使用的入口及可退役代码；按可独立验收的功能拆分变更，不机械删除 OSS 独有文件。</li>
-        <li><strong>解决公开兼容性：</strong>恢复或明确迁移 JSON、旧 CLI 和嵌入接口。目前 JSON 模式只会在数据库初始化前报错保护数据，并未恢复或迁移数据。</li>
-        <li><strong>修复完整 CI：</strong>最近完整 Host 收集仍有 23 个错误；首轮 PR CI 还暴露 Docker 清理 helper 缺失、GraphCanvas lint 和依赖审计问题。已修复部分须经新 CI 复验。</li>
+        <li><strong>完成行为级 replay：</strong>逐项接回 OSS 契约并验证 internal 公共能力；暂不做重复代码清理，不机械删除 OSS 独有文件。</li>
+        <li><strong>解决公开兼容性：</strong>完成严格 SOP execute、旧进程内嵌入和 JSON 数据迁移；服务客户端和 prompt-only plan 不等价于原有全部契约。目前 JSON 仅启动报错保护数据，未恢复或迁移。</li>
+        <li><strong>修复完整 CI：</strong>此前完整 Host 收集有 23 个错误，尚未全量复测；GraphCanvas lint 等仍待修复。本地修复须推送后经新 CI 复验。</li>
         <li><strong>完成发布验收：</strong>真实 Docker / 模型 / graph / channel、执行中取消与 SSE 重放、浏览器操作、七个包的干净安装以及旧数据升级/备份/回滚。</li>
       </ol>
       <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
