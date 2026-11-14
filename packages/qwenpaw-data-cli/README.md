@@ -248,6 +248,16 @@ the database. Native Windows ACL acceptance and automatic deployment-secret
 provisioning are not implemented. No SQL rows are written, and `import_ready`
 remains false.
 
+The Host now includes an internal transactional SQL component and the additive
+`legacy_import_runs` receipt table. Rows and the SQL receipt commit together;
+exact-plan replay verifies stored row digests and never overwrites changed data.
+Connection failures are not treated as proof of rollback. Explicit SQLite
+engine recovery is separate from read-only preflight and never manually deletes
+journals. This component is **not an import command**: durable private file
+journaling, file publication, coordinated recovery and post-import rollback are
+still required before a CLI `apply` workflow can be exposed. Do not invoke the
+SQL component alone to migrate user data.
+
 ## Output and logs
 
 The CLI writes streamed agent events, final answers, and execution summaries to

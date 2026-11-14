@@ -54,7 +54,7 @@ class TargetCheck:
         }
 
 
-def _sqlite_signature(path: Path):
+def _sqlite_signature(path: Path, *, recover_journals: bool = False):
     if path.is_symlink() or not path.is_file():
         raise MigrationError(
             "Target SQLite must be an existing regular non-symlink file"
@@ -62,13 +62,19 @@ def _sqlite_signature(path: Path):
     info = path.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         raise MigrationError("Target SQLite must be a regular file without hard links")
-    if any(
-        Path(str(path) + suffix).exists() or Path(str(path) + suffix).is_symlink()
-        for suffix in ("-wal", "-shm", "-journal")
-    ):
-        raise MigrationError(
-            "Target SQLite has journal sidecars; stop writers and checkpoint using its owning application first"
-        )
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = Path(str(path) + suffix)
+        if not sidecar.exists() and not sidecar.is_symlink():
+            continue
+        if not recover_journals:
+            raise MigrationError(
+                "Target SQLite has journal sidecars; stop writers and checkpoint using its owning application first"
+            )
+        sidecar_info = sidecar.lstat()
+        if not stat.S_ISREG(sidecar_info.st_mode) or sidecar_info.st_nlink != 1:
+            raise MigrationError(
+                "SQLite recovery refuses linked or non-regular journal sidecars"
+            )
     return _signature(info)
 
 
@@ -251,6 +257,22 @@ def validate_target(
         raise MigrationError(
             "Resolve all source conversion issues before target validation"
         )
+    with _read_only_target(database_url) as conn:
+        return check_target_connection(plan, conn)
+
+
+def check_target_connection(
+    plan: MigrationPlan, conn, *, check_conflicts: bool = True
+) -> TargetCheck:
+    """Revalidate inside the caller's transaction; never commit or open a DB.
+
+    Only an exact, verified SQL commit receipt permits skipping PK conflict
+    checks on replay. This function is not a replacement for that receipt.
+    """
+    if plan.issues:
+        raise MigrationError(
+            "Resolve all source conversion issues before target validation"
+        )
     identities = {(i.user_id, i.tenant_id, i.workspace_id) for i in plan.identities}
     user_ids = {i.user_id for i in plan.identities}
     rows = defaultdict(list)
@@ -274,16 +296,16 @@ def validate_target(
             )
         rows[row.table].append(row)
     issues = []
-    with _read_only_target(database_url) as conn:
-        _check_schema(conn, rows)
-        for identity in plan.identities:
-            if not _authorized(conn, identity):
-                issues.append(
-                    PlanIssue(
-                        "target_identity_not_authorized",
-                        f"identities/{identity.user_id}",
-                    )
+    _check_schema(conn, rows)
+    for identity in plan.identities:
+        if not _authorized(conn, identity):
+            issues.append(
+                PlanIssue(
+                    "target_identity_not_authorized",
+                    f"identities/{identity.user_id}",
                 )
+            )
+    if check_conflicts:
         conflicts = Counter()
         for name, records in rows.items():
             table = Base.metadata.tables[name]
@@ -307,7 +329,6 @@ def validate_target(
             for name, count in conflicts.items()
             if count
         )
-        backend = conn.dialect.name
     return TargetCheck(
-        backend, len(plan.identities), len(plan.rows), tuple(sorted(issues))
+        conn.dialect.name, len(plan.identities), len(plan.rows), tuple(sorted(issues))
     )

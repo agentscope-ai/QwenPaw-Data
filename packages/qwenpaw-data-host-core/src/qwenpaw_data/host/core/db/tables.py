@@ -528,3 +528,18 @@ class UserRuntimeSettingsRow(Base):
     tool_timeout_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     tool_confirmation_level: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class LegacyImportRunRow(Base):
+    """Atomic SQL commit receipt; private filesystem recovery journal is separate."""
+
+    __tablename__ = "legacy_import_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_digest: Mapped[str] = mapped_column(String, nullable=False)
+    plan_digest: Mapped[str] = mapped_column(String, nullable=False)
+    data_digest: Mapped[str] = mapped_column(String, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    committed_at: Mapped[datetime] = mapped_column(nullable=False)
