@@ -7,7 +7,6 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolResponse
 from qwenpaw_data.host.core.api.models.preferences import SetRuntimeSettingsRequest
 from qwenpaw_data.host.core.settings.runtime import RuntimeSettings
-from qwenpaw_data.host.core.agent.middleware.tool_timeout import ToolTimeoutMiddleware
 
 from .test_tool_timeout_middleware import _middleware
 
@@ -86,14 +85,12 @@ async def test_fast_tool_and_tool_error_unchanged():
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
 def test_invalid_timeout_rejected(value):
     with pytest.raises(ValueError):
-        ToolTimeoutMiddleware(value)
-    with pytest.raises(ValueError):
         RuntimeSettings(tool_timeout_seconds=value)
     with pytest.raises(ValueError):
         SetRuntimeSettingsRequest(tool_timeout_seconds=value)
 
 
-async def test_fixed_timeout_for_standalone_agent_cancels_work():
+async def test_service_timeout_cancels_work_before_returning():
     stopped = asyncio.Event()
 
     async def slow(**kwargs):
@@ -105,7 +102,7 @@ async def test_fixed_timeout_for_standalone_agent_cancels_work():
 
     items = [
         item
-        async for item in ToolTimeoutMiddleware(0.01).on_acting(
+        async for item in _middleware(seconds=0.01).on_acting(
             None,
             {"tool_call": SimpleNamespace(name="Bash")},
             slow,

@@ -1,128 +1,141 @@
-# -*- coding: utf-8 -*-
-"""Per-user runtime settings: store conformance and routes."""
+"""Runtime settings through the service SQL repository and authenticated API."""
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from pathlib import Path
+import os
+from dataclasses import replace
 
+import httpx
 import pytest
 
-from qwenpaw_data.host.core.store.json_store import JSONPreferencesStore
+from qwenpaw_data.host.core.api.app import create_app
+from qwenpaw_data.host.core.db.engine import get_session_factory, init_db, reset_engine
+from qwenpaw_data.host.core.repositories import PreferencesRepository
+from qwenpaw_data.host.core.settings import clear_settings
 
-sqlalchemy = pytest.importorskip("sqlalchemy")
-
-from qwenpaw_data.host.core.db.engine import (  # noqa: E402
-    create_engine_and_factory,
-    init_db,
-)
-from qwenpaw_data.host.core.store.sql_store import SQLPreferencesStore  # noqa: E402
+from .conftest import TEST_IDENTITY
 
 
-@pytest.fixture(params=["json", "sql"])
-async def prefs(request, tmp_path: Path):
-    if request.param == "json":
-        yield JSONPreferencesStore(tmp_path)
-        return
-    engine, factory = create_engine_and_factory(
-        f"sqlite+aiosqlite:///{tmp_path / 'host.db'}",
-    )
-    await init_db(engine)
-    yield SQLPreferencesStore(factory)
-    await engine.dispose()
+@pytest.fixture(autouse=True)
+def runtime_defaults(monkeypatch):
+    for key in list(os.environ):
+        if key.startswith("QWENPAW_DATA_RUNTIME_"):
+            monkeypatch.delenv(key)
+    monkeypatch.delenv("QWENPAW_DATA_TOOL_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("QWENPAW_DATA_TOOL_CONFIRMATION_DEFAULT_LEVEL", "auto")
+    clear_settings()
 
 
-async def test_defaults_and_overrides(prefs, monkeypatch) -> None:
-    monkeypatch.delenv("QWENPAW_DATA_REACT_MAX_ITERS", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_LLM_RETRY_ENABLED", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_LLM_MAX_RETRIES", raising=False)
-
-    initial = await prefs.get_runtime_settings("local")
-    assert initial == {
-        "react_max_iters": 10000,
-        "llm_retry_enabled": True,
-        "llm_max_retries": 3,
-    }
-
-    updated = await prefs.set_runtime_settings(
-        "local", {"react_max_iters": 500, "llm_retry_enabled": False}
-    )
-    assert updated["react_max_iters"] == 500
-    assert updated["llm_retry_enabled"] is False
-    assert updated["llm_max_retries"] == 3  # untouched → default
-
-    # Partial update keeps prior overrides; None clears back to defaults.
-    again = await prefs.set_runtime_settings("local", {"llm_max_retries": 5})
-    assert again["react_max_iters"] == 500
-    assert again["llm_max_retries"] == 5
-    cleared = await prefs.set_runtime_settings("local", {"react_max_iters": None})
-    assert cleared["react_max_iters"] == 10000
-
-    # Per-user isolation.
-    other = await prefs.get_runtime_settings("someone-else")
-    assert other["react_max_iters"] == 10000
+@pytest.fixture
+async def database():
+    await reset_engine()
+    await init_db()
+    try:
+        yield get_session_factory()
+    finally:
+        await reset_engine()
 
 
-async def test_env_defaults(prefs, monkeypatch) -> None:
-    monkeypatch.setenv("QWENPAW_DATA_REACT_MAX_ITERS", "42")
-    monkeypatch.setenv("QWENPAW_DATA_LLM_RETRY_ENABLED", "off")
-    assert await prefs.get_runtime_settings("local") == {
-        "react_max_iters": 42,
-        "llm_retry_enabled": False,
-        "llm_max_retries": 3,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Routes
-
-pytest.importorskip("fastapi")
-import httpx  # noqa: E402
-
-from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
-
-
-@asynccontextmanager
-async def service_client(tmp_path: Path, monkeypatch):
-    for env in (
-        "QWENPAW_DATA_API_TOKEN",
-        "QWENPAW_DATA_DB_URL",
-        "QWENPAW_DATA_STORE",
-        "QWENPAW_DATA_REACT_MAX_ITERS",
-        "QWENPAW_DATA_LLM_RETRY_ENABLED",
-        "QWENPAW_DATA_LLM_MAX_RETRIES",
-    ):
-        monkeypatch.delenv(env, raising=False)
-    app = create_app(home=tmp_path, model=object())
+@pytest.fixture
+async def service():
+    app = create_app()
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
         async with httpx.AsyncClient(
             transport=transport,
-            base_url="http://testserver",
+            base_url="http://localhost",
+            trust_env=False,
         ) as http:
             yield http
 
 
-async def test_runtime_settings_routes(tmp_path, monkeypatch) -> None:
-    async with service_client(tmp_path, monkeypatch) as http:
-        fetched = await http.get("/api/v1/preferences/runtime-settings")
-        assert fetched.status_code == 200, fetched.text
-        assert fetched.json()["runtime_settings"]["react_max_iters"] == 10000
-
-        saved = await http.put(
-            "/api/v1/preferences/runtime-settings",
-            json={"react_max_iters": 250, "llm_max_retries": 1},
+async def test_defaults_and_overrides(database) -> None:
+    async with database() as db:
+        prefs = PreferencesRepository(db, TEST_IDENTITY)
+        initial = await prefs.get_runtime_settings()
+        assert initial == {
+            "react_max_iters": 10000,
+            "llm_retry_enabled": True,
+            "llm_max_retries": 3,
+            "context_trigger_ratio": 0.8,
+            "context_reserve_ratio": 0.1,
+            "tool_result_limit": 50000,
+            "tool_timeout_enabled": True,
+            "tool_timeout_seconds": 1800,
+            "tool_confirmation_level": "auto",
+        }
+        updated = await prefs.set_runtime_settings(
+            {"react_max_iters": 500, "llm_retry_enabled": False}
         )
-        assert saved.status_code == 200, saved.text
-        body = saved.json()["runtime_settings"]
-        assert body["react_max_iters"] == 250
-        assert body["llm_max_retries"] == 1
+        assert updated == {
+            **initial,
+            "react_max_iters": 500,
+            "llm_retry_enabled": False,
+        }
+        await db.commit()
 
-        again = await http.get("/api/v1/preferences/runtime-settings")
-        assert again.json()["runtime_settings"]["react_max_iters"] == 250
+    # Reload from a different SQL session, rather than an in-memory identity map.
+    async with database() as db:
+        prefs = PreferencesRepository(db, TEST_IDENTITY)
+        assert await prefs.get_runtime_settings() == updated
+        again = await prefs.set_runtime_settings({"llm_max_retries": 5})
+        assert again == {**updated, "llm_max_retries": 5}
+        cleared = await prefs.set_runtime_settings({"react_max_iters": None})
+        assert cleared == {**again, "react_max_iters": 10000}
+        await db.commit()
 
-        invalid = await http.put(
-            "/api/v1/preferences/runtime-settings",
-            json={"react_max_iters": "not-a-number"},
+    async with database() as db:
+        other = PreferencesRepository(
+            db, replace(TEST_IDENTITY, user_id="someone-else")
         )
-        assert invalid.status_code == 422
+        assert await other.get_runtime_settings() == initial
+        original = PreferencesRepository(db, TEST_IDENTITY)
+        assert await original.get_runtime_settings() == cleared
+
+
+async def test_env_defaults_and_persisted_override(database, monkeypatch) -> None:
+    monkeypatch.setenv("QWENPAW_DATA_RUNTIME_REACT_MAX_ITERS", "42")
+    monkeypatch.setenv("QWENPAW_DATA_RUNTIME_LLM_RETRY_ENABLED", "false")
+    clear_settings()
+    async with database() as db:
+        prefs = PreferencesRepository(db, TEST_IDENTITY)
+        settings = await prefs.get_runtime_settings()
+        assert settings["react_max_iters"] == 42
+        assert settings["llm_retry_enabled"] is False
+        assert settings["llm_max_retries"] == 3
+        await prefs.set_runtime_settings({"react_max_iters": 7})
+        await db.commit()
+
+    monkeypatch.setenv("QWENPAW_DATA_RUNTIME_REACT_MAX_ITERS", "99")
+    clear_settings()
+    async with database() as db:
+        prefs = PreferencesRepository(db, TEST_IDENTITY)
+        assert (await prefs.get_runtime_settings())["react_max_iters"] == 7
+        assert (await prefs.set_runtime_settings({"react_max_iters": None}))[
+            "react_max_iters"
+        ] == 99
+
+
+async def test_runtime_settings_routes(service) -> None:
+    path = "/api/preferences/runtime-settings"
+    fetched = await service.get(path)
+    assert fetched.status_code == 200, fetched.text
+    initial = fetched.json()["runtime_settings"]
+    assert initial["react_max_iters"] == 10000
+
+    saved = await service.put(path, json={"react_max_iters": 250, "llm_max_retries": 1})
+    assert saved.status_code == 200, saved.text
+    expected = {**initial, "react_max_iters": 250, "llm_max_retries": 1}
+    assert saved.json()["runtime_settings"] == expected
+    assert (await service.get(path)).json()["runtime_settings"] == expected
+
+    invalid = await service.put(path, json={"react_max_iters": "not-a-number"})
+    assert invalid.status_code == 422
+    assert (await service.get(path)).json()["runtime_settings"] == expected
+
+    # Invalid merged compression bounds must not partially persist other edits.
+    invalid_bounds = await service.put(
+        path, json={"react_max_iters": 999, "context_reserve_ratio": 0.85}
+    )
+    assert invalid_bounds.status_code == 400, invalid_bounds.text
+    assert (await service.get(path)).json()["runtime_settings"] == expected

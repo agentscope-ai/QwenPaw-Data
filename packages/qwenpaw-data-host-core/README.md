@@ -95,13 +95,19 @@ nodes. Use a dedicated session to avoid interleaving unrelated conversation
 turns; normal server session-conflict checks still apply. The old in-process
 `QwenPawDataHost` interface and legacy tool-assisted planner remain unsupported.
 
-The lower-level `QwenPawDataAgent` again accepts an explicit
-`orchestration.RuntimeStateManager` for standalone DAG operation: plan/agent
-tool groups, graph-aware reply metadata, trace writing and deny-by-default
-confirmation handling. Without a runtime state or explicit mode, it continues
-to use the service's `TaskContext` and command-driven execution. This is an
-incremental embedding restoration, not a working `QwenPawDataHost` factory yet;
-its toolkit, workspace and SQL-artifact assembly still require adaptation.
+The internal service architecture is the migration baseline. The shared
+`QwenPawDataAgent` uses `TaskContext` and the service's command-driven executor;
+it no longer accepts standalone DAG options (`runtime_state`, `mode`, or
+embedding callbacks). This intentionally removes the compatibility extension
+introduced in `9b154b7`, rather than maintaining a second execution path.
+Use `HostClient` for Python integrations and CLI SOP execution. The service
+owns identity, approvals, workspace lifecycle, SQL persistence and trace events.
+The SOP document model remains a client-side contract, not a second server
+runtime. Remaining legacy modules do not constitute a supported embedding API.
+
+Migration work may break old OSS interfaces. Conflicting OSS architectural
+choices require review before replacement; security hardening, safe handling
+of existing data, optional infrastructure and OSS packaging remain requirements.
 
 ### Storage backends
 

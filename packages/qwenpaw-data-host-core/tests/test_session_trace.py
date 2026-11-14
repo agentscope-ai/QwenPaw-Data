@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 
 import pytest
+from agentscope.agent._config import ReActConfig
+from agentscope.event import EventType
 from agentscope.message import TextBlock, ToolCallBlock, ToolResultState
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
-from agentscope.tool import Toolkit, ToolChunk, ToolGroup, ToolResponse
+from agentscope.tool import Toolkit, ToolChunk, ToolResponse
 
 from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.agent.middleware import trace_forward
+from qwenpaw_data.host.core.agent.tools.plan_tools import build_plan_tools
 from qwenpaw_data.host.core.orchestration import RuntimeStateManager
 from qwenpaw_data.host.core.orchestration.middleware import QwenPawDataTraceMiddleware
-from qwenpaw_data.host.core.orchestration.tools import build_qwenpaw_data_tools
 from qwenpaw_data.host.core.session import JSONSessionStore
 from qwenpaw_data.host.core.utils.ids import create_session_id
 from qwenpaw_data.host.core.utils.msg import user_msg
@@ -65,18 +69,14 @@ class FakePlanModel(ChatModelBase):
                 content=[
                     ToolCallBlock(
                         id="call-create",
-                        name="create_plan",
+                        name="PlanCreate",
                         input=json.dumps(
                             {
-                                "name": "Trace plan",
-                                "description": "Collect trace",
-                                "expected_outcome": "Trace includes tools",
-                                "nodes": [
+                                "tasks": [
                                     {
-                                        "node_id": "fetch_data",
-                                        "name": "Fetch data",
+                                        "id": "fetch_data",
+                                        "subject": "Fetch data",
                                         "description": "Fetch data",
-                                        "expected_outcome": "Dataset",
                                     },
                                 ],
                             },
@@ -255,54 +255,66 @@ def test_create_session_id_uses_millisecond_timestamp_and_short_uuid() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_session_trace_records_input_and_executed_create_plan() -> None:
-    rs = RuntimeStateManager()
+async def test_service_trace_records_input_and_executed_plan_tool(
+    monkeypatch, tmp_path
+) -> None:
     session_traces: list[dict] = []
 
-    async def write_session_trace(entry: dict) -> None:
-        session_traces.append(entry)
+    class RecordingTransformer:
+        def __init__(self, **kwargs):
+            self.started = self.ended = self.joined = False
 
-    toolkit = Toolkit(
-        tool_groups=[
-            ToolGroup(
-                name="plan",
-                description="Planning tools.",
-                tools=build_qwenpaw_data_tools(rs, mode="plan"),
-            ),
-        ],
+        async def start(self):
+            self.started = True
+
+        async def append(self, entry, *, last=False):
+            self.ended = self.ended or last
+            if entry is not None:
+                session_traces.append(entry)
+
+        async def join(self):
+            self.joined = True
+
+    monkeypatch.setattr(trace_forward, "BizTraceTransformer", RecordingTransformer)
+    middleware = trace_forward.TraceForwardMiddleware(
+        run_context=SimpleNamespace(paths=SimpleNamespace(artifact_dir=tmp_path)),
+        envelope=SimpleNamespace(),
     )
     agent = QwenPawDataAgent(
         name="default",
         system_prompt="",
         model=FakePlanModel(),
-        toolkit=toolkit,
-        runtime_state=rs,
-        mode="plan",
-        session_trace_writer=write_session_trace,
+        toolkit=Toolkit(tools=build_plan_tools()),
+        react_config=ReActConfig(max_iters=5, interruption_raise_cancelled_error=True),
+        middlewares=[middleware],
     )
 
     await agent.reply(user_msg("分析 WebApp 12月访问趋势"))
 
     assert any(
-        entry["phase"] == "input"
-        and entry["event"]["role"] == "user"
-        and entry["event"]["content"][0]["text"] == "分析 WebApp 12月访问趋势"
+        entry["kind"] == "user_input"
+        and entry["payload"]["role"] == "user"
+        and entry["payload"]["content"][0]["text"] == "分析 WebApp 12月访问趋势"
         for entry in session_traces
     )
     assert any(
-        entry["phase"] == "acting"
-        and entry["event"].get("type") == "ToolCallExecutionStartEvent"
-        and entry["event"].get("tool_call_name") == "create_plan"
+        entry["kind"] == "agent_event"
+        and entry["payload"].get("type") == EventType.TOOL_CALL_START
+        and entry["payload"].get("tool_call_name") == "PlanCreate"
+        and entry["payload"].get("tool_call_id") == "call-create"
         for entry in session_traces
     )
     assert any(
-        entry["phase"] == "acting"
-        and entry["event"].get("type") == "ToolResultExecutionEndEvent"
-        and entry["event"].get("tool_call_name") == "create_plan"
-        and entry["event"].get("state") == ToolResultState.SUCCESS
+        entry["kind"] == "agent_event"
+        and entry["payload"].get("type") == EventType.TOOL_RESULT_END
+        and entry["payload"].get("tool_call_id") == "call-create"
+        and entry["payload"].get("state") == ToolResultState.SUCCESS
         for entry in session_traces
     )
-    assert rs.current_graph_id is not None
+    assert agent.get_plan().tasks[0].id == "fetch_data"
+    assert middleware._transformer.started
+    assert middleware._transformer.ended
+    assert middleware._transformer.joined
 
 
 @pytest.mark.asyncio
@@ -340,27 +352,23 @@ async def test_trace_middleware_records_actual_mcp_tool_execution() -> None:
 
     assert any(
         entry["event"].get("type") == "ToolCallExecutionStartEvent"
-        and entry["event"].get("tool_call_name")
-        == "mcp__context-manager__execute_sql"
+        and entry["event"].get("tool_call_name") == "mcp__context-manager__execute_sql"
         for entry in session_traces
     )
     assert any(
         entry["event"].get("type") == "ToolCallExecutionDeltaEvent"
-        and entry["event"].get("tool_call_name")
-        == "mcp__context-manager__execute_sql"
+        and entry["event"].get("tool_call_name") == "mcp__context-manager__execute_sql"
         for entry in session_traces
     )
     assert any(
         entry["event"].get("type") == "ToolResultExecutionDeltaEvent"
-        and entry["event"].get("tool_call_name")
-        == "mcp__context-manager__execute_sql"
+        and entry["event"].get("tool_call_name") == "mcp__context-manager__execute_sql"
         and entry["event"].get("delta") == "rows preview"
         for entry in session_traces
     )
     assert any(
         entry["event"].get("type") == "ToolResultExecutionEndEvent"
-        and entry["event"].get("tool_call_name")
-        == "mcp__context-manager__execute_sql"
+        and entry["event"].get("tool_call_name") == "mcp__context-manager__execute_sql"
         and entry["event"].get("state") == ToolResultState.SUCCESS
         for entry in session_traces
     )
@@ -370,7 +378,9 @@ async def test_trace_middleware_records_actual_mcp_tool_execution() -> None:
 async def test_trace_middleware_writes_session_superset_of_node_trace(caplog) -> None:
     rs = RuntimeStateManager()
     session_traces: list[dict] = []
-    caplog.set_level(logging.INFO, logger="qwenpaw_data.host.core.orchestration.middleware")
+    caplog.set_level(
+        logging.INFO, logger="qwenpaw_data.host.core.orchestration.middleware"
+    )
 
     async def write_session_trace(entry: dict) -> None:
         session_traces.append(entry)
@@ -455,14 +465,14 @@ async def test_trace_middleware_writes_session_superset_of_node_trace(caplog) ->
             {
                 "type": "ToolCallDeltaEvent",
                 "tool_call_id": "call-1",
-                "delta": "{\"cmd\":\"echo ",
+                "delta": '{"cmd":"echo ',
             },
         ),
         FakeEvent(
             {
                 "type": "ToolCallDeltaEvent",
                 "tool_call_id": "call-1",
-                "delta": "hello\"}",
+                "delta": 'hello"}',
             },
         ),
         FakeEvent(
@@ -516,7 +526,7 @@ async def test_trace_middleware_writes_session_superset_of_node_trace(caplog) ->
     assert (
         f"QwenPaw Data trace phase=acting graph_id={graph_id} "
         "node_id=fetch_data tool_call tool=Bash tool_call_id=call-1 "
-        "input={\"cmd\":\"echo hello\"}"
+        'input={"cmd":"echo hello"}'
     ) in caplog.text
     assert (
         f"QwenPaw Data trace phase=acting graph_id={graph_id} "

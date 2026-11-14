@@ -547,7 +547,13 @@ async def test_interrupted_spawn_drains_child_before_return(
 
         return [
             chunk
-            async for chunk in ToolTimeoutMiddleware(0.1).on_acting(
+            async for chunk in ToolTimeoutMiddleware(
+                run_context=SimpleNamespace(
+                    user_runtime_config=SimpleNamespace(
+                        tool_timeout_enabled=True, tool_timeout_seconds=0.1
+                    )
+                )
+            ).on_acting(
                 None, {"tool_call": SimpleNamespace(name="spawn_subagent")}, handler
             )
         ]
