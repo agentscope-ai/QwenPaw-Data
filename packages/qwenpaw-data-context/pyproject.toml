@@ -102,12 +102,12 @@ exclude = [
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
-"../../LICENSE" = "qwenpaw_data/context/LICENSE"
-"../../NOTICE" = "qwenpaw_data/context/NOTICE"
+"LICENSE" = "qwenpaw_data/context/LICENSE"
+"NOTICE" = "qwenpaw_data/context/NOTICE"
 
 [tool.hatch.build.targets.sdist.force-include]
-"../../LICENSE" = "LICENSE"
-"../../NOTICE" = "NOTICE"
+"LICENSE" = "LICENSE"
+"NOTICE" = "NOTICE"
 
 [tool.uv.sources]
 qwenpaw-data-auth = { workspace = true }

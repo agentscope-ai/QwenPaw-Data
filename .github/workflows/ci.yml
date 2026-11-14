@@ -244,18 +244,22 @@ jobs:
       - name: Build all workspace packages
         run: uv build --all-packages --out-dir dist
 
-      - name: Replace editable packages with built wheels
-        run: >
-          uv pip install --python .venv/bin/python
-          --reinstall --no-deps dist/*.whl
+      - name: Install wheels into a clean environment
+        run: |
+          uv venv "$RUNNER_TEMP/qpd-release"
+          uv pip install --python "$RUNNER_TEMP/qpd-release/bin/python" dist/*.whl
+          uv pip check --python "$RUNNER_TEMP/qpd-release/bin/python"
 
       - name: Verify installed CLI and package imports
+        working-directory: ${{ runner.temp }}
+        env:
+          PYTHONPATH: ''
         run: |
-          .venv/bin/qwenpaw-data --help
-          .venv/bin/python -c \
-            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core, qwenpaw_data.console'
-          .venv/bin/qwenpaw-data-console --help
-          .venv/bin/python -c \
+          "$RUNNER_TEMP/qpd-release/bin/qwenpaw-data" --help
+          "$RUNNER_TEMP/qpd-release/bin/python" -I -c \
+            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core.client, qwenpaw_data.console, qwenpaw_data_auth, qwenpaw_data.skills, qwenpaw_data.tracing'
+          "$RUNNER_TEMP/qpd-release/bin/qwenpaw-data-console" --help
+          "$RUNNER_TEMP/qpd-release/bin/python" -I -c \
             'from qwenpaw_data.console import create_app; create_app(host_url="http://127.0.0.1:8766", token="wheel-smoke", bridge_url="http://127.0.0.1:8765")'
 
       - uses: actions/upload-artifact@v7

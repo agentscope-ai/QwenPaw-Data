@@ -8,28 +8,37 @@ Releases must be produced from a reviewed, clean commit on the default branch.
    distributions with `uv build --all-packages --out-dir dist`.
 4. Run the dependency, license, secret, CodeQL, and SBOM CI gates.
 5. Run database and Docker integration jobs on CI.
-6. Inspect the generated wheels/sdists and verify the CLI from installed wheels.
+6. Inspect the generated wheels/sdists and verify the CLI from installed wheels
+   in a fresh environment outside the checkout (no editable installs or source
+   `PYTHONPATH`). Verify both source-to-wheel and sdist-to-wheel builds.
 7. Tag the commit and attach checksums plus SBOM artifacts to the release.
 
 Publishing a GitHub release triggers `.github/workflows/publish.yml`. Its build
-job verifies aligned package/tag versions, builds and checks all five package
+job verifies aligned package/tag versions, builds and checks all seven package
 wheel/sdist pairs, and uploads each package as a separate artifact. The publish
 job then uploads the packages independently, each using PyPI Trusted Publishing
 with no stored API token and gated behind its own protected GitHub environment:
 
 | PyPI project | GitHub environment |
 | --- | --- |
+| `qwenpaw-data-auth` | `pypi-auth` |
 | `qwenpaw-data-console` | `pypi-console` |
 | `qwenpaw-data-cli` | `pypi-cli` |
 | `qwenpaw-data-context` | `pypi-context` |
 | `qwenpaw-data-host-core` | `pypi-host-core` |
 | `qwenpaw-data-skills` | `pypi-skills` |
+| `qwenpaw-data-tracing` | `pypi-tracing` |
 
-For each of the five PyPI projects, configure the same owner/repository, the
+For each of the seven PyPI projects, configure the same owner/repository, the
 workflow filename `publish.yml`, and that project's environment name above as a
 Trusted Publisher before the first release. Manual workflow dispatch runs the
 build checks by default and publishes only when its `publish` input is enabled
 together with an existing `release_tag`.
+
+Each package carries local `LICENSE` and `NOTICE` distribution copies so isolated
+sdist builds never depend on the original monorepo parent directory. Keep them
+byte-identical to the root documents when those change; the existing public
+package hygiene check enforces this. Both wheel and sdist must retain the notices.
 
 ### Console-only releases
 

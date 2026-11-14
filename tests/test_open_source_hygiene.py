@@ -138,7 +138,14 @@ def test_publishable_packages_ship_root_license_and_notice() -> None:
     for project in sorted((ROOT / "packages").glob("*/pyproject.toml")):
         config = tomllib.loads(project.read_text(encoding="utf-8"))
         forced = config["tool"]["hatch"]["build"]["targets"]["sdist"]["force-include"]
-        assert forced == {"../../LICENSE": "LICENSE", "../../NOTICE": "NOTICE"}, project
+        assert forced == {"LICENSE": "LICENSE", "NOTICE": "NOTICE"}, project
+        # Every sdist must rebuild without its original monorepo parent paths.
+        # Keep package-local distribution copies byte-identical to the owners.
+        for name in ("LICENSE", "NOTICE"):
+            assert (project.parent / name).read_bytes() == (ROOT / name).read_bytes(), project
+        wheel = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+        assert "LICENSE" in wheel and "NOTICE" in wheel, project
+        assert not any(source.startswith("../") for source in wheel), project
 
 
 def test_community_health_files_are_present() -> None:

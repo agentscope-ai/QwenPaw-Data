@@ -43,9 +43,9 @@ exclude = ["**/__pycache__", "**/*.pyc"]
 # Assets retain the metadata path used by existing Apps; qwenpaw_data.skills
 # is the public accessor. One canonical bundle avoids duplicate wheel payloads.
 "skills" = "qwenpaw_data_skills/skills"
-"../../LICENSE" = "LICENSE"
-"../../NOTICE" = "NOTICE"
+"LICENSE" = "LICENSE"
+"NOTICE" = "NOTICE"
 
 [tool.hatch.build.targets.sdist.force-include]
-"../../LICENSE" = "LICENSE"
-"../../NOTICE" = "NOTICE"
+"LICENSE" = "LICENSE"
+"NOTICE" = "NOTICE"

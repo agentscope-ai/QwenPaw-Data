@@ -53,8 +53,8 @@ def test_public_namespace_and_canonical_app_compatible_assets(monkeypatch):
     assert project["project"]["license"] == "Apache-2.0"
     includes = project["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert includes["skills"] == "qwenpaw_data_skills/skills"
-    assert includes["../../LICENSE"] == "LICENSE"
-    assert includes["../../NOTICE"] == "NOTICE"
+    assert includes["LICENSE"] == "LICENSE"
+    assert includes["NOTICE"] == "NOTICE"
 
 
 @pytest.mark.parametrize("path", sorted(SKILLS.rglob("SKILL.md")), ids=lambda p: p.parent.name)
