@@ -258,6 +258,25 @@ journaling, file publication, coordinated recovery and post-import rollback are
 still required before a CLI `apply` workflow can be exposed. Do not invoke the
 SQL component alone to migrate user data.
 
+An internal POSIX recovery-plan component now preserves the exact converted rows,
+ciphertext, timestamps and scoped file inventory in an authenticated encrypted
+0600 file. Publication requires a verified independent backup and stopped source
+and target writers; it never replaces an existing different plan. It binds the
+plan to the target home directory, an opaque database selection fingerprint and
+an explicitly recorded `legacy_import_targets` token. Recovery must check that
+token inside every SQL receipt/import transaction: a missing or replaced database
+is not evidence that an import rolled back. Password rotation is allowed; database
+clones/restores still require operator review because they can copy the token.
+
+Loading this plan does not reconnect or reread the source/backup. Fresh-process
+SQLite and PostgreSQL checks cover SQL precommit crashes, lost postcommit
+responses and exact replay from the saved plan. This does **not** permit deleting
+the backup, prove attachment publication, or provide a CLI recovery command.
+Unexpected links (including a crash between no-replace publication and temporary
+link removal) are refused for operator inspection, not automatically deleted.
+The file coordinator, its exclusive lock and durable journal, verified file
+publication and post-import rollback remain unfinished.
+
 ## Output and logs
 
 The CLI writes streamed agent events, final answers, and execution summaries to

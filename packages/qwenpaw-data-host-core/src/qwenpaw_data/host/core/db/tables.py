@@ -543,3 +543,13 @@ class LegacyImportRunRow(Base):
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     file_count: Mapped[int] = mapped_column(Integer, nullable=False)
     committed_at: Mapped[datetime] = mapped_column(nullable=False)
+
+
+class LegacyImportTargetRow(Base):
+    """Persistent database ownership token, independent of an import outcome."""
+
+    __tablename__ = "legacy_import_targets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    token: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False)

@@ -264,7 +264,12 @@ def _writer(database_url: str, *, recover_sqlite: bool = False):
 
 
 def read_sql_receipt(
-    plan: MigrationPlan, *, database_url: str, run_id: str, target_stopped: bool = False
+    plan: MigrationPlan,
+    *,
+    database_url: str,
+    run_id: str,
+    target_stopped: bool = False,
+    target_anchor: str | None = None,
 ) -> SQLReceipt | None:
     """None means absent in a successful read, never a connection/schema failure."""
     if target_stopped is not True:
@@ -272,6 +277,10 @@ def read_sql_receipt(
     _run_id(run_id)
     fingerprint = plan_digest(plan)
     with _read_only_target(database_url) as conn:
+        if target_anchor is not None:
+            from .binding import assert_target_anchor
+
+            assert_target_anchor(conn, target_anchor)
         _check_schema(conn, {row.table for row in plan.rows} | {_RUN.name})
         return _receipt(conn, plan, run_id, fingerprint)
 
@@ -285,6 +294,7 @@ def commit_sql_rows(
     before_commit: Callable[[], None],
     target_stopped: bool = False,
     recover_sqlite: bool = False,
+    target_anchor: str | None = None,
 ) -> SQLReceipt:
     """Insert rows + receipt atomically around the coordinator's file hook.
 
@@ -316,6 +326,10 @@ def commit_sql_rows(
     if type(recover_sqlite) is not bool:
         raise MigrationError("SQLite recovery must be an explicit boolean")
     with _writer(database_url, recover_sqlite=recover_sqlite) as conn:
+        if target_anchor is not None:
+            from .binding import assert_target_anchor
+
+            assert_target_anchor(conn, target_anchor)
         _check_schema(conn, {row.table for row in plan.rows} | {_RUN.name})
         existing = _receipt(conn, plan, run_id, fingerprint)
         checks = check_target_connection(plan, conn, check_conflicts=existing is None)
@@ -362,7 +376,12 @@ def commit_sql_rows(
 
 
 def recover_sql_receipt(
-    plan: MigrationPlan, *, database_url: str, run_id: str, target_stopped: bool = False
+    plan: MigrationPlan,
+    *,
+    database_url: str,
+    run_id: str,
+    target_stopped: bool = False,
+    target_anchor: str | None = None,
 ) -> SQLReceipt | None:
     """Explicit engine-level crash recovery for the future journal coordinator.
 
@@ -377,5 +396,9 @@ def recover_sql_receipt(
     _run_id(run_id)
     fingerprint = plan_digest(plan)
     with _writer(database_url, recover_sqlite=True) as conn:
+        if target_anchor is not None:
+            from .binding import assert_target_anchor
+
+            assert_target_anchor(conn, target_anchor)
         _check_schema(conn, {row.table for row in plan.rows} | {_RUN.name})
         return _receipt(conn, plan, run_id, fingerprint)
