@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from agentscope.agent._config import ReActConfig
 from agentscope.formatter import DashScopeChatFormatter
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -30,6 +30,7 @@ from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.repositories import ChatRepository, SessionRepository
 from qwenpaw_data.host.core.repositories.agent_state import AgentStateStore
+from qwenpaw_data.host.core.repositories.chat_event import ChatEventRepository
 from qwenpaw_data.host.core.repositories.mcp import McpRepository
 from qwenpaw_data.host.core.runtime.builder import data_agent as builder_module
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
@@ -137,6 +138,47 @@ class FakeTextModel(ChatModelBase):
         )
 
 
+class DelegatingModel(FakeTextModel):
+    """Real AgentScope tool dispatch and nested model calls, no external model."""
+
+    def __init__(self):
+        super().__init__()
+        self.delegated = False
+        self.child_calls = 0
+
+    async def _call_api(
+        self, model_name, messages, tools=None, tool_choice=None, **kwargs
+    ):
+        schemas = {schema["function"]["name"] for schema in tools or []}
+        if "spawn_subagent" not in schemas:
+            self.child_calls += 1
+            assert PLAN_TOOL_NAMES.isdisjoint(schemas)
+            assert "ask_user_question" not in schemas
+            assert "ds-console" in str(messages)
+            return ChatResponse(
+                content=[TextBlock(text="CHILD_VERIFIED")],
+                is_last=True,
+                usage=ChatUsage(input_tokens=1, output_tokens=1, time=0),
+            )
+        if not self.delegated:
+            self.delegated = True
+            return ChatResponse(
+                content=[
+                    ToolCallBlock(
+                        id="delegate-fixture",
+                        name="spawn_subagent",
+                        input='{"task":"Summarize the supplied context without querying data"}',
+                    )
+                ],
+                is_last=True,
+                usage=ChatUsage(input_tokens=1, output_tokens=1, time=0),
+            )
+        assert "CHILD_VERIFIED" in str(messages)
+        return await super()._call_api(
+            model_name, messages, tools, tool_choice, **kwargs
+        )
+
+
 def test_qwenpaw_data_agent_injects_shanghai_time() -> None:
     agent = QwenPawDataAgent(
         name="qwenpaw-data",
@@ -164,9 +206,44 @@ async def test_build_qwenpaw_data_toolkit_registers_workspace_and_local_tools() 
     assert "cm_dataset_lookup" in tool_names
     assert "ask_user_question" in tool_names
     assert "CronJob" in tool_names
+    assert "spawn_subagent" in tool_names
     assert "trigger_review_agent" not in tool_names
     assert "mcp__fake-mcp__execute_sql" in tool_names
     assert "reset_tools" not in tool_names
+
+
+@pytest.mark.parametrize("enabled", ["0", "1"])
+async def test_production_builder_subagent_switch(monkeypatch, enabled):
+    monkeypatch.setenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", enabled)
+    toolkit = await DataAgentBuilder().build_toolkit(
+        run_context=_run_context(FakeWorkspace())
+    )
+    names = {schema["function"]["name"] for schema in await toolkit.get_tool_schemas()}
+    assert ("spawn_subagent" in names) is (enabled == "1")
+
+
+async def test_subagent_inherits_enabled_skills_and_bound_mcp_clients(monkeypatch):
+    from qwenpaw_data.host.core.agent.spawn_subagent import SpawnSubagent
+
+    monkeypatch.setenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", "1")
+    workspace = FakeWorkspace()
+    workspace.list_skills = AsyncMock(return_value=[SimpleNamespace(name="fetch-data")])
+    workspace.list_mcps = AsyncMock(return_value=[FakeMCP()])
+    context = _run_context(workspace)
+    context.disabled_skills = frozenset({"fetch-data"})
+    toolkit = await DataAgentBuilder().build_toolkit(run_context=context)
+    child = next(
+        tool
+        for group in toolkit.tool_groups
+        for tool in group.tools
+        if isinstance(tool, SpawnSubagent)
+    )
+    assert child._ctx is context
+    assert child._workspace_skills == []
+    assert child._workspace_mcps == workspace.list_mcps.return_value
+    workspace.list_mcps.assert_awaited_once_with(
+        agent_id="agent-a", session_id="session-a"
+    )
 
 
 @pytest.mark.asyncio
@@ -186,10 +263,12 @@ async def test_build_qwenpaw_data_toolkit_omits_ui_tools_when_disabled(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("delegate", [False, True])
 async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     seed_test_preferences,
+    delegate,
 ) -> None:
     await reset_engine()
     reset_hub()
@@ -226,7 +305,7 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         await db.commit()
 
     await seed_test_preferences(session_factory)
-    model = FakeTextModel()
+    model = DelegatingModel() if delegate else FakeTextModel()
     monkeypatch.setattr(builder_module, "build_model", lambda *_a, **_k: model)
 
     # The builtin context-manager MCP is an external service; this test only
@@ -258,6 +337,8 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         assert "Name:" not in str(model.messages)
         assert not (tmp_path / "home" / "sessions").exists()
         assert PLAN_TOOL_NAMES <= model.tool_names
+        if delegate:
+            assert model.delegated and model.child_calls == 1
 
         async with session_factory() as db:
             saved_chat = await ChatRepository(db, TEST_IDENTITY).get(chat.id)
@@ -266,6 +347,12 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
             saved_state = await AgentStateStore(db, TEST_IDENTITY).load(session.id)
             assert isinstance(saved_state, AgentState)
             assert saved_state.tasks_context.tasks == []
+            if delegate:
+                events = await ChatEventRepository(db, TEST_IDENTITY).read_after(
+                    chat.id, -1
+                )
+                # Verify durable parent-visible output, not only the fake model's calls.
+                assert "CHILD_VERIFIED" in str([event.model_dump() for event in events])
     finally:
         await stop_workspace_manager()
         reset_hub()

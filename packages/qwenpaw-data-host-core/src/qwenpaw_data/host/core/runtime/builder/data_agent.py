@@ -6,6 +6,8 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.agent.spawn_subagent import SpawnSubagent
+from qwenpaw_data.host.core.constants import is_spawn_subagent_enabled
 from qwenpaw_data.host.core.agent.middleware import (
     CompressTriggerMiddleware,
     ConfirmedSettlementPromptMiddleware,
@@ -104,6 +106,25 @@ class DataAgentBuilder:
         ui_tools = build_ui_tools(run_context)
         if {tool.name for tool in workspace_tools} & {tool.name for tool in ui_tools}:
             raise ValueError("UI tool name collision")
+        mcps = [
+            bind_mcp_tool_timeout(client, tool_timeout)
+            for client in await workspace.list_mcps(
+                agent_id=agent_id, session_id=run_context.session_id
+            )
+        ]
+        enabled_skills = [skill for skill in skills if skill.name not in disabled]
+        delegation_tools = []
+        if is_spawn_subagent_enabled():
+            if any(tool.name == SpawnSubagent.name for tool in workspace_tools):
+                raise ValueError("Subagent tool name collision")
+            delegation_tools.append(
+                SpawnSubagent(
+                    run_context=run_context,
+                    workspace_tools=workspace_tools,
+                    workspace_mcps=mcps,
+                    workspace_skills=enabled_skills,
+                )
+            )
         return Toolkit(
             tools=[
                 *workspace_tools,
@@ -111,14 +132,10 @@ class DataAgentBuilder:
                 *build_plan_tools(),
                 AskUserQuestionTool(),
                 CronJobTool(run_context),
+                *delegation_tools,
             ],
-            mcps=[
-                bind_mcp_tool_timeout(client, tool_timeout)
-                for client in await workspace.list_mcps(
-                    agent_id=agent_id, session_id=run_context.session_id
-                )
-            ],
-            skills_or_loaders=[skill for skill in skills if skill.name not in disabled],
+            mcps=mcps,
+            skills_or_loaders=enabled_skills,
         )
 
     async def build(
@@ -131,7 +148,7 @@ class DataAgentBuilder:
         workspace = run_context.workspace
         toolkit = await self.build_toolkit(run_context=run_context)
         user_runtime_config = run_context.user_runtime_config
-        return QwenPawDataAgent(
+        agent = QwenPawDataAgent(
             name="qwenpaw-data",
             system_prompt="",
             model=build_model(
@@ -153,3 +170,8 @@ class DataAgentBuilder:
             ),
             request_context=run_context.request_context,
         )
+        for group in toolkit.tool_groups:
+            for tool in group.tools:
+                if isinstance(tool, SpawnSubagent):
+                    tool.bind_parent(agent)
+        return agent

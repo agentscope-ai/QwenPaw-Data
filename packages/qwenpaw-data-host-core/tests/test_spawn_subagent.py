@@ -19,7 +19,7 @@ from agentscope.event import (
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultState
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.skill import Skill
-from agentscope.state import AgentState
+from agentscope.state import AgentState, Task, TaskContext
 from agentscope.tool import Toolkit, ToolResponse
 
 import qwenpaw_data.host.core.agent.spawn_subagent as spawn_module
@@ -30,7 +30,9 @@ from qwenpaw_data.host.core.agent.spawn_subagent import (
     _SubAgent,
     _build_sub_prompt,
 )
-from qwenpaw_data.host.core.orchestration import RuntimeStateManager
+from qwenpaw_data.host.core.runtime.context import RunContext
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from .conftest import TEST_IDENTITY
 
 
 def test_subagent_prompt_preserves_linux_sandbox_paths_on_windows():
@@ -38,11 +40,9 @@ def test_subagent_prompt_preserves_linux_sandbox_paths_on_windows():
         workspace_dir=PureWindowsPath("/workspace"),
         artifacts_root=PureWindowsPath("/workspace/artifacts"),
         session_id="session",
-        graph_id="graph",
-        node_id="node",
     )
     assert "`/workspace`" in prompt
-    assert "`/workspace/artifacts/session/graph/node`" in prompt
+    assert "`/workspace/artifacts/session`" in prompt
     assert "\\" not in prompt
 
 
@@ -54,36 +54,26 @@ async def _collect(tool: SpawnSubagent, **kwargs):
     return [chunk async for chunk in tool(**kwargs)]
 
 
-async def _runtime_with_in_progress() -> RuntimeStateManager:
-    rs = RuntimeStateManager()
-    await rs.create_plan(
-        name="Test",
-        description="desc",
-        expected_outcome="out",
-        nodes=[
-            {
-                "node_id": "n0",
-                "name": "upstream",
-                "description": "d",
-                "expected_outcome": "o",
-            },
-            {
-                "node_id": "n1",
-                "name": "current",
-                "description": "d",
-                "expected_outcome": "o",
-                "deps": ["n0"],
-            },
-        ],
+async def _runtime_with_in_progress() -> TaskContext:
+    return TaskContext(
+        tasks=[
+            Task(
+                id="n0",
+                subject="upstream",
+                description="upstream summary",
+                metadata={},
+                state="completed",
+            ),
+            Task(
+                id="n1",
+                subject="current",
+                description="d",
+                metadata={},
+                state="in_progress",
+                blocked_by=["n0"],
+            ),
+        ]
     )
-    await rs.update_subtask(
-        "n0",
-        "done",
-        reasoning="loaded",
-        summary="upstream summary",
-    )
-    await rs.update_subtask("n1", "in_progress")
-    return rs
 
 
 class FakeWorkspaceTool:
@@ -138,14 +128,31 @@ class FakeSubAgent:
 
 def _make_tool(
     tmp_path,
-    rs: RuntimeStateManager | None = None,
+    rs: TaskContext | None = None,
     *,
     request_context: dict | None = None,
 ) -> SpawnSubagent:
-    workspace = SimpleNamespace()
-    return SpawnSubagent(
-        runtime_state=rs or RuntimeStateManager(),
+    workspace = SimpleNamespace(workdir=str(tmp_path / "workspace"))
+    paths = UserAgentPaths.from_identity(
+        home=tmp_path, identity=TEST_IDENTITY, agent_id="test-agent", session_id="s1"
+    )
+    run_context = RunContext(
+        session_id="s1",
+        chat_id="c1",
         workspace=workspace,
+        paths=paths,
+        identity=TEST_IDENTITY,
+        session_factory=SimpleNamespace(),
+        request_context=request_context or {},
+        user_runtime_config=SimpleNamespace(
+            tool_timeout_enabled=True,
+            tool_timeout_seconds=30,
+            tool_confirmation_level="off",
+            react_max_iters=19,
+        ),
+    )
+    return SpawnSubagent(
+        run_context=run_context,
         workspace_tools=[
             FakeWorkspaceTool("Bash"),
             FakeWorkspaceTool("Read"),
@@ -174,15 +181,12 @@ def _make_tool(
             offloader=workspace,
             _request_context=request_context or {},
             state=AgentState(
+                tasks_context=rs or TaskContext(),
                 permission_context=PermissionContext(
                     mode=PermissionMode.ACCEPT_EDITS,
                 ),
             ),
         ),
-        workspace_dir=tmp_path / "workspace",
-        artifacts_root=tmp_path / "workspace" / "artifacts",
-        host_artifact_dir=tmp_path / "host-artifacts" / "s1",
-        session_id_getter=lambda: "s1",
         cm_mcp_tool_prefixes={"mcp__context-manager__"},
     )
 
@@ -197,8 +201,6 @@ def test_build_sub_prompt_includes_context_and_environment(tmp_path) -> None:
         workspace_dir=tmp_path / "workspace",
         artifacts_root=tmp_path / "workspace" / "artifacts",
         session_id="s1",
-        graph_id="graph_1",
-        node_id="n1",
     )
 
     assert "查询数据" in prompt
@@ -207,9 +209,9 @@ def test_build_sub_prompt_includes_context_and_environment(tmp_path) -> None:
     assert "Bash" in prompt
     assert "execute_sql" in prompt
     assert str(tmp_path / "workspace") in prompt
-    assert str(tmp_path / "workspace/artifacts/s1/graph_1/n1") in prompt
-    assert "graph_1/n1/<filename>" in prompt
-    assert "s1/graph_1/n1/<filename>" not in prompt
+    assert str(tmp_path / "workspace/artifacts/s1") in prompt
+    assert "相对当前 session artifacts 根" in prompt
+    assert "graph_1" not in prompt
 
 
 def test_build_sub_prompt_uses_session_artifacts_without_active_node(
@@ -227,7 +229,7 @@ def test_build_sub_prompt_uses_session_artifacts_without_active_node(
     )
 
     assert f"当前会话产物必须保存到 `{tmp_path / 'workspace/artifacts/s1'}`" in prompt
-    assert "FileRef 使用 `<filename>`" in prompt
+    assert "文件路径使用 `<filename>`" in prompt
     assert "s1/<filename>" not in prompt
     assert "<graph_id>" not in prompt
     assert "<node_id>" not in prompt
@@ -302,10 +304,8 @@ async def test_prompt_uses_runtime_context(monkeypatch, tmp_path) -> None:
     assert "用户约束" in prompt
     assert "upstream summary" in prompt
     assert str(tmp_path / "workspace/artifacts/s1") in prompt
-    assert (
-        str(tmp_path / "workspace/artifacts/s1" / rs.current_graph_id / "n1") in prompt
-    )
-    assert f"{rs.current_graph_id}/n1/<filename>" in prompt
+    assert "graph_id" not in prompt
+    assert rs.tasks[1].state == "in_progress"  # Delegation does not advance the plan.
 
 
 @pytest.mark.asyncio
@@ -342,17 +342,21 @@ async def test_role_injection_allowlists_tools_and_fetch_skill(
     permission_context = FakeSubAgent.instances[0].kwargs["state"].permission_context
     assert permission_context.mode is PermissionMode.ACCEPT_EDITS
     kwargs = FakeSubAgent.instances[0].kwargs
-    timeout_middleware, sql_middleware = kwargs["middlewares"]
+    _, timeout_middleware, sql_middleware, _ = kwargs["middlewares"]
     assert isinstance(timeout_middleware, ToolTimeoutMiddleware)
     assert isinstance(sql_middleware, SqlArtifactMiddleware)
-    assert sql_middleware._host_artifact_dir == tmp_path / "host-artifacts" / "s1"
-    assert sql_middleware._model_artifact_dir == tmp_path / "workspace/artifacts/s1"
+    assert sql_middleware._run_context.session_id == "s1"
+    assert sql_middleware._run_context.paths.agent_id == "test-agent"
+    assert sql_middleware._run_context.paths.agent_artifact_dir(
+        sql_middleware._run_context.workspace
+    ) == str(tmp_path / "workspace/artifacts/s1")
     assert kwargs["react_config"].interruption_raise_cancelled_error is True
+    assert kwargs["react_config"].max_iters == 19
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("with_artifacts", [True, False])
-async def test_spawned_agent_times_out_its_tools(monkeypatch, tmp_path, with_artifacts):
+@pytest.mark.parametrize("workdir", ["local", "/workspace"])
+async def test_spawned_agent_times_out_its_tools(monkeypatch, tmp_path, workdir):
     stopped = asyncio.Event()
     responses = []
 
@@ -377,10 +381,10 @@ async def test_spawned_agent_times_out_its_tools(monkeypatch, tmp_path, with_art
 
     monkeypatch.setattr(Toolkit, "call_tool", slow_tool)
     monkeypatch.setattr(_SubAgent, "reply_stream", reply_stream)
-    monkeypatch.setenv("QWENPAW_DATA_TOOL_TIMEOUT_SECONDS", "0.05")
     tool = _make_tool(tmp_path)
-    if not with_artifacts:
-        tool._host_artifact_dir = None
+    tool._ctx.user_runtime_config.tool_timeout_seconds = 0.05
+    if workdir != "local":
+        tool._ctx.workspace.workdir = workdir
 
     await asyncio.wait_for(_collect(tool, task="query"), 2)
 
@@ -686,7 +690,7 @@ async def test_trace_metadata_without_active_node(monkeypatch, tmp_path) -> None
     ]
     FakeSubAgent.instances = []
     monkeypatch.setattr(spawn_module, "_SubAgent", FakeSubAgent)
-    rs = RuntimeStateManager()
+    rs = TaskContext()
 
     chunks = await _collect(_make_tool(tmp_path, rs), task="x")
 
@@ -695,7 +699,63 @@ async def test_trace_metadata_without_active_node(monkeypatch, tmp_path) -> None
     assert f"当前会话产物必须保存到 `{tmp_path / 'workspace/artifacts/s1'}`" in prompt
     assert "<graph_id>" not in prompt
     assert "s1/<filename>" not in prompt
-    assert rs._traces == {}
+    assert rs.tasks == []
+
+
+async def test_multiple_active_tasks_do_not_guess_or_mutate_the_plan(
+    monkeypatch, tmp_path
+):
+    plan = await _runtime_with_in_progress()
+    plan.tasks.append(
+        Task(
+            id="other",
+            subject="other",
+            description="d",
+            metadata={},
+            state="in_progress",
+        )
+    )
+    before = plan.model_dump()
+    FakeSubAgent.events = [
+        TextBlockDeltaEvent(reply_id="r", block_id="b", delta="done")
+    ]
+    monkeypatch.setattr(spawn_module, "_SubAgent", FakeSubAgent)
+    chunks = await _collect(_make_tool(tmp_path, plan), task="explicit task")
+    assert chunks[-1].metadata["subagent_trace"]["node_id"] is None
+    assert plan.model_dump() == before
+
+
+@pytest.mark.parametrize(
+    "level,blocked", [("off", False), ("auto", True), ("all", True)]
+)
+async def test_child_tools_cannot_bypass_parent_approval(
+    monkeypatch, tmp_path, level, blocked
+):
+    from qwenpaw_data.host.core.settings import clear_settings
+
+    monkeypatch.setenv("QWENPAW_DATA_TOOL_CONFIRMATION_AUTO_ASK_NAMES", '["Bash"]')
+    clear_settings()
+    tool = _make_tool(tmp_path)
+    tool._ctx.user_runtime_config.tool_confirmation_level = level
+    called = []
+
+    async def execute(**kwargs):
+        called.append(True)
+        yield ToolResponse(content=[TextBlock(text="executed")])
+
+    middleware = spawn_module._UnattendedToolConfirmation(tool._ctx)
+    results = [
+        item
+        async for item in middleware.on_acting(
+            None,
+            {"tool_call": ToolCallBlock(id="child", name="Bash", input="{}")},
+            execute,
+        )
+    ]
+    assert bool(called) is not blocked
+    assert (results[0].state == ToolResultState.DENIED) is blocked
+    if blocked:
+        assert "requires approval" in _chunk_text(results[0])
 
 
 @pytest.mark.asyncio

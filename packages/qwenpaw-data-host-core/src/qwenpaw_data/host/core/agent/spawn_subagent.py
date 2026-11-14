@@ -6,12 +6,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from copy import deepcopy
 from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
 from contextlib import aclosing
 from pathlib import Path, PurePath
 from typing import Any
 
 from agentscope.agent import Agent, ReActConfig
+from agentscope.agent._config import ContextConfig, ModelConfig
 from agentscope.event import (
     ConfirmResult,
     ReplyEndEvent,
@@ -40,7 +42,9 @@ from agentscope.tool import ToolBase, ToolChunk, Toolkit
 
 from ..artifact_paths import model_visible_path
 from ..mcp_cm import inject_datasource_metadata
-from ..orchestration.state import RuntimeStateManager
+from ..runtime.context import RunContext
+from ..domain.tool_confirmation import ToolConfirmation
+from .middleware.prompt import DatasourcePromptMiddleware
 from .middleware.sql_artifact import SqlArtifactMiddleware
 from .middleware.tool_timeout import ToolTimeoutMiddleware
 
@@ -83,19 +87,6 @@ def _text_chunk(
     )
 
 
-def _as_path(value: Any) -> Path | None:
-    if value is None:
-        return None
-    return Path(value).expanduser()
-
-
-def _as_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value)
-    return text or None
-
-
 def _text_from_msg(msg: Any) -> str:
     if msg is None:
         return ""
@@ -133,8 +124,6 @@ def _build_environment_section(
     workspace_dir: PurePath | None,
     artifacts_root: PurePath | None,
     session_id: str | None,
-    graph_id: str | None,
-    node_id: str | None,
 ) -> str:
     workspace_text = (
         str(model_visible_path(workspace_dir)) if workspace_dir else "(unknown)"
@@ -142,13 +131,7 @@ def _build_environment_section(
     artifacts_text = (
         str(model_visible_path(artifacts_root)) if artifacts_root else "(unknown)"
     )
-    if session_id and graph_id and node_id:
-        artifact_dir = str(
-            model_visible_path(artifacts_text) / session_id / graph_id / node_id,
-        )
-        file_ref = f"{graph_id}/{node_id}/<filename>"
-        artifact_scope = "当前节点"
-    elif session_id:
+    if session_id:
         artifact_dir = str(model_visible_path(artifacts_text) / session_id)
         file_ref = "<filename>"
         artifact_scope = "当前会话"
@@ -163,8 +146,9 @@ def _build_environment_section(
         f"- 模型可见 artifacts 根目录: `{artifacts_text}`\n"
         "- 工具的相对路径以 agent workspace 为根。\n"
         f"- {artifact_scope}产物必须保存到 `{artifact_dir}`；"
-        f"最终摘要中的 FileRef 使用 `{file_ref}`，相对当前 session artifacts 根，"
+        f"最终摘要中的文件路径使用 `{file_ref}`，相对当前 session artifacts 根，"
         "不要带 workspace、`artifacts` 或 session_id 前缀。\n\n"
+        "- 禁止读取或改写其他 Session 的文件；新产物不得覆盖已有文件。\n"
     )
 
 
@@ -178,13 +162,11 @@ def _build_sub_prompt(
     workspace_dir: PurePath | None = None,
     artifacts_root: PurePath | None = None,
     session_id: str | None = None,
-    graph_id: str | None = None,
-    node_id: str | None = None,
 ) -> str:
     upstream_section = (
         "\n".join(f"- {nid}: {out}" for nid, out in upstream_outputs.items())
         if upstream_outputs
-        else "无（根节点）"
+        else "无已完成的直接前置任务。"
     )
     builtin_list = ", ".join(builtin_tool_names) if builtin_tool_names else "无"
     mcp_list = ", ".join(mcp_tool_names) if mcp_tool_names else "无"
@@ -197,7 +179,7 @@ def _build_sub_prompt(
     return (
         "你是一个任务执行器。精确完成指定任务。\n\n"
         f"## 你的任务\n{task}\n\n"
-        f"{_build_environment_section(workspace_dir=workspace_dir, artifacts_root=artifacts_root, session_id=session_id, graph_id=graph_id, node_id=node_id)}"
+        f"{_build_environment_section(workspace_dir=workspace_dir, artifacts_root=artifacts_root, session_id=session_id)}"
         "## 可用工具\n"
         f"内置工具：{builtin_list}\n"
         f"语义层 / MCP 工具：{mcp_list}\n"
@@ -287,13 +269,45 @@ class _SubAgent(Agent):
             yield item
 
 
+class _UnattendedToolConfirmation(MiddlewareBase):
+    """Apply the parent's approval policy without silently approving child tools.
+
+    Child call IDs are not surfaced as interactive approval requests. Return a
+    denial so the parent can perform the operation through its normal gate.
+    """
+
+    def __init__(self, run_context: RunContext) -> None:
+        self._gate = ToolConfirmation(
+            run_context.session_factory,
+            run_context.chat_id,
+            level=run_context.user_runtime_config.tool_confirmation_level,
+        )
+
+    async def on_acting(
+        self,
+        agent: Agent,
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator],
+    ) -> AsyncGenerator[Any, None]:
+        name = input_kwargs["tool_call"].name
+        if self._gate.decide(name) != "allow":
+            yield ToolConfirmation.denied_response(
+                name,
+                reason="requires approval; ask the parent agent to execute this operation",
+            )
+            return
+        async for item in next_handler(**input_kwargs):
+            yield item
+
+
 class SpawnSubagent(ToolBase):
     """Spawn an in-process role-scoped sub-agent."""
 
     name: str = "spawn_subagent"
     description: str = (
         "Spawn an in-process sub-agent to execute one specific data task. "
-        "The current in-progress DAG node is detected automatically."
+        "Uses the current session's tools, permissions and TaskContext. "
+        "Does not create or advance plan tasks."
     )
     input_schema: dict[str, Any] = {
         "type": "object",
@@ -325,38 +339,26 @@ class SpawnSubagent(ToolBase):
     def __init__(
         self,
         *,
-        runtime_state: RuntimeStateManager,
-        workspace: Any,
+        run_context: RunContext,
         workspace_tools: Sequence[Any],
         workspace_mcps: Sequence[Any],
         workspace_skills: Sequence[Any],
         parent_agent_getter: Callable[[], Any] | None = None,
-        workspace_dir: PurePath | str | None = None,
-        artifacts_root: PurePath | str | None = None,
-        host_artifact_dir: Path | str | None = None,
-        session_id_getter: Callable[[], str | None] | None = None,
-        request_context_getter: Callable[[], dict[str, Any]] | None = None,
         cm_mcp_tool_prefixes: Iterable[str] = (),
     ) -> None:
-        self._rs = runtime_state
-        self._workspace = workspace
+        self._ctx = run_context
+        self._workspace = run_context.workspace
         self._workspace_tools = list(workspace_tools)
         self._workspace_mcps = list(workspace_mcps)
         self._workspace_skills = list(workspace_skills)
         self._parent_agent_getter = parent_agent_getter
-        self._workspace_dir = (
-            model_visible_path(workspace_dir) if workspace_dir else None
-        )
-        self._artifacts_root = (
-            model_visible_path(artifacts_root) if artifacts_root else None
-        )
-        self._host_artifact_dir = _as_path(host_artifact_dir)
-        self._session_id_getter = session_id_getter or (lambda: None)
-        self._request_context_getter = request_context_getter
         self._cm_mcp_tool_prefixes = set(cm_mcp_tool_prefixes)
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
         self._count_lock = asyncio.Lock()
         self._spawn_count = 0
+
+    def bind_parent(self, agent: Agent) -> None:
+        self._parent_agent_getter = lambda: agent
 
     async def check_permissions(
         self,
@@ -365,7 +367,7 @@ class SpawnSubagent(ToolBase):
     ) -> PermissionDecision:
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
-            message="spawn_subagent is allowed for QwenPaw Data agent mode.",
+            message="spawn_subagent is available in this Host run.",
         )
 
     async def __call__(  # type: ignore[override]
@@ -424,13 +426,23 @@ class SpawnSubagent(ToolBase):
             )
             return
 
-        current_node = self._rs.get_current_in_progress_node()
+        # Read a snapshot of the one authoritative plan; never schedule or
+        # mutate it. Multiple active tasks are legal, so do not guess a node.
+        plan = parent_agent.state.tasks_context.model_copy(deep=True)
+        active = [item for item in plan.tasks if item.state == "in_progress"]
+        current_node = active[0] if len(active) == 1 else None
         node_id = current_node.id if current_node else None
-        graph_id = self._rs.current_graph_id
+        graph_id = None  # Kept only as a nullable historical trace field.
         upstream_outputs = (
-            self._rs.get_upstream_outputs(node_id) if node_id is not None else {}
+            {
+                item.id: str(item.metadata.get("summary") or item.description)
+                for item in plan.tasks
+                if item.id in current_node.blocked_by and item.state == "completed"
+            }
+            if current_node
+            else {}
         )
-        session_id = _as_text(self._session_id_getter())
+        session_id = self._ctx.session_id
         workspace_tools = self._tools_for_role(role)
         workspace_mcps = list(self._workspace_mcps)
         workspace_skills = _skills_for_role(self._workspace_skills, role)
@@ -447,11 +459,11 @@ class SpawnSubagent(ToolBase):
             upstream_outputs,
             builtin_tool_names=[tool.name for tool in workspace_tools],
             mcp_tool_names=mcp_tool_names,
-            workspace_dir=self._workspace_dir,
-            artifacts_root=self._artifacts_root,
+            workspace_dir=model_visible_path(self._workspace.workdir),
+            artifacts_root=model_visible_path(
+                self._ctx.paths.agent_artifact_dir(self._workspace)
+            ).parent,
             session_id=session_id,
-            graph_id=graph_id,
-            node_id=node_id,
         )
         agent_name = f"subagent-{role}-{node_id or 'free'}-{uuid.uuid4().hex[:4]}"
 
@@ -469,19 +481,12 @@ class SpawnSubagent(ToolBase):
                 parent_permission_context = parent_permission_context.model_copy(
                     deep=True,
                 )
-            middlewares: list[MiddlewareBase] = [ToolTimeoutMiddleware()]
-            if (
-                self._host_artifact_dir is not None
-                and self._artifacts_root is not None
-                and session_id is not None
-            ):
-                middlewares.append(
-                    SqlArtifactMiddleware(
-                        host_artifact_dir=self._host_artifact_dir,
-                        model_artifact_dir=self._artifacts_root / session_id,
-                        session_id=session_id,
-                    ),
-                )
+            middlewares: list[MiddlewareBase] = [
+                _UnattendedToolConfirmation(self._ctx),
+                ToolTimeoutMiddleware(run_context=self._ctx),
+                SqlArtifactMiddleware(run_context=self._ctx),
+                DatasourcePromptMiddleware(run_context=self._ctx),
+            ]
             sub_agent = _SubAgent(
                 name=agent_name,
                 system_prompt=sys_prompt,
@@ -492,11 +497,19 @@ class SpawnSubagent(ToolBase):
                     permission_context=parent_permission_context,
                 ),
                 offloader=getattr(parent_agent, "offloader", self._workspace),
+                context_config=deepcopy(
+                    getattr(parent_agent, "context_config", ContextConfig())
+                ),
+                model_config=deepcopy(
+                    getattr(parent_agent, "model_config", ModelConfig())
+                ),
                 react_config=ReActConfig(
-                    max_iters=MAX_ITERS,
+                    max_iters=min(
+                        MAX_ITERS, self._ctx.user_runtime_config.react_max_iters
+                    ),
                     interruption_raise_cancelled_error=True,
                 ),
-                request_context=self._request_context(parent_agent),
+                request_context=dict(self._ctx.request_context),
                 cm_mcp_tool_prefixes=self._cm_mcp_tool_prefixes,
             )
         except Exception as exc:
@@ -533,11 +546,6 @@ class SpawnSubagent(ToolBase):
         except Exception:
             logger.debug("spawn_subagent: parent agent getter failed", exc_info=True)
             return None
-
-    def _request_context(self, parent_agent: Any) -> dict[str, Any]:
-        if self._request_context_getter is not None:
-            return dict(self._request_context_getter() or {})
-        return dict(getattr(parent_agent, "_request_context", {}) or {})
 
     def _tools_for_role(self, role: str) -> list[Any]:
         if role != "data_fetcher":
