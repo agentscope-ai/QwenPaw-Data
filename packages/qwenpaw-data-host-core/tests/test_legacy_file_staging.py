@@ -216,6 +216,19 @@ def test_changed_backup_and_committed_sql_are_refused_before_staging(context):
     assert not (plan.target_home / ".legacy-migrations").exists()
 
 
+@pytest.mark.parametrize(
+    "statement", ["UPDATE users SET status='inactive'", "DELETE FROM role_bindings"]
+)
+def test_authorization_findings_block_staging_before_any_file_copy(context, statement):
+    from .test_legacy_target_validation import mutate
+
+    save(context)
+    mutate(context[1], statement)
+    with pytest.raises(MigrationError, match="authorization"):
+        stage(context)
+    assert not (context[0].target_home / ".legacy-migrations").exists()
+
+
 @pytest.mark.parametrize("name", [".Legacy-Migration.Lock", ".Legacy-Migrations"])
 def test_portable_aliases_are_preserved_and_block_staging(context, name):
     save(context)

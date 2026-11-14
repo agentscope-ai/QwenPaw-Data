@@ -79,12 +79,12 @@ def _cipher(key):
     return Fernet(base64.urlsafe_b64encode(derived))
 
 
-def _private(info, *, directory=False):
+def _private(info, *, directory=False, links=1):
     if (
         not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
         or info.st_uid != os.geteuid()
         or stat.S_IMODE(info.st_mode) != (0o700 if directory else 0o600)
-        or (not directory and info.st_nlink != 1)
+        or (not directory and info.st_nlink != links)
     ):
         raise MigrationError(
             "Staging entry must be private, owned and without file aliases"
@@ -157,11 +157,11 @@ def _binding(recovery, fd):
     }
 
 
-def _verify_data(fd, placement):
+def _verify_data(fd, placement, *, links=1):
     opened = os.open("data", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
     with os.fdopen(opened, "rb") as stream:
         info = os.fstat(stream.fileno())
-        _private(info)
+        _private(info, links=links)
         if info.st_size != placement.size:
             raise MigrationError("Staged file size differs from its source inventory")
         digest = hashlib.sha256()
@@ -203,12 +203,12 @@ def _copy_data(fd, backup, placement):
     os.fsync(fd)
 
 
-def _completed(fd, name, index, recovery, cipher, root_path):
+def _completed(fd, name, index, recovery, cipher, root_path, *, links=1):
     with _directory(fd, name) as (attempt, _):
         if set(os.listdir(attempt)) != {"data", "receipt.enc"}:
             raise MigrationError("Completed staging attempt has unexpected entries")
         actual = _read_record(attempt, "receipt.enc", cipher)
-        identity = _verify_data(attempt, recovery.plan.files[index])
+        identity = _verify_data(attempt, recovery.plan.files[index], links=links)
         expected = {
             "version": 1,
             "run_id": recovery.run_id,
@@ -287,7 +287,10 @@ def stage_files(
             )
         with _read_only_target(database_url) as conn:
             assert_target_anchor(conn, recovery.target_anchor)
-            check_target_connection(recovery.plan, conn)
+            if check_target_connection(recovery.plan, conn).issues:
+                raise MigrationError(
+                    "Target authorization or primary-key checks failed before staging"
+                )
         verify_backup(recovery.backup, recovery.plan.source)
         lock.check()
         with _directory(lock.home_fd, _ROOT, create=True) as (root, _):

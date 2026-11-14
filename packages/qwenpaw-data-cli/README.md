@@ -253,10 +253,9 @@ The Host now includes an internal transactional SQL component and the additive
 exact-plan replay verifies stored row digests and never overwrites changed data.
 Connection failures are not treated as proof of rollback. Explicit SQLite
 engine recovery is separate from read-only preflight and never manually deletes
-journals. This component is **not an import command**: durable private file
-journaling, file publication, coordinated recovery and post-import rollback are
-still required before a CLI `apply` workflow can be exposed. Do not invoke the
-SQL component alone to migrate user data.
+journals. This component is **not an import command**: the file components below
+must be integrated into one supported recovery/rollback workflow before a CLI
+`apply` can be exposed. Do not invoke the SQL component alone to migrate user data.
 
 An internal POSIX recovery-plan component now preserves the exact converted rows,
 ciphertext, timestamps and scoped file inventory in an authenticated encrypted
@@ -288,8 +287,24 @@ incomplete attempts are allowed by default before operator inspection is require
 An interruption before the initial staging-root binding is durable also requires
 inspection, not automatic adoption. This lock only excludes cooperating migration
 processes on one home; it does not stop Host writers or coordinate different
-machines/homes sharing a database. Final workspace publication, its durable
-recovery journal, SQL/file coordination and post-import rollback remain unfinished.
+machines/homes sharing a database.
+
+An internal publication hook now places verified staged files into their scoped
+workspace destinations using atomic, non-overwriting hard links. An authenticated
+intent is durable before each link; retries require the same staged inode and
+matching intent, not merely equal target bytes. Staging and destination must be on
+the same filesystem. Files stay 0600; existing safe directories are observed but
+never claimed as removable. Keep the staging links and independent backup: normal
+application writes also change the linked staging copy, and later verification
+then refuses replay instead of overwriting user changes.
+
+SQLite and PostgreSQL process checks cover first-file publication crashes,
+all-files-published/precommit crashes, lost SQL commit responses, and exact replay
+of all 15 tables plus two final files. The hook belongs inside the anchored SQL
+transaction; replay of an already committed SQL receipt must separately verify
+file publication. This is still component-level acceptance, not a supported CLI
+import. A unified coordinator, runtime-key/native file-serving acceptance,
+post-import rollback and safe journal/staging cleanup remain unfinished.
 
 ## Output and logs
 
