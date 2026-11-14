@@ -18,6 +18,7 @@ Available command groups:
 - `semantic`
 - `doctor`
 - `run` / `chat` (explicit Host-service connection)
+- `plan` (prompt-only SOP generation through Host, without execution)
 
 `run` and `chat` now use the current Host API, not the legacy in-process DAG
 runtime. Select an already-running Host explicitly:
@@ -43,7 +44,21 @@ of the admitted turn; a disconnected stream is never reported as success.
 If admission itself loses its response, the client cannot know the new chat ID;
 inspect the session in Console before retrying to avoid duplicate work.
 
-**Remaining compatibility gaps:** `plan` / `execute` and the old in-process
+`plan` returns the OSS SOP YAML contract (`name`, `description`,
+`expected_outcome`, and `nodes` with stable IDs and acyclic `deps`):
+
+```bash
+qwenpaw-data plan --host-url http://127.0.0.1:8000 "Plan a sales analysis" -o sales.yaml
+```
+
+Planning uses the authorized session's model preferences, but does not start an
+agent, allocate an execution workspace, query a datasource, or run tools. Supply
+schema/facts in the prompt if needed; otherwise the generated plan must include
+discovery steps. The datasource ID is context, not proof of schema inspection.
+`--output` exclusively creates a new file and refuses to overwrite existing data.
+This does not restore the legacy tool-assisted planner or the strict DAG executor.
+
+**Remaining compatibility gaps:** `execute` and the old in-process
 `QwenPawDataHost` interface are not restored. Remote `run` is a normal agent turn,
 not a claim of legacy plan-and-execute SOP equivalence.
 
@@ -104,10 +119,8 @@ With `--wait` the CLI polls until the task reaches a terminal state
 (`success`, `failed`, `killed`), printing progress to stderr and the final
 task record as JSON to stdout; the exit code is `0` only for `success`.
 
-The default CLI model uses provider `openai` together with `LLM_MODEL`,
-`OPENAI_API_KEY`, and `OPENAI_BASE_URL`. Set the corresponding
-`QWENPAW_DATA_MODEL_PROVIDER`, `QWENPAW_DATA_MODEL_NAME`, `QWENPAW_DATA_MODEL_API_KEY`, and
-`QWENPAW_DATA_MODEL_BASE_URL` variables to override individual values for the CLI.
+Remote agent commands use the models configured in Host preferences. The CLI
+does not forward local model credentials or override the server's model selection.
 
 ## Output and logs
 

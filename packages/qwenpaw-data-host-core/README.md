@@ -67,6 +67,16 @@ execution cleanup. Session history is retained. Interactive integrations must
 handle tool-confirmation events via `answer_tool_confirmation`; new sessions
 disable clarification by default. Admission POSTs are never retried automatically.
 
+`await host.plan(session_id, prompt)` returns a validated
+`qwenpaw_data.host.core.domain.sop.SOP` through
+`POST /api/sessions/{session_id}/sop/plan`. This is prompt-only planning: it uses
+the session's authorized model preferences but does not start a Chat, allocate
+an execution workspace, inspect datasource schemas or call agent tools. The
+request is bounded to 32,768 characters and the model call to 60 seconds.
+Duplicate node IDs, unknown/cyclic dependencies and runtime state fields are
+rejected. The SOP can be serialized as YAML; strict SOP execution remains an
+open compatibility requirement, separate from the current advisory task plan.
+
 ### Storage backends
 
 The current service uses SQL repositories backed by the shared control-plane

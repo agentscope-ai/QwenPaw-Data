@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from . import chat, datasource, doctor, run, semantic
+from . import chat, datasource, doctor, plan, run, semantic
 
-COMMANDS = [datasource, semantic, doctor, run, chat]
+COMMANDS = [datasource, semantic, doctor, run, chat, plan]
 
 __all__ = ["COMMANDS"]

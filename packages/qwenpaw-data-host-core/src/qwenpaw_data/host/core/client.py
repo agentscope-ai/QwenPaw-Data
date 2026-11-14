@@ -101,6 +101,20 @@ class HostClient:
         )
         self._active.pop(chat_id, None)
 
+    async def plan(self, session_id: str, text: str):
+        """Generate a prompt-only SOP; no agent tools or plan steps are executed."""
+        from qwenpaw_data.host.core.domain.sop import SOP
+
+        if not text.strip():
+            raise ValueError("prompt is required")
+        result = await self._request(
+            "POST",
+            f"sessions/{_id(session_id)}/sop/plan",
+            json={"text": text},
+            timeout=httpx.Timeout(75, connect=10),
+        )
+        return SOP.from_dict(result["plan"])
+
     async def answer_tool_confirmation(
         self,
         session_id: str,

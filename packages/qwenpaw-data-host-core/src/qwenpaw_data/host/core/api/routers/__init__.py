@@ -21,6 +21,7 @@ from qwenpaw_data.host.core.api.routers import (
     skill_drafts,
     skill_proposals,
     skills,
+    sop,
     steer,
     tool_confirmation,
     trace,
@@ -38,6 +39,7 @@ def _include_native_routes(router: APIRouter) -> None:
     router.include_router(clarification.router)
     router.include_router(tool_confirmation.router)
     router.include_router(plan.router)
+    router.include_router(sop.router)
     router.include_router(feedback.router)
     router.include_router(artifact.router)
     router.include_router(artifact_compare.router)
