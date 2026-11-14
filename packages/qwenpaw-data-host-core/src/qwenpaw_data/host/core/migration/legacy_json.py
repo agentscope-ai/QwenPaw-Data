@@ -58,7 +58,11 @@ def _json(data: bytes, label: str) -> Any:
 
 def _canonical(value: Any) -> bytes:
     return json.dumps(
-        value, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
     ).encode()
 
 
