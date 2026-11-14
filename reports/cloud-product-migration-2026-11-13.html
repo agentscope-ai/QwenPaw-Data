@@ -31,13 +31,13 @@
   <header>QwenPaw-Data / Cloud → OSS</header>
   <main>
     <section aria-labelledby="overview">
-      <p class="label">整体迁移报告 · 2026-11-13</p>
+      <p class="label">整体迁移报告 · 更新于 2026-11-14</p>
       <h1 id="overview">主要能力已移植，发布验收尚未完成</h1>
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 新旧实现并存、公开兼容性和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 已推送快照：<code>85a345a</code> · 本地实现：<code>2b2d827</code><br>
-        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 五个功能提交尚未推送；OpenTelemetry 依赖修复仍待提交确认，不代表远端 CI 已通过。</p>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 功能提交快照：<code>9b154b7</code><br>
+        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）与底层 DAG Agent 恢复（9b154b7）均已提交；本报告另作独立文档提交。新提交仍需远端 CI 验收。</p>
     </section>
     <section aria-labelledby="scope">
       <h2 id="scope">迁移范围与边界</h2>
@@ -61,10 +61,11 @@
         <thead><tr><th scope="col">能力 / OSS 契约</th><th scope="col">集成边界</th><th scope="col">状态 / 验收</th></tr></thead>
         <tbody>
           <tr><th scope="row">Docker 执行安全</th><td>Host workspace → 标准 list_tools，供 data/review builder 共同使用</td><td>本地已接回；真实 Docker 超时、取消、忽略 SIGTERM 的子进程清理通过；清理不确定时关闭 workspace。不是对恶意逃逸进程组的隔离证明。</td></tr>
-          <tr><th scope="row">CLI / Python 嵌入</th><td>显式 HostClient → 当前鉴权 API；模型、沙箱与作用域由服务端管理</td><td>部分完成。run/chat 服务模式、只生成 SOP 的 plan 已接回；旧进程内嵌入、工具辅助规划与严格依赖 execute 尚未恢复。当前 advisory Plan 不等价于旧 DAG 调度。</td></tr>
+          <tr><th scope="row">CLI / Python 嵌入</th><td>HostClient → 当前鉴权 API；客户端确定性调度，服务端管理工具、模型与作用域</td><td>run/chat、prompt-only plan 与逐节点 execute 已接回。execute 只在前置节点成功终态后放行后继，失败/断流/取消停止；非持久化 DAG，无自动恢复或副作用回滚。节点内部仍是 agentic 执行，不证明业务结果正确。旧进程内嵌入与工具辅助规划尚未恢复。</td></tr>
+          <tr><th scope="row">进程内 DAG Agent</th><td>共享 AgentScope Agent + 显式启用的 DAGExecution；不替换服务端 TaskContext</td><td>已恢复 DAG ID 工厂、模式切换、执行状态元数据、轨迹和审批/超时处理。底层 Agent 验证通过；完整 QwenPawDataHost 的 toolkit、workspace、SQL 产物装配尚未适配，不能宣称嵌入接口完成。</td></tr>
           <tr><th scope="row">旧 JSON 数据</th><td>持久化迁移边界 → SQL repositories</td><td>未完成。当前只拒绝误用；须验证备份、显式导入、重复执行、会话/文件引用与失败回滚，不自动覆盖原数据。</td></tr>
           <tr><th scope="row">Context / Skills / Console</th><td>当前服务入口、租户作用域、MCP 与显式网关</td><td>部分验证；已测技能修订和配置重启持久化，仍需语义/检索/profiling、真实模型及跨服务权限链路验收。</td></tr>
-          <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>本地 OpenTelemetry 1.45.2 审计与 tracing 回归通过；七包干净安装、完整 CI、真实外部后端仍待验收。</td></tr>
+          <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>OpenTelemetry 修复已推送；七包 sdist 重建 wheel、临时环境干净安装及安装态 Host/CLI 链路通过。独立包使用与根目录一致的 LICENSE/NOTICE，消除仓库外层路径依赖。完整 CI、旧数据升级、真实模型/graph/channel 仍待验收。</td></tr>
         </tbody>
       </table></div>
     </section>
@@ -80,7 +81,9 @@
             <tr><th scope="row">前端 / 打包</th><td>前端 254 项通过、1 项跳过；两个 UI 构建与 Console wheel 检查通过。Wheel 网关检查使用 stub Host，不等于全包安装验收。</td></tr>
             <tr><th scope="row">后续 CI 修复</th><td>命令载荷与工厂方法分离后 51 项检查通过；CI 静态规则、锁文件及依赖导出检查通过。PostgreSQL 驱动仅加入开发依赖。</td></tr>
             <tr><th scope="row">本地功能 replay</th><td>Docker 专项 16 项、CLI/SOP/SSE 选择集 144 项通过；修复 SSE 终止事件发布竞态与提示符 Ctrl+C。真实 Host/SQLite/Docker/CLI 验证三轮持久化、错误 token 拒绝、Ctrl+C 后 canceled；plan 产出有效 YAML，未创建 Chat 或执行 workspace。模型是本地协议 fixture，非真实分析效果验收。</td></tr>
-            <tr><th scope="row">待提交依赖修复</th><td>OpenTelemetry 1.45.2 回归包含于此前 124 项选择集；工作区与独立 Context 依赖审计均无已知漏洞。三文件独立暂存，等待提交确认。</td></tr>
+            <tr><th scope="row">依赖安全修复</th><td>OpenTelemetry 1.45.2 已于 3ed8712 推送；回归包含于此前 124 项选择集，工作区与独立 Context Python 依赖审计通过。Console npm 审计仍未通过，不能泛称全供应链安全。</td></tr>
+            <tr><th scope="row">严格执行 / 独立安装</th><td>CLI/SOP/打包选择集 215 项通过。七包 14 个 wheel/sdist 产物、版本/静态资源校验及全新环境 176 个依赖一致性检查通过；脱离源码 PYTHONPATH 的安装态 Host/SQLite/Docker/CLI 完成 plan、逆序 SOP 的依赖调度、run/chat 持久化、鉴权拒绝和取消。Hologres pool 未安装。模型仍为本地协议 fixture。</td></tr>
+            <tr><th scope="row">DAG Agent 兼容恢复</th><td>DAG/权限/超时/执行器选择集 91 项通过，Host API/CLI 回归 138 项、当前 data/review Agent 选择集 15 项通过（有重叠）。恢复 Colima 后真实服务链路复验通过，模型仍为本地替身；未据此声称完整进程内 Host 可用。</td></tr>
           </tbody>
         </table>
       </div>
@@ -91,9 +94,9 @@
       <h2 id="remaining">合并前必须完成</h2>
       <ol>
         <li><strong>完成行为级 replay：</strong>逐项接回 OSS 契约并验证 internal 公共能力；暂不做重复代码清理，不机械删除 OSS 独有文件。</li>
-        <li><strong>解决公开兼容性：</strong>完成严格 SOP execute、旧进程内嵌入和 JSON 数据迁移；服务客户端和 prompt-only plan 不等价于原有全部契约。目前 JSON 仅启动报错保护数据，未恢复或迁移。</li>
-        <li><strong>修复完整 CI：</strong>此前完整 Host 收集有 23 个错误，尚未全量复测；GraphCanvas lint 等仍待修复。本地修复须推送后经新 CI 复验。</li>
-        <li><strong>完成发布验收：</strong>真实 Docker / 模型 / graph / channel、执行中取消与 SSE 重放、浏览器操作、七个包的干净安装以及旧数据升级/备份/回滚。</li>
+        <li><strong>解决公开兼容性：</strong>旧进程内嵌入依赖的 Agent 构造、工具包和 DAG 状态接口已分叉，须真正适配而非仅补导出；JSON 迁移须显式映射旧 user_id 与新租户/工作区身份，验证文件引用、凭据、备份与回滚。目前未读取或修改用户历史数据。</li>
+        <li><strong>修复完整 CI：</strong>93b4b46 对应 CI run 43619845198 仍失败；数据库与 Docker integration 通过。此前诊断包括 macOS 收集 30 个错误、前端 lint、Console 依赖审计 27 项（含 1 critical）；新 DAG 修复已提交，尚未完成远端 CI 和全量收集复测，不能忽略剩余失败。</li>
+        <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
       </ol>
       <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
     </section>
