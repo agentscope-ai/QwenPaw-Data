@@ -51,6 +51,7 @@ async def chat_events(
         cursor = after
         cfg = get_settings().stream
         idle = 0.0
+        terminal_since: float | None = None
 
         while True:
             if await request.is_disconnected():
@@ -64,6 +65,12 @@ async def chat_events(
                     raise LookupError("chat not found")
                 status = row.status
                 last = row.last_sequence_number
+                exhausted = (
+                    not batch
+                    and status in TERMINAL
+                    and cursor >= last
+                    and await events.terminal_delivered(chat_id, cursor)
+                )
 
             if batch:
                 idle = 0.0
@@ -76,8 +83,17 @@ async def chat_events(
                         return
                 continue
 
-            if status in TERMINAL and cursor >= last:
+            if exhausted:
                 return
+
+            if status in TERMINAL:
+                now = asyncio.get_running_loop().time()
+                if terminal_since is None:
+                    terminal_since = now
+                elif now - terminal_since >= cfg.heartbeat_ttl_seconds:
+                    # A crashed publisher may leave a terminal row without its
+                    # final event. End the incomplete stream, never fake success.
+                    return
 
             await asyncio.sleep(cfg.sse_poll_seconds)
             idle += cfg.sse_poll_seconds

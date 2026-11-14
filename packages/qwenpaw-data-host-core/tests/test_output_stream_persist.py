@@ -115,6 +115,90 @@ async def _prepare_db() -> tuple[str, str]:
     return "ses_1", "chat_1"
 
 
+async def test_sse_waits_for_terminal_publication_after_chat_status_commit():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from qwenpaw_data.host.core.api.routers.events import chat_events
+
+    session_id, chat_id = await _prepare_db()
+    factory = get_session_factory()
+    stream = OutputStream(
+        factory,
+        session_id=session_id,
+        chat_id=chat_id,
+        identity=_IDENTITY,
+        last_sequence_number=-1,
+    )
+    await stream.response_in_progress()
+    async with factory() as db:
+        chat = await db.get(ChatRow, chat_id)
+        chat.status = "completed"
+        await db.commit()
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+    response = await chat_events(
+        request,
+        session_id,
+        chat_id,
+        identity=_IDENTITY,
+        after_sequence_number=0,
+        last_event_id=None,
+    )
+    waiting = asyncio.create_task(anext(response.body_iterator))
+    try:
+        await asyncio.sleep(0.05)
+        assert not waiting.done(), "SSE closed before the terminal event was committed"
+        terminal = await stream.response_completed()
+        frame = await asyncio.wait_for(waiting, timeout=3)
+        assert '"status":"completed"' in frame
+        await response.body_iterator.aclose()
+        replay = await chat_events(
+            request,
+            session_id,
+            chat_id,
+            identity=_IDENTITY,
+            after_sequence_number=terminal.sequence_number,
+            last_event_id=None,
+        )
+        assert [frame async for frame in replay.body_iterator] == []
+    finally:
+        waiting.cancel()
+        await asyncio.gather(waiting, return_exceptions=True)
+        await response.body_iterator.aclose()
+        await reset_engine()
+
+
+async def test_sse_bounds_terminal_rows_missing_their_final_event(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from qwenpaw_data.host.core.api.routers.events import chat_events
+    from qwenpaw_data.host.core.settings import clear_settings
+
+    monkeypatch.setenv("QWENPAW_DATA_STREAM_HEARTBEAT_TTL_SECONDS", "0.05")
+    clear_settings()
+    session_id, chat_id = await _prepare_db()
+    try:
+        async with get_session_factory()() as db:
+            chat = await db.get(ChatRow, chat_id)
+            chat.status = "completed"
+            await db.commit()
+        response = await chat_events(
+            SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
+            session_id,
+            chat_id,
+            identity=_IDENTITY,
+            after_sequence_number=-1,
+            last_event_id=None,
+        )
+
+        async def consume():
+            return [frame async for frame in response.body_iterator]
+
+        assert await asyncio.wait_for(consume(), timeout=2) == []
+    finally:
+        clear_settings()
+        await reset_engine()
+
+
 def test_output_stream_persists_events_for_replay(tmp_path: Path) -> None:
     async def scenario() -> None:
         session_id, chat_id = await _prepare_db()

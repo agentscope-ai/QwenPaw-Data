@@ -14,6 +14,7 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
 )
 from qwenpaw_data.host.core.db.tables import ChatEventRow, ChatRow
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.utils.status import is_terminal_response
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,25 @@ class ChatEventRepository:
             .order_by(ChatEventRow.sequence_number)
         )
         return [_parse_row(row) for row in rows.all()]
+
+    async def terminal_delivered(self, chat_id: str, cursor: int) -> bool:
+        """A replay cursor is exhausted only after the durable terminal response.
+
+        Runtime commits the Chat status before appending its final event; the
+        status/watermark pair alone cannot distinguish that publication window.
+        Callers must authorize access to the chat before reading its event log.
+        """
+        row = await self.db.scalar(
+            select(ChatEventRow)
+            .where(
+                ChatEventRow.chat_id == chat_id,
+                ChatEventRow.object == "response",
+                ChatEventRow.sequence_number <= cursor,
+            )
+            .order_by(ChatEventRow.sequence_number.desc())
+            .limit(1)
+        )
+        return row is not None and is_terminal_response(_parse_row(row))
 
     async def read_timing_events(self, chat_id: str) -> list[dict[str, Any]]:
         """Compact timing replay, including message-to-block links but no content."""
