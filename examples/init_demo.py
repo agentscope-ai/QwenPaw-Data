@@ -10,6 +10,7 @@ import random
 import sqlite3
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import date, timedelta
@@ -18,7 +19,6 @@ from pathlib import Path
 
 EXAMPLES = Path(__file__).resolve().parent
 REPO_ROOT = EXAMPLES.parent
-DEMO_DATASOURCE_ID = "postgresql-demo-gaap"
 DEMO_DATASOURCE_NAME = "Demo PG - GAAP use case"
 EXPECTED_ROW_COUNT = 475
 EXPECTED_DAILY_AVERAGES = {
@@ -203,21 +203,41 @@ def configure_demo_bundle(
     user: str = "qwenpaw_data",
     password: str = "qwenpaw-data-demo",
 ) -> str:
-    """Import the bundled semantic workbook and attach local PG credentials."""
+    """Register the datasource before importing its scoped semantic workbook."""
     base_url = base_url.rstrip("/")
     headers = _auth_headers()
     workbook = EXAMPLES / "demo_semantic_config.xlsx"
-    imported = _request_file(
-        f"{base_url}/api/semantic-config/import/excel",
-        workbook,
+    endpoint = f"{base_url}/api/semantic-config/datasource"
+    existing = _request_json(
+        endpoint
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "datasource_name": DEMO_DATASOURCE_NAME,
+                "size": 2,
+            }
+        ),
         headers=headers,
     )
-    if not isinstance(imported, dict) or not imported.get("success"):
-        raise RuntimeError(f"semantic demo import failed: {imported!r}")
-
+    if not isinstance(existing, dict) or "records" not in existing:
+        raise RuntimeError("Invalid datasource listing")
+    if existing.get("total", 0) > 1:
+        raise RuntimeError(
+            "Multiple demo datasources exist; choose one explicitly before registration"
+        )
+    matching = existing["records"]
+    if matching and (
+        matching[0].get("datasource_name") != DEMO_DATASOURCE_NAME
+        or matching[0].get("datasource_type") != "postgresql"
+    ):
+        raise RuntimeError(
+            "Existing demo datasource does not match the expected name and PostgreSQL type"
+        )
+    datasource_id = matching[0]["datasource_id"] if matching else None
     configured = _request_json(
-        f"{base_url}/api/semantic-config/datasource/{DEMO_DATASOURCE_ID}",
-        method="PUT",
+        endpoint
+        + ("/" + urllib.parse.quote(datasource_id, safe="") if datasource_id else ""),
+        method="PUT" if datasource_id else "POST",
         headers={**headers, "Content-Type": "application/json"},
         payload={
             "datasource_name": DEMO_DATASOURCE_NAME,
@@ -231,31 +251,49 @@ def configure_demo_bundle(
             },
         },
     )
-    if (
-        not isinstance(configured, dict)
-        or configured.get("datasource_id") != DEMO_DATASOURCE_ID
-    ):
+    if not isinstance(configured, dict) or not configured.get("datasource_id"):
         raise RuntimeError(f"demo datasource configuration failed: {configured!r}")
+    datasource_id = configured["datasource_id"]
+    imported = _request_file(
+        f"{base_url}/api/semantic-config/import/excel",
+        workbook,
+        headers=headers,
+        fields={"datasource_id": datasource_id},
+    )
+    if not isinstance(imported, dict) or not imported.get("success"):
+        raise RuntimeError(f"semantic demo import failed: {imported!r}")
     print(
         "Imported semantic demo configuration:",
         json.dumps(imported.get("summary", {}), sort_keys=True),
     )
-    print(f"Configured DataBridge datasource: {DEMO_DATASOURCE_ID}")
-    return DEMO_DATASOURCE_ID
+    print(f"Configured DataBridge datasource: {datasource_id}")
+    return datasource_id
 
 
 def _auth_headers() -> dict[str, str]:
     token = (
-        os.getenv("QWENPAW_DATA_CLIENT_API_TOKEN") or os.getenv("QWENPAW_DATA_API_TOKEN") or ""
+        os.getenv("QWENPAW_DATA_CLIENT_API_TOKEN")
+        or os.getenv("QWENPAW_DATA_API_TOKEN")
+        or ""
     ).strip()
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-def _request_file(url: str, path: Path, *, headers: dict[str, str]) -> object:
+def _request_file(
+    url: str,
+    path: Path,
+    *,
+    headers: dict[str, str],
+    fields: dict[str, str] | None = None,
+) -> object:
     boundary = f"----QwenPawDataDemo{uuid.uuid4().hex}"
     content = path.read_bytes()
     body = b"".join(
         [
+            *(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
+                for key, value in (fields or {}).items()
+            ),
             f"--{boundary}\r\n".encode(),
             (
                 'Content-Disposition: form-data; name="file"; '

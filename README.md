@@ -282,7 +282,7 @@ DataBridge Docs: http://localhost:8765/docs
 
 The repository includes a deterministic PostgreSQL dataset, semantic workbook,
 and Knowledge Graph document. Seed the data, import the semantic configuration,
-and register the fixed datasource with:
+and register the demo datasource with:
 
 ```bash
 # macOS / Linux
@@ -294,9 +294,10 @@ examples/init_demo.sh --register
 .\examples\init_demo.ps1 -Register
 ```
 
-The command is repeatable and creates datasource `postgresql-demo-gaap` with
-475 synthetic rows. It does not upload the Knowledge Graph document because
-that step invokes the model configured in `.env`.
+The command is repeatable and creates or reuses `Demo PG - GAAP use case`,
+printing its server-generated datasource ID. The dataset has 475 synthetic rows.
+It does not upload the Knowledge Graph document; that step requires a configured
+Context model and embedding provider.
 
 ### 6. Build the demo graphs
 
@@ -323,7 +324,7 @@ qwenpaw-data datasource list
 ```
 
 The command should resolve to the launcher published by the initializer, and
-`datasource list` should include `postgresql-demo-gaap`. The CLI loads the repository root `.env`
+`datasource list` should include `Demo PG - GAAP use case`. The CLI loads the repository root `.env`
 automatically; set `QWENPAW_DATA_ENV_FILE` only when a different dotenv file is
 required.
 
@@ -335,14 +336,14 @@ model, and select `Demo PG - GAAP use case`. Submit:
 > Analyze the average GAAP value of valid users for product X during March 2026;
 > show the trend over time and explain any spikes with relevant KG events.
 
-The former CLI agent commands (`run`, `chat`, `plan`, and `execute`) are retired
-in 0.4. The CLI still provides `datasource`, `semantic`, and `doctor`; Host and
-the Console own interactive agent execution.
+The CLI commands `run`, `chat`, `plan`, and `execute` use the running Host service
+via `--host-url` or `QWENPAW_DATA_HOST_URL`. Host owns model preferences, tools,
+workspaces and persisted sessions; the old in-process embedding API is retired.
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
-`45.89`. Generated artifacts are stored under
-`${QWENPAW_DATA_HOME:-~/.qwenpaw-data}/host/workspace` on macOS/Linux or
-`$HOME\.qwenpaw-data\host\workspace` on Windows unless `QWENPAW_DATA_HOME` is set.
+`45.89`. Retrieve generated artifacts through the Console or Host file API;
+Host scopes its local paths by tenant, workspace, user and session under
+`QWENPAW_DATA_HOME`.
 
 For a deterministic end-to-end test without a model API key:
 
@@ -359,7 +360,11 @@ uv run python .\examples\smoke_test.py
 ```
 
 See [the full demo guide](examples/README.md) for direct SQL, reset, and
-troubleshooting commands.
+troubleshooting commands. The smoke starts private Host/Context processes and
+temporary SQLite state, calls native MCP `execute_read`, and checks a persisted
+SQL chat. A separate `examples/semantic_smoke_test.py` exercises semantic
+editing and graph publication using local deterministic embedding responses.
+Both use real database services but make no external model calls.
 
 ## Common Scripts
 

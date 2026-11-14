@@ -99,8 +99,8 @@ Do not continue until Docker, Neo4j, and DataBridge are reported healthy.
 
 ## 5. Run the deterministic demo
 
-The bundled smoke test uses a local model stub, but exercises the real CLI,
-DataBridge MCP, PostgreSQL, and SQL execution path.
+The bundled smoke test uses a local model stub, but exercises real Host and
+DataBridge processes, native MCP SQL, PostgreSQL, and SQL chat persistence.
 
 ```powershell
 .\examples\init_demo.ps1
@@ -113,8 +113,8 @@ The test must finish with:
 QwenPaw Data deterministic demo smoke passed.
 ```
 
-For an interactive task using the models configured in `.env`, register the
-fixed demo datasource:
+For an interactive task using Host Provider credentials and Context model
+selections, register the demo datasource (the initializer prints its ID):
 
 ```powershell
 .\examples\init_demo.ps1 -Register
