@@ -53,6 +53,8 @@ class OutputStream:
         self._lock = asyncio.Lock()
         self._seq = last_sequence_number
         self._pending: list[ChatEventRecord] = []
+        self._unpublished: list[StreamObject] = []
+        self._delete_content_pending = False
         self._terminal = False
 
     @property
@@ -65,21 +67,28 @@ class OutputStream:
             await self._flush_locked(delete_content=delete_content)
 
     async def _flush_locked(self, *, delete_content: bool = False) -> None:
-        if not self._pending and not delete_content:
-            return
-        batch = self._pending
-        self._pending = []
-        try:
+        self._delete_content_pending |= delete_content
+        if self._pending or self._delete_content_pending:
+            # Keep the exact batch and cleanup intent until commit returns.
+            # CancelledError is a BaseException: an Exception-only recovery
+            # handler used to lose this batch during task cancellation.
             async with self.session_factory() as db:
                 events = ChatEventRepository(db, self.identity)
-                if batch:
-                    await events.persist_batch(batch)
-                if delete_content:
+                if self._pending:
+                    await events.persist_batch(self._pending)
+                if self._delete_content_pending:
                     await events.delete_chat_content(self.chat_id)
                 await db.commit()
-        except Exception:
-            self._pending = batch + self._pending
-            raise
+                # Record known commit success before async session cleanup. A
+                # later close/publication failure must not reinsert these rows.
+                self._pending = []
+                self._delete_content_pending = False
+        await self._publish_pending_locked()
+
+    async def _publish_pending_locked(self) -> None:
+        while self._unpublished:
+            await self.hub.publish(self.chat_id, self._unpublished[0])
+            self._unpublished.pop(0)
 
     async def append(self, payload: dict[str, Any]) -> StreamObject:
         async with self._lock:
@@ -98,6 +107,10 @@ class OutputStream:
                 f"chat {self.chat_id} already sent its terminal response; "
                 f"refusing to append {payload['object']!r}"
             )
+        if self._unpublished:
+            # A previous append did not complete. Resolve that batch/publication
+            # before assigning another sequence or publishing newer events.
+            await self._flush_locked()
         # Invalid payloads must not consume a sequence number. The caller holds
         # _lock through validation, staging and publication.
         seq = self._seq + 1
@@ -110,6 +123,7 @@ class OutputStream:
             "created_at": now,
         }
         obj = parse_stream_object(data)
+        self._unpublished.append(obj)
         self._pending.append(
             ChatEventRecord(
                 chat_id=self.chat_id,
@@ -131,7 +145,9 @@ class OutputStream:
         )
         if should_flush:
             await self._flush_locked(delete_content=terminal)
-        await self.hub.publish(self.chat_id, obj)
+        else:
+            # Preserve internal's low-latency live deltas and batched SQL writes.
+            await self._publish_pending_locked()
         return obj
 
     async def _append_if_open(self, payload: dict[str, Any]) -> StreamObject | None:
