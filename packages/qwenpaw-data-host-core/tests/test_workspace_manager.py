@@ -283,7 +283,8 @@ async def test_invalid_sandbox_settings_only_block_cloud(
     workspace = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock())
     monkeypatch.setattr(workspace_manager, "LocalWorkspace", lambda **kwargs: workspace)
     monkeypatch.setattr(
-        "agentscope.workspace.DockerWorkspace", lambda **kwargs: workspace
+        "qwenpaw_data.host.core.workspace.docker_workspace.QwenPawDataDockerWorkspace",
+        lambda **kwargs: workspace,
     )
     prepare = Mock()
     monkeypatch.setattr(workspace_manager, "prepare_workspace_dirs", prepare)

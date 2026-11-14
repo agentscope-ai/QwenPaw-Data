@@ -9,7 +9,10 @@ import uuid
 
 import pytest
 
-from qwenpaw_data.host.core.utils.workspace import ManagedDockerBash
+from qwenpaw_data.host.core.workspace.docker_workspace import (
+    QwenPawDataDockerWorkspace,
+    ManagedDockerBash,
+)
 
 
 pytestmark = pytest.mark.skipif(
@@ -37,10 +40,24 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
     try:
         await container.start()
         delegate = DockerBackend(container, "/tmp")
-        bash = ManagedDockerBash(
-            Bash(cwd="/tmp", backend=delegate),
-            grace_seconds=0.2,
+        # Exercise the actual workspace tool-discovery boundary used by both
+        # runtime builders, without building an unrelated gateway image.
+        workspace = QwenPawDataDockerWorkspace(workspace_id=name)
+        workspace.get_backend = lambda: delegate
+        workspace.workdir = "/tmp"
+        workspace.close = container.stop
+        bash = next(
+            tool for tool in await workspace.list_tools() if isinstance(tool, Bash)
         )
+        assert isinstance(bash, ManagedDockerBash)
+        bash._grace_seconds = 0.2
+        success = await _collect_chunks(bash.call("printf sandbox-ok"))
+        assert success[-1].content[0].text == "sandbox-ok"
+        silent = await _collect_chunks(bash.call("true"))
+        assert "completed successfully" in silent[-1].content[0].text
+        failure = await _collect_chunks(bash.call("exit 7"))
+        assert failure[-1].state == ToolResultState.ERROR
+        assert "Command failed: exit 7" in failure[-1].content[0].text
         marker = f"qwenpaw-data-timeout-{uuid.uuid4().hex}"
 
         chunks = await _collect_chunks(
@@ -76,6 +93,22 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
         with pytest.raises(asyncio.CancelledError):
             await command
         await _assert_process_absent(delegate, cancel_marker)
+
+        # The group leader exits on TERM while its child ignores TERM. Cleanup
+        # must inspect the whole group, not mistake the leader's exit for success.
+        stubborn_marker = f"qwenpaw-data-child-{uuid.uuid4().hex}"
+        stubborn = shlex.join(
+            [
+                "python",
+                "-c",
+                "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)",
+                stubborn_marker,
+            ]
+        )
+        chunks = await _collect_chunks(bash.call(f"{stubborn} & wait", timeout=500))
+        assert chunks[-1].state == ToolResultState.ERROR
+        await _assert_process_absent(delegate, stubborn_marker)
+        assert (await container.show())["State"]["Running"]
     finally:
         try:
             await container.stop()

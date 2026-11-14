@@ -148,9 +148,9 @@ class QwenPawDataWorkspaceManager:
                 workspace_id=workspace_id,
             )
         elif settings.backend == "docker":
-            from agentscope.workspace import DockerWorkspace
+            from .docker_workspace import QwenPawDataDockerWorkspace
 
-            ws = DockerWorkspace(
+            ws = QwenPawDataDockerWorkspace(
                 workspace_id=workspace_id,
                 host_workdir=str(paths.workspace),
                 base_image=settings.docker_base_image,
