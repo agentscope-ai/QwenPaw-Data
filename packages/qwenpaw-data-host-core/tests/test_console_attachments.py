@@ -1,42 +1,32 @@
-# -*- coding: utf-8 -*-
-"""Attachments: domain rules, store conformance, console routes, turn input."""
+"""Attachments: current SQL repositories, authenticated HTTP and file safety."""
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-
+from sqlalchemy.exc import IntegrityError
 from qwenpaw_data.host.core.domain.attachment import Attachment
 from qwenpaw_data.host.core.domain.chat import Chat
-from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.repositories import AttachmentRepository, ChatRepository
+from qwenpaw_data.host.core.db.engine import get_session_factory
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.runtime.turn import TurnInput, compose_agent_input
-from qwenpaw_data.host.core.store.json_store import (
-    JSONAttachmentStore,
-    JSONChatStore,
-)
+from .conftest import TEST_IDENTITY
+from . import test_runtime_settings
+from .test_service_smoke import ScriptedAgent, service_client, _new_session
 
-sqlalchemy = pytest.importorskip("sqlalchemy")
-
-from qwenpaw_data.host.core.db.engine import (  # noqa: E402
-    create_engine_and_factory,
-    init_db,
-)
-from qwenpaw_data.host.core.store.sql_store import (  # noqa: E402
-    SQLAttachmentStore,
-    SQLChatStore,
-)
-
-
-# ---------------------------------------------------------------------------
-# Domain
+database = test_runtime_settings.database
 
 
 def _receive(tmp_path: Path, filename: str = "data.csv", data: bytes = b"a,b\n"):
     return Attachment.receive(
         session_id="ses1",
-        identity=Identity.anonymous(),
+        identity=TEST_IDENTITY,
         filename=filename,
         data=data,
         dest_dir=tmp_path / "uploads" / "ses1",
@@ -74,9 +64,7 @@ def test_require_file_rejects_escape(tmp_path: Path) -> None:
 
 
 def test_receive_rejects_oversize(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "qwenpaw_data.host.core.domain.attachment.MAX_SIZE_BYTES", 4
-    )
+    monkeypatch.setattr("qwenpaw_data.host.core.utils.files.MAX_SIZE_BYTES", 4)
     with pytest.raises(ValueError, match="exceeds"):
         _receive(tmp_path, data=b"12345")
 
@@ -103,9 +91,7 @@ def test_compose_includes_attachments_and_comments() -> None:
 
 def test_compose_requires_session_id_for_attachments() -> None:
     with pytest.raises(ValueError, match="session_id"):
-        compose_agent_input(
-            "hi", None, [{"attachment_id": "a", "filename": "f"}]
-        )
+        compose_agent_input("hi", None, [{"attachment_id": "a", "filename": "f"}])
 
 
 def test_compose_rejects_incomplete_items() -> None:
@@ -118,7 +104,7 @@ def test_compose_rejects_incomplete_items() -> None:
 def test_turn_input_carries_chat_fields() -> None:
     chat = Chat.start(
         session_id="ses1",
-        identity=Identity.anonymous(),
+        identity=TEST_IDENTITY,
         sequence=1,
         datasource_id=None,
         text="",
@@ -139,7 +125,7 @@ def test_chat_start_requires_text_or_attachment() -> None:
     with pytest.raises(ValueError, match="text is required"):
         Chat.start(
             session_id="s",
-            identity=Identity.anonymous(),
+            identity=TEST_IDENTITY,
             sequence=1,
             datasource_id=None,
             text="  ",
@@ -147,104 +133,87 @@ def test_chat_start_requires_text_or_attachment() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Store conformance (both backends)
+
+# SQL persistence: transactions and identity are owned by the caller.
 
 
-class Backend:
-    def __init__(self, name, attachments, chats) -> None:
-        self.name = name
-        self.attachments = attachments
-        self.chats = chats
-
-
-@pytest.fixture(params=["json", "sql"])
-async def backend(request, tmp_path: Path):
-    if request.param == "json":
-        yield Backend(
-            "json", JSONAttachmentStore(tmp_path), JSONChatStore(tmp_path)
+@pytest.fixture
+async def backend(database):
+    async with database() as db:
+        yield SimpleNamespace(
+            db=db,
+            factory=database,
+            attachments=AttachmentRepository(db, TEST_IDENTITY),
+            chats=ChatRepository(db, TEST_IDENTITY),
         )
-        return
-    engine, factory = create_engine_and_factory(
-        f"sqlite+aiosqlite:///{tmp_path / 'host.db'}",
-    )
-    await init_db(engine)
-    yield Backend("sql", SQLAttachmentStore(factory), SQLChatStore(factory))
-    await engine.dispose()
 
 
-async def test_store_roundtrip_and_scoping(backend: Backend, tmp_path) -> None:
+async def test_store_roundtrip_and_scoping(backend, tmp_path):
     attachment = _receive(tmp_path)
     await backend.attachments.add(attachment)
+    await backend.db.commit()
+    async with backend.factory() as db:
+        loaded = await AttachmentRepository(db, TEST_IDENTITY).get(attachment.id)
+        assert loaded.filename == "data.csv"
+        assert loaded.storage_path == attachment.storage_path
+        assert loaded.session_id == "ses1"
+        for field in ("user_id", "tenant_id", "workspace_id"):
+            other = AttachmentRepository(db, replace(TEST_IDENTITY, **{field: "other"}))
+            with pytest.raises(LookupError):
+                await other.get(attachment.id)
+            with pytest.raises(LookupError):
+                await other.delete(attachment)
+            assert await other.find_by_filename("ses1", "data.csv") is None
+    with pytest.raises(IntegrityError):
+        async with backend.db.begin_nested():
+            await backend.attachments.add(attachment)
 
-    loaded = await backend.attachments.get("local", attachment.id)
-    assert loaded.filename == "data.csv"
-    assert loaded.storage_path == attachment.storage_path
-    assert loaded.session_id == "ses1"
 
-    with pytest.raises(LookupError):
-        await backend.attachments.get("other-user", attachment.id)
-    with pytest.raises(RuntimeError, match="CONFLICT"):
-        await backend.attachments.add(attachment)
-
-
-async def test_store_find_by_filename(backend: Backend, tmp_path) -> None:
+async def test_store_find_by_filename(backend, tmp_path):
     attachment = _receive(tmp_path)
     await backend.attachments.add(attachment)
-
-    found = await backend.attachments.find_by_filename("local", "ses1", "data.csv")
-    assert found is not None and found.id == attachment.id
-    assert (
-        await backend.attachments.find_by_filename("local", "ses2", "data.csv")
-        is None
-    )
-    assert (
-        await backend.attachments.find_by_filename("local", "ses1", "other.csv")
-        is None
-    )
-    assert (
-        await backend.attachments.find_by_filename("nobody", "ses1", "data.csv")
-        is None
-    )
+    found = await backend.attachments.find_by_filename("ses1", "data.csv")
+    assert found.id == attachment.id
+    assert await backend.attachments.find_by_filename("ses2", "data.csv") is None
+    assert await backend.attachments.find_by_filename("ses1", "other.csv") is None
 
 
-async def test_store_require_for_session(backend: Backend, tmp_path) -> None:
+async def test_store_require_for_session(backend, tmp_path):
     attachment = _receive(tmp_path)
     await backend.attachments.add(attachment)
-
     items = await backend.attachments.require_for_session(
-        "local", "ses1", [attachment.id], workspace=tmp_path
+        "ses1", [attachment.id], workspace=tmp_path
     )
     assert [item.id for item in items] == [attachment.id]
-
     with pytest.raises(ValueError, match="duplicate attachment_id"):
         await backend.attachments.require_for_session(
-            "local", "ses1", [attachment.id, attachment.id], workspace=tmp_path
+            "ses1", [attachment.id, attachment.id], workspace=tmp_path
         )
     with pytest.raises(LookupError):
         await backend.attachments.require_for_session(
-            "local", "ses2", [attachment.id], workspace=tmp_path
+            "ses2", [attachment.id], workspace=tmp_path
         )
     (tmp_path / attachment.storage_path).unlink()
     with pytest.raises(LookupError, match="file not found"):
         await backend.attachments.require_for_session(
-            "local", "ses1", [attachment.id], workspace=tmp_path
+            "ses1", [attachment.id], workspace=tmp_path
         )
 
 
-async def test_store_delete(backend: Backend, tmp_path) -> None:
+async def test_store_delete(backend, tmp_path):
     attachment = _receive(tmp_path)
     await backend.attachments.add(attachment)
-    with pytest.raises(LookupError):
-        await backend.attachments.delete("other", attachment.id)
-    await backend.attachments.delete("local", attachment.id)
-    with pytest.raises(LookupError):
-        await backend.attachments.get("local", attachment.id)
+    await backend.attachments.delete(attachment)
+    await backend.db.commit()
+    async with backend.factory() as db:
+        with pytest.raises(LookupError):
+            await AttachmentRepository(db, TEST_IDENTITY).get(attachment.id)
 
 
-async def test_chat_persists_attachment_fields(backend: Backend) -> None:
+async def test_chat_persists_attachment_fields(backend):
     chat = Chat.start(
         session_id="ses1",
-        identity=Identity.anonymous(),
+        identity=TEST_IDENTITY,
         sequence=1,
         datasource_id=None,
         text="hi",
@@ -254,52 +223,37 @@ async def test_chat_persists_attachment_fields(backend: Backend) -> None:
         attachments=[{"attachment_id": "att_1", "filename": "f.csv"}],
     )
     await backend.chats.add(chat)
-    loaded = await backend.chats.get(chat.id)
-    assert loaded.attachments == [{"attachment_id": "att_1", "filename": "f.csv"}]
-    assert loaded.artifact_comments[0]["line_end"] == 2
-
-    loaded.mark_status("completed")
-    await backend.chats.save(loaded)
-    again = await backend.chats.get(chat.id)
-    assert again.attachments == loaded.attachments
-
-
-# ---------------------------------------------------------------------------
-# Console routes
-
-pytest.importorskip("fastapi")
-import httpx  # noqa: E402
-
-from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
+    await backend.db.commit()
+    async with backend.factory() as db:
+        repo = ChatRepository(db, TEST_IDENTITY)
+        loaded = await repo.get(chat.id)
+        assert loaded.attachments == chat.attachments
+        assert loaded.artifact_comments == chat.artifact_comments
+        loaded.mark_status("completed")
+        await repo.save(loaded)
+        await db.commit()
+    async with backend.factory() as db:
+        saved = await ChatRepository(db, TEST_IDENTITY).get(chat.id)
+        assert saved.status == "completed"
+        assert saved.attachments == chat.attachments
 
 
 @asynccontextmanager
-async def console_client(tmp_path: Path, monkeypatch):
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
-    app = create_app(home=tmp_path, model=object())
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-        ) as http:
-            created = await http.post("/api/v1/sessions", json={"title": "附件"})
-            assert created.status_code == 200, created.text
-            yield http, created.json()["session"]["id"]
+async def console_client(monkeypatch):
+    async with service_client(ScriptedAgent(), monkeypatch) as http:
+        yield http, await _new_session(http)
 
 
 async def _upload(http, session_id: str, filename: str = "data.csv"):
     return await http.post(
-        "/api/v1/console/upload",
+        "/api/console/upload",
         data={"session_id": session_id},
         files={"file": (filename, b"a,b\n1,2\n", "text/csv")},
     )
 
 
 async def test_upload_and_duplicate(tmp_path, monkeypatch) -> None:
-    async with console_client(tmp_path, monkeypatch) as (http, session_id):
+    async with console_client(monkeypatch) as (http, session_id):
         uploaded = await _upload(http, session_id)
         assert uploaded.status_code == 200, uploaded.text
         ref = uploaded.json()["attachment"]
@@ -314,25 +268,21 @@ async def test_upload_and_duplicate(tmp_path, monkeypatch) -> None:
 
 
 async def test_delete_attachment(tmp_path, monkeypatch) -> None:
-    async with console_client(tmp_path, monkeypatch) as (http, session_id):
+    async with console_client(monkeypatch) as (http, session_id):
         ref = (await _upload(http, session_id)).json()["attachment"]
-        deleted = await http.delete(
-            f"/api/v1/console/attachments/{ref['attachment_id']}"
-        )
+        deleted = await http.delete(f"/api/console/attachments/{ref['attachment_id']}")
         assert deleted.status_code == 204
-        again = await http.delete(
-            f"/api/v1/console/attachments/{ref['attachment_id']}"
-        )
+        again = await http.delete(f"/api/console/attachments/{ref['attachment_id']}")
         assert again.status_code == 404
         # File removed too; the same name can be uploaded again.
         assert (await _upload(http, session_id)).status_code == 200
 
 
 async def test_console_chat_carries_attachments(tmp_path, monkeypatch) -> None:
-    async with console_client(tmp_path, monkeypatch) as (http, session_id):
+    async with console_client(monkeypatch) as (http, session_id):
         ref = (await _upload(http, session_id)).json()["attachment"]
         response = await http.post(
-            "/api/v1/console/chat",
+            "/api/console/chat",
             json={
                 "session_id": session_id,
                 "text": "看看这个文件",
@@ -354,12 +304,12 @@ async def test_console_chat_carries_attachments(tmp_path, monkeypatch) -> None:
 
         # The attachment is now referenced: deletion must conflict.
         conflicted = await http.delete(
-            f"/api/v1/console/attachments/{ref['attachment_id']}"
+            f"/api/console/attachments/{ref['attachment_id']}"
         )
         assert conflicted.status_code == 409
 
         stopped = await http.post(
-            "/api/v1/console/chat/stop",
+            "/api/console/chat/stop",
             params={"session_id": session_id, "chat_id": chat["id"]},
         )
         assert stopped.status_code == 200, stopped.text
@@ -371,9 +321,9 @@ async def test_console_chat_carries_attachments(tmp_path, monkeypatch) -> None:
 
 
 async def test_console_chat_unknown_attachment(tmp_path, monkeypatch) -> None:
-    async with console_client(tmp_path, monkeypatch) as (http, session_id):
+    async with console_client(monkeypatch) as (http, session_id):
         response = await http.post(
-            "/api/v1/console/chat",
+            "/api/console/chat",
             json={
                 "session_id": session_id,
                 "text": "hi",
@@ -381,3 +331,116 @@ async def test_console_chat_unknown_attachment(tmp_path, monkeypatch) -> None:
             },
         )
         assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "escape", ["parent", "absolute", "directory_symlink", "file_symlink"]
+)
+def test_delete_rejects_paths_outside_workspace(tmp_path, escape):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "keep.csv"
+    victim.write_bytes(b"keep")
+    attachment = _receive(root)
+    if escape == "parent":
+        attachment.storage_path = "../outside/keep.csv"
+    elif escape == "absolute":
+        attachment.storage_path = str(victim)
+    elif escape == "directory_symlink":
+        (root / "alias").symlink_to(outside, target_is_directory=True)
+        attachment.storage_path = "alias/keep.csv"
+    else:
+        (root / "alias.csv").symlink_to(victim)
+        attachment.storage_path = "alias.csv"
+    with pytest.raises(ValueError, match="escapes workspace"):
+        attachment.remove_file(root)
+    assert victim.read_bytes() == b"keep"
+
+
+def test_delete_missing_file_is_idempotent(tmp_path):
+    attachment = _receive(tmp_path)
+    attachment.remove_file(tmp_path)
+    attachment.remove_file(tmp_path)
+    assert not (tmp_path / attachment.storage_path).exists()
+
+
+async def test_foreign_session_attachment_is_rejected_before_chat_creation(monkeypatch):
+    async with console_client(monkeypatch) as (http, first):
+        ref = (await _upload(http, first)).json()["attachment"]
+        second = await _new_session(http)
+        response = await http.post(
+            "/api/console/chat",
+            json={
+                "session_id": second,
+                "text": "hi",
+                "attachment_ids": [ref["attachment_id"]],
+            },
+        )
+        assert response.status_code == 404
+        async with get_session_factory()() as db:
+            assert (
+                await ChatRepository(db, TEST_IDENTITY).list_for_session(second) == []
+            )
+        # Failed admission does not remove or invalidate the source attachment.
+        assert (
+            await http.delete(f"/api/console/attachments/{ref['attachment_id']}")
+        ).status_code == 204
+
+
+async def test_delete_rejects_symlink_escape_and_preserves_sql_row(
+    monkeypatch, tmp_path
+):
+    async with console_client(monkeypatch) as (http, session_id):
+        ref = (await _upload(http, session_id)).json()["attachment"]
+        paths = UserAgentPaths.from_identity(
+            home=get_settings().paths.home,
+            identity=TEST_IDENTITY,
+            agent_id="default",
+            session_id=session_id,
+        )
+        # Simulate a workspace process replacing its uploads directory with a link.
+        original = paths.uploads_dir.with_name("saved-uploads")
+        paths.uploads_dir.rename(original)
+        outside = tmp_path / "outside-api"
+        outside.mkdir()
+        victim = outside / "data.csv"
+        victim.write_bytes(b"untouched")
+        paths.uploads_dir.symlink_to(outside, target_is_directory=True)
+        response = await http.delete(f"/api/console/attachments/{ref['attachment_id']}")
+        assert response.status_code == 400, response.text
+        assert victim.read_bytes() == b"untouched"
+        async with get_session_factory()() as db:
+            saved = await AttachmentRepository(db, TEST_IDENTITY).get(
+                ref["attachment_id"]
+            )
+            assert saved.filename == "data.csv"
+
+
+@pytest.mark.parametrize("linked_parent", [False, True])
+async def test_upload_rejects_linked_directory_without_file_or_row(
+    monkeypatch, tmp_path, linked_parent
+):
+    async with console_client(monkeypatch) as (http, session_id):
+        paths = UserAgentPaths.from_identity(
+            home=get_settings().paths.home,
+            identity=TEST_IDENTITY,
+            agent_id="default",
+            session_id=session_id,
+        )
+        outside = tmp_path / "outside-upload"
+        outside.mkdir()
+        linked = paths.uploads_dir.parent if linked_parent else paths.uploads_dir
+        linked.parent.mkdir(parents=True, exist_ok=True)
+        linked.symlink_to(outside, target_is_directory=True)
+        response = await _upload(http, session_id)
+        assert response.status_code == 400, response.text
+        assert list(outside.iterdir()) == []
+        async with get_session_factory()() as db:
+            assert (
+                await AttachmentRepository(db, TEST_IDENTITY).find_by_filename(
+                    session_id, "data.csv"
+                )
+                is None
+            )

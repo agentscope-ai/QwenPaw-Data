@@ -91,12 +91,17 @@ async def upload_attachment(
         filename = Path(file.filename).name
         if await repo.find_by_filename(session.id, filename):
             raise ValueError(f"duplicate filename: {filename}")
+        data = await file.read()
+        paths = _session_paths(session)
+        uploads_dir = paths.uploads_dir.resolve()
+        if not uploads_dir.is_relative_to(paths.workspace.resolve()):
+            raise ValueError("attachment path escapes workspace")
         attachment = Attachment.receive(
             session_id=session.id,
             identity=identity,
             filename=filename,
-            data=await file.read(),
-            dest_dir=_session_paths(session).uploads_dir,
+            data=data,
+            dest_dir=uploads_dir,
         )
         await repo.add(attachment)
         await db.commit()

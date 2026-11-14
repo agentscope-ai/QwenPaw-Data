@@ -59,5 +59,8 @@ class Attachment:
 
     def remove_file(self, workspace: Path) -> None:
         path = workspace / self.storage_path
+        if not path.resolve().is_relative_to(workspace.resolve()):
+            raise ValueError("attachment path escapes workspace")
         if path.is_file():
+            # Unlink the original entry, not a resolved in-workspace symlink target.
             path.unlink()
