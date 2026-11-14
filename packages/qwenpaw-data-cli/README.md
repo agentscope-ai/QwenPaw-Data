@@ -3,8 +3,8 @@
 Standalone command-line interface for QwenPaw Data.
 
 This package provides the `qwenpaw-data` command for datasource administration,
-semantic configuration, and deployment diagnostics. Run interactive agent tasks
-through the [Console](../qwenpaw-data-console/README.md), backed by Host.
+semantic configuration, deployment diagnostics, and remote Host conversations.
+The [Console](../qwenpaw-data-console/README.md) remains the full interactive UI.
 
 The command automatically loads `QWENPAW_DATA_ENV_FILE` when set. Otherwise, an
 editable checkout is discovered from the CLI package location and the
@@ -17,9 +17,35 @@ Available command groups:
 - `datasource`
 - `semantic`
 - `doctor`
+- `run` / `chat` (explicit Host-service connection)
 
-The former `plan`, `execute`, `run`, and `chat` commands are retired in 0.4.
-They are not aliases for the Host server or Console.
+`run` and `chat` now use the current Host API, not the legacy in-process DAG
+runtime. Select an already-running Host explicitly:
+
+```bash
+qwenpaw-data run --host-url http://127.0.0.1:8000 "Summarize sales"
+qwenpaw-data chat --host-url http://127.0.0.1:8000
+qwenpaw-data run --host-url http://127.0.0.1:8000 --session-id <id> --no-stream "Continue"
+```
+
+`QWENPAW_DATA_HOST_URL` can supply the origin; `QWENPAW_DATA_HOST_TOKEN` supplies
+the Host API token or user JWT without putting it in command-line arguments.
+Use HTTPS for remote hosts. The client does not follow redirects or inherit HTTP
+proxy settings. It does not forward DataBridge credentials or caller-selected
+user identities. Model, sandbox and permission policies belong to the server;
+the old `--workspace` / `--permission-mode` flags are not supported in this mode.
+
+Session IDs are printed to stderr and retained on the server for continuation.
+New CLI sessions disable clarification; an existing session requiring it must
+be continued in Console. Tool approval prompts default to deny, and non-TTY
+input always denies. Ctrl+C or an interrupted event stream requests cancellation
+of the admitted turn; a disconnected stream is never reported as success.
+If admission itself loses its response, the client cannot know the new chat ID;
+inspect the session in Console before retrying to avoid duplicate work.
+
+**Remaining compatibility gaps:** `plan` / `execute` and the old in-process
+`QwenPawDataHost` interface are not restored. Remote `run` is a normal agent turn,
+not a claim of legacy plan-and-execute SOP equivalence.
 
 Run `qwenpaw-data doctor` before the first task to check supported Python/Node
 versions, uv, model and authentication configuration, QwenPaw Data Home, DataBridge

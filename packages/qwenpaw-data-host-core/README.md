@@ -41,6 +41,32 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 | `GET /datasources` | DataBridge datasource discovery proxied through the service |
 | `GET/POST /cron/jobs` · `GET/PUT/DELETE /cron/jobs/{id}` · `POST .../pause|resume|run` | Scheduled agent runs: a cron expression or one-shot time opens a console chat with the configured message/datasource (single-process APScheduler) |
 
+### Python service client
+
+`qwenpaw_data.host.core.client.HostClient` connects to an existing Host through
+the same authenticated API as Console. It does not start a service, change model
+preferences, or replace the old in-process `QwenPawDataHost` embedding contract.
+
+```python
+from contextlib import aclosing
+from qwenpaw_data.host.core.client import HostClient
+
+async with HostClient("http://127.0.0.1:8000", token=host_token) as host:
+    session_id = await host.create_session()
+    async with aclosing(host.run(session_id, "Summarize sales")) as events:
+        async for event in events:
+            print(event)
+```
+
+Tokens are explicit, not loaded from environment by the library. Use HTTPS for
+remote deployments. `events(session_id, chat_id, after_sequence_number=N)` can
+replay persisted events without starting or stopping a turn. Consume `run` to
+its terminal event: failed/cancelled or truncated streams raise `HostClientError`.
+Closing a partial `run` stream requests cancellation; the server owns actual
+execution cleanup. Session history is retained. Interactive integrations must
+handle tool-confirmation events via `answer_tool_confirmation`; new sessions
+disable clarification by default. Admission POSTs are never retried automatically.
+
 ### Storage backends
 
 The current service uses SQL repositories backed by the shared control-plane
