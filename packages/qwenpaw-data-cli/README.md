@@ -147,7 +147,8 @@ does not forward local model credentials or override the server's model selectio
 
 ## Legacy JSON migration preparation
 
-`migration inspect`, `backup` and `plan` are available; **there is no import/apply
+`migration inspect`, `backup`, `plan` and explicit `provision-key` are available;
+**there is no import/apply
 command yet**. Stop all source writers before backup/planning. Use a separate
 backup and target home; source data is never overwritten. For example:
 
@@ -207,10 +208,45 @@ Exit `0` means conversion and any requested target checks passed, `2` means ther
 are reported blockers, and `1` means the command failed (including unavailable
 or incompatible target schema). Even with `conversion_complete: true` and
 `target_validation.target_checks_passed: true`, the plan reports `import_ready:
-false`: target key provisioning, transactional file/SQL import, idempotence and
-rollback are not yet implemented. Preflight is a point-in-time check, not a
+false`: transactional file/SQL import, idempotence and rollback are not yet
+implemented. Preflight is a point-in-time check, not a
 reservation; import must revalidate all mutable state.
 Reports contain counts/paths and safe errors, not source payloads or credentials.
+
+### Explicit local master-key configuration
+
+For a **local key-file deployment on POSIX**, stop target writers and explicitly
+configure the selected key in an existing target home:
+
+```bash
+qwenpaw-data migration provision-key --target-home /absolute/new-home \
+  --target-key-env MIGRATION_TARGET_KEY --target-db-env MIGRATION_TARGET_DB \
+  --target-stopped
+```
+
+Unlike `plan`, this command **writes a private `preferences.key` file**. It first
+authenticates all existing encrypted provider credentials in the explicitly
+selected target database, including other users, using that key. Malformed,
+wrong-key or oversized credentials and missing schema block publication; existing
+plaintext credentials are counted, not rewritten. The current scan limit is
+100,000 records and 64 KiB per credential. SQLite/PostgreSQL selection and stopped
+writer requirements are the same as for target preflight.
+
+The home must exist, be owned by the current user and not be group/world writable.
+The command publishes a complete, synced, mode-0600 key without replacement.
+An identical private existing key is verified without modification; different,
+malformed, public, symlinked or hard-linked keys are refused, not repaired. On an
+interrupted operation, inspect the target before retrying; an already-published
+key is retained. Keep a separate secure backup of this key.
+
+This does **not** configure deployment environment variables or verify that other
+services use this home/key. Host runtime variables
+`QWENPAW_DATA_PREFERENCES_MASTER_SECRET` / `QWENPAW_DATA_PREFS_MASTER_SECRET` take
+precedence over the local file; production requires environment provisioning.
+Configure those secrets consistently outside the CLI for every service sharing
+the database. Native Windows ACL acceptance and automatic deployment-secret
+provisioning are not implemented. No SQL rows are written, and `import_ready`
+remains false.
 
 ## Output and logs
 

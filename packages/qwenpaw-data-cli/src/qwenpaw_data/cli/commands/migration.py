@@ -1,4 +1,4 @@
-"""Explicit offline inspection, backup and preparation, not SQL import."""
+"""Explicit offline preparation and local key setup, not SQL import."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "migration",
-        help="Inspect, back up or plan legacy Host JSON migration (no SQL import)",
+        help="Prepare legacy Host migration or explicitly configure a local key (no SQL import)",
     )
     actions = parser.add_subparsers(dest="migration_action", required=True)
     inspect = actions.add_parser(
@@ -107,6 +107,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Consent to propose imported cron as disabled; never execute schedules",
     )
     plan.set_defaults(handler=handle_plan)
+    key_setup = actions.add_parser(
+        "provision-key",
+        help="Explicitly publish a private local target key, without replacing an existing key or writing SQL",
+    )
+    key_setup.add_argument("--target-home", type=Path, required=True)
+    key_setup.add_argument("--target-key-env", required=True)
+    key_setup.add_argument("--target-db-env", required=True)
+    key_setup.add_argument("--target-stopped", action="store_true", required=True)
+    key_setup.set_defaults(handler=handle_provision_key)
     for command in (inspect, backup, plan):
         command.add_argument("--max-files", type=int, default=100_000)
         command.add_argument(
@@ -260,8 +269,6 @@ def handle_plan(args: argparse.Namespace) -> int:
     report = plan.report()
     target_issues = ()
     if args.target_db_env or args.target_stopped:
-        import os
-        import re
         from qwenpaw_data.host.core.migration.legacy_json import MigrationError
         from qwenpaw_data.host.core.migration.target import validate_target
 
@@ -269,15 +276,7 @@ def handle_plan(args: argparse.Namespace) -> int:
             raise MigrationError(
                 "Target checks require both --target-db-env and --target-stopped"
             )
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.target_db_env):
-            raise MigrationError(
-                "Target database argument must be an environment variable name, not a connection URL"
-            )
-        database_url = os.environ.get(args.target_db_env)
-        if not database_url:
-            raise MigrationError(
-                "Explicit target database variable is missing or empty"
-            )
+        database_url = _database_url(args.target_db_env)
         check = validate_target(plan, database_url=database_url, target_stopped=True)
         report["target_validation"] = check.report()
         report["target_database_checked"] = True
@@ -285,3 +284,33 @@ def handle_plan(args: argparse.Namespace) -> int:
         target_issues = check.issues
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 2 if plan.issues or target_issues else 0
+
+
+def _database_url(variable: str) -> str:
+    import os
+    import re
+    from qwenpaw_data.host.core.migration.legacy_json import MigrationError
+
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", variable):
+        raise MigrationError(
+            "Target database argument must be an environment variable name, not a connection URL"
+        )
+    value = os.environ.get(variable)
+    if not value or len(value) > 16384:
+        raise MigrationError(
+            "Explicit target database variable is missing, empty or too large"
+        )
+    return value
+
+
+def handle_provision_key(args: argparse.Namespace) -> int:
+    from qwenpaw_data.host.core.migration.key_setup import provision_local_key
+
+    result = provision_local_key(
+        args.target_home,
+        key=_master_key(args.target_key_env, legacy=False),
+        database_url=_database_url(args.target_db_env),
+        target_stopped=args.target_stopped,
+    )
+    print(json.dumps(result.report(), ensure_ascii=False, indent=2))
+    return 0

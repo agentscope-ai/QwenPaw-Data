@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -340,3 +341,49 @@ def test_cli_target_selection_requires_explicit_name_value_and_stop_ack(
     output = capsys.readouterr()
     assert "private-key" not in output.out + output.err
     assert not (tmp_path / "target").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX local key provisioning")
+def test_cli_local_key_setup_is_explicit_private_and_repeatable(
+    tmp_path, monkeypatch, capsys
+):
+    from sqlalchemy import create_engine
+    from qwenpaw_data.host.core.db.tables import Base
+
+    target = tmp_path / "target"
+    target.mkdir(mode=0o700)
+    database = tmp_path / "existing.sqlite"
+    url = f"sqlite:///{database}"
+    engine = create_engine(url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    before = database.read_bytes()
+    monkeypatch.setenv("QPD_MIGRATION_TEST_DB", url)
+    monkeypatch.setenv("QPD_MIGRATION_TEST_KEY", "ab" * 32)
+    args = [
+        "migration",
+        "provision-key",
+        "--target-home",
+        str(target),
+        "--target-key-env",
+        "QPD_MIGRATION_TEST_KEY",
+        "--target-db-env",
+        "QPD_MIGRATION_TEST_DB",
+        "--target-stopped",
+    ]
+    for expected in ("created_and_verified", "already_verified"):
+        assert main(args) == 0
+        output = capsys.readouterr()
+        report = json.loads(output.out)
+        assert report["status"] == expected
+        assert not report["sql_written"] and not report["import_ready"]
+        assert not report["target_runtime_configuration_verified"]
+        assert "ab" * 32 not in output.out + output.err
+    assert (target / "preferences.key").read_text() == "ab" * 32
+    assert database.read_bytes() == before
+    monkeypatch.setenv("QPD_MIGRATION_TEST_KEY", "cd" * 32)
+    assert main(args) == 1
+    output = capsys.readouterr()
+    assert "not be replaced" in output.err
+    assert "cd" * 32 not in output.err + output.out
+    assert (target / "preferences.key").read_text() == "ab" * 32
