@@ -13,7 +13,7 @@ from .bundle import load_recovery_plan, _absolute
 from .legacy_json import MigrationError, verify_backup
 from .locking import migration_lock
 from .publication import publish_files, verify_publication
-from .sql_import import commit_sql_rows, recover_sql_receipt
+from .sql_import import commit_sql_rows, recover_sql_receipt, _run_id
 from .staging import stage_files
 from . import publication, staging
 
@@ -72,6 +72,7 @@ def apply_saved_plan(
     key: bytes,
     target_stopped: bool = False,
     max_incomplete_attempts: int = 8,
+    expected_run_id: str | None = None,
 ) -> ImportReceipt:
     """Explicit write/recovery: continue the SAME authenticated plan only.
 
@@ -105,6 +106,10 @@ def apply_saved_plan(
     initial = load_recovery_plan(
         path, database_url=database_url, target_home=target_home, key=key
     )
+    if expected_run_id is not None:
+        _run_id(expected_run_id)
+        if initial.run_id != expected_run_id:
+            raise MigrationError("Confirmed run ID differs from the saved import plan")
     try:
         with migration_lock(target_home, target_stopped=True) as lock:
             recovery = load_recovery_plan(

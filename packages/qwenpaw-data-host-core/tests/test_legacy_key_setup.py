@@ -10,7 +10,10 @@ import pytest
 from sqlalchemy import create_engine, insert, text
 
 from qwenpaw_data.host.core.db.tables import Base
-from qwenpaw_data.host.core.migration.key_setup import provision_local_key
+from qwenpaw_data.host.core.migration.key_setup import (
+    provision_local_key,
+    verify_selected_runtime_key,
+)
 from qwenpaw_data.host.core.migration.legacy_json import MigrationError
 
 
@@ -62,6 +65,78 @@ def setup(target, **kwargs):
         target_stopped=kwargs.pop("target_stopped", True),
         **kwargs,
     )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["local", "primary", "alias", "mismatch", "invalid", "production", "missing"],
+)
+def test_read_only_runtime_key_selection_never_generates_keys(
+    target, monkeypatch, mode
+):
+    for name in (
+        "QWENPAW_DATA_PREFERENCES_MASTER_SECRET",
+        "QWENPAW_DATA_PREFS_MASTER_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("QWENPAW_DATA_ENV", "development")
+    home, database, _ = target
+    if mode == "local":
+        setup(target)
+    elif mode == "production":
+        setup(target)
+        monkeypatch.setenv("QWENPAW_DATA_ENV", "production")
+    elif mode in {"primary", "alias", "mismatch", "invalid"}:
+        name = (
+            "QWENPAW_DATA_PREFS_MASTER_SECRET"
+            if mode == "alias"
+            else "QWENPAW_DATA_PREFERENCES_MASTER_SECRET"
+        )
+        monkeypatch.setenv(
+            name,
+            "private-invalid-secret"
+            if mode == "invalid"
+            else OTHER.hex()
+            if mode == "mismatch"
+            else KEY.hex(),
+        )
+    before = {p.name: p.read_bytes() for p in home.iterdir()}
+    sql = database.read_bytes()
+    if mode in {"local", "primary", "alias"}:
+        assert verify_selected_runtime_key(home, key=KEY) == (
+            "explicit_target_home_file"
+            if mode == "local"
+            else "current_process_environment"
+        )
+    else:
+        with pytest.raises(MigrationError) as error:
+            verify_selected_runtime_key(home, key=KEY)
+        assert "private-invalid-secret" not in str(error.value)
+        assert OTHER.hex() not in str(error.value)
+    assert {p.name: p.read_bytes() for p in home.iterdir()} == before
+    assert database.read_bytes() == sql
+
+
+@pytest.mark.parametrize("selection", ["relative", "alias", "traversal"])
+def test_runtime_environment_secret_does_not_bypass_explicit_target_selection(
+    target, monkeypatch, selection
+):
+    from pathlib import Path
+
+    home = target[0]
+    alias = home.with_name("alias")
+    alias.symlink_to(home, target_is_directory=True)
+    selected = (
+        Path("relative-home")
+        if selection == "relative"
+        else alias
+        if selection == "alias"
+        else home / ".." / home.name
+    )
+    monkeypatch.setenv("QWENPAW_DATA_PREFERENCES_MASTER_SECRET", KEY.hex())
+    with pytest.raises(MigrationError, match="explicit non-root absolute home"):
+        verify_selected_runtime_key(selected, key=KEY)
+    assert not (home / "preferences.key").exists()
 
 
 def test_publish_complete_private_key_is_idempotent_and_runtime_compatible(

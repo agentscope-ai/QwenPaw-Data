@@ -14,7 +14,7 @@ from cryptography.fernet import InvalidToken
 from .bundle import load_recovery_plan, _absolute
 from .legacy_json import MigrationError, _canonical, verify_backup
 from .locking import migration_lock
-from .sql_import import recover_sql_receipt
+from .sql_import import recover_sql_receipt, _run_id
 from .sql_rollback import read_sql_rollback_receipt, rollback_sql_rows
 from . import publication, staging
 
@@ -180,6 +180,7 @@ def rollback_saved_plan(
     target_home: Path,
     key: bytes,
     target_stopped: bool = False,
+    expected_run_id: str | None = None,
     **limits,
 ) -> RollbackReceipt:
     """Rollback/recover the SAME saved import; never replan or delete directories.
@@ -199,6 +200,12 @@ def rollback_saved_plan(
         initial = load_recovery_plan(
             path, database_url=database_url, target_home=home, key=key
         )
+        if expected_run_id is not None:
+            _run_id(expected_run_id)
+            if initial.run_id != expected_run_id:
+                raise MigrationError(
+                    "Confirmed run ID differs from the saved rollback plan"
+                )
         with migration_lock(home, target_stopped=True) as lock:
             recovery = load_recovery_plan(
                 path, database_url=database_url, target_home=home, key=key

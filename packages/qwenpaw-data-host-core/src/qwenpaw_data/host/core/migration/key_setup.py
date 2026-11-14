@@ -145,6 +145,72 @@ def _existing_key(directory: int, key: bytes) -> bool:
     return True
 
 
+def verify_selected_runtime_key(target_home: Path, *, key: bytes) -> str:
+    """Read-only Host key selection check, never generate a runtime secret.
+
+    Uses current process environment precedence, or the explicit target home's
+    already provisioned local key. Does NOT attest another service's environment,
+    home or database; the operator must configure all deployment writers alike.
+    """
+    from qwenpaw_data.host.core.settings.security import SecuritySettings
+
+    if type(key) is not bytes or len(key) != 32:
+        raise MigrationError("Target master key must contain exactly 32 raw bytes")
+    home = Path(target_home)
+    if (
+        not home.is_absolute()
+        or home.is_symlink()
+        or ".." in home.parts
+        or home.parent == home
+    ):
+        raise MigrationError(
+            "Target key requires an explicit non-root absolute home without traversal or a final symbolic link"
+        )
+    try:
+        settings = SecuritySettings()
+        secret = settings.preferences_master_secret
+        if secret:
+            if not hmac.compare_digest(bytes.fromhex(secret), key):
+                raise MigrationError(
+                    "Host environment key differs from the selected migration key"
+                )
+            return "current_process_environment"
+        if settings.env.strip().lower() in {"prod", "production"}:
+            raise MigrationError(
+                "Production requires explicit Host environment key configuration"
+            )
+    except MigrationError:
+        raise
+    except ValueError:
+        raise MigrationError("Host environment key configuration is invalid") from None
+    if os.name != "posix":
+        raise MigrationError(
+            "Local migration key verification requires POSIX permissions"
+        )
+    try:
+        fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(fd)
+            if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o022:
+                raise MigrationError(
+                    "Target home must be owned and not group/world writable"
+                )
+            if not _existing_key(fd, key):
+                raise MigrationError(
+                    "Provision the target key explicitly before preparing or applying migration"
+                )
+            current = home.lstat()
+            if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                raise MigrationError("Target home changed during key verification")
+        finally:
+            os.close(fd)
+    except OSError:
+        raise MigrationError(
+            "Cannot verify the existing target key; no key was created"
+        ) from None
+    return "explicit_target_home_file"
+
+
 def provision_local_key(
     target_home: Path, *, key: bytes, database_url: str, target_stopped: bool = False
 ) -> KeySetup:

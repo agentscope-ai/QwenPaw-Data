@@ -1,4 +1,4 @@
-"""Explicit offline preparation and local key setup, not SQL import."""
+"""Explicit offline inspection, saved-plan import/recovery and owned rollback."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "migration",
-        help="Prepare legacy Host migration or explicitly configure a local key (no SQL import)",
+        help="Explicit offline legacy migration: inspect, prepare, apply/recover or rollback",
     )
     actions = parser.add_subparsers(dest="migration_action", required=True)
     inspect = actions.add_parser(
@@ -62,13 +62,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--target-home",
         type=Path,
         required=True,
-        help="Disjoint target home; never created or modified",
+        help="Explicit disjoint target home; plan never creates or modifies it",
     )
     plan.add_argument("--identity-map", type=Path, required=True)
     plan.add_argument("--source-stopped", action="store_true", required=True)
     plan.add_argument(
         "--target-db-env",
-        help="Optional explicit environment variable NAME holding an initialized target database URL; read-only Auth/schema/conflict checks only",
+        help="Environment variable NAME holding an initialized target DB URL; optional read-only check for plan, required metadata write for prepare",
     )
     plan.add_argument(
         "--target-stopped",
@@ -130,6 +130,60 @@ def register(subparsers: argparse._SubParsersAction) -> None:
             default=64 * 1024**2,
             help="Maximum individual metadata document/event log (default: 64 MiB)",
         )
+    # Reuse conversion flags without changing the read-only plan command.
+    prepare = actions.add_parser(
+        "prepare",
+        parents=[plan],
+        add_help=False,
+        help="Save an encrypted plan and target metadata token; no business-row import",
+    )
+    prepare.add_argument(
+        "--recovery-plan",
+        type=Path,
+        required=True,
+        help="New absolute private plan path; existing plans are never replaced",
+    )
+    prepare.add_argument(
+        "--run-id",
+        required=True,
+        help="Explicit unique 32-character lowercase hex run ID",
+    )
+    prepare.add_argument(
+        "--deployment-config-confirmed",
+        action="store_true",
+        required=True,
+        help="Confirm all target services will use this home, database and key",
+    )
+    prepare.set_defaults(handler=handle_prepare)
+    for action in ("apply", "recover", "rollback", "check-rollback"):
+        command = actions.add_parser(
+            action,
+            help={
+                "apply": "Apply exactly one saved plan; retain backup and recovery evidence",
+                "recover": "Resume the same saved import, never replan or overwrite changed data",
+                "rollback": "Undo unchanged owned imported rows/files; retain backup, staging and directories",
+                "check-rollback": "Read-only known-dependency check; not deletion authorization",
+            }[action],
+        )
+        command.add_argument("--recovery-plan", type=Path, required=True)
+        command.add_argument("--target-home", type=Path, required=True)
+        command.add_argument("--target-db-env", required=True)
+        command.add_argument("--target-key-env", required=True)
+        command.add_argument("--target-stopped", action="store_true", required=True)
+        if action != "check-rollback":
+            command.add_argument(
+                "--confirm-run-id",
+                required=True,
+                help="Must exactly match the authenticated plan's run ID",
+            )
+        if action in {"apply", "recover"}:
+            command.add_argument(
+                "--deployment-config-confirmed",
+                action="store_true",
+                required=True,
+                help="Confirm all target services use the selected home, database and key",
+            )
+        command.set_defaults(handler=handle_saved_plan)
 
 
 def _limits(args):
@@ -238,7 +292,7 @@ def _model_sizes(path: Path | None):
     return document["users"]
 
 
-def handle_plan(args: argparse.Namespace) -> int:
+def _prepare_conversion(args: argparse.Namespace):
     from datetime import datetime, timezone
     from qwenpaw_data.host.core.migration.credentials import CredentialRewriter
     from qwenpaw_data.host.core.migration.legacy_json import load_identity_mapping
@@ -251,7 +305,7 @@ def handle_plan(args: argparse.Namespace) -> int:
         else None,
         target_key=_master_key(args.target_key_env, legacy=False),
     )
-    plan = prepare_migration(
+    return prepare_migration(
         args.source_home,
         backup=args.backup,
         target_home=args.target_home,
@@ -266,6 +320,10 @@ def handle_plan(args: argparse.Namespace) -> int:
         source_stopped=args.source_stopped,
         limits=_limits(args),
     )
+
+
+def handle_plan(args: argparse.Namespace) -> int:
+    plan = _prepare_conversion(args)
     report = plan.report()
     target_issues = ()
     if args.target_db_env or args.target_stopped:
@@ -314,3 +372,145 @@ def handle_provision_key(args: argparse.Namespace) -> int:
     )
     print(json.dumps(result.report(), ensure_ascii=False, indent=2))
     return 0
+
+
+def handle_prepare(args: argparse.Namespace) -> int:
+    import os
+    from qwenpaw_data.host.core.migration.binding import ensure_target_anchor
+    from qwenpaw_data.host.core.migration.bundle import (
+        _parent,
+        save_recovery_plan,
+        load_recovery_plan,
+    )
+    from qwenpaw_data.host.core.migration.key_setup import (
+        verify_selected_runtime_key,
+        check_database_credentials,
+    )
+    from qwenpaw_data.host.core.migration.legacy_json import MigrationError
+    from qwenpaw_data.host.core.migration.locking import migration_lock
+    from qwenpaw_data.host.core.migration.sql_import import _run_id
+    from qwenpaw_data.host.core.migration.target import (
+        validate_target,
+        _read_only_target,
+    )
+
+    if not args.target_db_env or args.target_stopped is not True:
+        raise MigrationError("prepare requires --target-db-env and --target-stopped")
+    _run_id(args.run_id)
+    key = _master_key(args.target_key_env, legacy=False)
+    url = _database_url(args.target_db_env)
+    key_source = verify_selected_runtime_key(args.target_home, key=key)
+    plan = _prepare_conversion(args)
+    if plan.issues:
+        print(json.dumps(plan.report(), ensure_ascii=False, indent=2))
+        return 2
+    # Reject unsafe output/overwrite before any database metadata write.
+    with _parent(args.recovery_plan) as (parent, name, resolved):
+        if any(
+            resolved.is_relative_to(p.resolve())
+            for p in (args.source_home, args.backup, args.target_home)
+        ):
+            raise MigrationError(
+                "CLI recovery plans must be outside source, backup and target home"
+            )
+        try:
+            os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise MigrationError(
+                "Recovery plan already exists; use apply/recover with the original plan, never reprepare"
+            )
+    with migration_lock(plan.target_home, target_stopped=True):
+        checked = validate_target(plan, database_url=url, target_stopped=True)
+        if checked.issues:
+            print(json.dumps(checked.report(), ensure_ascii=False, indent=2))
+            return 2
+        with _read_only_target(url) as conn:
+            check_database_credentials(conn, key)
+        anchor = ensure_target_anchor(url, target_stopped=True)
+        status = save_recovery_plan(
+            args.recovery_plan,
+            plan,
+            backup=args.backup,
+            database_url=url,
+            run_id=args.run_id,
+            target_anchor=anchor,
+            key=key,
+            source_stopped=args.source_stopped,
+            target_stopped=True,
+        )
+        saved = load_recovery_plan(
+            args.recovery_plan, database_url=url, target_home=plan.target_home, key=key
+        )
+    print(
+        json.dumps(
+            {
+                "stage": "saved_recovery_plan",
+                "status": status,
+                "run_id": saved.run_id,
+                "plan_digest": saved.digest,
+                "recovery_plan": str(args.recovery_plan),
+                "business_rows_written": False,
+                "target_metadata_token_recorded": True,
+                "key_source_checked": key_source,
+                "remote_runtime_configuration_verified": False,
+                "warning": "Keep this exact private plan, key and independent backup. Retry interrupted imports with recover; never reprepare. No automatic staging cleanup.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def handle_saved_plan(args: argparse.Namespace) -> int:
+    from qwenpaw_data.host.core.migration.bundle import load_recovery_plan
+    from qwenpaw_data.host.core.migration.coordinator import apply_saved_plan
+    from qwenpaw_data.host.core.migration.key_setup import verify_selected_runtime_key
+    from qwenpaw_data.host.core.migration.legacy_json import MigrationError
+    from qwenpaw_data.host.core.migration.rollback import rollback_saved_plan
+    from qwenpaw_data.host.core.migration.rollback_check import inspect_saved_rollback
+
+    key = _master_key(args.target_key_env, legacy=False)
+    url = _database_url(args.target_db_env)
+    if args.target_home.is_symlink() or not args.target_home.is_absolute():
+        raise MigrationError(
+            "Target home must be explicit, absolute and not a final symbolic link"
+        )
+    recovery = load_recovery_plan(
+        args.recovery_plan, database_url=url, target_home=args.target_home, key=key
+    )
+    if (
+        args.migration_action != "check-rollback"
+        and args.confirm_run_id != recovery.run_id
+    ):
+        raise MigrationError("--confirm-run-id must match the authenticated saved plan")
+    key_source = None
+    if args.migration_action in {"apply", "recover"}:
+        key_source = verify_selected_runtime_key(args.target_home, key=key)
+        operation = apply_saved_plan
+    else:
+        operation = (
+            rollback_saved_plan
+            if args.migration_action == "rollback"
+            else inspect_saved_rollback
+        )
+    result = operation(
+        args.recovery_plan,
+        database_url=url,
+        target_home=args.target_home,
+        key=key,
+        target_stopped=args.target_stopped,
+        **(
+            {"expected_run_id": args.confirm_run_id}
+            if args.migration_action != "check-rollback"
+            else {}
+        ),
+    )
+    report = result.report()
+    report["cli_action"] = args.migration_action
+    report["key_source_checked"] = key_source
+    report["remote_runtime_configuration_verified"] = False
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 2 if getattr(result, "findings", ()) else 0

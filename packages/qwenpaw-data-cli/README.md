@@ -145,12 +145,13 @@ task record as JSON to stdout; the exit code is `0` only for `success`.
 Remote agent commands use the models configured in Host preferences. The CLI
 does not forward local model credentials or override the server's model selection.
 
-## Legacy JSON migration preparation
+## Legacy JSON migration
 
-`migration inspect`, `backup`, `plan` and explicit `provision-key` are available;
-**there is no import/apply
-command yet**. Stop all source writers before backup/planning. Use a separate
-backup and target home; source data is never overwritten. For example:
+`migration inspect`, `backup`, `plan`, `provision-key`, `prepare`, `apply`,
+`recover`, `check-rollback` and `rollback` provide an explicit offline workflow.
+Writes currently require POSIX, an initialized SQLite/PostgreSQL target and all
+application writers stopped. Use separate source, backup and target homes;
+source data is never overwritten. Begin with read-only preparation:
 
 ```bash
 qwenpaw-data migration inspect --source-home /absolute/old-home --identity-map identities.json
@@ -208,9 +209,8 @@ Exit `0` means conversion and any requested target checks passed, `2` means ther
 are reported blockers, and `1` means the command failed (including unavailable
 or incompatible target schema). Even with `conversion_complete: true` and
 `target_validation.target_checks_passed: true`, the plan reports `import_ready:
-false`: transactional file/SQL import, idempotence and rollback are not yet
-implemented. Preflight is a point-in-time check, not a
-reservation; import must revalidate all mutable state.
+false`: this read-only command does not save an executable plan or reserve the
+target. Use the explicit saved-plan workflow below; import revalidates mutable state.
 Reports contain counts/paths and safe errors, not source payloads or credentials.
 
 ### Explicit local master-key configuration
@@ -248,125 +248,103 @@ the database. Native Windows ACL acceptance and automatic deployment-secret
 provisioning are not implemented. No SQL rows are written, and `import_ready`
 remains false.
 
-The Host now includes an internal transactional SQL component and the additive
-`legacy_import_runs` receipt table. Rows and the SQL receipt commit together;
-exact-plan replay verifies stored row digests and never overwrites changed data.
-Connection failures are not treated as proof of rollback. Explicit SQLite
-engine recovery is separate from read-only preflight and never manually deletes
-journals. This component is **not an import command**: the file components below
-must be integrated into one supported recovery/rollback workflow before a CLI
-`apply` can be exposed. Do not invoke the SQL component alone to migrate user data.
+### Save, apply and recover the exact plan
 
-An internal POSIX recovery-plan component now preserves the exact converted rows,
-ciphertext, timestamps and scoped file inventory in an authenticated encrypted
-0600 file. Publication requires a verified independent backup and stopped source
-and target writers; it never replaces an existing different plan. It binds the
-plan to the target home directory, an opaque database selection fingerprint and
-an explicitly recorded `legacy_import_targets` token. Recovery must check that
-token inside every SQL receipt/import transaction: a missing or replaced database
-is not evidence that an import rolled back. Password rotation is allowed; database
-clones/restores still require operator review because they can copy the token.
+Initialize accounts, memberships and the current Host schema separately, including
+`legacy_import_targets`, `legacy_import_runs` and `legacy_import_rollbacks`.
+Migration never creates accounts, repairs schema or changes the runtime database
+selection. Stop **all** target writers, including services on other machines.
+Provision the target key first. `prepare`/`apply`/`recover` check Host environment
+key precedence or the already provisioned key in the explicit target home, without
+generating a key. `--deployment-config-confirmed` additionally acknowledges that
+every service will use the selected home, database and key; the CLI cannot attest
+another process's environment. Production requires an environment-provisioned key.
 
-Loading this plan does not reconnect or reread the source/backup. Fresh-process
-SQLite and PostgreSQL checks cover SQL precommit crashes, lost postcommit
-responses and exact replay from the saved plan. This does **not** permit deleting
-the backup, prove attachment publication, or provide a CLI recovery command.
-Unexpected links (including a crash between no-replace publication and temporary
-link removal) are refused for operator inspection, not automatically deleted.
-The internal file-preparation component now uses a process-held POSIX lock per
-canonical target home (never unlinking the lock file). With application writers
-stopped, it copies only from the verified independent backup into a separate
-private staging area; original modes are not restored and copies stay 0600.
-Authenticated receipts bind each completed copy to its exact plan and file inode.
-Repeated preparation rechecks hashes and refuses modified files, aliases, changed
-targets or an already committed SQL import. Fresh-process SQLite/PostgreSQL
-acceptance covers a crash during copying and reuse of completed staging.
+Create a private mode-0700 plan directory outside source, backup and target. Choose
+one unique lowercase 32-hex-character run ID and retain it. Example Bash workflow
+(named key/DB variables must already be securely configured):
 
-Interrupted copies are retained without overwrite/deletion; at most eight
-incomplete attempts are allowed by default before operator inspection is required.
-An interruption before the initial staging-root binding is durable also requires
-inspection, not automatic adoption. This lock only excludes cooperating migration
-processes on one home; it does not stop Host writers or coordinate different
-machines/homes sharing a database.
+```bash
+MIGRATION_RUN_ID="$(python -c 'import uuid; print(uuid.uuid4().hex)')"
+migration_target=(--target-home /absolute/new-home --target-db-env MIGRATION_TARGET_DB
+  --target-key-env MIGRATION_TARGET_KEY --target-stopped)
 
-An internal publication hook now places verified staged files into their scoped
-workspace destinations using atomic, non-overwriting hard links. An authenticated
-intent is durable before each link; retries require the same staged inode and
-matching intent, not merely equal target bytes. Staging and destination must be on
-the same filesystem. Files stay 0600; existing safe directories are observed but
-never claimed as removable. Keep the staging links and independent backup: normal
-application writes also change the linked staging copy, and later verification
-then refuses replay instead of overwriting user changes.
+qwenpaw-data migration prepare "${migration_target[@]}" \
+  --source-home /absolute/old-home --backup /absolute/backup --source-stopped \
+  --identity-map identities.json --source-key-env MIGRATION_SOURCE_KEY \
+  --context-trigger-ratio 0.8 --context-reserve-ratio 0.1 \
+  --recovery-plan /absolute/private/plan.enc --run-id "$MIGRATION_RUN_ID" \
+  --deployment-config-confirmed
 
-SQLite and PostgreSQL process checks cover first-file publication crashes,
-all-files-published/precommit crashes, lost SQL commit responses, and exact replay
-of all 15 tables plus two final files. The hook belongs inside the anchored SQL
-transaction; replay of an already committed SQL receipt must separately verify
-file publication.
+qwenpaw-data migration apply "${migration_target[@]}" \
+  --recovery-plan /absolute/private/plan.enc --confirm-run-id "$MIGRATION_RUN_ID" \
+  --deployment-config-confirmed
 
-The internal saved-plan coordinator now performs that sequence under one home
-lock: authenticate the original plan, recover/check the bound SQL receipt, stage
-or resume files, commit SQL with the publication hook, and independently verify
-published files. Uncommitted imports require the independent backup online and
-verified; the source may be offline. Already committed imports only verify SQL
-and files and may be checked without backup access. They never repair modified
-rows, changed files or files moved by the user. Errors preserve all evidence and
-must be retried with the same saved plan, not a newly generated conversion.
+# After an interrupted/ambiguous import, keep writers stopped and use the SAME plan:
+qwenpaw-data migration recover "${migration_target[@]}" \
+  --recovery-plan /absolute/private/plan.enc --confirm-run-id "$MIGRATION_RUN_ID" \
+  --deployment-config-confirmed
+```
 
-Fresh-process SQLite/PostgreSQL acceptance covers interrupted copying, partial
-publication, all-files/precommit exit and lost commit responses through this
-entry point. A real local Host twice across restart verified artifact preview,
-download and compatibility access, native attachment resolution, authorization
-rejection, imported history/preferences and the separately provisioned local key.
-Receipts still verified after use. This does not configure remote deployments or
-prove external backends. Supported CLI `apply`/`rollback`, safe journal/staging
-cleanup and native Windows acceptance remain unfinished.
+Add the same model-size and explicit cron-disabling flags used during `plan`.
+`prepare` revalidates conversion, Auth, conflicts and all existing credentials;
+it writes only a persistent database identity token, lock file and private
+authenticated encrypted plan, not business rows or workspace files. Existing
+plans are refused rather than regenerated: randomized ciphertext and timestamps
+must remain exact. If preparation fails, inspect its output before retrying.
+The saved plan is bound to the home inode, database selection and recorded token.
+Database clones/restores require operator review, even at the same URL.
 
-The internal rollback-eligibility check now verifies the saved plan, independent
-backup, unchanged imported SQL rows and publication evidence before examining
-remaining native references. It detects session/chat/attachment/model references
-including conservative nested-JSON candidates, without deleting rows or files.
-Unknown tables, extra columns, native-table triggers and added foreign keys into
-imported tables require review; bounded scans fail closed when their row/JSON
-budgets are exceeded. Unrelated existing data does not automatically block the
-check. This is **not rollback authorization**: external dependencies and arbitrary
-references embedded in prose/code are not proven, and the checks must run again
-inside the deletion transaction.
+`apply` and `recover` share the same idempotent coordinator. Source may be offline;
+an uncommitted import requires the independent backup online and verified. SQL
+rows and their receipt commit together around file publication; SQLite recovery
+uses its engine, never manual journal deletion. Files are mode-0600 non-overwriting
+hard links from verified staging, requiring the same filesystem. Already committed
+imports only verify, never repair changed rows, moved files or modified bytes.
+Both commands require the exact run ID; connection errors never justify cleanup.
 
-An internal SQL rollback component now repeats these checks transactionally,
-deletes only the unchanged imported primary keys in bounded batches, and commits
-a permanent `legacy_import_rollbacks` receipt atomically with those deletions.
-The original import receipt remains; the same run cannot be replayed forward.
-Rollback replay checks that the deleted keys remain absent and that new references
-have not appeared. Missing schema or an unreadable receipt is not evidence of
-success. Initialize the additive receipt table through normal target schema
-alignment separately; rollback never creates or repairs schema.
+### Check and roll back an unchanged import
 
-Independent SQLite/PostgreSQL process checks cover precommit exit, lost rollback
-responses and exact receipt replay, with Auth data and all file bytes/inodes
-retained. SQL rollback alone never authorizes file deletion: it must have matching
-authenticated local rollback intent and unchanged publication evidence.
+```bash
+qwenpaw-data migration check-rollback "${migration_target[@]}" \
+  --recovery-plan /absolute/private/plan.enc
+qwenpaw-data migration rollback "${migration_target[@]}" \
+  --recovery-plan /absolute/private/plan.enc --confirm-run-id "$MIGRATION_RUN_ID"
+```
 
-The internal `rollback_saved_plan` coordinator now holds the home lock, verifies
-the independent backup and exact import, and durably records encrypted rollback
-intent inside the SQL precommit hook. No files are removed on an ambiguous SQL
-response. Retrying the same saved plan confirms the bound permanent SQL receipt,
-rechecks native dependencies and all file ownership evidence, then unlinks only
-the original unchanged published hard links. It rehashes each staged inode before
-unlink and records completion durably. A missing final link is accepted only when
-the retained staged inode has exactly one link and its original publication intent
-still matches; moved, replaced, modified or additionally linked files are refused.
-Pending local rollback intent also forbids forward publication.
+`check-rollback` verifies backup, unchanged SQL and file evidence, then scans known
+native and conservative JSON references. Exit `2` reports dependencies. Unknown
+tables/columns, triggers, added foreign keys and scan-budget excesses refuse the
+operation. This does not prove external dependencies or arbitrary references in
+prose/code; review those before confirming rollback. It may create the home lock
+file but does not change business rows or workspace files.
 
-Independent SQLite/PostgreSQL process checks cover exit after intent, SQL commit,
-each unlink and completion, followed by exact recovery. All 15 imported tables and
-two published paths become absent; Auth, unrelated files, staged bytes/inodes,
-backup and every directory remain. All application writers must stay stopped:
-the home lock serializes migration tools, not Host processes or arbitrary writers.
-This is not external-dependency or native Windows acceptance, and no CLI rollback
-is exposed yet. Keep the original source, independent backup, encrypted plan,
-staging, journals and both SQL receipts; automatic staging/directory cleanup is
-deliberately not part of this rollback.
+`rollback` repeats dependency checks inside its deletion transaction. It records
+encrypted local intent before SQL commit, then requires a durable SQL rollback
+receipt before unlinking only unchanged, originally owned published files. An
+ambiguous response retains files; retry **rollback**, not `recover`, with the same
+plan and run ID. Crashes between unlinks are resumable; a replaced, moved, modified
+or additionally linked file is never adopted or removed. Original and rollback
+SQL receipts remain permanently; pending rollback intent and committed rollback
+both forbid forward replay. Rollback uses the original selected key even if the
+runtime key configuration was subsequently changed.
+
+### Retention and acceptance boundary
+
+Keep source, independent backup, original keys, encrypted plan, private staging,
+publication/rollback journals and SQL receipts. No automatic staging or directory
+cleanup is provided: directories are only observed, never claimed as removable.
+The retained staging copy shares an inode with a published file, so it is **not an
+independent backup**; application changes cause later verification/rollback to
+refuse. Do not unlink the migration lock. Interrupted initial journal creation,
+unexpected links or eight incomplete staging attempts require operator inspection.
+
+Fresh-process SQLite/PostgreSQL acceptance covers 15 tables and two files through
+the actual CLI workflow, plus coordinator crash drills at copy, publication, SQL
+commit, rollback intent, every unlink and completion. Native Host reads across
+restart were verified separately. This does not prove external backends, remote
+deployment configuration or native Windows support. The home lock excludes only
+cooperating migration invocations; applications must remain stopped throughout.
 
 ## Output and logs
 
