@@ -28,6 +28,7 @@ from . import staging
 
 _TEMP = re.compile(r"\.publish-[0-9a-f]{32}\.tmp")
 _RECORD = re.compile(r"publish-(dir|file)-([0-9]{8})\.enc")
+_ROLLBACK_RECORDS = {"rollback-intent.enc", "rollback-complete.enc"}
 
 
 @dataclass(frozen=True)
@@ -196,7 +197,7 @@ def _file_state(run, recovery, item, lock, cipher, *, required):
 
 
 @contextmanager
-def _prepared(recovery, lock, database_url, key):
+def _prepared(recovery, lock, database_url, key, *, allow_rollback=False):
     lock.check()
     _run_id(recovery.run_id)
     _validate_plan(recovery.plan)
@@ -231,6 +232,12 @@ def _prepared(recovery, lock, database_url, key):
                 raise MigrationError("Publication journal contains too many entries")
             path = lock.home / staging._ROOT / recovery.run_id
             for name in names:
+                if name in _ROLLBACK_RECORDS:
+                    if not allow_rollback:
+                        raise MigrationError(
+                            "A rollback journal exists; forward publication is forbidden"
+                        )
+                    continue  # Rollback coordinator authenticates these records.
                 if name == "binding.enc" or _TEMP.fullmatch(name):
                     continue
                 record = _RECORD.fullmatch(name)

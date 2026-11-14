@@ -319,8 +319,8 @@ entry point. A real local Host twice across restart verified artifact preview,
 download and compatibility access, native attachment resolution, authorization
 rejection, imported history/preferences and the separately provisioned local key.
 Receipts still verified after use. This does not configure remote deployments or
-prove external backends. A supported CLI `apply`, post-import rollback, safe
-journal/staging cleanup and native Windows acceptance remain unfinished.
+prove external backends. Supported CLI `apply`/`rollback`, safe journal/staging
+cleanup and native Windows acceptance remain unfinished.
 
 The internal rollback-eligibility check now verifies the saved plan, independent
 backup, unchanged imported SQL rows and publication evidence before examining
@@ -344,11 +344,29 @@ alignment separately; rollback never creates or repairs schema.
 
 Independent SQLite/PostgreSQL process checks cover precommit exit, lost rollback
 responses and exact receipt replay, with Auth data and all file bytes/inodes
-retained. This is **not full rollback**: its required coordinator hook must verify
-file ownership and persist rollback intent without deleting files before SQL
-commit is confirmed. Production rollback-intent journaling, file rollback,
-safe cleanup and supported CLI apply/rollback remain unfinished. Keep the original
-source, independent backup, encrypted plan, staging links and both SQL receipts.
+retained. SQL rollback alone never authorizes file deletion: it must have matching
+authenticated local rollback intent and unchanged publication evidence.
+
+The internal `rollback_saved_plan` coordinator now holds the home lock, verifies
+the independent backup and exact import, and durably records encrypted rollback
+intent inside the SQL precommit hook. No files are removed on an ambiguous SQL
+response. Retrying the same saved plan confirms the bound permanent SQL receipt,
+rechecks native dependencies and all file ownership evidence, then unlinks only
+the original unchanged published hard links. It rehashes each staged inode before
+unlink and records completion durably. A missing final link is accepted only when
+the retained staged inode has exactly one link and its original publication intent
+still matches; moved, replaced, modified or additionally linked files are refused.
+Pending local rollback intent also forbids forward publication.
+
+Independent SQLite/PostgreSQL process checks cover exit after intent, SQL commit,
+each unlink and completion, followed by exact recovery. All 15 imported tables and
+two published paths become absent; Auth, unrelated files, staged bytes/inodes,
+backup and every directory remain. All application writers must stay stopped:
+the home lock serializes migration tools, not Host processes or arbitrary writers.
+This is not external-dependency or native Windows acceptance, and no CLI rollback
+is exposed yet. Keep the original source, independent backup, encrypted plan,
+staging, journals and both SQL receipts; automatic staging/directory cleanup is
+deliberately not part of this rollback.
 
 ## Output and logs
 
