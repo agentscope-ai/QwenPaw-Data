@@ -274,8 +274,22 @@ responses and exact replay from the saved plan. This does **not** permit deletin
 the backup, prove attachment publication, or provide a CLI recovery command.
 Unexpected links (including a crash between no-replace publication and temporary
 link removal) are refused for operator inspection, not automatically deleted.
-The file coordinator, its exclusive lock and durable journal, verified file
-publication and post-import rollback remain unfinished.
+The internal file-preparation component now uses a process-held POSIX lock per
+canonical target home (never unlinking the lock file). With application writers
+stopped, it copies only from the verified independent backup into a separate
+private staging area; original modes are not restored and copies stay 0600.
+Authenticated receipts bind each completed copy to its exact plan and file inode.
+Repeated preparation rechecks hashes and refuses modified files, aliases, changed
+targets or an already committed SQL import. Fresh-process SQLite/PostgreSQL
+acceptance covers a crash during copying and reuse of completed staging.
+
+Interrupted copies are retained without overwrite/deletion; at most eight
+incomplete attempts are allowed by default before operator inspection is required.
+An interruption before the initial staging-root binding is durable also requires
+inspection, not automatic adoption. This lock only excludes cooperating migration
+processes on one home; it does not stop Host writers or coordinate different
+machines/homes sharing a database. Final workspace publication, its durable
+recovery journal, SQL/file coordination and post-import rollback remain unfinished.
 
 ## Output and logs
 
