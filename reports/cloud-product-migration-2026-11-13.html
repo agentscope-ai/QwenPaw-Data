@@ -36,7 +36,7 @@
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>d9394eb</code>；Host 收敛、安全修复及 cron/followup 迁移已提交。Context 的单行测试导入修正已暂存，等待该包要求的显式提交批准；以下工作区合并验证包含此未提交修正。<br>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>d9fb06c</code>；Host 收敛、安全修复、cron/followup/settlement、真实 demo、Console lint 与 SQL 提交边界修复已提交。Context 的单行测试导入修正已暂存，等待该包要求的显式提交批准；此前 594 项工作区合并验证包含此未提交修正。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
     </section>
     <section aria-labelledby="scope">
@@ -46,7 +46,7 @@
           <thead><tr><th scope="col">范围</th><th scope="col">当前结果与限制</th></tr></thead>
           <tbody>
             <tr><th scope="row">CLI / Host</th><td>当前会话、任务、文件、计划、cron、复盘及追问能力已纳入；CLI / Python 集成走 Host API。旧进程内 API 不再恢复；JSON 历史数据迁移仍待完成。</td></tr>
-            <tr><th scope="row">Context / DataBridge</th><td>语义管理、检索、SQL、profiling、知识与用户记忆实现已纳入；新旧实现并存，需要入口、调用关系和数据范围审计。</td></tr>
+            <tr><th scope="row">Context / DataBridge</th><td>语义管理、检索、SQL、profiling、知识与用户记忆实现已纳入；原生 SQL 与语义编辑/织入已通过真实服务验收。旧 MCP execute_sql 仍转发到已移除的 HTTP 路由，确认返回 404；注册成功不等于兼容可用，待契约 review。</td></tr>
             <tr><th scope="row">Console / Skills</th><td>已修复识别出的技能修订、MCP/channel 设置、settlement/proposal/draft 和文件网关路由；保留显式方法、同源及凭据隔离约束。</td></tr>
             <tr><th scope="row">Auth / Tracing</th><td>开源本地身份、租户/工作区授权与 tracing/usage 已纳入；内部身份系统与部署凭据不移植，跨服务验收仍待完成。</td></tr>
             <tr><th scope="row">可选基础设施</th><td>Hologres 为可选后端，无连接的部署无需启用；Docker 为 Host 默认执行后端，本地无沙箱执行须显式选择。</td></tr>
@@ -87,6 +87,11 @@
             <tr><th scope="row">当前服务替代旧 Host 测试</th><td>配置 API → SQL → builder、workspace 租户/用户/agent 作用域、session 产物路径、MCP 凭据与会话隔离已接到当前实现。HTTP/SQL/SSE 冒烟 9 项通过（包含于上述 594 项）：原生/兼容路由、游标续传、并发冲突、取消、失败、重启恢复、终态写入竞态；JSON 模式验证启动拒绝而非假称兼容。Agent/Context 使用替身，Docker 工厂初始化模拟；不等于真实模型、网络流式时延或外部后端验收。</td></tr>
             <tr><th scope="row">附件安全 / SQL 反馈</th><td>附件与反馈旧测试迁至当前 SQL / HTTP；55 项检查包含于上述 594 项。新增回归先复现后修复附件删除路径越界、Console 上传目录符号链接越界写入；跨身份/会话引用拒绝、反馈替换不丢历史通过。独立临时 Host + SQLite 的真实 HTTP 验证正常上传/删除/重传、错误 token 401、越界操作 400、外部文件及拒删记录保留；进程已关闭，无模型/Context 调用。路径校验不构成并发恶意文件系统替换的完全隔离证明。</td></tr>
             <tr><th scope="row">Cron / Followup 服务边界</th><td>d9394eb：cron 36 项与 followup 29 项检查包含于上述 594 项。任务操作、可信身份隔离、SQL 运行请求与重复领取保护通过；追问正常发送在终态前、迟到结果只持久化、不追加终态后的 SSE、同 session 历史去重输入和禁用开关通过。使用 SQLite 与替身模型，不代表真实推送渠道或 LLM 效果。</td></tr>
+            <tr><th scope="row">Settlement SQL 编排</th><td>dd6d3dd：6 个 settlement 选择集共 173 项通过。旧 JSON manager 场景迁至真实 SQL，覆盖提交后跨连接读取、历史窗口、去重、拒绝历史、异步反馈入库及跨用户/租户/工作区拒绝读取。模型和 Context 检索为替身；不声称真实推荐质量。</td></tr>
+            <tr><th scope="row">真实跨服务 demo</th><td>ddc1aaa：独立 Host → Context → 原生 MCP execute_read → PostgreSQL → CLI 验证预期聚合值及 SQL 会话完成；另一条链路验证数据源管理、显式绑定 Excel、部分更新、批量删除、Neo4j FULL 织入和引用保护。直接查询 Neo4j 确认指标节点落库。模型与 1024 维 embedding 为本地协议 fixture；真实数据库、API 和进程，无外部模型调用。使用新建临时容器及私有 SQLite，结束后仅清理这些资源，原有容器未改动。</td></tr>
+            <tr><th scope="row">示例 / CLI 回归</th><td>示例、CLI 与 settlement manager 合并选择集 134 项通过；Ruff CI 规则及 diff 检查通过。Excel 保留 8 张表及全部数据行，只修改 7 个导入字段名；注册脚本改为先创建/复用数据源，再按返回 ID 导入。全量测试收集仍有 4 个错误，不能视为全量测试通过。</td></tr>
+            <tr><th scope="row">Console lint 恢复</th><td>044a466：21 个 lint 错误归零，保留 3 个现有 hooks warnings；254 项测试通过、1 项跳过，Console 生产构建与 73 个 Context 嵌入模块绑定检查通过。测试桩改用明确 DOM/AST/消息类型，未关闭规则或删除测试；不是浏览器视觉验收，构建仍有大 chunk 等警告。</td></tr>
+            <tr><th scope="row">HTTP / SQL 提交边界</th><td>d9fb06c：先复现 session/配置在响应发出时尚未提交，以及提交失败仍返回 200；84 处路由数据库依赖改为响应前提交，FastAPI 最低版本升至支持该 scope 的 0.121，锁定版本未变。107 项 Host/API 检查通过，覆盖原生/兼容入口的响应发送边界、回滚及全部路由 scope 检查。真实 PostgreSQL / Neo4j 双 demo 复验通过；SSE 与后台任务保留独立会话。CI 的一次 404 与此竞态相符，但未取得该次失败的服务端完整现场，不断言它是唯一原因。</td></tr>
           </tbody>
         </table>
       </div>
@@ -98,10 +103,11 @@
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
         <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。JSON 迁移须显式映射旧 user_id 与新租户/工作区身份，验证文件引用、凭据、备份与回滚。目前未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>1676120 对应 CI run 43635635297 中，数据库与 Docker sandbox 集成通过；Python macOS/Ubuntu、前端 lint/build、供应链及 demo smoke job 失败，整轮当时仍在运行。最新工作区全量收集剩 5 个错误：4 个 Host 旧接口/测试辅助引用，1 个 Context 旧路由检查在导入时装配真实 Neo4j。此前另有 Console 依赖审计 27 项（含 1 critical）、Windows 初始化及 demo 缺少共享数据库表；需按最新日志复核。定向回归不等于远端 CI 验收。</li>
+        <li><strong>修复完整 CI：</strong>ddc1aaa 的 run 43637424126 仍失败（demo 出现 Host 404）；044a466 的 run 43637939297 已确认 demo、数据库、Docker 集成通过，但 Python、前端、供应链仍失败，打包与 Windows 在报告更新时未结束。全量收集剩 4 个错误：Host 的 clarification、steer clarification、store conformance 旧接口，以及 Context 旧路由检查在导入时装配真实 Neo4j。Context GraphCanvas 的 12 个 lint 错误待修；Console 的 21 个错误已本地修复验证。d9fb06c 新一轮远端结果待核实。定向回归不等于远端 CI 验收。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
       </ol>
       <p class="warning">待 review 的行为差异：internal 澄清问题数量为提示性建议，答复经 SQL 命令排队；旧 OSS 要求硬性数量上限与同步“已答复”409。本轮未改变生产语义，等待确认后迁移对应测试。</p>
+      <p class="warning">待 review 的旧 MCP 入口：建议实际调用方迁往 internal 原生工具，再移除无效旧入口；另一方案是保留旧契约并补齐兼容适配。当前只确认 execute_sql 的旧 HTTP 转发 404，未将其他旧工具一概判为不可用，也未擅自删除兼容入口。</p>
       <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
     </section>
     <footer>
