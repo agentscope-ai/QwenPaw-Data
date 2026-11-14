@@ -553,3 +553,18 @@ class LegacyImportTargetRow(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     token: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(nullable=False)
+
+
+class LegacyImportRollbackRow(Base):
+    """Atomic SQL rollback receipt; kept permanently to prevent forward replay."""
+
+    __tablename__ = "legacy_import_rollbacks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_digest: Mapped[str] = mapped_column(String, nullable=False)
+    plan_digest: Mapped[str] = mapped_column(String, nullable=False)
+    data_digest: Mapped[str] = mapped_column(String, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    rolled_back_at: Mapped[datetime] = mapped_column(nullable=False)

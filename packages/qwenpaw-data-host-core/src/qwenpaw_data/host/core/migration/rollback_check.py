@@ -155,6 +155,38 @@ def check_rollback_dependencies(
     receipt = _receipt(conn, plan, run_id, digest)
     if receipt is None:
         raise MigrationError("No verified committed import exists for rollback")
+    count, findings = _scan_remaining_references(
+        conn,
+        plan,
+        max_rows=max_rows,
+        max_json_bytes=max_json_bytes,
+        max_total_json_bytes=max_total_json_bytes,
+    )
+    return RollbackCheck(
+        run_id,
+        digest,
+        receipt.data_digest,
+        receipt.row_count,
+        receipt.file_count,
+        count,
+        findings,
+    )
+
+
+def _scan_remaining_references(
+    conn,
+    plan,
+    *,
+    max_rows=100_000,
+    max_json_bytes=1024**2,
+    max_total_json_bytes=64 * 1024**2,
+):
+    """Also reusable after rollback: imported PKs must separately be absent."""
+    if any(
+        type(v) is not int or v <= 0
+        for v in (max_rows, max_json_bytes, max_total_json_bytes)
+    ):
+        raise MigrationError("Rollback scan limits must be positive integers")
     imported = {}
     ids = {}
     providers, models = set(), set()
@@ -295,15 +327,7 @@ def check_rollback_dependencies(
                                 "possible_json_reference", name, column.name
                             )
                         )
-    return RollbackCheck(
-        run_id,
-        digest,
-        receipt.data_digest,
-        receipt.row_count,
-        receipt.file_count,
-        count,
-        tuple(sorted(findings)),
-    )
+    return count, tuple(sorted(findings))
 
 
 def inspect_saved_rollback(

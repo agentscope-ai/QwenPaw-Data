@@ -160,6 +160,12 @@ class SQLReceipt:
 
 
 def _receipt(conn, plan, run_id, fingerprint):
+    rollback = Base.metadata.tables["legacy_import_rollbacks"]
+    _check_schema(conn, {rollback.name})
+    if conn.scalar(select(rollback.c.id).where(rollback.c.id == run_id)) is not None:
+        raise MigrationError(
+            "This import has a durable rollback receipt; forward replay is forbidden"
+        )
     value = (
         conn.execute(select(_RUN).where(_RUN.c.id == run_id)).mappings().one_or_none()
     )
@@ -190,7 +196,11 @@ def _receipt(conn, plan, run_id, fingerprint):
 
 
 @contextmanager
-def _writer(database_url: str, *, recover_sqlite: bool = False):
+def _writer(
+    database_url: str, *, recover_sqlite: bool = False, operation: str = "import"
+):
+    if operation not in {"import", "rollback"}:
+        raise MigrationError("Unsupported migration SQL operation")
     engine = None
     try:
         if (
@@ -256,7 +266,7 @@ def _writer(database_url: str, *, recover_sqlite: bool = False):
         if isinstance(exc, MigrationError):
             raise
         raise MigrationError(
-            "SQL import failed; verify the durable run receipt before any file cleanup or retry"
+            f"SQL {operation} failed; verify the durable {'run' if operation == 'import' else 'rollback'} receipt before any file cleanup or retry"
         ) from None
     finally:
         if engine is not None:

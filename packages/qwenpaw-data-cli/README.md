@@ -331,8 +331,24 @@ imported tables require review; bounded scans fail closed when their row/JSON
 budgets are exceeded. Unrelated existing data does not automatically block the
 check. This is **not rollback authorization**: external dependencies and arbitrary
 references embedded in prose/code are not proven, and the checks must run again
-inside the eventual deletion transaction. Durable rollback state, actual
-SQL/file rollback, cleanup and a supported CLI entry point remain unfinished.
+inside the deletion transaction.
+
+An internal SQL rollback component now repeats these checks transactionally,
+deletes only the unchanged imported primary keys in bounded batches, and commits
+a permanent `legacy_import_rollbacks` receipt atomically with those deletions.
+The original import receipt remains; the same run cannot be replayed forward.
+Rollback replay checks that the deleted keys remain absent and that new references
+have not appeared. Missing schema or an unreadable receipt is not evidence of
+success. Initialize the additive receipt table through normal target schema
+alignment separately; rollback never creates or repairs schema.
+
+Independent SQLite/PostgreSQL process checks cover precommit exit, lost rollback
+responses and exact receipt replay, with Auth data and all file bytes/inodes
+retained. This is **not full rollback**: its required coordinator hook must verify
+file ownership and persist rollback intent without deleting files before SQL
+commit is confirmed. Production rollback-intent journaling, file rollback,
+safe cleanup and supported CLI apply/rollback remain unfinished. Keep the original
+source, independent backup, encrypted plan, staging links and both SQL receipts.
 
 ## Output and logs
 
