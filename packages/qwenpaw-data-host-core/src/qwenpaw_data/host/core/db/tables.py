@@ -105,7 +105,7 @@ class ChannelBindingRow(IdentityColumns, Base):
     active_session_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     target_type: Mapped[str] = mapped_column(String, nullable=False, default="")
     display_name: Mapped[str] = mapped_column(String, nullable=False, default="")
-    send_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=lambda: dict)
+    send_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow)
 

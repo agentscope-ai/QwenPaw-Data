@@ -322,6 +322,18 @@ Receipts still verified after use. This does not configure remote deployments or
 prove external backends. A supported CLI `apply`, post-import rollback, safe
 journal/staging cleanup and native Windows acceptance remain unfinished.
 
+The internal rollback-eligibility check now verifies the saved plan, independent
+backup, unchanged imported SQL rows and publication evidence before examining
+remaining native references. It detects session/chat/attachment/model references
+including conservative nested-JSON candidates, without deleting rows or files.
+Unknown tables, extra columns, native-table triggers and added foreign keys into
+imported tables require review; bounded scans fail closed when their row/JSON
+budgets are exceeded. Unrelated existing data does not automatically block the
+check. This is **not rollback authorization**: external dependencies and arbitrary
+references embedded in prose/code are not proven, and the checks must run again
+inside the eventual deletion transaction. Durable rollback state, actual
+SQL/file rollback, cleanup and a supported CLI entry point remain unfinished.
+
 ## Output and logs
 
 The CLI writes streamed agent events, final answers, and execution summaries to
