@@ -139,10 +139,14 @@ class ChatRow(IdentityColumns, Base):
     active_duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     plan: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Additive upgrades need database defaults for pre-existing chat rows;
+    # Python-side defaults alone only apply to newly inserted rows.
     artifact_comments_json: Mapped[list] = mapped_column(
-        JSON, nullable=False, default=list
+        JSON, nullable=False, default=list, server_default=text("'[]'")
     )
-    attachments_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    attachments_json: Mapped[list] = mapped_column(
+        JSON, nullable=False, default=list, server_default=text("'[]'")
+    )
     agent_state_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     enable_clarification: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()

@@ -249,12 +249,15 @@ def test_master_prompt_gates_subagent(monkeypatch) -> None:
         workspace_dir="/workspace",
         artifact_dir="/workspace/artifacts/s1",
     )
-    assert "模型可见 workspace 绝对路径：`/workspace`" in environment
-    assert "当前 session 产物绝对目录：`/workspace/artifacts/s1`" in environment
-    assert "`/workspace/skills/default/bi-report-generation/SKILL.md`" in environment
+    assert "workspace 根目录：`/workspace`" in environment
+    assert "当前 Session 产物目录：`/workspace/artifacts/s1`" in environment
     assert "skills/default/bi-report-generation/SKILL.md" in agent_prompt
-    assert "FileRef.path 使用" in environment
-    assert "不要臆造" in environment
+    # The shared environment follows native TaskContext landing rules, not the
+    # retired embedded DAG's FileRef or a hard-coded default-agent skill path.
+    assert "当前 Session 产物目录" in environment
+    assert "未获用户明确指示，禁止读取或改写其他 Session 的文件" in environment
+    assert "data/raw/" in environment
+    assert "result.yaml" in environment
 
     monkeypatch.setenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", "0")
     assert "spawn_subagent(task" not in build_master_prompt(mode="agent")
@@ -271,8 +274,10 @@ def test_analysis_environment_uses_local_host_paths(tmp_path) -> None:
         artifact_dir=artifact_dir,
     )
 
-    assert f"模型可见 workspace 绝对路径：`{workspace_dir}`" in environment
-    assert f"当前 session 产物绝对目录：`{artifact_dir}`" in environment
+    assert f"workspace 根目录：`{workspace_dir}`" in environment
+    assert f"当前 Session 产物目录：`{artifact_dir}`" in environment
+    assert "FileRef" not in environment
+    assert "skills/default/" not in environment
 
 
 @pytest.mark.asyncio

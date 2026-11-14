@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -13,6 +14,18 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
+from agentscope.state import AgentState
+from qwenpaw_data.host.core.db.engine import get_session_factory, init_db, reset_engine
+from qwenpaw_data.host.core.domain.session import Session
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories.agent_state import AgentStateStore
+from qwenpaw_data.host.core.repositories.chat import ChatRepository
+from qwenpaw_data.host.core.repositories.chat_event import ChatEventRepository
+from qwenpaw_data.host.core.repositories.session import SessionRepository
+from qwenpaw_data.host.core.settings import clear_settings, get_settings
+from qwenpaw_data.host.core.stream.output_stream import OutputStream
+
+from .conftest import TEST_IDENTITY, _seed_test_preferences
 
 
 @asynccontextmanager
@@ -23,43 +36,48 @@ async def service_client(tmp_path: Path, monkeypatch, **env: str):
         "qwenpaw_data.host.core.api.routers.console.ChatRuntime.run", AsyncMock()
     )
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
     monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
     monkeypatch.delenv("QWENPAW_DATA_SHARE_SECRET", raising=False)
+    for key in list(os.environ):
+        if key.startswith("QWENPAW_DATA_OSS_"):
+            monkeypatch.delenv(key)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    app = create_app(home=tmp_path, model=object())
+    clear_settings()
+    await reset_engine()
+    app = create_app()
     async with app.router.lifespan_context(app):
+        await _seed_test_preferences(get_session_factory())
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
         async with httpx.AsyncClient(
             transport=transport,
-            base_url="http://testserver",
+            base_url="http://localhost",
+            trust_env=False,
         ) as http:
             yield http, app
+    await reset_engine()
 
 
-def _biz_event_payload(event_id: str) -> dict:
-    return {
-        "object": "biz_event",
-        "biz_event": {
-            "event_id": event_id,
-            "seq": 1,
-            "channel": "main",
-            "status": "done",
-            "started_at": 1.0,
-        },
-    }
+def _paths(session: dict) -> UserAgentPaths:
+    return UserAgentPaths.from_identity(
+        home=get_settings().paths.home,
+        identity=TEST_IDENTITY,
+        agent_id=session["agent_id"],
+        session_id=session["id"],
+    )
 
 
 async def _seed_forkable_session(http, app) -> tuple[str, str, str]:
     """Session with an uploaded attachment and one completed chat."""
     created = await http.post("/api/v1/sessions", json={"title": "月报"})
+    assert created.status_code == 200, created.text
     session_id = created.json()["session"]["id"]
     uploaded = await http.post(
         "/api/v1/console/upload",
         data={"session_id": session_id},
         files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")},
     )
+    assert uploaded.status_code == 200, uploaded.text
     attachment_id = uploaded.json()["attachment"]["attachment_id"]
     chat = await http.post(
         "/api/v1/console/chat",
@@ -69,37 +87,40 @@ async def _seed_forkable_session(http, app) -> tuple[str, str, str]:
             "attachment_ids": [attachment_id],
         },
     )
+    assert chat.status_code == 200, chat.text
     chat_id = chat.json()["chat"]["id"]
 
-    state = app.state.service
-    events = state.events
-    await events.append(
+    factory = get_session_factory()
+    async with factory() as db:
+        record = await ChatRepository(db, TEST_IDENTITY).get(chat_id)
+    events = OutputStream(
+        factory,
         session_id=session_id,
         chat_id=chat_id,
-        payload=_biz_event_payload("be_1"),
+        identity=TEST_IDENTITY,
+        last_sequence_number=record.last_sequence_number,
     )
-    await events.append(
-        session_id=session_id,
-        chat_id=chat_id,
-        payload={
-            "object": "followup.generated",
-            "followup": {"chat_id": chat_id, "questions": ["按区域拆一下？"]},
-        },
+    await events.biz_event(
+        event_id="be_1", seq=1, channel="main", status="done", started_at=1.0
     )
-    # Seed the completed chat that the fork/snapshot operations consume.
-    record = await state.chats.get(chat_id)
-    if record.status not in ("completed",):
+    await events.followup_generated(questions=["按区域拆一下？"])
+    await events.artifact_registered(
+        id="art_report", name="report.md", path="report.md"
+    )
+    await events.flush()
+    # Agent state belongs in SQL; files belong in the identity-scoped workspace.
+    async with factory() as db:
+        chats = ChatRepository(db, TEST_IDENTITY)
+        record = await chats.get(chat_id)
         record.mark_status("completed")
-        await state.chats.save(record)
-    # Seed an artifact and agent state on disk.
-    artifact_dir = Path(state.hosts.get(session_id=session_id).paths.artifact_dir)
+        record.agent_state = AgentState(
+            session_id=session_id, summary=f"attachment {attachment_id} from {chat_id}"
+        ).model_dump(mode="json")
+        await chats.save(record)
+        await db.commit()
+    artifact_dir = _paths(created.json()["session"]).artifact_dir
     artifact_dir.mkdir(parents=True, exist_ok=True)
     (artifact_dir / "report.md").write_text("# 结论", encoding="utf-8")
-    console_root = state.hosts.get(session_id=session_id).paths.console_root
-    console_root.mkdir(parents=True, exist_ok=True)
-    (console_root / f"local_{session_id}.json").write_text(
-        f'{{"session_id": "{session_id}"}}', encoding="utf-8"
-    )
     return session_id, chat_id, attachment_id
 
 
@@ -107,9 +128,7 @@ async def test_fork_copies_session_state(tmp_path, monkeypatch) -> None:
     async with service_client(tmp_path, monkeypatch) as (http, app):
         sid, cid, att_id = await _seed_forkable_session(http, app)
 
-        forked = await http.post(
-            f"/api/v1/sessions/{sid}/fork", json={"chat_id": cid}
-        )
+        forked = await http.post(f"/api/v1/sessions/{sid}/fork", json={"chat_id": cid})
         assert forked.status_code == 200, forked.text
         target = forked.json()["session"]
         new_sid = target["id"]
@@ -120,30 +139,44 @@ async def test_fork_copies_session_state(tmp_path, monkeypatch) -> None:
         assert target["chat_count"] == 1
 
         # Chats copied with remapped ids and rewritten attachment refs.
-        chats = (await http.get(f"/api/v1/sessions/{new_sid}/chats")).json()
-        assert len(chats["items"]) == 1
-        copied = chats["items"][0]
+        chats = (await http.get(f"/api/v1/sessions/{new_sid}/snapshot")).json()
+        assert len(chats["chats"]) == 1
+        copied = chats["chats"][0]
         assert copied["id"] != cid
         assert copied["session_id"] == new_sid
         new_att_id = copied["attachments"][0]["attachment_id"]
         assert new_att_id != att_id
 
         # Events copied and rewritten (runtime response frames ride along).
-        state = app.state.service
-        events = await state.events.read_after(copied["id"], -1)
+        async with get_session_factory()() as db:
+            events = await ChatEventRepository(db, TEST_IDENTITY).read_after(
+                copied["id"], -1
+            )
+            agent_state = await AgentStateStore(db, TEST_IDENTITY).load(new_sid)
+            copied_chat = await ChatRepository(db, TEST_IDENTITY).get(copied["id"])
         objects = [e.object for e in events]
         assert "biz_event" in objects and "followup.generated" in objects
         followup = next(e for e in events if e.object == "followup.generated")
         assert followup.followup.chat_id == copied["id"]
         assert all(e.chat_id == copied["id"] for e in events)
 
-        # Files copied: uploads, artifacts, console agent state.
-        paths = state.hosts.get(session_id=new_sid).paths
+        assert agent_state.session_id == new_sid
+        assert agent_state.summary == f"attachment {new_att_id} from {copied['id']}"
+        assert copied_chat.agent_state == agent_state.model_dump(mode="json")
+        assert [e["event_id"] for e in copied["biz_events"]] == ["be_1"]
+        assert copied["followup"]["questions"] == ["按区域拆一下？"]
+
+        # Files copied alongside SQL references; the source remains unchanged.
+        paths = _paths(target)
         assert (paths.workspace / "uploads" / new_sid / "data.csv").is_file()
-        assert (paths.artifact_dir / "report.md").is_file()
-        state_file = paths.console_root / f"local_{new_sid}.json"
-        assert state_file.is_file()
-        assert new_sid in state_file.read_text(encoding="utf-8")
+        assert (paths.artifact_dir / "report.md").read_text(
+            encoding="utf-8"
+        ) == "# 结论"
+        original = (await http.get(f"/api/v1/sessions/{sid}/snapshot")).json()["chats"][
+            0
+        ]
+        assert original["id"] == cid
+        assert original["attachments"][0]["attachment_id"] == att_id
 
         # The copied attachment is usable in the forked session.
         chat2 = await http.post(
@@ -167,9 +200,12 @@ async def test_fork_guards(tmp_path, monkeypatch) -> None:
         assert missing.status_code == 404
 
         # A non-completed chat cannot be the fork point.
-        record = await app.state.service.chats.get(cid)
-        record.mark_status("failed")
-        await app.state.service.chats.save(record)
+        async with get_session_factory()() as db:
+            chats = ChatRepository(db, TEST_IDENTITY)
+            record = await chats.get(cid)
+            record.mark_status("failed")
+            await chats.save(record)
+            await db.commit()
         conflict = await http.post(
             f"/api/v1/sessions/{sid}/fork", json={"chat_id": cid}
         )
@@ -212,11 +248,17 @@ async def test_files_access(tmp_path, monkeypatch) -> None:
         )
         assert "attachment" in download.headers["content-disposition"]
 
-        for bad in ("../secret", "/etc/hosts", "a/../../b", "./x", ""):
+        for bad, status in (
+            ("../secret", 400),
+            ("/etc/hosts", 400),
+            ("a/../../b", 400),
+            ("./x", 404),
+            ("", 422),
+        ):
             response = await http.get(
                 f"/api/v1/sessions/{sid}/files/access", params={"path": bad}
             )
-            assert response.status_code in (404, 422), bad
+            assert response.status_code == status, bad
 
 
 async def test_share_link_roundtrip(tmp_path, monkeypatch) -> None:
@@ -241,9 +283,7 @@ async def test_share_link_roundtrip(tmp_path, monkeypatch) -> None:
         # Tampered signature and truncated token both fail closed.
         tampered = await http.get(url[:-1] + ("0" if url[-1] != "0" else "1"))
         assert tampered.status_code == 404
-        broken = await http.get(
-            "/api/v1/files/shared/not-a-token", params={"sig": "x"}
-        )
+        broken = await http.get("/api/v1/files/shared/not-a-token", params={"sig": "x"})
         assert broken.status_code == 404
 
 
@@ -267,8 +307,7 @@ async def test_shared_route_bypasses_bearer_auth(tmp_path, monkeypatch) -> None:
             "/api/v1/sessions", json={"title": "s"}, headers=headers
         )
         sid = created.json()["session"]["id"]
-        state = app.state.service
-        artifact_dir = Path(state.hosts.get(session_id=sid).paths.artifact_dir)
+        artifact_dir = _paths(created.json()["session"]).artifact_dir
         artifact_dir.mkdir(parents=True, exist_ok=True)
         (artifact_dir / "out.txt").write_text("shared", encoding="utf-8")
 
@@ -284,44 +323,35 @@ async def test_shared_route_bypasses_bearer_auth(tmp_path, monkeypatch) -> None:
         assert resolved.text == "shared"
 
 
-async def test_init_db_adds_missing_columns(tmp_path) -> None:
+async def test_init_db_adds_missing_columns() -> None:
     """Old databases gain newly introduced columns without data loss."""
-    import aiosqlite  # noqa: F401  (ensures the driver is present)
     from sqlalchemy import text
 
-    from qwenpaw_data.host.core.db.engine import (
-        create_engine_and_factory,
-        init_db,
+    await reset_engine()
+    engine = await init_db()
+    factory = get_session_factory()
+    session = Session.create(identity=TEST_IDENTITY, title="Existing data")
+    chat = session.open_chat(
+        text="preserve me", datasource_id=None, has_active_chat=False
     )
-    from qwenpaw_data.host.core.store.sql_store import SQLChatStore
-
-    db_path = tmp_path / "host.db"
-    engine, factory = create_engine_and_factory(
-        f"sqlite+aiosqlite:///{db_path}",
-    )
-    await init_db(engine)
+    async with factory() as db:
+        await SessionRepository(db, TEST_IDENTITY).add(session)
+        await ChatRepository(db, TEST_IDENTITY).add(chat)
+        await db.commit()
     # Simulate an old install: drop a column that a later release added.
     async with engine.begin() as conn:
         await conn.execute(
             text('ALTER TABLE "chats" DROP COLUMN "artifact_comments_json"')
         )
-        await conn.execute(
-            text('ALTER TABLE "chats" DROP COLUMN "attachments_json"')
-        )
-    await init_db(engine)
-
-    from qwenpaw_data.host.core.domain.chat import Chat
-    from qwenpaw_data.host.core.domain.identity import Identity
-
-    store = SQLChatStore(factory)
-    chat = Chat.start(
-        session_id="s",
-        identity=Identity.anonymous(),
-        sequence=1,
-        datasource_id=None,
-        text="hi",
-    )
-    await store.add(chat)
-    loaded = await store.get(chat.id)
-    assert loaded.attachments == []
-    await engine.dispose()
+        await conn.execute(text('ALTER TABLE "chats" DROP COLUMN "attachments_json"'))
+    await init_db()
+    await init_db()  # Idempotent, including when existing rows need defaults.
+    async with factory() as db:
+        loaded = await ChatRepository(db, TEST_IDENTITY).get(chat.id)
+        assert loaded.attachments == []
+        assert loaded.artifact_comments == []
+        assert loaded.user_input == chat.user_input
+        assert (
+            await SessionRepository(db, TEST_IDENTITY).get(session.id)
+        ).title == "Existing data"
+    await reset_engine()
