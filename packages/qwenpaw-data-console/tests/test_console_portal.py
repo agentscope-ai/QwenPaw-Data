@@ -1,5 +1,11 @@
 import json
 import os
+import socket
+import sqlite3
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -77,6 +83,357 @@ def test_portal_keeps_credentials_server_side_and_proxies_sse(tmp_path, frontend
             "text/event-stream"
         )
         assert "private-test-token" not in r.text
+
+
+def test_embedded_context_and_new_host_routes_keep_gateway_boundaries(frontend, bridge_frontend):
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    app = create_app(
+        host_url="http://127.0.0.1:18767", token="host-secret",
+        transport=httpx.MockTransport(upstream), frontend=frontend,
+        bridge_url="http://127.0.0.1:8765", bridge_token="context-secret",
+        bridge_transport=httpx.MockTransport(upstream), bridge_frontend=bridge_frontend,
+    )
+    headers = {"X-QwenPaw-Console": "1"}
+    with TestClient(app) as client:
+        for incoming, outgoing in [
+            ("/cm-api/semantic-config/dataset-meta", "/api/semantic-config/dataset-meta"),
+            ("/cm-web/semantic-config", "/web/semantic-config"),
+        ]:
+            before = len(calls)
+            assert client.get(incoming).status_code == 403
+            assert client.get(incoming, headers={**headers, "Origin": "https://untrusted.invalid"}).status_code == 403
+            assert len(calls) == before
+            assert client.get(incoming, headers=headers).status_code == 200
+            assert calls[-1].url.path == outgoing
+            assert calls[-1].headers["authorization"] == "Bearer context-secret"
+        for route in ["/api/v1/cron/jobs/j1/attachments", "/api/v1/sessions/s1/chats/c1/ui/answer"]:
+            assert client.post(route, headers=headers, json={}).status_code == 200
+            assert calls[-1].headers["authorization"] == "Bearer host-secret"
+        assert client.get("/api/v1/sessions/s1/chats/c1/ui/answer", headers=headers).status_code == 405
+        assert client.get("/api/auth/status", headers=headers).json()["required"] is False
+        assert calls[-1].url.path == "/api/v1/sessions"
+        assert client.get("/data-set").text == (frontend / "index.html").read_text()
+        assert client.get("/assets/missing.js").status_code == 404
+
+
+def test_unified_local_auth_fails_closed_on_invalid_host_credential(frontend):
+    app = create_app(
+        host_url="http://127.0.0.1:18767", token="invalid",
+        transport=httpx.MockTransport(lambda _: httpx.Response(401)), frontend=frontend,
+    )
+    with TestClient(app) as client:
+        assert client.get("/api/auth/status").status_code == 403
+        assert client.get("/api/auth/status", headers={"X-QwenPaw-Console": "1"}).status_code == 502
+
+
+def test_usage_and_tool_confirmation_routes_keep_gateway_boundaries(tmp_path, frontend):
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    app = create_portal(
+        tmp_path, "http://127.0.0.1:18767", "private-test-token",
+        httpx.MockTransport(upstream), frontend=frontend,
+    )
+    headers = {"X-QwenPaw-Console": "1"}
+    with TestClient(app) as client:
+        for route in ("summary", "timeseries", "sessions", "background-tasks"):
+            url = "/api/v1/usage/" + route
+            assert client.get(url, headers=headers, params={"period": "day"}).status_code == 200
+            assert calls[-1].url.params["period"] == "day"
+            assert client.post(url, headers=headers).status_code == 405
+        url = "/api/v1/sessions/s1/chats/c1/tool-confirmation/answer"
+        assert client.post(url, headers=headers, json={"decision": "approve"}).status_code == 200
+        assert calls[-1].headers["authorization"] == "Bearer private-test-token"
+        assert json.loads(calls[-1].content) == {"decision": "approve"}
+        before = len(calls)
+        assert client.get(url, headers=headers).status_code == 405
+        assert client.post(url).status_code == 403
+        assert client.get("/api/v1/usage/private", headers=headers).status_code == 404
+        assert len(calls) == before
+
+
+def test_usage_and_confirmation_reach_a_real_local_host(tmp_path, frontend):
+    token = "local-portal-integration-token"
+    root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    for key in tuple(env):
+        if key.startswith(("QWENPAW_DATA_", "TRACING_", "OTEL_")):
+            env.pop(key)
+    env.update(
+        QWENPAW_DATA_HOME=str(tmp_path / "home"),
+        QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
+        QWENPAW_DATA_AUTH_MODE="local",
+        QWENPAW_DATA_API_TOKEN=token,
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
+        QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'host.sqlite'}",
+        PYTHONDONTWRITEBYTECODE="1",
+        PYTHONPATH=os.pathsep.join(str(path) for path in root.glob("packages/*/src")),
+    )
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    host_url = f"http://127.0.0.1:{port}"
+    with (tmp_path / "host.log").open("w+") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "qwenpaw_data.host.core.api.app:app",
+             "--host", "127.0.0.1", "--port", str(port)],
+            cwd=tmp_path, env=env, stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            with httpx.Client(trust_env=False, timeout=2) as client:
+                while process.poll() is None and time.monotonic() < deadline:
+                    try:
+                        if client.get(host_url + "/api/v1/auth/status").status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    time.sleep(0.1)
+                else:
+                    log.flush()
+                    log.seek(0)
+                    pytest.fail(f"Host did not start: {log.read()}")
+            app = create_portal(tmp_path, host_url, token, frontend=frontend)
+            headers = {"X-QwenPaw-Console": "1"}
+            with TestClient(app) as client:
+                for route in ("summary", "timeseries", "sessions", "background-tasks"):
+                    response = client.get(f"/api/v1/usage/{route}", headers=headers)
+                    assert response.status_code == 200, response.text
+                response = client.post(
+                    "/api/v1/sessions/missing/chats/missing/tool-confirmation/answer",
+                    headers=headers, json={},
+                )
+                assert response.status_code == 422, response.text
+                created = client.post("/api/v1/sessions", headers=headers, json={})
+                assert created.status_code == 200, created.text
+                session_id = created.json()["session"]["id"]
+                with sqlite3.connect(tmp_path / "host.sqlite") as db:
+                    db.execute(
+                        "INSERT INTO chats (id, session_id, user_id, tenant_id, workspace_id, "
+                        "sequence, user_input, kind, status, last_sequence_number, "
+                        "active_duration_ms, plan, artifact_comments_json, attachments_json, "
+                        "created_at, updated_at) "
+                        "SELECT ?, id, user_id, tenant_id, workspace_id, 0, 'test', 'simple', "
+                        "'running', -1, 0, '{}', '[]', '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                        "FROM sessions WHERE id = ?",
+                        ("chat-test", session_id),
+                    )
+                response = client.post(
+                    f"/api/v1/sessions/{session_id}/chats/chat-test/tool-confirmation/answer",
+                    headers=headers, json={"call_id": "call-test", "decision": "approved"},
+                )
+                assert response.status_code == 200, response.text
+                with sqlite3.connect(tmp_path / "host.sqlite") as db:
+                    row = db.execute(
+                        "SELECT kind, status, tool_confirmation_json FROM chat_commands WHERE chat_id = ?",
+                        ("chat-test",),
+                    ).fetchone()
+                assert row is not None
+                assert row[:2] == ("tool_confirmation", "waiting")
+                assert json.loads(row[2]) == {"id": "call-test", "decision": "approved"}
+                with sqlite3.connect(tmp_path / "host.sqlite") as db:
+                    db.execute("UPDATE chats SET status = 'completed' WHERE id = ?", ("chat-test",))
+                response = client.post(
+                    f"/api/v1/sessions/{session_id}/chats/chat-test/tool-confirmation/answer",
+                    headers=headers, json={"call_id": "call-late", "decision": "denied"},
+                )
+                assert response.status_code == 409, response.text
+                with sqlite3.connect(tmp_path / "host.sqlite") as db:
+                    assert db.execute("SELECT COUNT(*) FROM chat_commands").fetchone() == (1,)
+                assert client.get("/api/v1/usage/summary").status_code == 403
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def test_model_config_gateway_reaches_context_without_graph(tmp_path, frontend):
+    credentials = "qpd-local-credentials-test-token"
+    query_key = "qpd-local-query-test-token"
+    root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    for key in tuple(env):
+        if key.startswith(("QWENPAW_DATA_", "NEO4J_", "TRACING_", "OTEL_", "GRAPH_")):
+            env.pop(key)
+    env.update(
+        QWENPAW_DATA_HOME=str(tmp_path / "home"),
+        QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
+        QWENPAW_DATA_AUTH_MODE="local",
+        QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'context.sqlite'}",
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
+        QWENPAW_DATA_API_KEYS=json.dumps([
+            {"id": "credentials", "token": credentials, "scopes": ["credentials:manage"]},
+            {"id": "query", "token": query_key, "scopes": ["query"]},
+        ]),
+        NEO4J_URI="bolt://127.0.0.1:1",
+        NEO4J_PASSWORD="unused-local-password",
+        PYTHONDONTWRITEBYTECODE="1",
+        PYTHONPATH=os.pathsep.join(str(path) for path in root.glob("packages/*/src")),
+    )
+    # Context validates shared Host tables at startup, even without a graph.
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        host_port = sock.getsockname()[1]
+    with (tmp_path / "host-init.log").open("w+") as log:
+        host = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "qwenpaw_data.host.core.api.app:app",
+             "--host", "127.0.0.1", "--port", str(host_port)],
+            cwd=tmp_path, env=env, stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            with httpx.Client(trust_env=False, timeout=2) as client:
+                while host.poll() is None and time.monotonic() < deadline:
+                    try:
+                        if client.get(f"http://127.0.0.1:{host_port}/api/v1/auth/status").status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    time.sleep(0.1)
+                else:
+                    log.flush()
+                    log.seek(0)
+                    pytest.fail(f"Host did not initialize shared tables: {log.read()}")
+        finally:
+            host.terminate()
+            try:
+                host.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                host.kill()
+                host.wait(timeout=5)
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    bridge_url = f"http://127.0.0.1:{port}"
+    with (tmp_path / "context.log").open("w+") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "context_manager.server:app",
+             "--host", "127.0.0.1", "--port", str(port)],
+            cwd=tmp_path, env=env, stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            deadline = time.monotonic() + 30
+            with httpx.Client(trust_env=False, timeout=2) as client:
+                while process.poll() is None and time.monotonic() < deadline:
+                    try:
+                        response = client.get(
+                            bridge_url + "/api/system/model-config/",
+                            headers={"Authorization": f"Bearer {credentials}"},
+                        )
+                        if response.status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    time.sleep(0.1)
+                else:
+                    log.flush()
+                    log.seek(0)
+                    pytest.fail(f"Context did not expose model config: {log.read()}")
+                with sqlite3.connect(tmp_path / "business.sqlite") as db:
+                    db.execute("CREATE TABLE sales (amount INTEGER)")
+                created = client.post(
+                    bridge_url + "/api/semantic-config/datasource",
+                    headers={"Authorization": f"Bearer {credentials}"},
+                    json={"datasource_name": "Scoped source", "datasource_type": "sqlite",
+                          "config": {"path": str(tmp_path / "business.sqlite")}},
+                )
+                assert created.status_code == 200, created.text
+                denied = client.get(
+                    bridge_url + "/api/semantic-config/datasource",
+                    headers={"Authorization": f"Bearer {query_key}"},
+                )
+                assert denied.status_code == 403
+            from qwenpaw_data.host.core.integrations.cm import ContextManagerClient
+
+            discovery = ContextManagerClient(
+                base_url=bridge_url, access_token=query_key,
+            ).list_datasource_metadata()
+            assert [item.datasource_name for item in discovery.items] == ["Scoped source"]
+            assert discovery.items[0].config is None
+            host_token = "qpd-local-host-test-token"
+            host_env = {
+                **env,
+                "QWENPAW_DATA_API_TOKEN": host_token,
+                "QWENPAW_DATA_CLIENT_API_TOKEN": query_key,
+                "QWENPAW_DATA_CM_BASE_URL": bridge_url,
+            }
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                host_port = sock.getsockname()[1]
+            host_url = f"http://127.0.0.1:{host_port}"
+            with (tmp_path / "host-discovery.log").open("w+") as host_log:
+                host = subprocess.Popen(
+                    [sys.executable, "-m", "uvicorn", "qwenpaw_data.host.core.api.app:app",
+                     "--host", "127.0.0.1", "--port", str(host_port)],
+                    cwd=tmp_path, env=host_env, stdout=host_log, stderr=subprocess.STDOUT,
+                )
+                try:
+                    deadline = time.monotonic() + 30
+                    with httpx.Client(trust_env=False, timeout=2) as client:
+                        while host.poll() is None and time.monotonic() < deadline:
+                            try:
+                                if client.get(host_url + "/api/v1/auth/status").status_code == 200:
+                                    break
+                            except httpx.HTTPError:
+                                pass
+                            time.sleep(0.1)
+                        else:
+                            host_log.flush()
+                            host_log.seek(0)
+                            pytest.fail(f"Host did not start: {host_log.read()}")
+                    portal = create_app(host_url=host_url, token=host_token, frontend=frontend)
+                    with TestClient(portal) as client:
+                        response = client.get(
+                            "/api/v1/datasources", headers={"X-QwenPaw-Console": "1"},
+                        )
+                        assert response.status_code == 200, response.text
+                        assert [item["name"] for item in response.json()["items"]] == ["Scoped source"]
+                        assert "business.sqlite" not in response.text
+                        assert query_key not in response.text and host_token not in response.text
+                finally:
+                    host.terminate()
+                    try:
+                        host.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        host.kill()
+                        host.wait(timeout=5)
+            for token, expected in ((credentials, 200), (query_key, 403)):
+                portal = create_app(
+                    host_url="http://127.0.0.1:1", token="unused-host-token",
+                    frontend=frontend, bridge_url=bridge_url, bridge_token=token,
+                )
+                with TestClient(portal) as client:
+                    url = "/databridge/api/system/model-config/"
+                    assert client.get(url).status_code == 403
+                    status = client.get(
+                        "/databridge/api/auth/status", headers={"X-QwenPaw-Console": "1"},
+                    )
+                    assert status.status_code == (502 if token == credentials else 200)
+                    if token == query_key:
+                        assert status.json() == {"required": False}
+                    response = client.get(url, headers={"X-QwenPaw-Console": "1"})
+                    assert response.status_code == expected, response.text
+                    assert token not in response.text
+                    if expected == 200:
+                        assert response.json()["configured"] is False
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def test_geo_routes_uploads_and_file_navigation(tmp_path, frontend):
@@ -158,7 +515,8 @@ def test_geo_routes_uploads_and_file_navigation(tmp_path, frontend):
             == 403
         )
         assert c.get("/api/v1/skills/pool", headers=headers).status_code == 404
-        assert c.get("/api/v1/mcp", headers=headers).status_code == 404
+        assert c.get("/api/v1/mcp", headers=headers).status_code == 200
+        assert c.get("/api/v1/mcp/name/private", headers=headers).status_code == 404
 
 
 @pytest.fixture
@@ -228,7 +586,8 @@ def test_official_bridge_routes_auth_upload_and_download(
         assert client.get("/databridge/api/auth/status", headers=headers).json() == {
             "required": False
         }
-        assert requests[-1].url.path == "/api/auth/check"
+        assert requests[-1].url.path == "/api/v1/cm/datasources"
+        assert requests[-1].url.params["size"] == "1"
         url = "/databridge/api/system/model-config/"
         assert (
             client.get(
@@ -426,6 +785,7 @@ def test_no_bridge_and_no_external_access(frontend):
             is False
         )
         assert client.get("/databridge/").status_code == 404
+        assert client.get("/cm-api/v1/cm/datasources", headers={"X-QwenPaw-Console": "1"}).status_code == 404
     with TestClient(app, client=("192.0.2.10", 12345)) as client:
         assert client.get("/console").status_code == 403
 

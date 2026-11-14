@@ -12,33 +12,50 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from qwenpaw_data.host.core.algo.biztrace.formatting import compact, output_text, truncate
+from qwenpaw_data.host.core.algo.biztrace.facts import WindowFacts, collect_facts
+from qwenpaw_data.host.core.algo.biztrace.plan import PlanLedger, select_priors
+from qwenpaw_data.host.core.algo.utils.formatting import (
+    cap_middle,
+    compact,
+    expand_number_colors,
+    output_text,
+    truncate,
+)
 from qwenpaw_data.host.core.algo.biztrace.llm import StructuredLLM, StructuredLLMError
+from qwenpaw_data.tracing.core.names import Step
 from qwenpaw_data.host.core.algo.biztrace.models import (
     BizEvent,
     BoundaryReason,
     Coverage,
     Segment,
+    SegmentKind,
     SubtaskScope,
 )
 from qwenpaw_data.host.core.algo.biztrace.presentation import Linker
 from qwenpaw_data.host.core.algo.biztrace.prompts import (
     DEFAULT_PROMPT_LANG,
     PromptLang,
+    build_classifier_user_prompt,
     build_continuity_user_prompt,
     build_extractor_user_prompt,
+    get_classifier_system_prompt,
     get_continuity_system_prompt,
     get_extractor_system_prompt,
 )
-from qwenpaw_data.host.core.algo.biztrace.settings import FLUSH_BUDGET_SECONDS
+from qwenpaw_data.host.core.algo.biztrace.scoring import SegmentScoring
+from qwenpaw_data.host.core.algo.biztrace.settings import (
+    FLUSH_BUDGET_SECONDS,
+    SCORE_JOIN_BUDGET_SECONDS,
+)
 from qwenpaw_data.host.core.algo.biztrace.tools import (
     ASK_USER_QUESTION,
     canonical_tool_name,
+    tool_family,
 )
 from qwenpaw_data.host.core.algo.biztrace.workspace_index import (
     ArtifactProposal,
@@ -56,9 +73,11 @@ TEXT_CHAR_CAP = 1_500
 THINKING_CHAR_CAP = 400
 HINT_CHAR_CAP = 800
 TOOL_INPUT_CHAR_CAP = 1_200
+SQL_INPUT_CHAR_CAP = 8_000
 TOOL_OUTPUT_CHAR_CAP = 2_000
 WINDOW_CHAR_CAP = 24_000
 WINDOW_TRUNCATION_MARK = "\n\n...[window truncated for length]...\n\n"
+CLOSING_REPLY_CHAR_CAP = 4_000
 
 _LIST_MARKER_RE = re.compile(r"^(?:[-*]|\d+\.)\s+")
 
@@ -120,6 +139,20 @@ _EXTRACTION_SCHEMA: dict[str, Any] = {
     "required": ["title", "behavior", "conclusion"],
 }
 
+SEGMENT_KINDS: frozenset[str] = frozenset(
+    {"probe", "fetch_transform", "verify_fix", "metric_modeling", "delivery", "other"}
+)
+
+_CLASSIFY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "kind": {"type": "string", "enum": sorted(SEGMENT_KINDS)},
+        "reason": {"type": "string", "minLength": 1},
+    },
+    "required": ["kind", "reason"],
+}
+
 SegmentSink = Callable[[Segment], Awaitable[None]]
 JudgeLogSink = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -170,10 +203,13 @@ class ChainBuilder:
         # Boundary TaskStateUpdate nodes stay mutable so their tool_result can
         # join the same covered node (FE hides by seq range).
         self._pending_task_state: SegmentChainNode | None = None
+        self._open_calls: set[str] = set()
         self._index = 0
 
     def push(self, event: BizEvent) -> list[SegmentChainNode]:
         """Add one main-channel BizEvent, returning the nodes it closed."""
+        if _is_system_hint(event):
+            return []
         tool = canonical_tool_name(event.tool_name)
 
         if event.kind == "tool_use" and tool == ASK_USER_QUESTION:
@@ -207,6 +243,17 @@ class ChainBuilder:
             node = self._pending_task_state
             self._pending_task_state = None
             return [node]
+
+        if (
+            event.kind == "tool_result"
+            and self._open is not None
+            and event.block_id in self._open_calls
+        ):
+            # Results carry their own parent_msg_id, so bubble folding alone
+            # would strand them in a node of their own and put them up for a
+            # continuity judgment they can never legitimately answer.
+            self._add(self._open, event)
+            return []
 
         split = _split_kind(event)
         if split is not None:
@@ -245,10 +292,10 @@ class ChainBuilder:
         if self._open is not None and event.parent_msg_id != self._open.parent_msg_id:
             switched = self._close_open()
         if self._open is None:
-            self._open = self._new_node(
-                kind="normal", role="assistant", covered=True
-            )
+            self._open = self._new_node(kind="normal", role="assistant", covered=True)
         self._add(self._open, event)
+        if event.kind == "tool_use" and event.block_id:
+            self._open_calls.add(event.block_id)
         return switched
 
     def flush(self) -> list[SegmentChainNode]:
@@ -262,6 +309,7 @@ class ChainBuilder:
     def _close_open(self) -> list[SegmentChainNode]:
         node = self._open
         self._open = None
+        self._open_calls.clear()
         return [node] if node is not None else []
 
     def _new_node(
@@ -280,6 +328,7 @@ class ChainBuilder:
     def _add(self, node: SegmentChainNode, event: BizEvent) -> None:
         block = _event_block(event)
         if block is not None:
+            block["seq"] = event.seq
             node.content.append(block)
         if node.parent_msg_id is None:
             node.parent_msg_id = event.parent_msg_id
@@ -288,6 +337,13 @@ class ChainBuilder:
         if not node.started_at:
             node.started_at = event.started_at
         node.ended_at = event.ended_at or event.started_at
+
+
+def _is_system_hint(event: BizEvent) -> bool:
+    """Agent reminders are not user steer and do not enter the chain."""
+    if event.source in (None, "", "steer"):
+        return False
+    return event.kind in {"hint", "assistant_text"}
 
 
 def _split_kind(event: BizEvent) -> Literal["hint", "orchestration"] | None:
@@ -365,14 +421,17 @@ def render_block(block: dict[str, Any]) -> str:
     if block_type == "text":
         return f"text: {truncate(str(block.get('text') or ''), TEXT_CHAR_CAP)}"
     if block_type == "thinking":
-        return (
-            f"thinking: {truncate(str(block.get('text') or ''), THINKING_CHAR_CAP)}"
-        )
+        return f"thinking: {truncate(str(block.get('text') or ''), THINKING_CHAR_CAP)}"
     if block_type == "hint":
         return f"hint: {truncate(str(block.get('text') or ''), HINT_CHAR_CAP)}"
     label = _tool_label(block)
     if block_type == "tool_use":
-        payload = truncate(compact(block.get("input")), TOOL_INPUT_CHAR_CAP)
+        cap = (
+            SQL_INPUT_CHAR_CAP
+            if tool_family(str(block.get("name") or "")) == "sql"
+            else TOOL_INPUT_CHAR_CAP
+        )
+        payload = truncate(compact(block.get("input")), cap)
         return f"tool_use {label}: {payload}"
     if block_type == "tool_result":
         payload = truncate(output_text(block.get("output")), TOOL_OUTPUT_CHAR_CAP)
@@ -389,10 +448,18 @@ def _tool_label(block: dict[str, Any]) -> str:
 
 def _cap_window(rendered: str) -> str:
     """Keep the head and tail of an over-budget rendering, marking the cut."""
-    if len(rendered) <= WINDOW_CHAR_CAP:
-        return rendered
-    keep = max(WINDOW_CHAR_CAP // 2 - 40, 200)
-    return rendered[:keep] + WINDOW_TRUNCATION_MARK + rendered[-keep:]
+    return cap_middle(rendered, WINDOW_CHAR_CAP, WINDOW_TRUNCATION_MARK)
+
+
+def _flatten_blocks(nodes: list[SegmentChainNode]) -> list[dict[str, Any]]:
+    """Flatten summary nodes into the block list the grader reads."""
+    blocks: list[dict[str, Any]] = []
+    for node in nodes:
+        for block in node.content:
+            item = dict(block)
+            item["role"] = node.role
+            blocks.append(item)
+    return blocks
 
 
 # --------------------------------------------------------------------------- #
@@ -416,7 +483,7 @@ class ContinuityJudge:
         lang: PromptLang = DEFAULT_PROMPT_LANG,
     ) -> None:
         self.llm = llm
-        self.lang = lang
+        self.lang: PromptLang = lang
         self.query = ""
         self.degraded = 0
 
@@ -448,7 +515,7 @@ class ContinuityJudge:
                 data = await self.llm.complete(
                     system=get_continuity_system_prompt(self.lang),
                     user=user,
-                    schema_name="continuity_decision",
+                    step=Step.CONTINUITY_DECISION,
                     schema=_CONTINUITY_SCHEMA,
                 )
                 reason = str(data.get("reason") or "").strip()
@@ -458,9 +525,79 @@ class ContinuityJudge:
             except (StructuredLLMError, ValueError) as exc:
                 logger.warning("continuity judgment degraded to continue: %s", exc)
         self.degraded += 1
-        return ContinuityDecision(
-            continues=True, reason="judge unavailable; degraded"
+        return ContinuityDecision(continues=True, reason="judge unavailable; degraded")
+
+
+# --------------------------------------------------------------------------- #
+# Step 0: SegmentClassifier
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(slots=True)
+class Classification:
+    """Verdict: which kind of segment this window is."""
+
+    kind: SegmentKind
+    reason: str
+    degraded: bool = False
+
+
+class SegmentClassifier:
+    """Assign a delimited window to one of the six extraction kinds."""
+
+    def __init__(
+        self,
+        *,
+        llm: StructuredLLM | None = None,
+        lang: PromptLang = DEFAULT_PROMPT_LANG,
+    ) -> None:
+        self.llm = llm
+        self.lang: PromptLang = lang
+        self.query = ""
+        self.degraded = 0
+
+    async def classify(
+        self,
+        window: list[SegmentChainNode],
+        *,
+        scope: SubtaskScope | None,
+    ) -> Classification:
+        """Return the kind, degrading to ``other`` on any failure."""
+        if self.llm is not None:
+            user = build_classifier_user_prompt(
+                query=self.query,
+                scope=_scope_text(scope),
+                rendered_window=render_window(window),
+                lang=self.lang,
+            )
+            try:
+                data = await self.llm.complete(
+                    system=get_classifier_system_prompt(self.lang),
+                    user=user,
+                    step=Step.SEGMENT_KIND,
+                    schema=_CLASSIFY_SCHEMA,
+                )
+                kind = str(data.get("kind") or "").strip()
+                reason = str(data.get("reason") or "").strip()
+                if kind in SEGMENT_KINDS:
+                    chosen: SegmentKind = kind  # type: ignore[assignment]
+                    return Classification(kind=chosen, reason=reason)
+            except (StructuredLLMError, ValueError) as exc:
+                logger.warning("segment classification degraded to other: %s", exc)
+        self.degraded += 1
+        return Classification(
+            kind="other", reason="classifier unavailable; degraded", degraded=True
         )
+
+
+def _closing_reply_for_prompt(kind: SegmentKind, facts: WindowFacts) -> str | None:
+    """Return the last reply only when delivery text exceeded the window cap."""
+    if kind != "delivery":
+        return None
+    reply = facts.closing_reply.strip()
+    if len(reply) <= TEXT_CHAR_CAP:
+        return None
+    return truncate(reply, CLOSING_REPLY_CHAR_CAP)
 
 
 # --------------------------------------------------------------------------- #
@@ -495,7 +632,7 @@ class SegmentExtractor:
         linker: Linker | None = None,
     ) -> None:
         self.llm = llm
-        self.lang = lang
+        self.lang: PromptLang = lang
         self.verifier = verifier if verifier is not None else ArtifactVerifier()
         self.linker = linker
         self.query = ""
@@ -508,24 +645,29 @@ class SegmentExtractor:
         scope: SubtaskScope | None,
         boundary_reason: BoundaryReason,
         files: dict[str, str],
+        kind: SegmentKind = "other",
+        facts: WindowFacts | None = None,
     ) -> ExtractionOutcome:
         """Summarize a frozen window snapshot into segment metadata."""
         if self.llm is None:
             self.failures += 1
             return ExtractionOutcome(ok=False)
+        mined = facts if facts is not None else collect_facts(window)
         user = build_extractor_user_prompt(
             query=self.query,
             scope=_scope_text(scope),
             boundary_reason=boundary_reason,
             rendered_window=render_window(window),
             candidate_files=list(files),
+            facts=mined.render(lang=self.lang) or None,
+            closing_reply=_closing_reply_for_prompt(kind, mined),
             lang=self.lang,
         )
         try:
             data = await self.llm.complete(
-                system=get_extractor_system_prompt(self.lang),
+                system=get_extractor_system_prompt(self.lang, kind=kind),
                 user=user,
-                schema_name="segment_metadata",
+                step=Step.SEGMENT_METADATA,
                 schema=_EXTRACTION_SCHEMA,
             )
         except StructuredLLMError as exc:
@@ -545,9 +687,7 @@ class SegmentExtractor:
         # Strip every in-window candidate filename from input — not only the
         # verified artifact names. Models pad input with outputs even when they
         # omit those files from the artifact array.
-        produced = set(files) | {
-            item.name for item in (artifacts or []) if item.name
-        }
+        produced = set(files) | {item.name for item in (artifacts or []) if item.name}
         return ExtractionOutcome(
             ok=True,
             fields={
@@ -562,6 +702,7 @@ class SegmentExtractor:
                 "behavior": self._link(behavior),
                 "conclusion": self._link(conclusion),
                 "artifact": artifacts,
+                "kind": kind,
             },
         )
 
@@ -610,7 +751,9 @@ class SegmentStats:
     degraded: int = 0
     failed: int = 0
     cleared_by_hint: int = 0
+    classify_degraded: int = 0
     boundaries: dict[str, int] = field(default_factory=dict)
+    kinds: dict[str, int] = field(default_factory=dict)
 
 
 class SegmentAssembler:
@@ -621,6 +764,8 @@ class SegmentAssembler:
         judge: Step-one continuity judge.
         extractor: Step-two metadata extractor.
         on_row: Writes every segment row, both phases.
+        scoring: Confidence scoring; starts at delimit time, with the
+            placeholder row, and joins before the finished row is delivered.
         on_segment: Delivers a finished segment to the host; done rows only.
         on_judge_log: Receives continuity and extraction log lines.
         max_span: Window size, in chain nodes, that forces a cut.
@@ -633,7 +778,9 @@ class SegmentAssembler:
         session_id: str,
         judge: ContinuityJudge,
         extractor: SegmentExtractor,
+        classifier: SegmentClassifier | None = None,
         on_row: SegmentSink,
+        scoring: SegmentScoring | None = None,
         on_segment: SegmentSink | None = None,
         on_judge_log: JudgeLogSink | None = None,
         max_span: int = DEFAULT_MAX_SPAN,
@@ -643,7 +790,9 @@ class SegmentAssembler:
         self.session_id = session_id
         self.judge = judge
         self.extractor = extractor
+        self.classifier = classifier if classifier is not None else SegmentClassifier()
         self.on_row = on_row
+        self.scoring = scoring
         self.on_segment = on_segment
         self.on_judge_log = on_judge_log
         self.max_span = max(1, max_span)
@@ -653,6 +802,8 @@ class SegmentAssembler:
         self.stats = SegmentStats()
 
         self._chain = ChainBuilder()
+        self._plan = PlanLedger()
+        self._conclusions: list[tuple[int, int, str]] = []
         self._window: list[SegmentChainNode] = []
         self._scope: SubtaskScope | None = None
         self._seq = 0
@@ -663,6 +814,7 @@ class SegmentAssembler:
 
     async def feed(self, event: BizEvent) -> None:
         """Consume one main-channel BizEvent."""
+        self._plan.observe(event)
         for node in self._chain.push(event):
             await self._on_node(node)
 
@@ -672,7 +824,13 @@ class SegmentAssembler:
             await self._on_node(node)
         if self._window:
             await self._delimit("session_end", forced=True)
+        self.stats.degraded = self.judge.degraded
         await self._wait_extractions(budget)
+        if self.scoring is not None:
+            await self.scoring.aclose()
+        # Classification runs inside the extract tasks, so this counter is
+        # only current after those tasks have finished.
+        self.stats.classify_degraded = self.classifier.degraded
 
     # -- core loop --------------------------------------------------------- #
 
@@ -710,10 +868,12 @@ class SegmentAssembler:
             return
 
         summary_window = _summary_nodes(self._window)
-        if not summary_window:
-            # Nothing judgeable yet: empty, framing-only, or only TaskStateUpdate
-            # bookkeeping waiting to be absorbed into the next productive stretch.
+        if not summary_window or _is_result_only(node):
+            # A result closes a call an earlier node already holds, so it joins
+            # the window instead of standing trial as a sub-task of its own.
             self._open_window(node)
+            if len(self._window) >= self.max_span:
+                await self._delimit("max_span", forced=True)
             return
 
         decision = await self.judge.judge(summary_window, node, scope=self._scope)
@@ -737,6 +897,7 @@ class SegmentAssembler:
         if query:
             self.judge.query = query
             self.extractor.query = query
+            self.classifier.query = query
 
     def _open_window(self, node: SegmentChainNode) -> None:
         # Context a non-productive delimit left behind leads the new window.
@@ -809,6 +970,34 @@ class SegmentAssembler:
         # The placeholder persists the boundary immediately but is not
         # delivered: the host only publishes segments whose summary is ready.
         await self._write(segment)
+        if self.scoring is not None:
+            plan = self._plan.snapshot(at=segment.coverage.start_seq)
+            # Read the owner off the plan, not off ``scope``: the prior filter
+            # and the ambiguity note below both speak plan state, and a lone
+            # in-progress task is the only unambiguous owner.
+            running = [
+                str(task["id"])
+                for task in plan
+                if task.get("state") == "in_progress" and task.get("id")
+            ]
+            subtask = running[0] if len(running) == 1 else None
+            await self.scoring.start(
+                segment,
+                blocks=_flatten_blocks(summary),
+                plan=plan,
+                subtask=subtask,
+                completed=[
+                    str(task["id"])
+                    for task in plan
+                    if task.get("state") == "completed" and task.get("id")
+                ],
+                priors=select_priors(
+                    self._conclusions,
+                    before=segment.coverage.start_seq,
+                    subtask=subtask,
+                    active_at=self._plan.active_ids,
+                ),
+            )
 
         task = asyncio.create_task(
             self._extract(segment, summary, covered, scope, reason)
@@ -825,25 +1014,50 @@ class SegmentAssembler:
         reason: BoundaryReason,
     ) -> None:
         async with self._slots:
+            facts = collect_facts(snapshot)
+            classified = await self.classifier.classify(snapshot, scope=scope)
+            self.stats.kinds[classified.kind] = (
+                self.stats.kinds.get(classified.kind, 0) + 1
+            )
+            await self._log_classification(classified, covered)
             result = await self.extractor.extract(
                 snapshot,
                 scope=scope,
                 boundary_reason=reason,
                 files=self._files_for(segment),
+                kind=classified.kind,
+                facts=facts,
             )
         await self._log_extraction(segment.segment_id, covered, result)
         if result.ok:
             segment = segment.model_copy(
                 update={"status": "done", **result.fields, "updated_at": _now()}
             )
+            conclusion = str(segment.conclusion or "").strip()
+            if conclusion:
+                self._conclusions.append(
+                    (
+                        segment.coverage.end_seq,
+                        segment.coverage.start_seq,
+                        conclusion,
+                    )
+                )
         else:
             self.stats.failed += 1
             segment = segment.model_copy(
                 update={"status": "failed", "updated_at": _now()}
             )
+        current = asyncio.current_task()
+        if current is not None and current in self._extractions:
+            self._extractions[current] = segment
+        if self.scoring is not None:
+            if segment.status == "done":
+                await self.scoring.join(segment, budget=SCORE_JOIN_BUDGET_SECONDS)
+            else:
+                await self.scoring.discard(segment.segment_id)
         await self._write(segment)
-        if segment.status == "done" and self.on_segment is not None:
-            await self.on_segment(segment)
+        if segment.status == "done":
+            await self._deliver(segment)
 
     def _files_for(self, segment: Segment) -> dict[str, str]:
         """Return files produced inside this segment's coverage seq range.
@@ -857,9 +1071,7 @@ class SegmentAssembler:
                 segment.coverage.start_seq, segment.coverage.end_seq
             )
         except Exception:
-            logger.exception(
-                "Artifact file lookup failed for %s", segment.segment_id
-            )
+            logger.exception("Artifact file lookup failed for %s", segment.segment_id)
             return {}
         if not files:
             logger.info(
@@ -878,20 +1090,33 @@ class SegmentAssembler:
             task.cancel()
             if segment is None:
                 continue
+            if self.scoring is not None:
+                await self.scoring.discard(segment.segment_id)
+            if segment.status == "done":
+                logger.warning(
+                    "segment %s scoring overran at close; publishing without a badge",
+                    segment.segment_id,
+                )
+                await self._write(segment)
+                await self._deliver(segment)
+                continue
             self.stats.failed += 1
             logger.warning(
                 "segment %s extraction timed out at close", segment.segment_id
             )
             await self._write(
-                segment.model_copy(
-                    update={"status": "failed", "updated_at": _now()}
-                )
+                segment.model_copy(update={"status": "failed", "updated_at": _now()})
             )
 
     async def _write(self, segment: Segment) -> None:
         self._seq += 1
         self.stats.rows += 1
         await self.on_row(segment)
+
+    async def _deliver(self, segment: Segment) -> None:
+        if self.on_segment is None:
+            return
+        await self.on_segment(segment)
 
     # -- judge logs -------------------------------------------------------- #
 
@@ -912,6 +1137,22 @@ class SegmentAssembler:
                 "peek_event_id": peek.event_ids[0] if peek.event_ids else None,
                 "continues": decision.continues,
                 "reason": decision.reason,
+            }
+        )
+
+    async def _log_classification(
+        self, classified: Classification, covered: list[SegmentChainNode]
+    ) -> None:
+        if self.on_judge_log is None:
+            return
+        await self.on_judge_log(
+            {
+                "type": "classification",
+                "window_start_seq": covered[0].seqs[0] if covered[0].seqs else None,
+                "window_end_seq": covered[-1].seqs[-1] if covered[-1].seqs else None,
+                "kind": classified.kind,
+                "reason": classified.reason,
+                "degraded": classified.degraded,
             }
         )
 
@@ -959,6 +1200,13 @@ def _productive_nodes(window: list[SegmentChainNode]) -> list[SegmentChainNode]:
     return [node for node in _covered_nodes(window) if not _is_task_state_update(node)]
 
 
+def _is_result_only(node: SegmentChainNode) -> bool:
+    """Whether the node carries nothing but tool results."""
+    return bool(node.content) and all(
+        block.get("type") == "tool_result" for block in node.content
+    )
+
+
 def _build_scope(info: dict[str, Any]) -> SubtaskScope | None:
     node_id = info.get("node_id")
     if not node_id:
@@ -1003,21 +1251,23 @@ def _text_field(value: Any) -> str | None:
     """
 
     if isinstance(value, str):
-        return value.strip() or None
-    if not isinstance(value, list):
-        return None
-    lines: list[str] = []
-    for index, item in enumerate(value, start=1):
-        if isinstance(item, str):
-            piece = item.strip()
-        elif isinstance(item, bool | int | float):
-            piece = str(item)
-        else:
-            continue
-        if not piece:
-            continue
-        lines.append(piece if _LIST_MARKER_RE.match(piece) else f"{index}. {piece}")
-    return "\n".join(lines).strip() or None
+        text = value.strip() or None
+    elif isinstance(value, list):
+        lines: list[str] = []
+        for index, item in enumerate(value, start=1):
+            if isinstance(item, str):
+                piece = item.strip()
+            elif isinstance(item, bool | int | float):
+                piece = str(item)
+            else:
+                continue
+            if not piece:
+                continue
+            lines.append(piece if _LIST_MARKER_RE.match(piece) else f"{index}. {piece}")
+        text = "\n".join(lines).strip() or None
+    else:
+        text = None
+    return expand_number_colors(text) if text else None
 
 
 def _mentions_filename(text: str, filename: str) -> bool:
@@ -1057,12 +1307,15 @@ def _now() -> str:
 __all__ = [
     "ArtifactFiles",
     "ChainBuilder",
+    "Classification",
     "ContinuityDecision",
     "ContinuityJudge",
     "DEFAULT_MAX_SPAN",
     "ExtractionOutcome",
+    "SEGMENT_KINDS",
     "SegmentAssembler",
     "SegmentChainNode",
+    "SegmentClassifier",
     "SegmentExtractor",
     "SegmentStats",
     "no_artifact_files",

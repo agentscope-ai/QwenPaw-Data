@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import Field, TypeAdapter, model_validator
 
 from qwenpaw_data.host.core.api.models.artifact import ArtifactSchema
-from qwenpaw_data.host.core.api.models.chat import FollowUpSchema
+from qwenpaw_data.host.core.api.models.chat import ChatErrorSchema, FollowUpSchema
 from qwenpaw_data.host.core.api.models.common import ApiModel, ErrorBodySchema
 from qwenpaw_data.host.core.api.models.trace import (
     BizEventSchema,
@@ -20,6 +21,7 @@ class StreamBaseSchema(ApiModel):
     sequence_number: int
     session_id: str
     chat_id: str
+    created_at: datetime
 
 
 class ResponseEventSchema(StreamBaseSchema):
@@ -27,7 +29,7 @@ class ResponseEventSchema(StreamBaseSchema):
     id: str
     status: Literal["created", "in_progress", "completed", "failed", "cancelled"]
     usage: dict[str, Any] | None = None
-    error: ErrorBodySchema | None = None
+    error: ChatErrorSchema | None = None
 
 
 class MessageEventSchema(StreamBaseSchema, MessageSchema):
@@ -102,14 +104,45 @@ class FollowUpGeneratedEventSchema(StreamBaseSchema):
     followup: FollowUpSchema
 
 
-class TaskStatusEventSchema(StreamBaseSchema):
-    """DAG orchestration snapshot; fields mirror orchestration.events.TaskEvent."""
+class ContextUsageEventSchema(StreamBaseSchema):
+    object: Literal["context.usage"] = "context.usage"
+    context_size: int
+    used_tokens: int
+    trigger_ratio: float
+    reserve_ratio: float
+    tool_result_limit: int
 
-    object: Literal["task_status"] = "task_status"
-    event_type: str
-    status: str | None = None
-    error: dict[str, Any] | None = None
-    graph_snapshot: dict[str, Any] | None = None
+
+class McpConnectEventSchema(StreamBaseSchema):
+    object: Literal["mcp.connect"] = "mcp.connect"
+    mcp_name: str
+    status: Literal["connected", "failed"]
+    error: str | None = None
+    url: str | None = None
+    command: str | None = None
+
+
+class ModelCallEventSchema(StreamBaseSchema):
+    object: Literal["model.call"] = "model.call"
+    model_name: str
+
+
+class ModelCallEndEventSchema(StreamBaseSchema):
+    object: Literal["model.call.end"] = "model.call.end"
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class ToolResultEndEventSchema(StreamBaseSchema):
+    object: Literal["tool.result.end"] = "tool.result.end"
+    tool_name: str
+    call_id: str
+
+
+class ToolResultStartEventSchema(StreamBaseSchema):
+    object: Literal["tool.result.start"] = "tool.result.start"
+    tool_name: str
+    call_id: str
 
 
 StreamObject = Annotated[
@@ -122,7 +155,12 @@ StreamObject = Annotated[
         BizEventEventSchema,
         ArtifactRegisteredEventSchema,
         FollowUpGeneratedEventSchema,
-        TaskStatusEventSchema,
+        ContextUsageEventSchema,
+        McpConnectEventSchema,
+        ModelCallEventSchema,
+        ModelCallEndEventSchema,
+        ToolResultEndEventSchema,
+        ToolResultStartEventSchema,
     ],
     Field(discriminator="object"),
 ]

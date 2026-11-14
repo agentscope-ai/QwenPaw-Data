@@ -10,45 +10,25 @@
 
 .main {
   display: flex;
-  width: calc(100% - 48px);
-  min-width: var(--console-route-content-min-width);
-  max-width: var(--console-route-content-max-width);
+  width: 100%;
+  min-width: calc(var(--console-route-content-min-width) + 48px);
+  max-width: calc(var(--console-route-content-max-width) + 48px);
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  margin: 0 auto;
-  padding: 34px 0 24px;
-  overflow: visible;
+  margin: 24px auto 0;
+  padding: 0 24px 24px;
+  overflow: hidden;
   box-sizing: border-box;
-}
-
-.intro {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 20px;
-
-  p {
-    min-width: 0;
-    margin: 0;
-    color: #8090a7;
-    font-size: 13px;
-  }
-
-  > span {
-    color: #52637a;
-    font-size: 13px;
-  }
 }
 
 .filters {
   display: grid;
-  padding: 16px;
-  background: var(--console-route-card-background);
+  padding: 0;
+  background: transparent;
   border: 0;
-  border-radius: 14px;
-  box-shadow: var(--console-route-card-shadow);
+  border-radius: 0;
+  box-shadow: none;
   grid-template-columns: minmax(280px, 1fr) 180px 200px 160px;
   gap: 12px;
 
@@ -56,7 +36,7 @@
   :global(.ant-select-selector) {
     min-height: 40px !important;
     border-color: #dfe7f1 !important;
-    border-radius: 9px !important;
+    border-radius: var(--qwenpaw-data-radius-pill) !important;
     box-shadow: none !important;
   }
 
@@ -70,36 +50,51 @@
   min-width: 0;
 }
 
-.catalog {
+.tableSummary {
+  min-height: 20px;
+  margin-top: 12px;
+  color: var(--console-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: right;
+}
+
+.loadAlert {
+  margin-top: 16px;
+}
+
+.tableCard {
   min-height: 0;
   flex: 1;
-  margin-top: 18px;
-  overflow-y: auto;
-  background: var(--console-route-card-background);
-  border: 0;
-  border-radius: 14px;
-  box-shadow: var(--console-route-card-shadow-large);
-  overscroll-behavior: contain;
-}
+  margin-top: 8px;
+  overflow: hidden;
 
-.tableHeader,
-.sessionRow {
-  display: grid;
-  align-items: center;
-  grid-template-columns: minmax(300px, 2fr) minmax(160px, 1fr) 82px 132px 92px;
-}
+  :global(.ant-table-cell) {
+    vertical-align: middle;
+  }
 
-.tableHeader {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  min-height: 42px;
-  padding: 0 20px;
-  color: #74849b;
-  font-size: 12px;
-  font-weight: 600;
-  background: #fbfcfe;
-  border-bottom: 1px solid #e6edf5;
+  :global(.ant-table-wrapper),
+  :global(.ant-spin-nested-loading),
+  :global(.ant-spin-container),
+  :global(.ant-table),
+  :global(.ant-table-container) {
+    height: 100%;
+    min-height: 0;
+  }
+
+  :global(.ant-table-body) {
+    overscroll-behavior: contain;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    color: #65758b;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  :global(.ant-empty) {
+    margin-block: 38px;
+  }
 }
 
 .sessionRow {
@@ -120,7 +115,9 @@
 
 .sessionIdentity {
   display: flex;
+  width: 100%;
   min-width: 0;
+  overflow: hidden;
   align-items: center;
   gap: 12px;
   padding: 8px 20px 8px 0;
@@ -156,7 +153,9 @@
 .sessionCopy {
   display: flex;
   min-width: 0;
+  flex: 1;
   flex-direction: column;
+  overflow: hidden;
   gap: 5px;
 
   > span:last-child {
@@ -171,21 +170,31 @@
 .sessionTitleLine {
   display: flex;
   min-width: 0;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+  overflow: hidden;
 
   strong {
+    display: -webkit-box;
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
     color: #243147;
     font-size: 14px;
     font-weight: 650;
+    line-height: 1.45;
     text-overflow: ellipsis;
     transition: color 160ms ease;
-    white-space: nowrap;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   em {
+    display: inline-flex;
     flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
     padding: 2px 6px;
     color: #1677ff;
     font-size: 11px;
@@ -200,6 +209,51 @@
 .updatedAt {
   color: #63748b;
   font-size: 13px;
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .content {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .filters {
+  :global(.ant-input-affix-wrapper),
+  :global(.ant-select-selector) {
+    border-color: var(--qwenpaw-data-color-border) !important;
+  }
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sessionRow {
+  border-color: var(--qwenpaw-data-color-border-secondary);
+
+  &:hover,
+  &:focus-within {
+    background: var(--qwenpaw-data-color-fill-tertiary);
+  }
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sessionIcon {
+  color: var(--qwenpaw-data-color-text-secondary);
+  background: var(--qwenpaw-data-color-inset-surface);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sessionIconRunning {
+  color: var(--qwenpaw-data-color-primary-hover);
+  background: var(--qwenpaw-data-color-primary-bg);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sessionTitleLine strong {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .sessionCopy > span:last-child,
+:global(:root[data-qwenpaw-data-theme='dark']) .datasource,
+:global(:root[data-qwenpaw-data-theme='dark']) .rounds,
+:global(:root[data-qwenpaw-data-theme='dark']) .updatedAt {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .datasource :global(.anticon) {
+  color: var(--qwenpaw-data-color-text-secondary);
 }
 
 .datasource {
@@ -229,8 +283,8 @@
   transition: opacity 160ms ease;
 }
 
-.sessionRow:hover .sessionActions,
-.sessionRow:focus-within .sessionActions {
+.sessionTableRow:hover .sessionActions,
+.sessionTableRow:focus-within .sessionActions {
   opacity: 1;
 }
 
@@ -282,22 +336,12 @@
   .filters > :last-child {
     grid-column: 3;
   }
-
-  .tableHeader,
-  .sessionRow {
-    grid-template-columns: minmax(260px, 2fr) minmax(130px, 1fr) 70px 110px 90px;
-  }
 }
 
 @media (max-width: 768px) {
   .main {
-    width: calc(100% - 32px);
     min-width: 0;
-    padding-top: 20px;
-  }
-
-  .intro {
-    align-items: flex-start;
+    padding: 0 16px 24px;
   }
 
   .filters {
@@ -312,44 +356,23 @@
     grid-column: auto;
   }
 
-  .tableHeader {
-    display: none;
-  }
-
-  .sessionRow {
-    min-height: 132px;
-    padding: 14px;
-    grid-template-columns: 1fr auto;
-    grid-template-areas:
-      "identity actions"
-      "datasource datasource"
-      "rounds updated";
-    gap: 8px 12px;
-  }
-
-  .sessionIdentity {
-    padding: 0;
-    grid-area: identity;
-  }
-
-  .datasource {
-    grid-area: datasource;
-  }
-
-  .rounds {
-    grid-area: rounds;
-  }
-
-  .updatedAt {
-    text-align: right;
-    grid-area: updated;
-  }
-
-  .rowActions {
-    grid-area: actions;
-  }
-
   .sessionActions {
     opacity: 1;
+  }
+}
+
+// Keep the page controls outside the scrolling table body.
+.tableCard {
+  :global(.ant-spin-container) {
+    display: flex;
+    flex-direction: column;
+  }
+  :global(.ant-table) {
+    flex: 1;
+    height: auto;
+    overflow: hidden;
+  }
+  :global(.ant-pagination) {
+    flex-shrink: 0;
   }
 }

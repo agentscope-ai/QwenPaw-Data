@@ -1,0 +1,215 @@
+// Component-owned styles.
+
+.sharedArtifactCard {
+  container: artifact-card / inline-size;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  padding: 8px;
+  background: var(--console-fill);
+  border: 0;
+  border-radius: var(--qwenpaw-data-radius-card-secondary);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  column-gap: 9px;
+  row-gap: 6px;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+
+  &:hover {
+    background: var(--console-fill-secondary);
+  }
+}
+
+.sharedArtifactCardOnTinted {
+  background: var(--runtime-surface-on-important);
+
+  &:hover {
+    background: var(--runtime-surface-on-important);
+    box-shadow: var(--console-card-shadow);
+  }
+}
+
+.artifactFileIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  font-size: var(--icon-default);
+  border-radius: var(--radius-default);
+}
+
+.artifactFileIconSql {
+  color: var(--console-primary-active);
+  background: var(--console-primary-soft);
+}
+
+.artifactFileIconTable {
+  color: var(--console-success);
+  background: var(--console-success-bg);
+}
+
+.artifactFileIconImage {
+  color: var(--console-primary);
+  background: var(--console-primary-soft);
+}
+
+.artifactFileIconPdf {
+  color: var(--console-error);
+  background: var(--console-error-bg);
+}
+
+.artifactFileIconArchive {
+  color: var(--console-warning);
+  background: var(--console-warning-bg);
+}
+
+.artifactFileIconCode {
+  color: var(--console-primary-active);
+  background: var(--console-primary-soft);
+}
+
+.artifactFileIconDefault {
+  color: var(--console-text-secondary);
+  background: var(--console-surface);
+}
+
+.sharedArtifactMain {
+  display: flex;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+
+  strong,
+  span {
+    overflow: hidden;
+    font-size: var(--text-micro);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--console-text);
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--console-text-secondary);
+    font-weight: 400;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--console-primary-border);
+    outline-offset: 2px;
+  }
+}
+
+.artifactTitleRow {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+
+  > strong {
+    min-width: min(42cqi, 160px);
+    overflow: hidden;
+    flex: 1 1 auto;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.artifactSegmentLabel {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  color: var(--console-primary-active);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.artifactSegmentRow {
+  display: flex;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--console-line);
+  flex-direction: column;
+  gap: 4px;
+  grid-column: 1 / -1;
+}
+
+.artifactSegmentItem {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.artifactSegmentTitle {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--console-text-secondary);
+  font-size: var(--text-micro);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sharedArtifactActions,
+.sharedArtifactInlineActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.sharedArtifactInlineActions {
+  gap: 2px;
+}
+
+.sharedArtifactActionButton {
+  display: inline-flex !important;
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  color: var(--console-text-secondary) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--radius-default) !important;
+  box-shadow: none !important;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--console-primary) !important;
+    background: var(--console-primary-soft) !important;
+  }
+}
+
+.sharedArtifactMoreButton {
+  display: none !important;
+}
+
+.sharedArtifactMenuButton {
+  display: inline-flex !important;
+}
+
+@container artifact-card (max-width: 370px) {
+  .sharedArtifactInlineActions {
+    display: none;
+  }
+
+  .sharedArtifactMoreButton {
+    display: inline-flex !important;
+  }
+}

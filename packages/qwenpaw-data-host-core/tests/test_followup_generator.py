@@ -51,10 +51,7 @@ def test_the_prompt_carries_the_anchor_and_the_material() -> None:
     assert "渠道类型" in prompt
     assert "bi-metric-observation" in prompt
     assert "6月GAAP用户数环比如何" in prompt
-    assert "本轮已命中已验证 SQL" in render_prompt(
-        _snapshot(has_golden_query=True)
-    )
-    assert "insufficient" in render_prompt(_snapshot(intent_coverage="insufficient"))
+    assert "本轮已命中已验证 SQL" in render_prompt(_snapshot(has_golden_query=True))
 
 
 def test_a_table_name_never_reaches_the_prompt() -> None:
@@ -72,9 +69,7 @@ def test_an_empty_snapshot_still_renders() -> None:
 
 def test_the_entities_are_recovered_from_the_question_text() -> None:
     payload = {
-        "questions": [
-            {"text": "按渠道类型拆解一下 GAAP用户数", "intent": "drilldown"}
-        ]
+        "questions": [{"text": "按渠道类型拆解一下 GAAP用户数", "intent": "drilldown"}]
     }
 
     candidates = parse_candidates(payload, _snapshot())
@@ -96,7 +91,7 @@ def test_an_alias_in_the_question_is_recorded_as_the_canonical_name() -> None:
 
 
 def test_a_report_question_inherits_the_anchor() -> None:
-    """"把本次分析整理成一份报告" names no entity by nature, and would look
+    """ "把本次分析整理成一份报告" names no entity by nature, and would look
     invented under the groundedness filter without this."""
 
     payload = {

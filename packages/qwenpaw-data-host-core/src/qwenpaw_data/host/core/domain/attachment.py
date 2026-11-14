@@ -7,11 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.utils.files import write_file_to_dir
 from qwenpaw_data.host.core.utils.ids import create_id
-from qwenpaw_data.host.core.utils.safe_name import require_safe_name
 from qwenpaw_data.host.core.utils.time import utcnow
-
-MAX_SIZE_BYTES = 20 * 1024 * 1024
 
 
 def uploads_relative_path(session_id: str, filename: str) -> str:
@@ -37,16 +35,7 @@ class Attachment:
         data: bytes,
         dest_dir: Path,
     ) -> Attachment:
-        name = require_safe_name(filename)
-        if not data:
-            raise ValueError("file is empty")
-        if len(data) > MAX_SIZE_BYTES:
-            raise ValueError("file exceeds 20MB")
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / name
-        if dest.exists():
-            raise ValueError(f"duplicate filename: {name}")
-        dest.write_bytes(data)
+        name = write_file_to_dir(dest_dir, filename, data)
         return cls(
             id=create_id("att"),
             session_id=session_id,

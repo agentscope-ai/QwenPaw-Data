@@ -1,17 +1,10 @@
-"""数据源连接配置（config 字段）—— 每个协议一套 key，用独立对象封装。
+"""Data-source connection configs (the ``config`` column) — one model per protocol with ``extra="forbid"``."""
 
-约定：
-- ``config`` 在 SQLite 里存 TEXT（JSON 字符串）；出入参在 API 层是 dict。
-- 每个 ``datasource_type`` 对应一个 pydantic 配置模型（key/类型/默认值单点约定），
-  前端可据此渲染连接表单。
-- ``extra="forbid"``：多传未知 key 直接校验失败，避免拼错字段静默通过。
-- key 命名贴合各自原生驱动/协议：PG 用 ``dbname``（psycopg），MySQL 用 ``database``（JDBC）。
-"""
 from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from semantic_config.errors import BadRequestError
 
@@ -27,6 +20,7 @@ class DatasourceType(str, Enum):
     # 单文件分析库：无 host/凭证，只需本地路径。
     DUCKDB = "duckdb"
     SQLITE = "sqlite"
+    BIGQUERY = "bigquery"
 
 
 #: MySQL 线协议兼容类型（PyMySQL 直连 + information_schema 反射均可用）。
@@ -46,19 +40,20 @@ FILE_DATABASE_TYPES: frozenset[DatasourceType] = frozenset(
 
 
 class PostgresConfig(BaseModel):
-    """PostgreSQL / Hologres 连接（psycopg 风格）。"""
+    """PostgreSQL / Hologres connection."""
 
     model_config = ConfigDict(extra="forbid")
 
     host: str
     port: int = 5432
-    dbname: str
+    # 0.3 PostgreSQL configs stored the psycopg key "dbname".
+    database: str = Field(validation_alias=AliasChoices("database", "dbname"))
     user: str
     password: str
 
 
 class MysqlConfig(BaseModel):
-    """MySQL 连接（JDBC ``jdbc:mysql://host:port/database`` 风格）。"""
+    """MySQL connection (in MySQL, schema and database are equivalent)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -70,7 +65,7 @@ class MysqlConfig(BaseModel):
 
 
 class OdpsConfig(BaseModel):
-    """ODPS / MaxCompute 连接（PyODPS）。``sts_token`` 存在时走 STS 鉴权。"""
+    """ODPS / MaxCompute public connection (PyODPS); STS when ``sts_token`` is set."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -90,11 +85,23 @@ class DuckdbConfig(BaseModel):
 
 
 class SqliteConfig(BaseModel):
-    """SQLite 单文件连接（sqlite3，``mode=ro`` 只读 URI 打开）。"""
+    """SQLite connection (server-local database file); field names mirror SQLiteConnection."""
 
     model_config = ConfigDict(extra="forbid")
 
     path: str
+    read_only: bool = True
+
+
+class BigQueryConfig(BaseModel):
+    """BigQuery connection (billing project + SA JSON); field names mirror BigQueryConnection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str
+    credentials_json: str
+    location: str | None = None
+    maximum_bytes_billed: int | None = None
 
 
 CONFIG_MODEL_BY_TYPE: dict[DatasourceType, type[BaseModel]] = {
@@ -107,24 +114,22 @@ CONFIG_MODEL_BY_TYPE: dict[DatasourceType, type[BaseModel]] = {
     DatasourceType.TIDB: MysqlConfig,
     DatasourceType.DUCKDB: DuckdbConfig,
     DatasourceType.SQLITE: SqliteConfig,
+    DatasourceType.BIGQUERY: BigQueryConfig,
 }
 
-#: 展示名（``/datasource/types`` 端点使用；前端下拉据此渲染）。
-TYPE_LABELS: dict[DatasourceType, str] = {
-    DatasourceType.MYSQL: "MySQL",
-    DatasourceType.POSTGRESQL: "PostgreSQL",
-    DatasourceType.ODPS: "ODPS",
-    DatasourceType.STARROCKS: "StarRocks",
-    DatasourceType.DORIS: "Apache Doris",
-    DatasourceType.TIDB: "TiDB",
-    DatasourceType.DUCKDB: "DuckDB",
-    DatasourceType.SQLITE: "SQLite",
+
+#: Legacy type alias folding (write path); see the read-path fallback in graph.connectors.registry.
+_LEGACY_TYPE_ALIASES = {
+    "postgres": "postgresql",
+    "hologres": "postgresql",
+    "holo": "postgresql",
 }
 
 
 def resolve_type(datasource_type: str | None) -> DatasourceType:
-    """把外部传入的类型字符串归一为 :class:`DatasourceType`（大小写不敏感）。"""
+    """Normalize an incoming type string to :class:`DatasourceType` (case-insensitive, alias-aware)."""
     key = (datasource_type or "").strip().lower()
+    key = _LEGACY_TYPE_ALIASES.get(key, key)
     try:
         return DatasourceType(key)
     except ValueError as exc:
@@ -140,10 +145,7 @@ def _format_validation_error(exc: ValidationError) -> str:
 
 
 def validate_config(datasource_type: str | None, config: dict | None) -> dict:
-    """按 ``datasource_type`` 选对应模型校验 ``config``，返回规范化后的 dict（供落库）。
-
-    校验失败（缺 key / 多余 key / 类型不符）抛 :class:`BadRequestError` → 400。
-    """
+    """Validate *config* against the model of *datasource_type*; return a normalized dict (failures raise ``BadRequestError`` → 400)."""
     if config is None:
         raise BadRequestError("config 不能为空")
     dt = resolve_type(datasource_type)
@@ -151,7 +153,9 @@ def validate_config(datasource_type: str | None, config: dict | None) -> dict:
     try:
         obj = model.model_validate(config)
     except ValidationError as exc:
-        raise BadRequestError(f"config 校验失败: {_format_validation_error(exc)}") from exc
+        raise BadRequestError(
+            f"config 校验失败: {_format_validation_error(exc)}"
+        ) from exc
     return obj.model_dump()
 
 
@@ -164,8 +168,8 @@ __all__ = [
     "OdpsConfig",
     "DuckdbConfig",
     "SqliteConfig",
+    "BigQueryConfig",
     "CONFIG_MODEL_BY_TYPE",
-    "TYPE_LABELS",
     "resolve_type",
     "validate_config",
 ]

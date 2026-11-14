@@ -1,36 +1,35 @@
-import {
-  PlusOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Tooltip } from '@agentscope-ai/design';
-import {
-  Alert,
-  Empty,
-  Popconfirm,
-  Space,
-  Table,
-  Tag,
-  message,
-} from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Empty, Popconfirm, Space, Table, Tag, message, Input, Select } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   cronApi,
   type CronJob,
   type CronJobDraft,
   type CronJobWriteBody,
+  CRON_CHANNELS,
 } from '@/features/console/api/cron';
-import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
-import {
-  formatCronSchedule,
-} from '@/features/console/model/cronSchedule';
-import {
-  buildCronJobsPath,
-  buildNewConsoleSessionPath,
-} from '@/features/console/model/sessionNavigation';
+import { channelConfigApi } from '@/features/console/api/channelConfig';
+import { getRuntimeConfig } from '@/services/runtimeConfig';
+import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
+import { formatCronSchedule } from '@/features/cron/model/cronSchedule';
+import { buildCronJobsPath } from '@/shared/navigation/sessionNavigation';
+import ChannelIcon from '@/features/console/components/ChannelIcon';
 import { useConsoleLayout } from '@/layouts/ConsoleLayout/context';
+import { useAppI18n } from '@/i18n';
+import type { MessageKey } from '@/i18n/locales';
 import CronJobDrawer from './CronJobDrawer';
+import type { CronJobAttachmentEdits } from './CronJobDrawer';
 import styles from './index.module.less';
+
+const CHANNEL_LABEL: Record<string, MessageKey> = {
+  console: 'cron.channel.console',
+  feishu: 'cron.channel.feishu',
+  dingtalk: 'cron.channel.dingtalk',
+  wecom: 'cron.channel.wecom',
+  wechat: 'cron.channel.wechat',
+};
 
 interface LocationState {
   draft?: CronJobDraft;
@@ -40,10 +39,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatUpdatedAt(value: string): string {
+function formatUpdatedAt(value: string, language: 'zh' | 'en'): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -56,7 +55,9 @@ export default function CronJobsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { consoleController } = useConsoleLayout();
+  const { language, t } = useAppI18n();
   const [jobs, setJobs] = useState<CronJob[]>([]);
+  const [channelEnabledStatus, setChannelEnabledStatus] = useState<Map<string, boolean>>(new Map());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,22 +65,73 @@ export default function CronJobsPage() {
   const [editing, setEditing] = useState<CronJob | null>(null);
   const [draft, setDraft] = useState<CronJobDraft | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const stagedJobId = useRef<string | null>(null);
+  const attemptedUploads = useRef(new Map<string, File>());
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState('');
+  const [jobStatus, setJobStatus] = useState('');
+  const [channel, setChannel] = useState('');
+  const isFirstLoad = useRef(true);
 
-  const loadJobs = useCallback(async () => {
-    const response = await cronApi.listJobs();
-    setJobs(response.jobs);
-    setLoadError(null);
-  }, []);
+  var channelOptions = [{ value: '', label: t('cron.allChannelTypes') }];
+  CRON_CHANNELS.map((c) => channelOptions.push({ value: c, label: t(CHANNEL_LABEL[c]) }));
+
+  const loadJobs = useCallback(
+    async (signal?: AbortSignal) => {
+      const enabled = jobStatus === 'enabled' ? true : jobStatus === 'disabled' ? false : undefined;
+      const response = await cronApi.listJobs(
+        {
+          keyword: keyword.trim() || undefined,
+          enabled,
+          channel: channel || undefined,
+        },
+        signal,
+      );
+      setJobs(response.jobs);
+      // Local Console deployments can omit IM channel administration entirely.
+      const channelConfigResponse = window.QWENPAW_DATA_CONSOLE && !getRuntimeConfig().capabilities.channels
+        ? {}
+        : await channelConfigApi.get();
+      setLoadError(null);
+      const channelEnabled = new Map<string, boolean>();
+      channelEnabled.set('feishu', channelConfigResponse?.feishu?.enabled || false);
+      channelEnabled.set('dingtalk', channelConfigResponse?.dingtalk?.enabled || false);
+      channelEnabled.set('wecom', channelConfigResponse?.wecom?.enabled || false);
+      channelEnabled.set('wechat', channelConfigResponse?.wechat?.enabled || false);
+      channelEnabled.set('console', true);
+      setChannelEnabledStatus(channelEnabled);
+    },
+    [keyword, jobStatus, channel],
+  );
 
   useEffect(() => {
     const previousTitle = document.title;
-    document.title = '定时任务 · QwenPaw Data';
-    void loadJobs()
-      .catch((error) => setLoadError(errorMessage(error)))
-      .finally(() => setLoading(false));
+    document.title = `${t('cron.title')} · QwenPaw Data`;
     return () => {
       document.title = previousTitle;
+    };
+  }, [t]);
+
+  // Load when page loads. Delay loading upon filter changes to avoid loading on every key stroke.
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const delay = isFirstLoad.current ? 0 : 300;
+    isFirstLoad.current = false;
+    setLoading(true);
+    const timer = setTimeout(() => {
+      void loadJobs(controller.signal)
+        .catch((error) => {
+          if (!cancelled) setLoadError(errorMessage(error));
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
     };
   }, [loadJobs]);
 
@@ -93,12 +145,8 @@ export default function CronJobsPage() {
   }, [location.state, navigate]);
 
   const datasourceNames = useMemo(
-    () => new Map(
-      consoleController.datasources.map((datasource) => [
-        datasource.id,
-        datasource.name,
-      ]),
-    ),
+    () =>
+      new Map(consoleController.datasources.map((datasource) => [datasource.id, datasource.name])),
     [consoleController.datasources],
   );
   const refresh = useCallback(async () => {
@@ -107,49 +155,86 @@ export default function CronJobsPage() {
       await loadJobs();
     } catch (error) {
       setLoadError(errorMessage(error));
-      message.error(`刷新失败：${errorMessage(error)}`);
+      message.error(t('common.refreshFailed', { message: errorMessage(error) }));
     } finally {
       setRefreshing(false);
     }
-  }, [loadJobs]);
+  }, [loadJobs, t]);
 
   const replaceInList = useCallback((nextJob: CronJob) => {
-    setJobs((current) => current.map((job) => (
-      job.id === nextJob.id ? nextJob : job
-    )));
+    setJobs((current) => current.map((job) => (job.id === nextJob.id ? nextJob : job)));
   }, []);
 
-  const runAction = useCallback(async (
-    key: string,
-    action: () => Promise<void>,
-  ) => {
-    setPendingAction(key);
-    try {
-      await action();
-    } catch (error) {
-      message.error(`操作失败：${errorMessage(error)}`);
-    } finally {
-      setPendingAction(null);
-    }
-  }, []);
-
-  const handleSubmit = async (body: CronJobWriteBody) => {
-    setSubmitting(true);
-    try {
-      if (editing) {
-        const response = await cronApi.replaceJob(editing.id, body);
-        replaceInList(response.job);
-        message.success('定时任务已保存');
-      } else {
-        const response = await cronApi.createJob(body);
-        setJobs((current) => [response.job, ...current]);
-        message.success('定时任务已创建');
+  const runAction = useCallback(
+    async (key: string, action: () => Promise<void>) => {
+      setPendingAction(key);
+      try {
+        await action();
+      } catch (error) {
+        message.error(t('common.operationFailed', { message: errorMessage(error) }));
+      } finally {
+        setPendingAction(null);
       }
+    },
+    [t],
+  );
+
+  const handleSubmit = async (body: CronJobWriteBody, files: CronJobAttachmentEdits) => {
+    if (submitting) return;
+    setSubmitting(true);
+    const creating = !editing;
+    try {
+      let jobId = editing?.id ?? stagedJobId.current;
+      if (!jobId && !files.upload.length) {
+        const { job } = await cronApi.createJob(body);
+        setJobs((current) => [job, ...current]);
+      } else {
+        if (!jobId) {
+          const { job } = await cronApi.createJob({ ...body, enabled: false });
+          jobId = job.id;
+          stagedJobId.current = jobId;
+          setJobs((current) => [job, ...current]);
+        }
+        if (files.remove.length || files.upload.length || attemptedUploads.current.size) {
+          const { job } = await cronApi.getJob(jobId);
+          const persisted = new Set(job.attachments);
+          const selected = new Map(files.upload.map((file) => [file.name, file]));
+          const toRemove = new Set(files.remove);
+          for (const [name, file] of attemptedUploads.current) {
+            if (selected.get(name) === file) {
+              toRemove.delete(name);
+            } else {
+              toRemove.add(name);
+            }
+          }
+          for (const name of toRemove) {
+            if (persisted.has(name)) {
+              const response = await cronApi.deleteAttachment(jobId, name);
+              replaceInList(response.job);
+              persisted.delete(name);
+            }
+            attemptedUploads.current.delete(name);
+          }
+          for (const file of files.upload) {
+            if (attemptedUploads.current.get(file.name) === file && persisted.has(file.name)) {
+              continue;
+            }
+            if (!persisted.has(file.name)) attemptedUploads.current.set(file.name, file);
+            const response = await cronApi.uploadAttachment(jobId, file);
+            replaceInList(response.job);
+          }
+        }
+        const response = await cronApi.replaceJob(jobId, body);
+        replaceInList(response.job);
+      }
+      message.success(creating ? t('cron.created') : t('cron.saved'));
+      stagedJobId.current = null;
+      attemptedUploads.current.clear();
       setDrawerOpen(false);
       setEditing(null);
       setDraft(null);
     } catch (error) {
-      message.error(`保存失败：${errorMessage(error)}`);
+      message.error(t('common.saveFailed', { message: errorMessage(error) }));
     } finally {
       setSubmitting(false);
     }
@@ -157,34 +242,61 @@ export default function CronJobsPage() {
 
   return (
     <div className={styles.content}>
-      <ConsoleRouteHeader
-        parentLabel="工作空间"
-        title="定时任务"
-        onParentClick={() => navigate(buildNewConsoleSessionPath())}
-      />
+      <ConsoleRouteHeader title={t('cron.title')} description={t('cron.description')} />
 
       <main className={styles.main}>
-        <div className={styles.tableActions} aria-label="定时任务操作">
-          <Space>
-            <Button
-              icon={<ReloadOutlined />}
-              loading={refreshing}
-              onClick={() => void refresh()}
-            >
-              刷新
-            </Button>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setDraft(null);
-                setEditing(null);
-                setDrawerOpen(true);
-              }}
-            >
-              创建任务
-            </Button>
-          </Space>
+        <div className={styles.actionBar}>
+          <section className={styles.filters} aria-label={t('cron.title')}>
+            <Input
+              aria-label={t('cron.filterKeyword')}
+              style={{ width: 320 }}
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder={t('cron.filterKeyword')}
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+            />
+            <Select
+              aria-label={t('cron.allJobStatuses')}
+              style={{ width: 160 }}
+              value={jobStatus}
+              options={[
+                { value: '', label: t('cron.allJobStatuses') },
+                { value: 'enabled', label: t('cron.filterEnabled') },
+                { value: 'disabled', label: t('cron.filterDisabled') },
+              ]}
+              onChange={(value) => setJobStatus(value)}
+            />
+            <Select
+              aria-label={t('cron.allChannelTypes')}
+              style={{ width: 160 }}
+              value={channel}
+              options={channelOptions}
+              onChange={(value) => setChannel(value)}
+            />
+          </section>
+          <div className={styles.tableActions} aria-label={t('cron.actions')}>
+            <Space>
+              <Button
+                aria-label={t('common.refresh')}
+                title={t('common.refresh')}
+                icon={<ReloadOutlined />}
+                loading={refreshing}
+                onClick={() => void refresh()}
+              />
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setDraft(null);
+                  setEditing(null);
+                  setDrawerOpen(true);
+                }}
+              >
+                {t('cron.create')}
+              </Button>
+            </Space>
+          </div>
         </div>
 
         {loadError ? (
@@ -192,72 +304,74 @@ export default function CronJobsPage() {
             className={styles.loadAlert}
             showIcon
             type="error"
-            message="定时任务加载失败"
+            message={t('cron.loadFailed')}
             description={loadError}
-            action={<Button size="small" onClick={() => void refresh()}>重试</Button>}
+            action={
+              <Button size="small" onClick={() => void refresh()}>
+                {t('common.retry')}
+              </Button>
+            }
           />
         ) : null}
 
-        <section className={styles.tableCard} aria-label="定时任务列表">
+        <div className={styles.tableSummary}>{t('common.countItems', { count: jobs.length })}</div>
+
+        <section className={styles.tableCard} aria-label={t('cron.list')}>
           <Table<CronJob>
             rowKey="id"
             loading={loading}
             dataSource={jobs}
             pagination={false}
-            scroll={{ x: 1120 }}
+            scroll={{ x: 1360 }}
             locale={{
               emptyText: (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="还没有定时任务"
-                >
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => setDrawerOpen(true)}
-                  >
-                    创建第一个任务
-                  </Button>
-                </Empty>
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('cron.empty')} />
               ),
             }}
             columns={[
               {
-                title: '任务名称',
+                title: t('cron.name'),
                 dataIndex: 'name',
                 key: 'name',
                 width: 190,
                 render: (name: string, job) => (
                   <div className={styles.jobIdentity}>
                     <strong title={name}>{name}</strong>
-                    <span>{job.id}</span>
+                    <Tooltip title={job.id}>
+                      <span>{job.id}</span>
+                    </Tooltip>
                   </div>
                 ),
               },
               {
-                title: '状态',
+                title: t('cron.status'),
                 dataIndex: 'enabled',
                 key: 'enabled',
                 width: 88,
                 render: (enabled: boolean) => (
                   <Tag color={enabled ? 'success' : 'default'}>
-                    {enabled ? '已启用' : '已停用'}
+                    {enabled ? t('common.enabled') : t('common.disabled')}
                   </Tag>
                 ),
               },
               {
-                title: '执行计划',
+                title: t('cron.schedule'),
                 key: 'schedule',
                 width: 180,
-                render: (_, job) => (
-                  <div className={styles.scheduleCell}>
-                    <strong>{formatCronSchedule(job.schedule)}</strong>
-                    <span>{job.schedule.timezone}</span>
-                  </div>
-                ),
+                render: (_, job) => {
+                  const scheduleText = formatCronSchedule(job.schedule, language);
+                  return (
+                    <div className={styles.scheduleCell}>
+                      <Tooltip title={scheduleText}>
+                        <strong>{scheduleText}</strong>
+                      </Tooltip>
+                      <span>{job.schedule.timezone}</span>
+                    </div>
+                  );
+                },
               },
               {
-                title: '数据源',
+                title: t('cron.datasource'),
                 dataIndex: 'datasource_id',
                 key: 'datasource_id',
                 width: 150,
@@ -270,7 +384,30 @@ export default function CronJobsPage() {
                 ),
               },
               {
-                title: '任务指令',
+                title: t('cron.channel'),
+                dataIndex: 'channel',
+                key: 'channel',
+                width: 110,
+                render: (channel: string) => (
+                  <span
+                    title={channelEnabledStatus?.get(channel) ? '' : t('cron.channelDisabled')}
+                    className={
+                      channelEnabledStatus?.get(channel)
+                        ? styles.channelCell
+                        : styles.channelCellDisabled
+                    }
+                  >
+                    <ChannelIcon
+                      channel={channel}
+                      size={16}
+                      className={channelEnabledStatus?.get(channel) ? undefined : styles.grayedOut}
+                    />
+                    {CHANNEL_LABEL[channel] ? t(CHANNEL_LABEL[channel]) : channel}
+                  </span>
+                ),
+              },
+              {
+                title: t('cron.instruction'),
                 dataIndex: 'message',
                 key: 'message',
                 width: 260,
@@ -281,17 +418,31 @@ export default function CronJobsPage() {
                 ),
               },
               {
-                title: '更新时间',
+                title: t('cron.session'),
+                dataIndex: 'session_id',
+                key: 'session_id',
+                width: 160,
+                render: (sessionId: string | null, job) => {
+                  const text = sessionId || job.target_external_key;
+                  return (
+                    <Tooltip title={text || undefined}>
+                      <span className={styles.datasourceCell}>{text || '—'}</span>
+                    </Tooltip>
+                  );
+                },
+              },
+              {
+                title: t('cron.updatedAt'),
                 dataIndex: 'updated_at',
                 key: 'updated_at',
                 width: 110,
-                render: (value: string) => formatUpdatedAt(value),
+                render: (value: string) => formatUpdatedAt(value, language),
               },
               {
-                title: '操作',
+                title: t('cron.action'),
                 key: 'actions',
                 fixed: 'right',
-                width: 260,
+                width: 240,
                 render: (_, job) => {
                   const actionLoading = pendingAction?.endsWith(`:${job.id}`);
                   return (
@@ -306,54 +457,76 @@ export default function CronJobsPage() {
                           setDrawerOpen(true);
                         }}
                       >
-                        编辑
+                        {t('common.edit')}
                       </Button>
-                      <Tooltip title="立即执行只触发一次，不会改变原有计划。">
+                      <Tooltip
+                        title={
+                          channelEnabledStatus?.get(job.channel)
+                            ? t('cron.runNowHint')
+                            : t('cron.channelDisabled')
+                        }
+                      >
                         <Button
                           type="link"
                           size="small"
+                          disabled={actionLoading || !channelEnabledStatus?.get(job.channel)}
                           loading={pendingAction === `run:${job.id}`}
-                          onClick={() => void runAction(`run:${job.id}`, async () => {
-                            await cronApi.runJob(job.id);
-                            consoleController.reloadSessions();
-                            window.setTimeout(
-                              () => consoleController.reloadSessions(),
-                              1500,
-                            );
-                            message.success('已触发执行，稍后可在全部会话中查看结果');
-                          })}
+                          onClick={() =>
+                            void runAction(`run:${job.id}`, async () => {
+                              await cronApi.runJob(job.id);
+                              consoleController.reloadSessions();
+                              window.setTimeout(() => consoleController.reloadSessions(), 1500);
+                              message.success(t('cron.runTriggered'));
+                            })
+                          }
                         >
-                          立即执行
+                          {t('cron.runNow')}
                         </Button>
                       </Tooltip>
-                      <Button
-                        type="link"
-                        size="small"
-                        loading={pendingAction === `toggle:${job.id}`}
-                        onClick={() => void runAction(`toggle:${job.id}`, async () => {
-                          const response = job.enabled
-                            ? await cronApi.pauseJob(job.id)
-                            : await cronApi.resumeJob(job.id);
-                          replaceInList(response.job);
-                          message.success(job.enabled ? '任务已停用' : '任务已启用');
-                        })}
+                      <Tooltip
+                        title={
+                          !job.enabled && !channelEnabledStatus?.get(job.channel)
+                            ? t('cron.channelDisabled')
+                            : ''
+                        }
                       >
-                        {job.enabled ? '停用' : '启用'}
-                      </Button>
+                        <Button
+                          type="link"
+                          size="small"
+                          disabled={
+                            actionLoading ||
+                            (!job.enabled && !channelEnabledStatus?.get(job.channel))
+                          }
+                          loading={pendingAction === `toggle:${job.id}`}
+                          onClick={() =>
+                            void runAction(`toggle:${job.id}`, async () => {
+                              const response = job.enabled
+                                ? await cronApi.pauseJob(job.id)
+                                : await cronApi.resumeJob(job.id);
+                              replaceInList(response.job);
+                              message.success(job.enabled ? t('cron.disabled') : t('cron.enabled'));
+                            })
+                          }
+                        >
+                          {job.enabled ? t('common.disable') : t('common.enable')}
+                        </Button>
+                      </Tooltip>
                       <Popconfirm
-                        title="删除定时任务"
-                        description="删除后将不再按计划执行，确认继续？"
-                        okText="删除"
-                        cancelText="取消"
+                        title={t('cron.deleteTitle')}
+                        description={t('cron.deleteDescription')}
+                        okText={t('common.delete')}
+                        cancelText={t('common.cancel')}
                         okButtonProps={{ danger: true }}
-                        onConfirm={() => runAction(`delete:${job.id}`, async () => {
-                          await cronApi.deleteJob(job.id);
-                          setJobs((current) => current.filter((item) => item.id !== job.id));
-                          message.success('定时任务已删除');
-                        })}
+                        onConfirm={() =>
+                          runAction(`delete:${job.id}`, async () => {
+                            await cronApi.deleteJob(job.id);
+                            setJobs((current) => current.filter((item) => item.id !== job.id));
+                            message.success(t('cron.deleted'));
+                          })
+                        }
                       >
                         <Button type="link" size="small" danger disabled={actionLoading}>
-                          删除
+                          {t('common.delete')}
                         </Button>
                       </Popconfirm>
                     </Space>
@@ -372,6 +545,8 @@ export default function CronJobsPage() {
         datasources={consoleController.datasources}
         submitting={submitting}
         onClose={() => {
+          stagedJobId.current = null;
+          attemptedUploads.current.clear();
           setDrawerOpen(false);
           setEditing(null);
           setDraft(null);

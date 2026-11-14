@@ -115,7 +115,7 @@ description: 从运营周报、活动文档、对话输入或文档工具 API �
 
 #### 方式一：使用脚本
 
-路径：`scripts/event_evidence_scorer.py`
+路径：`<skill-dir>/scripts/event_evidence_scorer.py`
 
 **参数**：
 
@@ -128,7 +128,7 @@ description: 从运营周报、活动文档、对话输入或文档工具 API �
 **调用示例**：
 
 ```bash
-python scripts/event_evidence_scorer.py \
+python <skill-dir>/scripts/event_evidence_scorer.py \
     --anomaly-file data/processed/anomaly_anchor.csv \
     --events-file data/processed/extracted_events.csv \
     --output-file data/processed/causal_attribution_result.csv
@@ -168,7 +168,7 @@ python scripts/event_evidence_scorer.py \
 
 | 场景 | 说明 |
 | --- | --- |
-| 脚本不存在 | `scripts/event_evidence_scorer.py` 文件不在项目目录中 |
+| 脚本不存在 | `<skill-dir>/scripts/event_evidence_scorer.py` 不在该技能目录中 |
 | 环境无法执行脚本 | 无 Python 环境、脚本报错、无文件系统写权限 |
 | 数据未落盘 | 步骤 1/3 未生成 CSV（如用户直接在对话中提供异常描述和事件，跳过了文件落盘） |
 | 事件数量极少 | 提取事件 ≤ 3 条，逐条推理比调用脚本更高效 |

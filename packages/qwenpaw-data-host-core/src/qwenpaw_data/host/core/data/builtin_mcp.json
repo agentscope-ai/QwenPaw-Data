@@ -1,0 +1,24 @@
+{
+  "mcps": {
+    "context-manager": {
+      "is_stateful": false,
+      "mcp_config": {
+        "type": "http_mcp",
+        "url": "",
+        "headers": {},
+        "timeout": 2400.0
+      },
+      "enable_tools": null,
+      "disable_tools": [
+        "execute_create",
+        "execute_insert",
+        "execute_update",
+        "execute_modify"
+      ],
+      "execution_timeout": 2400.0,
+      "enabled": true,
+      "source": "builtin",
+      "description": "Context Manager"
+    }
+  }
+}

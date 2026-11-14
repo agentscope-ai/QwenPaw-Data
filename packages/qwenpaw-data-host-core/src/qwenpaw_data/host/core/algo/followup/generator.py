@@ -53,9 +53,6 @@ def render_prompt(
         "unused_dimensions": "、".join(snapshot.unused_dimensions) or _NONE,
         "skill_capability_index": format_skill_index(),
         "previous_followups": "；".join(snapshot.previous_followups) or _NONE,
-        "intent_coverage": snapshot.intent_coverage or _NONE,
-        "intent_gaps": "；".join(snapshot.intent_gaps) or _NONE,
-        "intent_next_step": snapshot.intent_next_step or _NONE,
         "golden_query_note": (
             "本轮已命中已验证 SQL，勿在问题中写出 SQL"
             if snapshot.has_golden_query

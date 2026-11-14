@@ -2,7 +2,9 @@
 
 Standalone command-line interface for QwenPaw Data.
 
-This package provides the `qwenpaw-data` command and connects local host workflows through `qwenpaw-data-host-core`.
+This package provides the `qwenpaw-data` command for datasource administration,
+semantic configuration, deployment diagnostics, and remote Host conversations.
+The [Console](../qwenpaw-data-console/README.md) remains the full interactive UI.
 
 The command automatically loads `QWENPAW_DATA_ENV_FILE` when set. Otherwise, an
 editable checkout is discovered from the CLI package location and the
@@ -12,13 +14,53 @@ working directory is used as the fallback configuration root.
 
 Available command groups:
 
-- `plan`
-- `execute`
-- `run`
-- `chat`
 - `datasource`
 - `semantic`
 - `doctor`
+- `run` / `chat` (explicit Host-service connection)
+- `plan` (prompt-only SOP generation through Host, without execution)
+
+`run` and `chat` now use the current Host API, not the legacy in-process DAG
+runtime. Select an already-running Host explicitly:
+
+```bash
+qwenpaw-data run --host-url http://127.0.0.1:8000 "Summarize sales"
+qwenpaw-data chat --host-url http://127.0.0.1:8000
+qwenpaw-data run --host-url http://127.0.0.1:8000 --session-id <id> --no-stream "Continue"
+```
+
+`QWENPAW_DATA_HOST_URL` can supply the origin; `QWENPAW_DATA_HOST_TOKEN` supplies
+the Host API token or user JWT without putting it in command-line arguments.
+Use HTTPS for remote hosts. The client does not follow redirects or inherit HTTP
+proxy settings. It does not forward DataBridge credentials or caller-selected
+user identities. Model, sandbox and permission policies belong to the server;
+the old `--workspace` / `--permission-mode` flags are not supported in this mode.
+
+Session IDs are printed to stderr and retained on the server for continuation.
+New CLI sessions disable clarification; an existing session requiring it must
+be continued in Console. Tool approval prompts default to deny, and non-TTY
+input always denies. Ctrl+C or an interrupted event stream requests cancellation
+of the admitted turn; a disconnected stream is never reported as success.
+If admission itself loses its response, the client cannot know the new chat ID;
+inspect the session in Console before retrying to avoid duplicate work.
+
+`plan` returns the OSS SOP YAML contract (`name`, `description`,
+`expected_outcome`, and `nodes` with stable IDs and acyclic `deps`):
+
+```bash
+qwenpaw-data plan --host-url http://127.0.0.1:8000 "Plan a sales analysis" -o sales.yaml
+```
+
+Planning uses the authorized session's model preferences, but does not start an
+agent, allocate an execution workspace, query a datasource, or run tools. Supply
+schema/facts in the prompt if needed; otherwise the generated plan must include
+discovery steps. The datasource ID is context, not proof of schema inspection.
+`--output` exclusively creates a new file and refuses to overwrite existing data.
+This does not restore the legacy tool-assisted planner or the strict DAG executor.
+
+**Remaining compatibility gaps:** `execute` and the old in-process
+`QwenPawDataHost` interface are not restored. Remote `run` is a normal agent turn,
+not a claim of legacy plan-and-execute SOP equivalence.
 
 Run `qwenpaw-data doctor` before the first task to check supported Python/Node
 versions, uv, model and authentication configuration, QwenPaw Data Home, DataBridge
@@ -77,10 +119,8 @@ With `--wait` the CLI polls until the task reaches a terminal state
 (`success`, `failed`, `killed`), printing progress to stderr and the final
 task record as JSON to stdout; the exit code is `0` only for `success`.
 
-The default CLI model uses provider `openai` together with `LLM_MODEL`,
-`OPENAI_API_KEY`, and `OPENAI_BASE_URL`. Set the corresponding
-`QWENPAW_DATA_MODEL_PROVIDER`, `QWENPAW_DATA_MODEL_NAME`, `QWENPAW_DATA_MODEL_API_KEY`, and
-`QWENPAW_DATA_MODEL_BASE_URL` variables to override individual values for the CLI.
+Remote agent commands use the models configured in Host preferences. The CLI
+does not forward local model credentials or override the server's model selection.
 
 ## Output and logs
 

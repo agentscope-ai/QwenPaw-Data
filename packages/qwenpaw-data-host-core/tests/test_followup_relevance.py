@@ -18,9 +18,7 @@ from qwenpaw_data.host.core.algo.followup.relevance import (
 from qwenpaw_data.host.core.algo.followup.settings import MAX_DIMENSIONS, MIN_RELEVANCE
 
 
-def _evidence(
-    name: str, *provenance: Provenance, **overrides: Any
-) -> EntityEvidence:
+def _evidence(name: str, *provenance: Provenance, **overrides: Any) -> EntityEvidence:
     return EntityEvidence(name=name, provenance=set(provenance), **overrides)
 
 
@@ -212,7 +210,9 @@ def test_dataset_names_are_kept_out_of_the_business_entities() -> None:
 
 def test_aliases_are_collected_for_attribution() -> None:
     metrics = _pool(
-        _evidence("人均GAAP", "targeted", analyzed=True, aliases=("人均消费", "人均GAAP"))
+        _evidence(
+            "人均GAAP", "targeted", analyzed=True, aliases=("人均消费", "人均GAAP")
+        )
     )
 
     ranked = rank_entities(metrics, {}, {}, "人均GAAP如何", {})

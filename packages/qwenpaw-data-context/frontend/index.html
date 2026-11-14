@@ -4,10 +4,112 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="%BASE_URL%favicon.png?v=20260711b" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      try {
+        if (localStorage.getItem('qwenpaw-data-color-mode') === 'dark') {
+          document.documentElement.dataset.qwenpawDataTheme = 'dark';
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      } catch (_) {
+        // Keep the default light theme when storage is unavailable.
+      }
+    </script>
+    <link
+      rel="preload"
+      as="video"
+      href="/snow-leopard-loading.mp4"
+      type="video/mp4"
+      media="(prefers-reduced-motion: no-preference)"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="/snow-leopard-loading.png"
+      media="(prefers-reduced-motion: reduce)"
+    />
+    <style>
+      .initial-loading {
+        position: fixed;
+        z-index: 1000;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 4px;
+        color: #64748b;
+        font:
+          13px/1.5 system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        letter-spacing: 0.02em;
+        background: #fff;
+      }
+
+      .initial-loading__visual {
+        width: min(180px, calc(100vw - 48px));
+        aspect-ratio: 16 / 9;
+      }
+
+      .initial-loading__media {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      html[data-qwenpaw-data-theme='dark'] .initial-loading {
+        color: #b8c2cf;
+        background: #000;
+      }
+
+      html[data-qwenpaw-data-theme='dark'] .initial-loading__visual {
+        overflow: hidden;
+        background: #000;
+      }
+
+      html[data-qwenpaw-data-theme='dark'] .initial-loading__media {
+        background: #000;
+      }
+    </style>
     <title>数据语义管理</title>
   </head>
   <body>
+    <div id="initial-loading" class="initial-loading" role="status" aria-live="polite">
+      <div id="initial-loading-visual" class="initial-loading__visual" aria-hidden="true"></div>
+      <span>加载中…</span>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        var visual = document.getElementById('initial-loading-visual');
+        var prefersReducedMotion = globalThis.matchMedia?.(
+          '(prefers-reduced-motion: reduce)',
+        ).matches;
+        var darkAssetSuffix =
+          document.documentElement.dataset.qwenpawDataTheme === 'dark' ? '-dark' : '';
+        var media;
+
+        if (prefersReducedMotion) {
+          media = document.createElement('img');
+          media.src = '%BASE_URL%snow-leopard-loading' + darkAssetSuffix + '.png';
+          media.alt = '';
+        } else {
+          media = document.createElement('video');
+          media.src = '%BASE_URL%snow-leopard-loading' + darkAssetSuffix + '.mp4';
+          media.autoplay = true;
+          media.loop = true;
+          media.muted = true;
+          media.playsInline = true;
+          media.preload = 'auto';
+          media.disablePictureInPicture = true;
+        }
+
+        media.className = 'initial-loading__media';
+        visual.appendChild(media);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

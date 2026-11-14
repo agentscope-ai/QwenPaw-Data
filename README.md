@@ -20,6 +20,10 @@ For a complete system-level overview, see the [Technical Report](https://arxiv.o
 
 ## Release and QwenPaw App preview
 
+Development checkout: the coordinated Auth/Context/Host stack and optional
+multi-user chat setup are documented in [scripts/README.md](scripts/README.md).
+The default OSS local initialization/start commands below remain supported.
+
 - **Available: QwenPaw-Data 0.3.x.** The independently deployable engine provides
   HTTP/replayable-SSE APIs for analysis sessions, execution events, and artifacts.
   See the [0.3.0 release](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
@@ -50,7 +54,7 @@ QwenPaw-Data implements this decomposition through three collaborative subsystem
 | --- | --- | --- |
 | **DataBridge** | Evidence grounding | Metadata, business knowledge, trace history, metric definitions, data lineage, and task-specific evidence. |
 | **Skill-Hub** | Method orchestration | Routing, planning, workflow, and atomic analytical skills, together with references, scripts, and quality expectations. |
-| **Host** | Execution control | DAG planning, subagent dispatch, tool invocation, container workspace execution by default, artifact registry, reflection, and recovery. |
+| **Host** | Execution control | Task planning, agent orchestration, tool invocation, configurable workspace execution, artifact registry, reflection, and recovery. |
 
 Together, the three subsystems provide four data-centric capabilities: trustworthy fact grounding, codified analytical methodology, controllable long-horizon execution, and self-evolving data assets.
 
@@ -103,7 +107,7 @@ and channel entry points; its QPD 0.3 integration is currently a preview.
 | Mode | Purpose | Typical Users | Runtime Form |
 | --- | --- | --- | --- |
 | **DataBridge UI** | Manage graph memory, semantic config, and related DataBridge assets | Analysts and platform operators | Local management UI backed by the DataBridge API. |
-| **CLI** | Platform integration, secondary development, and local automation | Developers and platform teams | Lightweight command-line entry point for intent understanding, task planning, and workflow execution via `qwenpaw-data-cli`. |
+| **CLI** | Platform integration and local administration | Developers and platform teams | Datasource management, semantic configuration, and diagnostics via `qwenpaw-data-cli`; agent execution lives in Host and Console. |
 | **Headless Engine** | Integrate analysis into a host or frontend | Application developers | [HTTP + replayable SSE service](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra). |
 | **QwenPaw App — QPD 0.3 preview** | Analyze data from the QwenPaw workspace and channels | QwenPaw users | Embedded Data Console and channel bridge; see [integration status and setup](docs/QWENPAW_APP.md). |
 
@@ -114,7 +118,7 @@ QwenPaw-Data uses a Python + uv workspace monorepo.
 The repository currently includes:
 
 - **DataBridge**: manages metadata, business knowledge, trace history, graph memory, and its management interface.
-- **Host Core / CLI**: shared host orchestration and the CLI execution entry point.
+- **Host Core / CLI**: Host orchestration and CLI administration/diagnostics.
 - **Data Analysis Skills**: reusable analytical skills and supporting assets.
 
 ```text
@@ -325,18 +329,15 @@ required.
 
 ### 8. Run a real data task
 
-Use non-streaming mode for the first run so the complete execution summary is easy to inspect:
+Open the [local Console](packages/qwenpaw-data-console/README.md), configure a
+model, and select `Demo PG - GAAP use case`. Submit:
 
-```bash
-qwenpaw-data run \
-  --no-stream \
-  --datasource-id postgresql-demo-gaap \
-  "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
-```
+> Analyze the average GAAP value of valid users for product X during March 2026;
+> show the trend over time and explain any spikes with relevant KG events.
 
-```powershell
-qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
-```
+The former CLI agent commands (`run`, `chat`, `plan`, and `execute`) are retired
+in 0.4. The CLI still provides `datasource`, `semantic`, and `doctor`; Host and
+the Console own interactive agent execution.
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
 `45.89`. Generated artifacts are stored under
@@ -382,35 +383,27 @@ The DataBridge-only `.sh` helpers in this block are macOS/Linux conveniences.
 
 ## Workspace Isolation
 
-Agent tools run inside a workspace whose backend is selected per run
-(`--workspace` flag or `QWENPAW_DATA_WORKSPACE` env, default `docker`):
+The Host server selects its workspace backend at startup using
+`QWENPAW_DATA_WORKSPACE_BACKEND`. The default is `docker`, which requires a running
+Docker daemon. Initialization errors stop startup; there is no fallback to local
+execution. The retired CLI `--workspace` flag does not configure
+the current server.
 
 | Backend | Isolation | Requirements | When to use |
 |---------|-----------|--------------|-------------|
-| `docker` (default) | Container-based workspace isolation: every tool (including Bash) executes inside a per-session container with only the task workspace mounted | a running Docker daemon | Normal execution; isolates tools from the host |
-| `local` | Path containment plus AgentScope permission checks; shell commands that are approved still run with host-user privileges | explicit `--workspace local` | Trusted emergency/development use only |
+| `docker` (default) | Container-based workspace execution | a running Docker daemon | Tasks requiring separation from the host |
+| `local` (explicit opt-in) | Shell commands execute with host-user privileges; not a sandbox | trusted deployment and inputs; `QWENPAW_DATA_WORKSPACE_BACKEND=local` | Trusted development only |
 
 ```bash
 # Check the environment first (Docker daemon, Neo4j, DataBridge API)
 qwenpaw-data doctor
 
-# Docker is the default
-qwenpaw-data run --datasource-id "postgresql-xxxxxxxx" "..."
-
-# Explicit unsandboxed host execution (trusted development only)
-qwenpaw-data run --workspace local "..."
-
-# Second explicit opt-in: disable prompts/denials even for local execution
-qwenpaw-data run --workspace local --permission-mode bypass "..."
+# Set this in the Host process environment before starting the local stack.
+export QWENPAW_DATA_WORKSPACE_BACKEND=docker
 ```
 
-The permission policy defaults to `auto` (override with `--permission-mode` or
-`QWENPAW_DATA_PERMISSION_MODE`). Docker uses `bypass` because the per-session
-container is the execution boundary. An interactive local CLI uses
-`accept_edits`: file edits inside the task workspace are allowed and riskier
-calls require terminal confirmation. Unattended local execution uses
-`dont_ask`, which denies calls that would otherwise require confirmation.
-Subagents cannot prompt independently and fail closed on such requests.
+Use Console settings for tool confirmations. A confirmation policy is not an
+execution sandbox and does not remove the privileges of local shell commands.
 
 Notes for the `docker` backend:
 
@@ -441,17 +434,11 @@ section before exposing any service beyond `127.0.0.1`.
   opt-in; configure `QWENPAW_DATA_API_TOKEN` or scoped `QWENPAW_DATA_API_KEYS` first so
   the DataBridge REST and HTTP MCP endpoints require a `Bearer` token, and
   restrict `QWENPAW_DATA_CORS_ORIGINS` to trusted origins.
-- **Execution**: the Host runs agent tools in a per-run **Docker** workspace
-  by default. The explicit `--workspace local` escape hatch executes shell
-  commands on your machine with your user's privileges and is *not*
-  sandboxed. File/search tools remain path-contained, and timed-out or
-  cancelled commands have their whole process group terminated in both local
-  and Docker workspaces. Local Bash remains capable of arbitrary host-user
-  actions after permission approval. Permission policy is workspace-aware:
-  Docker defaults to `bypass` within its container boundary; interactive local
-  runs use `accept_edits` with terminal confirmation, and unattended local
-  runs fail closed with `dont_ask`. This does not make the Docker backend a
-  hardened sandbox; its resource and network limits remain as stated above.
+- **Execution**: the Host server defaults to a **Docker** workspace and does not
+  fall back to local execution when Docker is unavailable. Explicitly selecting
+  `QWENPAW_DATA_WORKSPACE_BACKEND=local` gives shell tools host-user privileges even
+  after confirmation. Neither path checks nor confirmation prompts are a
+  sandbox. Docker's resource and network limits remain as stated above.
 - **Authorization**: scoped API keys separate `query`, `write`, `manage`, and
   `credentials:manage`. `QWENPAW_DATA_API_TOKEN` remains a full-scope compatibility
   key. For scoped clients, set `QWENPAW_DATA_CLIENT_API_TOKEN`; every API route is

@@ -1,0 +1,78 @@
+/* ── 登录页联调账号快填条（仅 dev 模式渲染） ──────────────────────────────── */
+.wrapper {
+  margin-bottom: 16px;
+}
+
+.caption {
+  color: var(--qwenpaw-data-color-text-secondary) !important;
+  font-size: 12px;
+}
+
+/* 每个角色一行：左侧角色名 + 右侧该角色下的账号 tab */
+.group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.groupLabel {
+  flex: none;
+  width: 92px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+
+  :global(:root[data-qwenpaw-data-theme='dark']) & {
+    color: var(--qwenpaw-data-color-text-secondary);
+  }
+}
+
+/*
+ * antd v5 的规则链形如 `.ant-tabs > .ant-tabs-nav .ant-tabs-tab`（3 个 class 权重），
+ * 因此这里必须把 `.ant-tabs` / `.ant-tabs-nav` 一起写进选择器才能压过默认样式，
+ * 否则 padding / 墨条 / 分隔线都改不掉（实测教训）。
+ */
+.tabs:global(.ant-tabs) {
+  flex: 1;
+  min-width: 0;
+
+  :global(.ant-tabs-nav) {
+    margin: 0;
+
+    &::before {
+      border-bottom: none;
+    }
+
+    /* 墨条与色块重复，隐藏；选中态只靠 pill 的深色底表达 */
+    :global(.ant-tabs-ink-bar) {
+      display: none;
+    }
+
+    /* 清掉默认内边距，让 pill 自身的 padding 决定 tab 宽度（宽度随文字自适应） */
+    :global(.ant-tabs-tab) {
+      margin: 0;
+      padding: 3px 0;
+      background: transparent;
+
+      :global(.ant-tabs-tab-btn) {
+        padding: 0;
+      }
+    }
+  }
+}
+
+/* 色块本体：inline-flex + 左右 padding，宽度贴合用户名长度 */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 10px;
+  font-size: 12px;
+  line-height: 20px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}

@@ -10,7 +10,7 @@ Cross-reference ranges to detect swapped lat/lon:
 print(f"Lat range: {df['lat'].min()} to {df['lat'].max()}")
 print(f"Lon range: {df['lon'].min()} to {df['lon'].max()}")
 
-if df["lat"].abs().max() > 90:   # latitude out of valid range → likely swapped
+if df["lat"].abs().max() > 90:  # latitude out of valid range → likely swapped
     df["lat"], df["lon"] = df["lon"], df["lat"]
     print("Swapped lat/lon columns")
 ```
@@ -22,8 +22,10 @@ Use **Euclidean** for degree-based thresholds, **Haversine** for physical distan
 ```python
 import numpy as np
 
+
 def euclidean_deg(lat1, lon1, lat2, lon2):
     return np.sqrt((lat2 - lat1) ** 2 + (lon2 - lon1) ** 2)
+
 
 def haversine_km(lat1, lon1, lat2, lon2):
     R = 6371  # Earth radius in km
@@ -122,8 +124,8 @@ For astronomy/heliophysics tasks, **use established domain libraries** rather th
 ```python
 import pymap3d
 
-lat, lon, alt = pymap3d.ecef2geodetic(x, y, z)   # ECEF (meters) → geodetic
-lon = lon % 360                                    # normalize to 0-360 (or use -180..180)
+lat, lon, alt = pymap3d.ecef2geodetic(x, y, z)  # ECEF (meters) → geodetic
+lon = lon % 360  # normalize to 0-360 (or use -180..180)
 ```
 
 Check the target grid's longitude convention (0-360 vs. -180..180) and convert accordingly.
@@ -137,8 +139,8 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 data = np.load("input/grid.npz")
-print(data.files)                       # inspect available arrays
-potential = data["potential"]           # actual array, not g*altitude
+print(data.files)  # inspect available arrays
+potential = data["potential"]  # actual array, not g*altitude
 interp = RegularGridInterpolator((data["lat"], data["lon"], data["alt"]), potential)
 ```
 

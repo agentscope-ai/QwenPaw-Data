@@ -66,10 +66,14 @@ def axis_high_mask(
 
     cs = (continuous_split or SPLIT_MEAN).lower()
     if cs not in CONTINUOUS_SPLITS:
-        raise ValueError(f"continuous_split must be {CONTINUOUS_SPLITS}, got {continuous_split!r}")
+        raise ValueError(
+            f"continuous_split must be {CONTINUOUS_SPLITS}, got {continuous_split!r}"
+        )
 
     if m == AXIS_AUTO:
-        resolved = AXIS_DISC if _is_discrete_series(s, discrete_max_uniques) else AXIS_CONT
+        resolved = (
+            AXIS_DISC if _is_discrete_series(s, discrete_max_uniques) else AXIS_CONT
+        )
     else:
         resolved = m
 
@@ -143,16 +147,26 @@ def run_boston(
     if dropped:
         print(f"dropped {dropped} row(s) with NaN in axis columns", file=sys.stderr)
 
-    x_high, x_res = axis_high_mask(work[x_col], x_mode, discrete_max_uniques, x_continuous_split)
-    y_high, y_res = axis_high_mask(work[y_col], y_mode, discrete_max_uniques, y_continuous_split)
+    x_high, x_res = axis_high_mask(
+        work[x_col], x_mode, discrete_max_uniques, x_continuous_split
+    )
+    y_high, y_res = axis_high_mask(
+        work[y_col], y_mode, discrete_max_uniques, y_continuous_split
+    )
     labs = quadrant_labels(x_high, y_high)
-    meta_x = f"{x_col}:{x_res}" + (f":{x_continuous_split}" if x_res == AXIS_CONT else "")
-    meta_y = f"{y_col}:{y_res}" + (f":{y_continuous_split}" if y_res == AXIS_CONT else "")
+    meta_x = f"{x_col}:{x_res}" + (
+        f":{x_continuous_split}" if x_res == AXIS_CONT else ""
+    )
+    meta_y = f"{y_col}:{y_res}" + (
+        f":{y_continuous_split}" if y_res == AXIS_CONT else ""
+    )
     return work, meta_x, meta_y, labs
 
 
 def build_argparser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Boston matrix 2x2 quadrant grouping -> JSON")
+    p = argparse.ArgumentParser(
+        description="Boston matrix 2x2 quadrant grouping -> JSON"
+    )
     p.add_argument("--input-file", required=True)
     p.add_argument("--id-col", required=True)
     p.add_argument("--x-col", required=True, help="Horizontal axis column")
@@ -209,7 +223,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         ids = work[args.id_col].values
         # build_json_from_labels 约定 sklearn 式 0..K-1 -> cluster 1..K；象限标签已为 1..4
         payload = build_json_from_labels(ids, labels - 1)
-        ordered: dict = {f"cluster {i}": payload.get(f"cluster {i}", []) for i in range(1, 5)}
+        ordered: dict = {
+            f"cluster {i}": payload.get(f"cluster {i}", []) for i in range(1, 5)
+        }
         write_print_json(args.output_json, ordered)
         print(f"axes: {mx}; {my}", file=sys.stderr)
     except Exception as e:

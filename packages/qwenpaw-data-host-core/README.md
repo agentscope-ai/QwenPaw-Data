@@ -41,17 +41,55 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 | `GET /datasources` | DataBridge datasource discovery proxied through the service |
 | `GET/POST /cron/jobs` · `GET/PUT/DELETE /cron/jobs/{id}` · `POST .../pause|resume|run` | Scheduled agent runs: a cron expression or one-shot time opens a console chat with the configured message/datasource (single-process APScheduler) |
 
+### Python service client
+
+`qwenpaw_data.host.core.client.HostClient` connects to an existing Host through
+the same authenticated API as Console. It does not start a service, change model
+preferences, or replace the old in-process `QwenPawDataHost` embedding contract.
+
+```python
+from contextlib import aclosing
+from qwenpaw_data.host.core.client import HostClient
+
+async with HostClient("http://127.0.0.1:8000", token=host_token) as host:
+    session_id = await host.create_session()
+    async with aclosing(host.run(session_id, "Summarize sales")) as events:
+        async for event in events:
+            print(event)
+```
+
+Tokens are explicit, not loaded from environment by the library. Use HTTPS for
+remote deployments. `events(session_id, chat_id, after_sequence_number=N)` can
+replay persisted events without starting or stopping a turn. Consume `run` to
+its terminal event: failed/cancelled or truncated streams raise `HostClientError`.
+Closing a partial `run` stream requests cancellation; the server owns actual
+execution cleanup. Session history is retained. Interactive integrations must
+handle tool-confirmation events via `answer_tool_confirmation`; new sessions
+disable clarification by default. Admission POSTs are never retried automatically.
+
+`await host.plan(session_id, prompt)` returns a validated
+`qwenpaw_data.host.core.domain.sop.SOP` through
+`POST /api/sessions/{session_id}/sop/plan`. This is prompt-only planning: it uses
+the session's authorized model preferences but does not start a Chat, allocate
+an execution workspace, inspect datasource schemas or call agent tools. The
+request is bounded to 32,768 characters and the model call to 60 seconds.
+Duplicate node IDs, unknown/cyclic dependencies and runtime state fields are
+rejected. The SOP can be serialized as YAML; strict SOP execution remains an
+open compatibility requirement, separate from the current advisory task plan.
+
 ### Storage backends
 
-The service persists sessions/chats/events/preferences through a store
-protocol with two interchangeable backends:
+The current service uses SQL repositories backed by the shared control-plane
+database. SQLite is the default; `QWENPAW_DATA_DB_URL` can select PostgreSQL.
 
-- **sqlite (default)**: `<home>/host/host.db` (WAL); point
-  `QWENPAW_DATA_DB_URL` at another SQLAlchemy async URL (e.g. postgres).
-- **JSON files**: set `QWENPAW_DATA_STORE=json` for the zero-dependency
-  file layout (`<home>/host/{chats,sessions,preferences}/`).
+**Open compatibility gap:** the legacy JSON stores remain in the source tree,
+but are not connected to the current HTTP runtime. `QWENPAW_DATA_STORE=json`
+now stops startup before database initialization instead of silently using SQL.
+Existing JSON data is neither imported nor deleted. Keep the previous compatible
+release for that data until JSON support or an explicit migration is available;
+do not unset the variable expecting old sessions to appear. This is a protective
+check, not retirement of the JSON compatibility requirement.
 
-A conformance test suite runs every store test against both backends.
 When no explicit model is passed, the service resolves the local user's
 configured active model from preferences and falls back to env vars.
 
@@ -69,8 +107,9 @@ calls and outputs, media) · `task_status` (DAG plan snapshots) ·
 ### Environment variables
 
 - `QWENPAW_DATA_API_TOKEN` — bearer token; unset = loopback-only
-- `QWENPAW_DATA_STORE` — `json` to use file-backed stores (default: sqlite)
-- `QWENPAW_DATA_DB_URL` — SQLAlchemy async URL (default `sqlite+aiosqlite:///<home>/host/host.db`)
+- `QWENPAW_DATA_STORE` — legacy selector; `json` is rejected until compatibility is restored
+- `QWENPAW_DATA_DB_URL` — SQLAlchemy async URL (default: shared local control-plane database)
+- `QWENPAW_DATA_WORKSPACE_BACKEND` — `docker` by default; `local` is explicit, unsandboxed opt-in
 - `QWENPAW_DATA_PREFS_MASTER_SECRET` — hex secret (≥32 bytes) to encrypt stored provider API keys at rest
 - `QWENPAW_DATA_CORS_ALLOW_ORIGINS` — comma-separated origins (default loopback)
 - `QWENPAW_DATA_STREAM_SSE_HEARTBEAT_SECONDS` — keepalive interval (default 15)

@@ -268,6 +268,113 @@ _register(
     ("POST", "/api/v1/connect"),
 )
 
+_register(
+    (SCOPE_QUERY,),
+    ("GET", "/api/datasource-types"),
+    ("GET", "/api/datasources/active"),
+    ("GET", "/api/semantic-config/dataset-column-meta/{field_id}"),
+    ("GET", "/api/semantic-config/datasources/{datasource_id}/explore-scope"),
+    ("GET", "/api/semantic-config/export/excel"),
+    ("GET", "/api/semantic-config/import/excel/template"),
+    ("GET", "/api/semantic-config/metric-formula-lib/{cid}"),
+    ("GET", "/api/semantic-config/probe/overview"),
+    ("GET", "/api/semantic-config/probe/{datasource_id}/status"),
+    ("GET", "/api/semantic-config/probe/{datasource_id}/{stage}/export"),
+    ("GET", "/api/semantic-config/probe/{datasource_id}/{stage}/results"),
+    ("GET", "/api/semantic-config/probe/{datasource_id}/{stage}/task"),
+    ("GET", "/api/semantic-config/table-column"),
+    ("GET", "/api/semantic-config/table-column/table"),
+    ("GET", "/api/semantic-config/table-column/{col_id}"),
+    ("GET", "/api/semantic-config/verified-query"),
+    ("GET", "/api/semantic-config/verified-query/{vq_id}"),
+    ("GET", "/api/semantic-config/weave-task/{task_id}"),
+    ("GET", "/api/v1/admin/explorer/topics"),
+    ("GET", "/api/v1/cm/datasources/active"),
+    ("GET", "/api/v1/cm/downloads/{result_id}.csv"),
+    ("GET", "/api/v1/docs/{doc_id}/download"),
+    ("GET", "/api/v1/graph/get_schema"),
+    ("GET", "/api/v1/mg/userspace/sync-status"),
+    ("GET", "/api/v1/ug/me"),
+    ("GET", "/api/v1/ug/me/global-memories"),
+    ("GET", "/api/v1/ug/me/memories"),
+    ("GET", "/api/v1/ug/me/memories/{memory_id}"),
+    ("GET", "/api/v1/ug/users"),
+    ("GET", "/api/v1/ug/users/{user_id}"),
+    ("GET", "/api/v1/ug/users/{user_id}/memories"),
+    ("GET", "/api/v1/ug/users/{user_id}/memories/{memory_id}"),
+    ("POST", "/api/v1/graph/expand_neighbors"),
+    ("POST", "/api/v1/graph/get_nodes"),
+    ("POST", "/api/v1/graph/list_nodes"),
+    ("POST", "/api/v1/rdb/execute_sql"),
+    ("POST", "/api/v3/cm/explore"),
+)
+
+_register(
+    (SCOPE_WRITE,),
+    ("DELETE", "/api/v1/docs/{doc_id}"),
+    ("DELETE", "/api/v1/ug/me/memories/{memory_id}"),
+    ("PATCH", "/api/v1/ug/me"),
+    ("PATCH", "/api/v1/ug/me/memories/{memory_id}"),
+    ("POST", "/api/cm/user/ingest"),
+    ("POST", "/api/v1/docs/reingest"),
+    ("POST", "/api/v1/semantic/feedback_card"),
+    ("POST", "/api/v1/ug/me/memories"),
+)
+
+_register(
+    (SCOPE_MANAGE,),
+    ("DELETE", "/api/semantic-config/dataset-column-meta/{field_id}"),
+    ("DELETE", "/api/semantic-config/metric-formula-lib/metric/{metric_id}"),
+    ("DELETE", "/api/semantic-config/metric-formula-lib/{cid}"),
+    ("DELETE", "/api/semantic-config/probe/{datasource_id}/{stage}/row/{row_id}"),
+    ("DELETE", "/api/semantic-config/table-column/{col_id}"),
+    ("DELETE", "/api/semantic-config/verified-query/{vq_id}"),
+    ("POST", "/api/semantic-config/datasources/{datasource_id}/explore"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/import/excel"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/complete"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/refine"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/rerun"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/row"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/row/confirm"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/row/delete"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/row/skip"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/skip"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/start"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/stop"),
+    ("POST", "/api/semantic-config/probe/{datasource_id}/{stage}/upload"),
+    ("POST", "/api/semantic-config/table-column"),
+    ("POST", "/api/semantic-config/verified-query"),
+    ("POST", "/api/v1/admin/cypher/raw"),
+    ("POST", "/api/v1/admin/explorer/topics"),
+    ("POST", "/api/v1/embed/jobs/{job_id}/retry"),
+    ("POST", "/api/v1/graph/patch_edges"),
+    ("POST", "/api/v1/graph/patch_nodes"),
+    ("POST", "/api/v1/mg/userspace/edges"),
+    ("POST", "/api/v1/mg/userspace/nodes"),
+    ("POST", "/api/v1/mg/userspace/sync"),
+    ("POST", "/api/v1/mg/userspace/sync/resolve"),
+    ("PUT", "/api/semantic-config/dataset-column-meta/{field_id}"),
+    ("PUT", "/api/semantic-config/datasources/{datasource_id}/explore-scope"),
+    ("PUT", "/api/semantic-config/metric-formula-lib/{cid}"),
+    ("PUT", "/api/semantic-config/probe/{datasource_id}/{stage}/row/{row_id}"),
+    ("PUT", "/api/semantic-config/table-column/{col_id}"),
+    ("PUT", "/api/semantic-config/verified-query/{vq_id}"),
+)
+
+_register(
+    (SCOPE_CREDENTIALS,),
+    ("DELETE", "/api/system/model-config/"),
+    ("DELETE", "/api/v1/config"),
+    ("GET", "/api/v1/config"),
+    ("GET", "/api/v1/embed/jobs/latest"),
+    ("GET", "/api/v1/embed/jobs/{job_id}"),
+    ("POST", "/api/v1/config/embed/test"),
+    ("POST", "/api/v1/config/llm/test"),
+    ("POST", "/api/v1/embed/embed-all"),
+    ("PUT", "/api/v1/config/embed"),
+    ("PUT", "/api/v1/config/llm"),
+)
+
 
 _PARAM_RE = re.compile(r"\{[^{}:]+(?::(path))?\}")
 
@@ -323,7 +430,7 @@ def unclassified_app_routes(app: Any) -> list[str]:
 
     for path, methods in _walk_route_templates(app.routes):
         normalized_path = _normalize_path(path)
-        if not (normalized_path.startswith("/api/") or normalized_path.startswith("/mcp/")):
+        if not normalized_path.startswith(("/api/", "/mcp/")):
             continue
         if normalized_path in AUTH_EXEMPT_PATHS:
             continue

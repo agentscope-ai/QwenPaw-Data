@@ -1,6 +1,6 @@
 ---
 name: query-odps
-description: MaxCompute（ODPS）只读 SELECT 写法与执行纪律。**以下场景必须立即加载**：生成、改写或提交任何 ODPS / MaxCompute SQL（SELECT、WITH、JOIN、子查询、nl2sql）；覆盖方言、分区、结构纪律、优化、字面量取值、执行纪律与失败回退。
+description: MaxCompute（ODPS）只读 SELECT 写法与执行纪律。**以下场景必须立即加载**：生成、改写或提交只读查询（SELECT xxx、WITH、JOIN、子查询、nl2sql）；覆盖方言、分区、结构纪律、优化、字面量取值、执行纪律与失败回退。**不要加载**：写查询（CREATE xxx、INSERT、UPDATE、DELETE、DROP、ALTER、TRUNCATE、MERGE 等 DDL/DML）。
 ---
 
 # query-odps
@@ -8,6 +8,8 @@ description: MaxCompute（ODPS）只读 SELECT 写法与执行纪律。**以下�
 MaxCompute **只读 SELECT** 的域规则：怎么写对 SQL、怎么优化、怎么自检、怎么执行、失败如何回退。
 
 **禁止**：直连 PyODPS；绕过标准执行通道自写 CSV。
+
+使用 CM 查询上下文或执行 SQL 前加载 `Skill(skill="cm-skills")`；工具参数、结果与错误处理遵循该技能。
 
 ## 规则索引
 

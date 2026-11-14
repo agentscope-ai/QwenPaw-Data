@@ -57,20 +57,30 @@ class CronJobWrite(ApiModel):
     enabled: bool = True
     message: str
     datasource_id: str
-    session_id: str | None = None
+    channel: str = "console"
+    session_policy: Literal["reuse", "new_each_run"] = "reuse"
+    target_external_key: str | None = None
+    source_chat_id: str | None = None
     schedule: ScheduleSpec
 
     @model_validator(mode="after")
     def _trim(self) -> CronJobWrite:
+        from qwenpaw_data.host.core.channels.schema import ChannelType
+
         self.name = self.name.strip()
         self.message = self.message.strip()
         self.datasource_id = self.datasource_id.strip()
-        sid = (self.session_id or "").strip()
-        self.session_id = sid or None
+        self.channel = self.channel.strip()
+        target = (self.target_external_key or "").strip()
+        self.target_external_key = target or None
+        if self.source_chat_id is not None:
+            self.source_chat_id = self.source_chat_id.strip() or None
         if not self.name:
             raise ValueError("name is required")
         if not self.message:
             raise ValueError("message is required")
         if not self.datasource_id:
             raise ValueError("datasource_id is required")
+        if self.channel not in {item.value for item in ChannelType}:
+            raise ValueError(f"unknown channel: {self.channel}")
         return self

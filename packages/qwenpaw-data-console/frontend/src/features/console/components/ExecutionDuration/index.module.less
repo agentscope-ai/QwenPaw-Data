@@ -1,0 +1,20 @@
+.duration {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 8px;
+  color: var(--ant-color-info-text);
+  background: var(--ant-color-info-bg);
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  &[data-slow='true'] {
+    color: var(--ant-color-error-text);
+    background: var(--ant-color-error-bg);
+  }
+}

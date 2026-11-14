@@ -49,6 +49,7 @@ except ImportError:
 # 数据预处理
 # ============================================================
 
+
 def preprocess_data(
     df: pd.DataFrame,
     date_col: str,
@@ -74,6 +75,7 @@ def preprocess_data(
 # ============================================================
 # IQR 异常值剔除
 # ============================================================
+
 
 def remove_outliers_iqr(
     values: pd.Series,
@@ -105,6 +107,7 @@ def remove_outliers_iqr(
 # ============================================================
 # Ruptures 变化点检测
 # ============================================================
+
 
 def detect_change_points_ruptures(
     change_rates: np.ndarray,
@@ -178,6 +181,7 @@ def segment_data(
 # 阈值计算
 # ============================================================
 
+
 def calculate_threshold_with_range(
     std: float,
     std_multiplier: float,
@@ -204,6 +208,7 @@ def calculate_threshold_with_range(
 # ============================================================
 # 主函数：自适应阈值计算
 # ============================================================
+
 
 def calculate_adaptive_threshold(
     df: pd.DataFrame,
@@ -256,7 +261,7 @@ def calculate_adaptive_threshold(
             "数据周期数": data_periods,
             "需要周期数": min_periods,
             "使用阈值": default_threshold,
-            "说明": f"数据不足（{data_periods} < {min_periods}），使用默认阈值"
+            "说明": f"数据不足（{data_periods} < {min_periods}），使用默认阈值",
         }
 
     # Step 3: 计算变化率 + IQR 剔除异常值
@@ -269,7 +274,7 @@ def calculate_adaptive_threshold(
             "数据周期数": len(change_rates),
             "需要周期数": min_periods,
             "使用阈值": default_threshold,
-            "说明": f"有效数据不足（{len(change_rates)} < {min_periods}），使用默认阈值"
+            "说明": f"有效数据不足（{len(change_rates)} < {min_periods}），使用默认阈值",
         }
 
     # IQR 剔除异常值
@@ -289,10 +294,12 @@ def calculate_adaptive_threshold(
     segment_info = []
     for start, end, segment in segments:
         segment_std = segment.std()
-        segment_info.append({
-            "区间": f"{start+1}-{end}",
-            "标准差": round(segment_std, 4),
-        })
+        segment_info.append(
+            {
+                "区间": f"{start + 1}-{end}",
+                "标准差": round(segment_std, 4),
+            }
+        )
 
     # 获取最后一段
     last_start, last_end, last_segment = segments[-1]
@@ -306,10 +313,10 @@ def calculate_adaptive_threshold(
             "数据周期数": data_periods,
             "有效周期数": len(filtered_rates),
             "检测到的分段": segment_info,
-            "最后分段": f"{last_start+1}-{last_end}",
+            "最后分段": f"{last_start + 1}-{last_end}",
             "标准差": round(last_std, 4),
             "使用阈值": default_threshold,
-            "说明": f"最后分段({last_start+1}-{last_end})波动剧烈（标准差 {last_std*100:.2f}% ≥ {threshold_max*100:.0f}%），使用默认阈值"
+            "说明": f"最后分段({last_start + 1}-{last_end})波动剧烈（标准差 {last_std * 100:.2f}% ≥ {threshold_max * 100:.0f}%），使用默认阈值",
         }
 
     # Step 6: 计算阈值并限制范围
@@ -326,10 +333,10 @@ def calculate_adaptive_threshold(
         "数据周期数": data_periods,
         "有效周期数": len(filtered_rates),
         "检测到的分段": segment_info,
-        "最后分段": f"{last_start+1}-{last_end}",
+        "最后分段": f"{last_start + 1}-{last_end}",
         "标准差": round(last_std, 4),
         "使用阈值": round(threshold, 4),
-        "说明": f"Ruptures检测到{len(segments)}个分段，最后分段({last_start+1}-{last_end})标准差{last_std*100:.2f}%，阈值{threshold*100:.2f}%"
+        "说明": f"Ruptures检测到{len(segments)}个分段，最后分段({last_start + 1}-{last_end})标准差{last_std * 100:.2f}%，阈值{threshold * 100:.2f}%",
     }
 
 
@@ -337,33 +344,51 @@ def calculate_adaptive_threshold(
 # 命令行入口
 # ============================================================
 
+
 def main():
     """命令行入口"""
-    parser = argparse.ArgumentParser(description="自适应阈值计算脚本（基于 Ruptures 变化点检测）")
+    parser = argparse.ArgumentParser(
+        description="自适应阈值计算脚本（基于 Ruptures 变化点检测）"
+    )
     parser.add_argument("--input-file", required=True, help="输入数据文件路径 (CSV)")
     parser.add_argument("--date-col", required=True, help="日期列名")
     parser.add_argument("--metric-col", required=True, help="指标列名")
 
     # 数据范围参数
-    parser.add_argument("--min-periods", type=int, default=30, help="最少数据天数 (默认: 30)")
+    parser.add_argument(
+        "--min-periods", type=int, default=30, help="最少数据天数 (默认: 30)"
+    )
 
     # IQR 参数
-    parser.add_argument("--iqr-multiplier", type=float, default=1.5, help="IQR 倍数 (默认: 1.5)")
+    parser.add_argument(
+        "--iqr-multiplier", type=float, default=1.5, help="IQR 倍数 (默认: 1.5)"
+    )
 
     # 阈值计算参数
-    parser.add_argument("--std-multiplier", type=float, default=3.0, help="标准差倍数 (默认: 3.0)")
-    parser.add_argument("--threshold-min", type=float, default=0.05, help="阈值下限 (默认: 0.05)")
-    parser.add_argument("--threshold-max", type=float, default=0.20, help="阈值上限 (默认: 0.20)")
-    parser.add_argument("--default-threshold", type=float, default=0.10, help="默认阈值 (默认: 0.10)")
+    parser.add_argument(
+        "--std-multiplier", type=float, default=3.0, help="标准差倍数 (默认: 3.0)"
+    )
+    parser.add_argument(
+        "--threshold-min", type=float, default=0.05, help="阈值下限 (默认: 0.05)"
+    )
+    parser.add_argument(
+        "--threshold-max", type=float, default=0.20, help="阈值上限 (默认: 0.20)"
+    )
+    parser.add_argument(
+        "--default-threshold", type=float, default=0.10, help="默认阈值 (默认: 0.10)"
+    )
 
     # Ruptures 参数
-    parser.add_argument("--ruptures-method", type=str, default="pelt",
-                        choices=["pelt", "binseg", "window"],
-                        help="变化点检测方法 (默认: pelt)")
-    parser.add_argument("--ruptures-penalty", type=float, default=None,
-                        help="惩罚系数 (默认: 自动计算)")
-
-
+    parser.add_argument(
+        "--ruptures-method",
+        type=str,
+        default="pelt",
+        choices=["pelt", "binseg", "window"],
+        help="变化点检测方法 (默认: pelt)",
+    )
+    parser.add_argument(
+        "--ruptures-penalty", type=float, default=None, help="惩罚系数 (默认: 自动计算)"
+    )
 
     args = parser.parse_args()
 
@@ -393,12 +418,12 @@ def main():
         )
 
         # 打印精简结果
-        stage = threshold_result['阶段']
-        threshold = threshold_result['使用阈值']
+        stage = threshold_result["阶段"]
+        threshold = threshold_result["使用阈值"]
 
-        if stage == '初期兜底':
+        if stage == "初期兜底":
             print(f"threshold: {threshold} (数据不足，使用默认阈值)")
-        elif stage == '波动剧烈':
+        elif stage == "波动剧烈":
             print(f"threshold: {threshold} (波动剧烈，使用默认阈值)")
         else:
             print(f"threshold: {threshold}")
@@ -412,6 +437,7 @@ def main():
     except Exception as e:
         print(f"执行失败: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

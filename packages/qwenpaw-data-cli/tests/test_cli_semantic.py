@@ -15,7 +15,7 @@ class RecordingClient:
     responses: dict[str, Any] = {}
 
     def __init__(self, **_: Any) -> None:
-        pass
+        self.timeout = 30.0
 
     @classmethod
     def reset(cls, responses: dict[str, Any] | None = None) -> None:
@@ -30,8 +30,8 @@ class RecordingClient:
                 return value.pop(0) if isinstance(value, list) else value
         return {}
 
-    def get(self, path: str, *, params: Any = None) -> Any:
-        return self._record("GET", path, params=params)
+    def get(self, path: str, *, params: Any = None, timeout: float | None = None) -> Any:
+        return self._record("GET", path, params=params, timeout=timeout)
 
     def post(self, path: str, *, json: Any = None, files: Any = None) -> Any:
         return self._record("POST", path, json=json, files=files)
@@ -102,18 +102,15 @@ def test_metric_create_builds_payload_from_flags(
 ) -> None:
     assert main([
         "semantic", "metric", "create",
-        "--datasource-id", "pg-1", "--domain-id", "2",
-        "--name", "gaap", "--unit", "CNY", "--polaris",
+        "--domain-id", "2", "--name", "gaap", "--priority", "HIGH",
     ]) == 0
 
     method, path, kwargs = fake_client.calls[0]
     assert (method, path) == ("POST", "/api/semantic-config/metric-lib")
     assert kwargs["json"] == {
-        "datasource_id": "pg-1",
         "domain_id": 2,
         "metric_name": "gaap",
-        "unit": "CNY",
-        "is_polaris": True,
+        "priority": "HIGH",
     }
 
 
@@ -139,14 +136,22 @@ def test_create_from_json_file(
 ) -> None:
     payload_file = tmp_path / "formula.json"
     payload_file.write_text(
-        '{"metric_id": 1, "dataset_id": 2, "formula": "sum(x)"}',
+        '{"metric_id": 1, "dataset_id": 2, "expr": "sum(x)"}',
         encoding="utf-8",
     )
 
     assert main(["semantic", "formula", "create", "--file", str(payload_file)]) == 0
     method, path, kwargs = fake_client.calls[0]
     assert (method, path) == ("POST", "/api/semantic-config/metric-formula-lib")
-    assert kwargs["json"] == {"metric_id": 1, "dataset_id": 2, "formula": "sum(x)"}
+    assert kwargs["json"] == {"metric_id": 1, "dataset_id": 2, "expr": "sum(x)"}
+
+
+def test_create_rejects_unknown_file_fields(fake_client: type[RecordingClient], tmp_path: Any, capsys):
+    payload_file = tmp_path / "formula.json"
+    payload_file.write_text('{"formula": "sum(x)"}', encoding="utf-8")
+    assert main(["semantic", "formula", "create", "--file", str(payload_file)]) == 1
+    assert "unsupported payload fields: formula" in capsys.readouterr().err
+    assert fake_client.calls == []
 
 
 def test_update_requires_some_change(
@@ -191,6 +196,13 @@ def test_binding_batch_delete_by_dataset(fake_client: type[RecordingClient]) -> 
     )
 
 
+def test_formula_batch_delete_by_metric(fake_client: type[RecordingClient]) -> None:
+    assert main(["semantic", "formula", "delete", "--metric-id", "12", "--yes"]) == 0
+    assert fake_client.calls[0][:2] == (
+        "DELETE", "/api/semantic-config/metric-formula-lib/metric/12"
+    )
+
+
 def test_binding_delete_rejects_both_targets(
     fake_client: type[RecordingClient],
     capsys: pytest.CaptureFixture[str],
@@ -211,13 +223,28 @@ def test_import_uploads_workbook(
     workbook.write_bytes(b"xlsx-bytes")
     fake_client.reset({"POST": {"success": True, "summary": {"metric_lib": 2}}})
 
-    assert main(["semantic", "import", "--file", str(workbook)]) == 0
+    assert main(["semantic", "import", "--file", str(workbook), "--datasource-id", "pg-1"]) == 0
 
     method, path, kwargs = fake_client.calls[0]
     assert (method, path) == ("POST", "/api/semantic-config/import/excel")
     assert kwargs["files"]["file"][0] == "semantic.xlsx"
     assert kwargs["files"]["file"][1] == b"xlsx-bytes"
+    assert kwargs["files"]["datasource_id"] == (None, "pg-1")
     assert json.loads(capsys.readouterr().out)["success"] is True
+
+
+def test_import_reports_row_errors_as_failure(fake_client, tmp_path, capsys):
+    workbook = tmp_path / "semantic.xlsx"
+    workbook.write_bytes(b"xlsx-bytes")
+    fake_client.reset({"POST": {"success": False, "errors": [{"row": 2}]}})
+    assert main(["semantic", "import", "--file", str(workbook), "--datasource-id", "pg-1"]) == 1
+    assert json.loads(capsys.readouterr().out)["errors"] == [{"row": 2}]
+
+
+def test_import_requires_datasource_id():
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["semantic", "import", "--file", "workbook.xlsx"])
+    assert exc.value.code == 2
 
 
 def test_weave_submit_without_wait_prints_task(
@@ -249,21 +276,25 @@ def test_weave_submit_wait_polls_to_terminal_state(
     fake_client.reset(
         {
             "POST": {"task_id": "t-2", "status": "PENDING"},
-            "LIST": [
-                {"records": [{"task_id": "t-2", "status": "RUNNING"}], "total": 1, "page": 1},
-                {"records": [{"task_id": "t-2", "status": "SUCCESS"}], "total": 1, "page": 1},
+            "GET": [
+                {"task_id": "t-2", "status": "RUNNING"},
+                {"task_id": "t-2", "status": "SUCCESS"},
             ],
         },
     )
 
     assert main([
-        "semantic", "weave", "submit", "--datasource-id", "pg-1", "--wait",
+        "semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test", "--wait",
     ]) == 0
 
     captured = capsys.readouterr()
     assert json.loads(captured.out)["status"] == "SUCCESS"
     assert "running" in captured.err
     assert "." in captured.err
+    assert [call[1] for call in fake_client.calls[1:]] == [
+        "/api/semantic-config/weave-task/t-2",
+        "/api/semantic-config/weave-task/t-2",
+    ]
 
 
 def test_weave_submit_wait_fails_on_failed_task(
@@ -277,18 +308,84 @@ def test_weave_submit_wait_fails_on_failed_task(
     fake_client.reset(
         {
             "POST": {"task_id": "t-3", "status": "PENDING"},
-            "LIST": {
-                "records": [{"task_id": "t-3", "status": "FAILED", "error_msg": "boom"}],
-                "total": 1,
-                "page": 1,
-            },
+            "GET": {"task_id": "t-3", "status": "FAILED", "error_msg": "boom"},
         },
     )
 
     assert main([
-        "semantic", "weave", "submit", "--datasource-id", "pg-1", "--wait",
+        "semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test", "--wait",
     ]) == 1
     assert json.loads(capsys.readouterr().out)["error_msg"] == "boom"
+
+
+def test_weave_wait_rejects_missing_task_id(fake_client: type[RecordingClient], capsys):
+    fake_client.reset({"POST": {"status": "PENDING"}})
+    assert main(["semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test", "--wait"]) == 1
+    assert "did not return a task id" in capsys.readouterr().err
+    assert len(fake_client.calls) == 1
+
+
+def test_weave_wait_reports_degraded_terminal_state(fake_client: type[RecordingClient], monkeypatch, capsys):
+    from qwenpaw_data.cli.commands import semantic
+
+    monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 0.0)
+    fake_client.reset({
+        "POST": {"task_id": "t-3", "status": "RUNNING"},
+        "GET": {"task_id": "t-3", "status": "DEGRADED", "error_msg": "partial failure"},
+    })
+    assert main(["semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test", "--wait"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "DEGRADED"
+
+
+def test_weave_wait_rejects_unexpected_task(fake_client: type[RecordingClient], monkeypatch, capsys):
+    from qwenpaw_data.cli.commands import semantic
+
+    monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 0.0)
+    fake_client.reset({
+        "POST": {"task_id": "t-3", "status": "PENDING"},
+        "GET": {"task_id": "other", "status": "SUCCESS"},
+    })
+    assert main(["semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test", "--wait"]) == 1
+    assert "unexpected task" in capsys.readouterr().err
+
+
+def test_weave_wait_bounds_a_stalled_http_poll():
+    import socket
+    import threading
+    import time
+
+    from qwenpaw_data.cli.commands.semantic import _wait_for_weave_task
+    from qwenpaw_data.host.core.semantic_config_client import SemanticConfigClient
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    listener.settimeout(3)
+    release = threading.Event()
+
+    def stall():
+        try:
+            conn, _ = listener.accept()
+            with conn:
+                conn.recv(4096)
+                release.wait(3)
+        finally:
+            listener.close()
+
+    server = threading.Thread(target=stall)
+    server.start()
+    client = SemanticConfigClient(base_url=f"http://127.0.0.1:{listener.getsockname()[1]}")
+    try:
+        start = time.monotonic()
+        task, finished = _wait_for_weave_task(
+            client, {"task_id": "t-1", "status": "RUNNING"}, timeout=0.5, poll_seconds=0
+        )
+        assert not finished and task["task_id"] == "t-1"
+        assert time.monotonic() - start < 2
+    finally:
+        release.set()
+        server.join(4)
+    assert not server.is_alive()
 
 
 def test_weave_submit_wait_times_out_with_kill_hint(
@@ -298,24 +395,33 @@ def test_weave_submit_wait_times_out_with_kill_hint(
 ) -> None:
     from qwenpaw_data.cli.commands import semantic
 
-    monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(semantic, "_WEAVE_POLL_SECONDS", 1.0)
     fake_client.reset(
         {
             "POST": {"task_id": "t-4", "status": "PENDING"},
-            "LIST": {
-                "records": [{"task_id": "t-4", "status": "RUNNING"}],
-                "total": 1,
-                "page": 1,
-            },
         },
     )
 
     assert main([
-        "semantic", "weave", "submit", "--datasource-id", "pg-1",
-        "--wait", "--timeout", "0",
+        "semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test",
+        "--wait", "--timeout", "0.01",
     ]) == 1
     captured = capsys.readouterr()
     assert "weave kill t-4" in captured.err
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1", "nan", "inf"])
+def test_weave_submit_rejects_invalid_wait_timeout_before_submitting(
+    timeout: str,
+    fake_client: type[RecordingClient],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([
+        "semantic", "weave", "submit", "--datasource-id", "pg-1", "--name", "test",
+        "--wait", f"--timeout={timeout}",
+    ]) == 1
+    assert "--timeout must be a finite positive number" in capsys.readouterr().err
+    assert fake_client.calls == []
 
 
 def test_weave_list_and_kill(fake_client: type[RecordingClient]) -> None:

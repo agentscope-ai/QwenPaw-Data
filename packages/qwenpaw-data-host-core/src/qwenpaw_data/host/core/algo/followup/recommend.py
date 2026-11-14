@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from qwenpaw_data.host.core.algo.followup.collector import SignalCollector
 from qwenpaw_data.host.core.algo.followup.llm import FollowUpLLM, for_structured_calls
-from qwenpaw_data.host.core.algo.followup.models import FollowUp, SignalSnapshot
+from qwenpaw_data.host.core.algo.followup.models import Candidate, FollowUp, SignalSnapshot
 from qwenpaw_data.host.core.algo.followup.service import FollowUpService
 from qwenpaw_data.host.core.algo.followup.settings import (
     MAX_DIMENSIONS,
@@ -23,7 +24,7 @@ from qwenpaw_data.host.core.algo.followup.settings import (
     MIN_RELEVANCE,
     TIMEOUT_SEC,
 )
-from qwenpaw_data.host.core.model import build_model_from_env
+from qwenpaw_data.host.core.domain.model_usage import ModelUsageSource
 from qwenpaw_data.host.core.providers.factory import build_model
 
 if TYPE_CHECKING:
@@ -33,13 +34,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+FollowUpCallback = Callable[[list[str]], Awaitable[None]]
+
 
 class FollowUpRecommend:
     """Recommend the next questions for one Chat, out of the reply's way.
 
     The host drives ``start`` once, ``append`` per event, and ``join`` on the
-    completed path only. Collection runs concurrently with the reply. At join,
-    the service bounds the model call and falls back to rules before returning.
+    completed path only. None of the three may block the reply: collection runs
+    on its own task, and ``join`` gives up on its own budget rather than holding
+    the turn open.
 
     Every knob is a plain argument with the validated default: the host owns the
     configuration (``settings.followup``) and passes it in, so nothing here
@@ -50,7 +54,9 @@ class FollowUpRecommend:
         run_context: The Chat being answered, and the models it may run on.
         previous_followups: Questions recommended earlier in this Session, so
             the same one is not offered twice.
-        timeout_sec: Maximum time allowed for the model channel.
+        deliver: Optional sink for a result that misses the budget. Without it a
+            late result is dropped, since the turn has already closed.
+        timeout_sec: What the closing moment of the Chat will wait for.
         max_questions: Upper bound on the delivered questions.
         max_metrics: Cap on metrics entering the prompt.
         max_dimensions: Cap on dimensions entering the prompt.
@@ -62,6 +68,7 @@ class FollowUpRecommend:
         *,
         run_context: RunContext,
         previous_followups: tuple[str, ...] = (),
+        deliver: FollowUpCallback | None = None,
         timeout_sec: float = TIMEOUT_SEC,
         max_questions: int = MAX_QUESTIONS,
         max_metrics: int = MAX_METRICS,
@@ -72,6 +79,7 @@ class FollowUpRecommend:
         self.chat_id = run_context.chat_id
         self.session_id = run_context.session_id
         self.previous_followups = previous_followups
+        self.deliver = deliver
         self.timeout_sec = timeout_sec
         self.max_questions = max_questions
         self.max_metrics = max_metrics
@@ -79,6 +87,8 @@ class FollowUpRecommend:
         self.min_relevance = min_relevance
         self._collector: SignalCollector | None = None
         self._snapshot: asyncio.Task[SignalSnapshot] | None = None
+        self._pipeline: asyncio.Task[list[Candidate]] | None = None
+        self._late: asyncio.Task[None] | None = None
         self._questions: list[str] | None = None
 
     async def start(self) -> None:
@@ -120,7 +130,7 @@ class FollowUpRecommend:
     async def join(self) -> list[str]:
         """Return the questions to recommend, or nothing if none can be made."""
         if self._questions is None:
-            self._questions = await self._recommend()
+            self._questions = await self._within_budget()
         return self._questions
 
     def _begin_freeze(self) -> None:
@@ -142,44 +152,67 @@ class FollowUpRecommend:
             )
             return SignalSnapshot()
 
-    async def _recommend(self) -> list[str]:
-        self._begin_freeze()
-        if self._snapshot is None:
+    def _begin_pipeline(self) -> asyncio.Task[list[Candidate]] | None:
+        if self._pipeline is None:
+            self._begin_freeze()
+            if self._snapshot is None:
+                return None
+            self._pipeline = asyncio.create_task(self._run_pipeline(self._snapshot))
+        return self._pipeline
+
+    async def _within_budget(self) -> list[str]:
+        pipeline = self._begin_pipeline()
+        if pipeline is None:
             return []
+        try:
+            # Shielded: the questions are worth persisting even once the turn
+            # has stopped waiting for them.
+            candidates = await asyncio.wait_for(
+                asyncio.shield(pipeline), timeout=self.timeout_sec
+            )
+        except TimeoutError:
+            logger.warning(
+                "Follow-up recommendation missed its %ss budget for chat %s",
+                self.timeout_sec,
+                self.chat_id,
+            )
+            self._begin_late_delivery(pipeline)
+            return []
+        return FollowUp.of(self.chat_id, candidates).questions
+
+    async def _run_pipeline(
+        self, snapshot: asyncio.Task[SignalSnapshot]
+    ) -> list[Candidate]:
         service = FollowUpService(
             timeout_sec=self.timeout_sec,
             max_questions=self.max_questions,
             llm=self._build_llm(),
         )
         try:
-            candidates = await service.recommend(await self._snapshot)
+            return await service.recommend(await snapshot)
         except Exception:
             logger.exception(
                 "Follow-up recommendation failed for chat %s", self.chat_id
             )
             return []
-        return FollowUp.of(self.chat_id, candidates).questions
 
     def _build_llm(self) -> FollowUpLLM | None:
         """The model channel's model, or None to fall back to rules only.
 
         ``light`` is the small model the user picked for background work; the
-        default model stands in when none is configured. Without either, a
-        fresh env-configured model is built — never the agent's own instance,
-        which retuning would corrupt.
+        agent's own model stands in when none is configured, so a generated
+        question is still on the table either way.
         """
 
         config = self.run_context.user_runtime_config
-        active = None
-        if config is not None:
-            active = getattr(config, "light", None) or getattr(
-                config, "default", None
-            )
+        active = config.light or config.default
         try:
-            if active is not None:
-                model = for_structured_calls(build_model(active))
-            else:
-                model = for_structured_calls(build_model_from_env())
+            model = for_structured_calls(
+                build_model(
+                    active,
+                    usage=self.run_context.model_usage(ModelUsageSource.FOLLOWUP),
+                )
+            )
         except Exception:
             logger.exception(
                 "Follow-up has no usable model for chat %s; using rules only",
@@ -188,5 +221,24 @@ class FollowUpRecommend:
             return None
         return FollowUpLLM(model, timeout=self.timeout_sec)
 
+    def _begin_late_delivery(self, pipeline: asyncio.Task[list[Candidate]]) -> None:
+        if self.deliver is not None and self._late is None:
+            self._late = asyncio.create_task(self._deliver_late(pipeline))
 
-__all__ = ["FollowUpRecommend"]
+    async def _deliver_late(self, pipeline: asyncio.Task[list[Candidate]]) -> None:
+        """Persist a result the turn outran, for the next snapshot to carry."""
+        deliver = self.deliver
+        if deliver is None:
+            return
+        try:
+            questions = FollowUp.of(self.chat_id, await pipeline).questions
+            if questions:
+                await deliver(questions)
+        except Exception:
+            logger.exception(
+                "Follow-up recommendation failed to deliver late for chat %s",
+                self.chat_id,
+            )
+
+
+__all__ = ["FollowUpCallback", "FollowUpRecommend"]

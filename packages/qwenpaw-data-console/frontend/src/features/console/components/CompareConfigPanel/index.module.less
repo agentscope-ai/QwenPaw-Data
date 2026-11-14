@@ -1,0 +1,113 @@
+// The compare config stage (方案7 D2): pick the two documents, then start.
+
+.panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 2px 8px;
+}
+
+.title {
+  margin: 0;
+  color: var(--console-text, #101828);
+  font-size: var(--text-small, 14px);
+  font-weight: 600;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  color: var(--console-text-secondary, #667085);
+  font-size: var(--text-micro, 12px);
+  font-weight: 500;
+}
+
+.select {
+  width: 100%;
+}
+
+// Hint under the locked (read-only) target field.
+.lockedHint {
+  color: var(--console-text-secondary, #667085);
+  font-size: var(--text-micro, 11px);
+  line-height: 1.5;
+}
+
+.recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recommendationsLabel {
+  color: var(--console-text-secondary, #667085);
+  font-size: var(--text-micro, 12px);
+  font-weight: 500;
+}
+
+.recommendationCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recommendationLoading {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.recommendationCard {
+  display: flex;
+  width: 100%;
+  padding: 10px 12px;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--console-surface, #fff);
+  border: 1px solid var(--console-line, #e2e8f0);
+  border-radius: var(--radius-default, 10px);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+
+  &:hover {
+    border-color: var(--console-primary, #1677ff);
+  }
+
+  strong {
+    color: var(--console-text, #101828);
+    font-size: var(--text-small, 13px);
+    font-weight: 600;
+  }
+
+  span {
+    color: var(--console-text-secondary, #667085);
+    font-size: var(--text-micro, 11px);
+    line-height: 1.5;
+  }
+}
+
+.recommendationCardActive {
+  background: var(--console-primary-soft, rgb(22 119 255 / 8%));
+  border-color: var(--console-primary, #1677ff);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}

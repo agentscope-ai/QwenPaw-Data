@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 FeedbackMode = Literal["confirm", "test"]
 
-# Only these two acks mean the dry-run would land new knowledge; ``duplicate``
-# means it already exists, so the card is not worth recommending.
+# dry-run 仅这两类视为「有落图增量、可推荐」；duplicate 表示已存在，不推
 _RECOMMENDABLE_ACK = frozenset({"accepted", "updated"})
 
 # CM ColumnMeaningCard.description max_length

@@ -1,6 +1,6 @@
 ---
 name: analysis-plan-builder
-description: 将用户的数据分析需求转化为结构化的分析计划并与用户确认。用户提出 BI 业务分析、数据探索、统计建模等需要规划的分析任务时使用。简单数据查询、公式明确的定量计算等流程简单、无需规划的任务不使用。
+description: 将用户的数据分析需求转化为结构化分析计划，并调用 PlanCreate 落盘。已有未完成计划且仍是同一分析时不要调用。用户提出 BI 业务分析、数据探索、统计建模等需要规划的分析任务时使用。简单数据查询、公式明确的定量计算等无需规划的任务不使用。
 ---
 # analysis-plan-builder
 
@@ -8,7 +8,8 @@ description: 将用户的数据分析需求转化为结构化的分析计划并�
 
 ## 设计原则：行动优先
 
-用户发出分析请求后最差的体验是"agent 一连串提问、什么都没做"。本 skill 要求：**先收集上下文，再规划，最后根据信息充分性决定立即执行还是反问。** 用户能看到信息不断收敛、分析在推进，同时保留随时打断纠偏的能力。
+用户发出分析请求后最差的体验是"agent 一连串提问、什么都没做"。本 skill 要求：先看 `<current_plan>`。已有未完成任务且仍是同一分析时，续做或 `PlanUpdate`，本 skill 到此结束。没有可用计划或目标变了时，先收集上下文，再生成计划草稿，信息充分时必须调用 `PlanCreate` 落盘，再进入执行；仅当关键信息缺失且无法用工具消歧时，才用 `ask_user_question` 反问。  
+“行动优先”不等于跳过计划：需要新计划时，`PlanCreate` 是进入执行前的必经动作。禁止只输出 YAML/正文计划后直接取数或分析。反问不得写成助手正文清单。
 
 ---
 
@@ -20,7 +21,7 @@ description: 将用户的数据分析需求转化为结构化的分析计划并�
 
 ## Step 1: 上下文构建（Phase 1 — Context Gathering）
 
-收集和补充构造分析计划所需的信息。**本步骤应尽早执行，在向用户提问之前先通过工具获取尽可能多的上下文。**
+收集和补充构造分析计划所需的信息。**本步骤应尽早执行，在调用 `ask_user_question` 之前先通过图谱 / 探查工具获取尽可能多的上下文。**
 
 ### 1.1 可用资源确认
 
@@ -31,13 +32,13 @@ description: 将用户的数据分析需求转化为结构化的分析计划并�
 - 静态的域知识包
 - 可获取业务领域模型的接口（后文称"语义层"），即能查询指标、维度及其关系的服务或工具
 
-**如果工具列表中包含 MCP 语义层工具**（`search_context` / `get_domain_overview` / `list_metrics` 等），**立即调用**以获取域上下文：
-- 推荐首个调用：`search_context(query=用户原始问题, domain=识别出的业务域)` — 一次调用返回匹配的指标、口径、数据集和相关维度。
-- 补充调用 `get_domain_overview(domain)` 了解域全貌（当 search_context 返回不足时）。
+已知参考文件路径时直接用 Read，长文件按需分段读取。Grep 启动失败时改用 Read 查看目标文件；工具失败不等于文件不存在或内容无匹配。
 
-**实时向用户同步发现**：将 MCP 返回的关键信息（指标名、口径定义、可用维度、数据表）以简洁文本输出到 assistant 消息。用户可随时打断纠偏。
+**如果工具列表中包含 Context Manager 图谱工具**，加载 `Skill(skill="cm-skills")`，按其规则获取规划所需的指标定义、完整口径、数据集及维度关系。需要业务域全貌时使用其中的「业务域列表」配方。
 
-如果没有 MCP 工具可用 → 跳过语义层调用，直接进入 1.2。
+**实时向用户同步发现**：将图谱返回的关键信息（指标名、口径定义、可用维度、数据表）以简洁文本输出到 assistant 消息。用户可随时打断纠偏。
+
+如果没有图谱工具可用 → 跳过语义层调用，直接进入 1.2。
 
 ### 1.2 按任务类型补充上下文
 
@@ -201,24 +202,76 @@ missing_info:
 
 ---
 
-## 产出
+## 产出（强制）
 
-Step 2 的 YAML 即本 skill 的最终产出，作为 plan 草稿交付给 host。
+Step 2 的 YAML 只是**内部草稿**，不是交付终点。本 skill 的硬性出口：
+
+1. 完成信息充分性检查（见下）
+2. 需要新计划时 **必须调用** `PlanCreate`，把草稿收敛为工具入参；同一分析续做不要调用
+3. 再进入 Phase 3
+
+禁止：只把 YAML/要点写在助手正文里就去调 MCP 取数、跑分析 skill，或结束本轮。
+
+### 收敛为 `PlanCreate` 入参
+
+- `tasks`：将分析内容拆成 `{id, subject, description, blocked_by}` 对象；`id`
+  在当前 Plan 内唯一且稳定，`blocked_by` 只引用同一批 Task ID。
+  目标、范围、关键条件和必要上下文写入各 Task 的 `description`，不再单独传
+  Plan 级 `name` / `description`。
+- BI：按分析条目 / 取数与计算步骤拆 Task（取数、指标观测、维度下拆、归因等可分可合，但须可执行）。
+- 非 BI：把草稿中的子任务序列改写成上述对象结构。
+
+不要把草稿中的 `task_type`、`intent`、`known_conditions`、`context`、
+`data_profile`、`scope` 或 `missing_info` 作为额外参数传给 `PlanCreate`。
+
+### BI → `PlanCreate` 示例
+
+用户："产品A 2025 年 12 月的访问趋势分析，访问指标只看 DAU，维度下拆只看国家。"  
+（用户已给出对象 / 时间 / 指标 / 下拆维度 → `missing_info` 应为空，直接 `PlanCreate`。）
+
+```json
+{
+  "tasks": [
+    {
+      "id": "fetch_dau",
+      "subject": "取数：产品A 2025-12 DAU（含国家维度）",
+      "description": "按 fetch-data 拉取 产品A 在 2025-12-01～2025-12-31 的 DAU 日序列，并带上国家维度字段；落盘到当前 Session 产物目录。",
+      "blocked_by": []
+    },
+    {
+      "id": "observe_trend",
+      "subject": "观测：DAU 整体趋势",
+      "description": "基于已取数，对全站/合计 DAU 做时间趋势观测（水平、波动、异常点），回答 12 月访问趋势。",
+      "blocked_by": ["fetch_dau"]
+    },
+    {
+      "id": "drill_country",
+      "subject": "下拆：按国家看 DAU",
+      "description": "仅按国家维度下拆 DAU，比较各国贡献与变化；不做其他维度下拆。",
+      "blocked_by": ["fetch_dau"]
+    }
+  ]
+}
+```
 
 ### 信息充分性检查（强制）
 
-交付 plan 草稿前，检查 `missing_info` 字段：
+交付草稿并调用 `PlanCreate` 前，检查 `missing_info`：
 
-- **`missing_info` 为空** → 信息充分，可以进入 `create_plan`
-- **`missing_info` 不为空** → 缺少关键信息，**不应进入 `create_plan`**，应先向用户反问缺失项（参照 `interaction-strategy` skill 的反问格式）
+- **`missing_info` 为空** → **必须立即调用 `PlanCreate`**
+- **`missing_info` 不为空** → **不应 `PlanCreate`**，先 `ask_user_question` 反问（按系统提示的反问规则）；禁止正文清单代问
 
-注意：当且仅当 `missing_info` 中的缺失项**无法通过工具自行获取**时才反问。如果 MCP 语义层工具可以消歧，应先调用工具解决，而不是停下来问用户。
+约束：
 
-### Phase 3 — create_plan 后的行为（强制）
+- 当且仅当缺失项**无法通过工具自行获取**时才写入 `missing_info` 并反问。图谱搜索或 `query_graph` 可消歧时先调工具，不要停下来问。
+- 用户已明确给出的指标、维度、时间范围、业务对象**不得**再当作 `missing_info` 去反问。
+- 不要为了“看起来谨慎”而编造缺失项，从而跳过 `PlanCreate`。
 
-`create_plan` 完成后，根据 `interaction-strategy` skill 的 Type 2 触发条件判断：
+### Phase 3 — PlanCreate 后的行为（强制）
 
-- **Type 2 未触发**（默认情况）→ 输出 1-2 句 plan 概览，**立即调用** `update_subtask` 开始执行第一个 ready 节点。不等待用户确认。
-- **Type 2 触发** → 输出详细计划 + 确认语，**不调用工具**，等待用户回复。
+`PlanCreate` 完成后，根据系统提示「人机交互」第2类：
 
-进入执行阶段后，还需 `read_file skills/runtime-guide/SKILL.md` 获取执行期通用策略（复用、异常处理、计划调整、质量自检、执行节奏、产出策略等）。
+- **第2类未触发**（默认）→ 输出 1-2 句 plan 概览，**立即** `TaskStateUpdate` 将第一个待执行 Task 设为 `in_progress`。
+- **第2类触发** → 输出详细计划，再 `ask_user_question` 确认是否开始执行，等待工具结果。
+
+进入执行阶段后，按系统提示 `<qwenpaw-data-analysis-environment>` 落盘，再按计划节点加载对应 workflow / atomic skill。

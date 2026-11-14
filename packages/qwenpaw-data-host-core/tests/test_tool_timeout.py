@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import pytest
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolResponse
-from qwenpaw_data.host.core.agent.middleware.tool_timeout import ToolTimeoutMiddleware
+from qwenpaw_data.host.core.api.models.preferences import SetRuntimeSettingsRequest
+from qwenpaw_data.host.core.settings.runtime import RuntimeSettings
+
+from .test_tool_timeout_middleware import _middleware
 
 
 @pytest.mark.asyncio
@@ -21,7 +24,7 @@ async def test_timeout_cancels_work_and_discards_partial_success():
 
     items = [
         item
-        async for item in ToolTimeoutMiddleware(0.02).on_acting(
+        async for item in _middleware(seconds=0.02).on_acting(
             None, {"tool_call": SimpleNamespace(name="mcp__db__execute_sql")}, slow
         )
     ]
@@ -45,16 +48,20 @@ async def test_outer_cancellation_cleans_up_and_propagates():
     async def collect():
         return [
             item
-            async for item in ToolTimeoutMiddleware(30).on_acting(
+            async for item in _middleware(seconds=30).on_acting(
                 None, {"tool_call": SimpleNamespace(name="Bash")}, slow
             )
         ]
 
     task = asyncio.create_task(collect())
-    await started.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
     assert cancelled.is_set()
 
 
@@ -69,7 +76,7 @@ async def test_fast_tool_and_tool_error_unchanged():
 
     assert [
         item
-        async for item in ToolTimeoutMiddleware(1).on_acting(
+        async for item in _middleware(seconds=1).on_acting(
             None, {"tool_call": SimpleNamespace(name="tool")}, fast
         )
     ] == [expected]
@@ -78,4 +85,6 @@ async def test_fast_tool_and_tool_error_unchanged():
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
 def test_invalid_timeout_rejected(value):
     with pytest.raises(ValueError):
-        ToolTimeoutMiddleware(value)
+        RuntimeSettings(tool_timeout_seconds=value)
+    with pytest.raises(ValueError):
+        SetRuntimeSettingsRequest(tool_timeout_seconds=value)

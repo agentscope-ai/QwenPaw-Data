@@ -1,0 +1,76 @@
+.container {
+  display: flex;
+  min-height: 100dvh;
+  padding: 24px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: var(--qwenpaw-data-color-text);
+  background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+}
+
+.logoContainer {
+  display: flex;
+  margin-bottom: 32px;
+  align-items: center;
+  flex-direction: column;
+}
+
+.logoMark {
+  position: relative;
+  display: block;
+  width: 215px;
+  height: 36px;
+}
+
+.logoImage {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.logoImageContrast {
+  display: none;
+  filter: brightness(0) invert(1);
+  opacity: 0.94;
+  clip-path: inset(0 40% 0 0);
+}
+
+.subtitle {
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  padding: 40px 32px;
+  background: #f8fafc;
+  border: 1px solid rgb(226 232 240 / 60%);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgb(15 23 42 / 8%);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .container {
+  background: var(--qwenpaw-data-color-layout);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .logoImageContrast {
+  display: block;
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .subtitle {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .card {
+  background: var(--qwenpaw-data-color-drawer-surface);
+  border-color: var(--qwenpaw-data-color-border);
+  box-shadow: 0 18px 52px rgb(0 0 0 / 28%);
+}

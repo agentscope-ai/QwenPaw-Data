@@ -2,108 +2,89 @@ from __future__ import annotations
 
 import json
 import inspect
-import os
 from pathlib import Path
 import shutil
 import uuid
 
 import pytest
 
+from agentscope.workspace import LocalWorkspace
 
-@pytest.fixture()
-def workspace_modules() -> object:
-    from qwenpaw_data.host.core.paths import Paths
-    from qwenpaw_data.host.core.utils import workspace as workspace_module
-
-    yield Paths, workspace_module
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories import SkillStoreRepo
+from qwenpaw_data.host.core.utils.skill import discover_builtin_skills
+from qwenpaw_data.host.core.workspace import prepare_workspace_dirs, stable_workspace_id
 
 
-def test_default_skill_paths_discovers_hierarchical_skills(
-    workspace_modules: object,
-) -> None:
-    _, workspace_module = workspace_modules
+def _paths(tmp_path: Path, *, agent_id: str = "agent-a", session_id: str = "session-a"):
+    return UserAgentPaths(
+        home=tmp_path,
+        tenant_id="tenant-a",
+        workspace_id="ws-a",
+        user_id="user-a",
+        agent_id=agent_id,
+        session_id=session_id,
+    )
 
-    skill_paths = [Path(path) for path in workspace_module._default_skill_paths()]
+
+def _local_workspace(paths: UserAgentPaths) -> LocalWorkspace:
+    prepare_workspace_dirs(paths)
+    return LocalWorkspace(
+        workdir=str(paths.workspace),
+        workspace_id=stable_workspace_id(paths),
+    )
+
+
+def test_discover_builtin_skills_from_package() -> None:
+    skills = discover_builtin_skills()
     skill_root = Path(__file__).resolve().parents[2] / "qwenpaw-data-skills" / "skills"
-    relative_paths = {path.relative_to(skill_root).as_posix() for path in skill_paths}
+    relative_paths = {
+        item.src_dir.relative_to(skill_root).as_posix() for item in skills
+    }
 
-    assert len(skill_paths) == 31
+    assert len(skills) == 32
     assert relative_paths >= {
         "meta/skill-hub-guide",
         "workflows/fetch-data",
         "atomic/bi-report-generation",
-        "runtime/interaction-strategy",
         "domains/query-odps",
+        "domains/cm-skills",
     }
-    assert all((path / "SKILL.md").is_file() for path in skill_paths)
+    assert not any(path.startswith("runtime/") for path in relative_paths)
+    assert all((item.src_dir / "SKILL.md").is_file() for item in skills)
 
 
-def test_default_skill_paths_falls_back_to_installed_distribution(
+def test_user_agent_paths_use_shared_agent_workspace(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    workspace_modules: object,
 ) -> None:
-    _, workspace_module = workspace_modules
-    flat_skill = tmp_path / "qwenpaw_data_skills" / "skills" / "flat-skill"
-    installed_skill = (
-        tmp_path / "qwenpaw_data_skills" / "skills" / "workflows" / "installed-skill"
-    )
-    flat_skill.mkdir(parents=True)
-    installed_skill.mkdir(parents=True)
-    (flat_skill / "SKILL.md").write_text("# Flat Skill\n", encoding="utf-8")
-    (installed_skill / "SKILL.md").write_text(
-        "# Installed Skill\n",
-        encoding="utf-8",
-    )
+    paths = _paths(tmp_path)
 
-    class DistributionStub:
-        def locate_file(self, path: str) -> Path:
-            return tmp_path / path
-
-    monkeypatch.setattr(workspace_module, "_source_skill_paths", lambda: [])
-    monkeypatch.setattr(
-        workspace_module, "distribution", lambda name: DistributionStub()
-    )
-
-    assert workspace_module._default_skill_paths() == [
-        str(flat_skill),
-        str(installed_skill),
-    ]
-
-
-def test_paths_use_host_workspace_and_scoped_state(
-    tmp_path: Path,
-    workspace_modules: object,
-) -> None:
-    Paths, _ = workspace_modules
-    paths = Paths(tmp_path, session_id="session-a")
-
-    assert paths.host_root == tmp_path / "host"
-    assert paths.secrets_root == tmp_path / "host" / ".secrets"
-    assert paths.workspace == tmp_path / "host" / "workspace"
-    assert paths.mcp_config_file == paths.workspace / ".mcp"
-    assert paths.session_root == paths.workspace / "sessions" / "session-a"
-    assert paths.console_root == paths.workspace / "sessions" / "console"
-    assert paths.dag_root == paths.workspace / "sessions" / "dag"
-    assert paths.data_root == paths.workspace / "data"
+    assert paths.user_root == tmp_path / "tenant-a" / "ws-a" / "user-a"
+    assert paths.agent_root == tmp_path / "tenant-a" / "ws-a" / "user-a" / "agent-a"
+    assert paths.workspace == paths.agent_root / "workspace"
+    assert paths.skills_root == paths.workspace / "skills"
+    assert paths.skills == paths.skills_root / "agent-a"
     assert paths.artifacts_root == paths.workspace / "artifacts"
     assert paths.artifact_dir == paths.artifacts_root / "session-a"
-    assert paths.node_artifact_dir("graph-a", "node-a") == (
-        paths.artifact_dir / "graph-a" / "node-a"
-    )
+
+
+def test_session_create_rejects_unsafe_agent_id() -> None:
+    from qwenpaw_data.host.core.domain.identity import Identity
+    from qwenpaw_data.host.core.domain.session import Session
+
+    identity = Identity(user_id="u1", tenant_id="t1", workspace_id="w1")
+    with pytest.raises(ValueError):
+        Session.create(identity=identity, agent_id="../escape")
 
 
 @pytest.mark.asyncio
-async def test_local_workspace_seeds_qwenpaw_data_skills(
-    tmp_path: Path,
-    workspace_modules: object,
-) -> None:
-    Paths, workspace_module = workspace_modules
-    workspace = workspace_module.create_local_workspace(Paths(tmp_path))
+async def test_local_workspace_seeds_qwenpaw_data_skills(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    workspace = _local_workspace(paths)
 
     try:
         await workspace.initialize()
-        skills = await workspace.list_skills()
+        skills = await workspace.list_skills(agent_id=paths.agent_id)
     finally:
         close = getattr(workspace, "close", None)
         if callable(close):
@@ -112,110 +93,83 @@ async def test_local_workspace_seeds_qwenpaw_data_skills(
                 await result
 
     skill_names = {skill.name for skill in skills}
-    assert {"skill-hub-guide", "fetch-data"} <= skill_names
+    assert {
+        "skill-hub-guide",
+        "fetch-data",
+        "cm-skills",
+    } <= skill_names
+    assert (paths.skills / "skill-hub-guide" / "SKILL.md").is_file()
+    assert (paths.skills / "fetch-data" / "SKILL.md").is_file()
+    for reference in (
+        "mcp-tools.md",
+        "neo4j.md",
+        "holoage.md",
+    ):
+        assert (paths.skills / "cm-skills" / "references" / reference).is_file()
 
 
 @pytest.mark.asyncio
-async def test_local_workspace_persists_native_state_under_host_workspace(
-    tmp_path: Path,
-    workspace_modules: object,
-) -> None:
-    from qwenpaw_data.host.core.utils.msg import user_msg
-
-    Paths, workspace_module = workspace_modules
-    paths = Paths(tmp_path, session_id="session-a")
-    workspace = workspace_module.create_local_workspace(paths)
-
-    try:
-        await workspace.initialize()
-        context_path = await workspace.offload_context(
-            paths.session_id,
-            [user_msg("hello")],
-        )
-    finally:
-        close = getattr(workspace, "close", None)
-        if callable(close):
-            result = close()
-            if inspect.isawaitable(result):
-                await result
-
-    assert paths.skills.is_dir()
-    assert Path(context_path) == paths.session_root / "context.jsonl"
-    assert set(path.name for path in tmp_path.iterdir()) == {"host"}
-
-
-@pytest.mark.asyncio
-async def test_local_workspace_bash_uses_workspace_cwd(
-    tmp_path: Path,
-    workspace_modules: object,
-) -> None:
-    Paths, workspace_module = workspace_modules
-    paths = Paths(tmp_path)
-    workspace = workspace_module.create_local_workspace(paths)
+async def test_local_workspace_bash_uses_workspace_cwd(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    workspace = _local_workspace(paths)
     marker = f"artifacts/cwd-check-{uuid.uuid4().hex}.txt"
     workspace_marker = paths.workspace / marker
     process_cwd_marker = Path.cwd() / marker
 
     try:
+        await workspace.initialize()
         tools = await workspace.list_tools()
-        shell_name = "PowerShell" if os.name == "nt" else "Bash"
-        shell = next(tool for tool in tools if tool.name == shell_name)
-        if os.name == "nt":
-            command = (
-                "New-Item -ItemType Directory -Force artifacts | Out-Null; "
-                f"Set-Content -NoNewline -Path '{marker}' -Value workspace"
-            )
-        else:
-            command = f"mkdir -p artifacts && printf workspace > {marker}"
+        bash = next(tool for tool in tools if tool.name == "Bash")
 
-        stream = shell(command=command)
-        if inspect.iscoroutine(stream):
-            stream = await stream
+        stream = await bash(
+            command=f"mkdir -p artifacts && printf workspace > {marker}",
+            description="write cwd marker",
+        )
         chunks = [chunk async for chunk in stream]
 
         assert chunks[-1].state == "running"
         assert workspace_marker.read_text(encoding="utf-8") == "workspace"
         assert not process_cwd_marker.exists()
     finally:
+        await workspace.close()
         if process_cwd_marker.exists():
             process_cwd_marker.unlink()
 
 
 @pytest.mark.asyncio
-async def test_local_workspace_search_tools_use_workspace_default_path(
-    tmp_path: Path,
-    workspace_modules: object,
-) -> None:
-    Paths, workspace_module = workspace_modules
-    paths = Paths(tmp_path)
-    workspace = workspace_module.create_local_workspace(paths)
+async def test_local_workspace_search_tools_with_explicit_path(tmp_path: Path) -> None:
+    """Local Glob/Grep default to process cwd; callers must pass workspace path."""
+    paths = _paths(tmp_path)
+    workspace = _local_workspace(paths)
     token = f"workspace-search-{uuid.uuid4().hex}"
     artifact = paths.workspace / "artifacts" / token / "result.txt"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(f"{token}\n", encoding="utf-8")
+    workdir = str(paths.workspace)
 
-    tools = await workspace.list_tools()
-    glob = next(tool for tool in tools if tool.name == "Glob")
-    grep = next(tool for tool in tools if tool.name == "Grep")
+    await workspace.initialize()
+    try:
+        tools = await workspace.list_tools()
+        glob = next(tool for tool in tools if tool.name == "Glob")
+        grep = next(tool for tool in tools if tool.name == "Grep")
 
-    glob_chunk = await glob(pattern="artifacts/**/*.txt")
-    glob_text = "\n".join(block.text for block in glob_chunk.content)
-    assert str(artifact) in glob_text
+        glob_chunk = await glob(pattern="**/*.txt", path=workdir)
+        glob_text = "\n".join(block.text for block in glob_chunk.content)
+        assert token in glob_text
+        assert "result.txt" in glob_text
 
-    if shutil.which("rg") is None:
-        pytest.skip("ripgrep is required for Grep")
-    grep_chunk = await grep(pattern=token)
-    grep_text = "\n".join(block.text for block in grep_chunk.content)
-    assert str(artifact) in grep_text
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep is required for Grep")
+        grep_chunk = await grep(pattern=token, path=workdir)
+        grep_text = "\n".join(block.text for block in grep_chunk.content)
+        assert token in grep_text
+    finally:
+        await workspace.close()
 
 
 @pytest.mark.asyncio
-async def test_local_workspace_loads_existing_mcp(
-    tmp_path: Path,
-    workspace_modules: object,
-) -> None:
-    Paths, workspace_module = workspace_modules
-    paths = Paths(tmp_path)
+async def test_local_workspace_loads_existing_mcp(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
     paths.workspace.mkdir(parents=True)
     (paths.workspace / ".mcp").write_text(
         json.dumps(
@@ -237,17 +191,11 @@ async def test_local_workspace_loads_existing_mcp(
         ),
         encoding="utf-8",
     )
-    workspace = workspace_module.create_local_workspace(paths)
+    workspace = _local_workspace(paths)
 
     try:
         await workspace.initialize()
         mcps = await workspace.list_mcps()
-        first = await workspace.list_mcps(session_id="analysis-one")
-        second = await workspace.list_mcps(session_id="analysis-two")
-        assert [client.name for client in first] == ["context-manager"]
-        assert [client.name for client in second] == ["context-manager"]
-        assert first[0] is not second[0]
-        assert first[0] is not mcps[0]
     finally:
         close = getattr(workspace, "close", None)
         if callable(close):
@@ -256,3 +204,94 @@ async def test_local_workspace_loads_existing_mcp(
                 await result
 
     assert [mcp.name for mcp in mcps] == ["context-manager"]
+
+
+@pytest.mark.asyncio
+async def test_user_agent_workspace_resources_are_shared_and_isolated(
+    tmp_path: Path,
+) -> None:
+    first = UserAgentPaths(
+        tmp_path, "tenant-a", "ws-a", "user-a", "agent-a", "session-a"
+    )
+    second = UserAgentPaths(
+        tmp_path, "tenant-a", "ws-a", "user-a", "agent-a", "session-b"
+    )
+    other_agent = UserAgentPaths(
+        tmp_path, "tenant-a", "ws-a", "user-a", "agent-b", "session-a"
+    )
+    other_user = UserAgentPaths(
+        tmp_path, "tenant-a", "ws-a", "user-b", "agent-a", "session-a"
+    )
+
+    first.workspace.mkdir(parents=True)
+    (first.workspace / ".mcp").write_text(
+        json.dumps(
+            [
+                {
+                    "name": "shared-mcp",
+                    "is_stateful": False,
+                    "mcp_config": {
+                        "type": "http_mcp",
+                        "url": "http://127.0.0.1:8000/mcp",
+                        "headers": {},
+                        "timeout": 30.0,
+                    },
+                    "enable_tools": None,
+                    "disable_tools": None,
+                    "execution_timeout": None,
+                },
+            ],
+        ),
+        encoding="utf-8",
+    )
+    custom_src = tmp_path / "custom-shared-skill"
+    custom_src.mkdir()
+    (custom_src / "SKILL.md").write_text(
+        "---\n"
+        "name: shared-skill\n"
+        "description: Shared agent skill.\n"
+        "---\n"
+        "# Shared skill\n",
+        encoding="utf-8",
+    )
+    store = SkillStoreRepo(first.skills)
+    store.ensure_ready()
+    store.import_skill_dir(custom_src)
+
+    workspaces = [
+        _local_workspace(paths) for paths in (first, second, other_agent, other_user)
+    ]
+    try:
+        for workspace in workspaces:
+            await workspace.initialize()
+
+        assert first.workspace == second.workspace
+        assert first.artifact_dir != second.artifact_dir
+        assert first.workspace != other_agent.workspace
+        assert first.workspace != other_user.workspace
+        assert [mcp.name for mcp in await workspaces[0].list_mcps()] == ["shared-mcp"]
+        assert [mcp.name for mcp in await workspaces[1].list_mcps()] == ["shared-mcp"]
+        assert await workspaces[2].list_mcps() == []
+        assert await workspaces[3].list_mcps() == []
+
+        first_skills = {
+            skill.name for skill in await workspaces[0].list_skills(agent_id="agent-a")
+        }
+        second_skills = {
+            skill.name for skill in await workspaces[1].list_skills(agent_id="agent-a")
+        }
+        other_agent_skills = {
+            skill.name for skill in await workspaces[2].list_skills(agent_id="agent-b")
+        }
+        other_user_skills = {
+            skill.name for skill in await workspaces[3].list_skills(agent_id="agent-a")
+        }
+        assert "shared-skill" in first_skills
+        assert first_skills == second_skills
+        assert "shared-skill" not in other_agent_skills
+        assert "shared-skill" not in other_user_skills
+        assert "fetch-data" in other_agent_skills
+        assert "fetch-data" in other_user_skills
+    finally:
+        for workspace in workspaces:
+            await workspace.close()

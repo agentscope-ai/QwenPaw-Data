@@ -25,15 +25,21 @@ const DatasetInfoCard: React.FC<DatasetInfoCardProps> = ({
         <Col flex="auto">
           <Space size="large">
             <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('fields.datasetName')}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('fields.datasetName')}
+              </Text>
               <div style={{ fontWeight: 500, fontSize: 16, color: '#0D76FD' }}>{datasetName}</div>
             </div>
             <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('columnProcess.ownerLabel')}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('columnProcess.ownerLabel')}
+              </Text>
               <div>{owner}</div>
             </div>
             <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('columnProcess.lastUpdated')}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('columnProcess.lastUpdated')}
+              </Text>
               <div>{lastUpdated}</div>
             </div>
           </Space>

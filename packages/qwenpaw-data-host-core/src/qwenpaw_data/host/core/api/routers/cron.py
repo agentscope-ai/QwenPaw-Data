@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
+"""Cron jobs HTTP API."""
+
 from __future__ import annotations
 
-import asyncio
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from qwenpaw_data.host.core.api.deps import (
-    ServiceState,
-    get_identity,
-    get_state,
-    owned_session,
-)
+from qwenpaw_data.host.core.api.deps import get_db, get_identity
 from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.api.models.cron import CronJobWrite
+from qwenpaw_data.host.core.cron.files import JobFiles
 from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.repositories.channel_binding import ChannelBindingRepository
+from qwenpaw_data.host.core.repositories.cron import CronJobRepository
 
 router = APIRouter(prefix="/cron", tags=["cron"])
 
@@ -23,36 +24,55 @@ def _map(exc: Exception) -> None:
     http = map_domain_error(exc)
     if http:
         raise http from exc
-    raise exc
+    raise
 
 
-async def _check_session(
-    state: ServiceState, identity: Identity, session_id: str | None
-) -> None:
-    if session_id:
-        await owned_session(state, identity, session_id)
+@router.get("/targets")
+async def list_targets(
+    channel: str = Query(..., description="channel key, e.g. feishu"),
+    identity: Identity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Groups/people this user's bot has talked to, for a later frontend picker. Does not expose send_meta."""
+    targets = await ChannelBindingRepository(db).list_by_channel(identity, str(channel))
+    public = [
+        {
+            "external_key": t["external_key"],
+            "target_type": t["target_type"],
+            "display_name": t["display_name"],
+            "last_active_at": t["last_active_at"],
+        }
+        for t in targets
+    ]
+    return {"targets": public, "count": len(public)}
 
 
 @router.get("/jobs")
 async def list_jobs(
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
+    keyword: str | None = None,
+    enabled: bool | None = None,
+    channel: str | None = None,
 ) -> dict[str, Any]:
-    jobs = await state.cron.list(identity.user_id)
+    jobs = await CronJobRepository(db, identity).list(
+        keyword=keyword,
+        enabled=enabled,
+        channel=channel,
+    )
     return {"jobs": jobs, "count": len(jobs)}
 
 
 @router.post("/jobs")
 async def create_job(
     body: CronJobWrite,
+    request: Request,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    _ = request
     try:
-        await _check_session(state, identity, body.session_id)
-        job = await state.cron.create(identity.user_id, body)
-        state.cron_manager.sync(job)
-        return {"job": job}
+        return {"job": await CronJobRepository(db, identity).create(body)}
     except Exception as exc:
         _map(exc)
 
@@ -61,10 +81,10 @@ async def create_job(
 async def get_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        return {"job": await state.cron.get(identity.user_id, job_id)}
+        return {"job": await CronJobRepository(db, identity).get(job_id)}
     except Exception as exc:
         _map(exc)
 
@@ -73,14 +93,13 @@ async def get_job(
 async def replace_job(
     job_id: str,
     body: CronJobWrite,
+    request: Request,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    _ = request
     try:
-        await _check_session(state, identity, body.session_id)
-        job = await state.cron.replace(identity.user_id, job_id, body)
-        state.cron_manager.sync(job)
-        return {"job": job}
+        return {"job": await CronJobRepository(db, identity).replace(job_id, body)}
     except Exception as exc:
         _map(exc)
 
@@ -89,11 +108,10 @@ async def replace_job(
 async def delete_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        await state.cron.delete(identity.user_id, job_id)
-        state.cron_manager.remove(job_id)
+        await CronJobRepository(db, identity).delete(job_id)
         return {"ok": True}
     except Exception as exc:
         _map(exc)
@@ -103,12 +121,10 @@ async def delete_job(
 async def pause_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        job = await state.cron.set_enabled(identity.user_id, job_id, False)
-        state.cron_manager.sync(job)
-        return {"job": job}
+        return {"job": await CronJobRepository(db, identity).set_enabled(job_id, False)}
     except Exception as exc:
         _map(exc)
 
@@ -117,12 +133,10 @@ async def pause_job(
 async def resume_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        job = await state.cron.set_enabled(identity.user_id, job_id, True)
-        state.cron_manager.sync(job)
-        return {"job": job}
+        return {"job": await CronJobRepository(db, identity).set_enabled(job_id, True)}
     except Exception as exc:
         _map(exc)
 
@@ -131,12 +145,48 @@ async def resume_job(
 async def run_job(
     job_id: str,
     identity: Identity = Depends(get_identity),
-    state: ServiceState = Depends(get_state),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Fire the job immediately in the background."""
     try:
-        job = await state.cron.get(identity.user_id, job_id)
+        return {
+            "ok": True,
+            "job": await CronJobRepository(db, identity).run_now(job_id),
+        }
     except Exception as exc:
         _map(exc)
-    state.track(asyncio.create_task(state.cron_manager.run(job)))
-    return {"ok": True}
+
+
+@router.post("/jobs/{job_id}/attachments")
+async def upload_job_attachment(
+    job_id: str,
+    file: UploadFile = File(...),
+    identity: Identity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        if not file.filename:
+            raise ValueError("filename is required")
+        repo = CronJobRepository(db, identity)
+        await repo.get(job_id)
+        from qwenpaw_data.host.core.utils.files import MAX_SIZE_BYTES
+
+        JobFiles(identity, job_id).add(Path(file.filename).name, await file.read(MAX_SIZE_BYTES + 1))
+        return {"job": await repo.get(job_id)}
+    except Exception as exc:
+        _map(exc)
+
+
+@router.delete("/jobs/{job_id}/attachments/{filename}")
+async def delete_job_attachment(
+    job_id: str,
+    filename: str,
+    identity: Identity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        repo = CronJobRepository(db, identity)
+        await repo.get(job_id)
+        JobFiles(identity, job_id).remove(filename)
+        return {"job": await repo.get(job_id)}
+    except Exception as exc:
+        _map(exc)

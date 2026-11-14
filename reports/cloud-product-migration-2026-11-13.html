@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloud → OSS 整体迁移报告 · QwenPaw-Data</title>
+  <style>
+    :root { color-scheme: light; --primary:#1677ff; --nav:#001529; --text:#1f1f1f; --muted:#595959; --bg:#f5f7fa; --border:#d9d9d9; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--text); background:var(--bg); font:16px/1.65 system-ui,sans-serif; }
+    header { padding:20px max(20px,calc((100vw - 1040px)/2)); color:white; background:var(--nav); }
+    main { max-width:1080px; margin:auto; padding:28px 20px 48px; }
+    section { margin-bottom:20px; padding:24px; border:1px solid var(--border); border-radius:12px; background:white; min-width:0; }
+    h1 { margin:8px 0 16px; font-size:clamp(26px,4vw,36px); line-height:1.3; }
+    h2 { margin:0 0 14px; font-size:22px; }
+    p { margin:10px 0; } li { margin:8px 0; }
+    a { color:#0958d9; text-underline-offset:3px; }
+    a:focus-visible { outline:3px solid #91caff; outline-offset:3px; }
+    code { font:13px/1.6 ui-monospace,monospace; overflow-wrap:anywhere; }
+    .label, .muted, footer { color:var(--muted); font-size:14px; }
+    .warning { padding:12px 16px; border-left:4px solid #faad14; background:#fffbe6; }
+    .table-wrap { max-width:100%; overflow:auto; }
+    table { width:100%; border-collapse:collapse; text-align:left; font-size:14px; }
+    th, td { padding:12px; vertical-align:top; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
+    th { background:var(--bg); } th:first-child { width:24%; }
+    @media (max-width:600px) { main { padding:16px 12px; } section { padding:16px; } th,td { padding:8px; } }
+    @media print { body { background:white; } section { break-inside:avoid; } }
+  </style>
+</head>
+<body>
+  <header>QwenPaw-Data / Cloud → OSS</header>
+  <main>
+    <section aria-labelledby="overview">
+      <p class="label">整体迁移报告 · 2026-11-13</p>
+      <h1 id="overview">主要能力已移植，发布验收尚未完成</h1>
+      <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 新旧实现并存、公开兼容性和 CI 阻塞仍需收敛。</p>
+      <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
+      <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 已推送快照：<code>85a345a</code> · 本地实现：<code>2b2d827</code><br>
+        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 五个功能提交尚未推送；OpenTelemetry 依赖修复仍待提交确认，不代表远端 CI 已通过。</p>
+    </section>
+    <section aria-labelledby="scope">
+      <h2 id="scope">迁移范围与边界</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">范围</th><th scope="col">当前结果与限制</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">CLI / Host</th><td>当前会话、任务、文件、计划、cron、复盘及追问能力已纳入；旧 CLI / 嵌入 API 和 JSON 持久化兼容性未完成。</td></tr>
+            <tr><th scope="row">Context / DataBridge</th><td>语义管理、检索、SQL、profiling、知识与用户记忆实现已纳入；新旧实现并存，需要入口、调用关系和数据范围审计。</td></tr>
+            <tr><th scope="row">Console / Skills</th><td>已修复识别出的技能修订、MCP/channel 设置、settlement/proposal/draft 和文件网关路由；保留显式方法、同源及凭据隔离约束。</td></tr>
+            <tr><th scope="row">Auth / Tracing</th><td>开源本地身份、租户/工作区授权与 tracing/usage 已纳入；内部身份系统与部署凭据不移植，跨服务验收仍待完成。</td></tr>
+            <tr><th scope="row">可选基础设施</th><td>Hologres 为可选后端，无连接的部署无需启用；Docker 为 Host 默认执行后端，本地无沙箱执行须显式选择。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="replay">
+      <h2 id="replay">功能级 replay 目标与验收</h2>
+      <p>以当前 internal 运行时为功能底座，将 OSS 契约接回所属层；暂不清理重复代码，不向 internal 仓库写入。完成标准是入口可用、行为与数据可验证，而不是文件存在。</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">能力 / OSS 契约</th><th scope="col">集成边界</th><th scope="col">状态 / 验收</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Docker 执行安全</th><td>Host workspace → 标准 list_tools，供 data/review builder 共同使用</td><td>本地已接回；真实 Docker 超时、取消、忽略 SIGTERM 的子进程清理通过；清理不确定时关闭 workspace。不是对恶意逃逸进程组的隔离证明。</td></tr>
+          <tr><th scope="row">CLI / Python 嵌入</th><td>显式 HostClient → 当前鉴权 API；模型、沙箱与作用域由服务端管理</td><td>部分完成。run/chat 服务模式、只生成 SOP 的 plan 已接回；旧进程内嵌入、工具辅助规划与严格依赖 execute 尚未恢复。当前 advisory Plan 不等价于旧 DAG 调度。</td></tr>
+          <tr><th scope="row">旧 JSON 数据</th><td>持久化迁移边界 → SQL repositories</td><td>未完成。当前只拒绝误用；须验证备份、显式导入、重复执行、会话/文件引用与失败回滚，不自动覆盖原数据。</td></tr>
+          <tr><th scope="row">Context / Skills / Console</th><td>当前服务入口、租户作用域、MCP 与显式网关</td><td>部分验证；已测技能修订和配置重启持久化，仍需语义/检索/profiling、真实模型及跨服务权限链路验收。</td></tr>
+          <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>本地 OpenTelemetry 1.45.2 审计与 tracing 回归通过；七包干净安装、完整 CI、真实外部后端仍待验收。</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+    <section aria-labelledby="verification">
+      <h2 id="verification">已验证的内容</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">验证范围</th><th scope="col">结果</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">网关 / 上传安全</th><td>97 项通过；覆盖真实隔离 Host/SQLite 技能生命周期、配置脱敏、文件读写及符号链接防护。</td></tr>
+            <tr><th scope="row">启动 / 生命周期</th><td>启动、workspace、auth、Console 选择集 149 项通过；cron、channel、恢复与 tracing 选择集 88 项通过。</td></tr>
+            <tr><th scope="row">真实进程重启</th><td>重启后保留会话标题、文件字节、技能修订/回滚、禁用 MCP 设置和脱敏 channel 配置；正常关闭检查通过。</td></tr>
+            <tr><th scope="row">前端 / 打包</th><td>前端 254 项通过、1 项跳过；两个 UI 构建与 Console wheel 检查通过。Wheel 网关检查使用 stub Host，不等于全包安装验收。</td></tr>
+            <tr><th scope="row">后续 CI 修复</th><td>命令载荷与工厂方法分离后 51 项检查通过；CI 静态规则、锁文件及依赖导出检查通过。PostgreSQL 驱动仅加入开发依赖。</td></tr>
+            <tr><th scope="row">本地功能 replay</th><td>Docker 专项 16 项、CLI/SOP/SSE 选择集 144 项通过；修复 SSE 终止事件发布竞态与提示符 Ctrl+C。真实 Host/SQLite/Docker/CLI 验证三轮持久化、错误 token 拒绝、Ctrl+C 后 canceled；plan 产出有效 YAML，未创建 Chat 或执行 workspace。模型是本地协议 fixture，非真实分析效果验收。</td></tr>
+            <tr><th scope="row">待提交依赖修复</th><td>OpenTelemetry 1.45.2 回归包含于此前 124 项选择集；工作区与独立 Context 依赖审计均无已知漏洞。三文件独立暂存，等待提交确认。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">以上是不同提交的定向验证，选择集有重叠，不累加为总覆盖量；不代表全套 CI、浏览器交互或真实外部后端通过。</p>
+      <p>验证入口：<code>scripts/tests/run_pytest.sh</code>；对应测试位于 Host、Console 和 tracing 包。完整 CI 结果以 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">PR 检查页</a> 为准。</p>
+    </section>
+    <section aria-labelledby="remaining">
+      <h2 id="remaining">合并前必须完成</h2>
+      <ol>
+        <li><strong>完成行为级 replay：</strong>逐项接回 OSS 契约并验证 internal 公共能力；暂不做重复代码清理，不机械删除 OSS 独有文件。</li>
+        <li><strong>解决公开兼容性：</strong>完成严格 SOP execute、旧进程内嵌入和 JSON 数据迁移；服务客户端和 prompt-only plan 不等价于原有全部契约。目前 JSON 仅启动报错保护数据，未恢复或迁移。</li>
+        <li><strong>修复完整 CI：</strong>此前完整 Host 收集有 23 个错误，尚未全量复测；GraphCanvas lint 等仍待修复。本地修复须推送后经新 CI 复验。</li>
+        <li><strong>完成发布验收：</strong>真实 Docker / 模型 / graph / channel、执行中取消与 SSE 重放、浏览器操作、七个包的干净安装以及旧数据升级/备份/回滚。</li>
+      </ol>
+      <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
+    </section>
+    <footer>
+      本报告仅保留范围、状态、证据摘要与剩余事项，不内嵌逐文件清单，也不重复保存历史报告。原始快照可从 Git 历史恢复；审计附件不属于产品源码。样式沿用仓库共享 UI tokens，页面不依赖 CDN 或脚本。
+    </footer>
+  </main>
+</body>
+</html>

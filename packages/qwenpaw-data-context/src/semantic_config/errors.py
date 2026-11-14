@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from http import HTTPStatus
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+
+log = logging.getLogger("semantic_config.errors")
 
 
 class BadRequestError(Exception):
@@ -29,7 +32,9 @@ class NotFoundNoBody(Exception):
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
 
 
 def _body(status: int, message: str) -> dict:
@@ -66,5 +71,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=400, content=_body(400, msg))
 
     @app.exception_handler(Exception)
-    async def _fallback(_: Request, __: Exception):
-        return JSONResponse(status_code=500, content=_body(500, "服务器内部错误，请联系管理员"))
+    async def _fallback(request: Request, exc: Exception):
+        log.error(
+            "unhandled error on %s %s",
+            request.method,
+            request.url.path,
+            exc_info=exc,
+        )
+        return JSONResponse(
+            status_code=500, content=_body(500, "服务器内部错误，请联系管理员")
+        )

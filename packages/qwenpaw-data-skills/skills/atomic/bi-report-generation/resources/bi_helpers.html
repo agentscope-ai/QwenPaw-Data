@@ -1,0 +1,74 @@
+<script data-qwenpaw-data-bi-helpers>
+(function () {
+  // Drill-down tables: a parent row toggles the hidden child row with the given id.
+  window.__biToggleRow = function (id) {
+    var row = document.getElementById(id);
+    if (!row) return;
+    var hidden = row.classList.toggle('hidden');
+    var trigger = document.querySelector('[data-drill-toggle="' + id + '"]');
+    if (trigger) {
+      trigger.classList.toggle('open', !hidden);
+      var chev = trigger.querySelector('.rp-exp');
+      if (chev) chev.textContent = hidden ? '▸' : '▾';
+    }
+  };
+  // Chart blocks: switch between the ECharts view and the same-data table. `auto`
+  // is the no-ECharts fallback, where the table is simply the only view.
+  window.__biChartView = function (id, view, auto) {
+    var chart = document.getElementById(id);
+    var table = document.getElementById(id + '-table');
+    if (!chart || !table) return;
+    var showTable = view === 'table';
+    chart.style.display = showTable ? 'none' : '';
+    table.classList.toggle('hidden', !showTable);
+    var toggle = document.querySelector('[data-chart-toggle="' + id + '"]');
+    if (toggle) {
+      toggle.querySelectorAll('button').forEach(function (button) {
+        button.classList.toggle('on', button.getAttribute('data-view') === view);
+      });
+    }
+    if (!showTable && !auto) {
+      setTimeout(function () { if (window.__qwenpawDataResizeEcharts) window.__qwenpawDataResizeEcharts(); }, 50);
+    }
+  };
+  // Sortable tables: numeric cells carry data-v; the "其他" row stays last.
+  window.__biSortTable = function (th) {
+    var table = th.closest('table');
+    var body = table && table.tBodies[0];
+    if (!body) return;
+    var index = Array.prototype.indexOf.call(th.parentNode.children, th);
+    var desc = !th.classList.contains('desc');
+    th.parentNode.querySelectorAll('th').forEach(function (h) { h.classList.remove('asc', 'desc'); });
+    th.classList.add(desc ? 'desc' : 'asc');
+    var rows = Array.prototype.slice.call(body.rows);
+    var tail = rows.filter(function (r) { return r.classList.contains('rp-other'); });
+    rows = rows.filter(function (r) { return !r.classList.contains('rp-other'); });
+    function key(row) {
+      var cell = row.cells[index];
+      if (!cell) return '';
+      var v = cell.getAttribute('data-v');
+      return v === null ? cell.textContent.trim() : parseFloat(v);
+    }
+    rows.sort(function (a, b) {
+      var x = key(a), y = key(b);
+      var cmp = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'zh');
+      return desc ? -cmp : cmp;
+    });
+    rows.concat(tail).forEach(function (r) { body.appendChild(r); });
+  };
+  // Searchable tables: keep rows whose text contains the query.
+  window.__biFilterTable = function (id, query) {
+    var table = document.getElementById(id);
+    if (!table || !table.tBodies[0]) return;
+    var q = String(query || '').trim().toLowerCase();
+    var shown = 0;
+    Array.prototype.forEach.call(table.tBodies[0].rows, function (row) {
+      var hit = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+      row.style.display = hit ? '' : 'none';
+      if (hit) shown += 1;
+    });
+    var count = document.getElementById(id + '-count');
+    if (count) count.textContent = '共 ' + shown + ' 行';
+  };
+})();
+</script>

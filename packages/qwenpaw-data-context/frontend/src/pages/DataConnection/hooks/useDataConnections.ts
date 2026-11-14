@@ -1,9 +1,5 @@
-import { useCallback, useState } from "react";
-import {
-  dataSourceApi,
-  httpDataSourceApi,
-  type DataSourceRecord,
-} from "@/services/dataConnection";
+import { useCallback, useState } from 'react';
+import { dataSourceApi, httpDataSourceApi, type DataSourceRecord } from '@/services/dataConnection';
 
 /** Load, refresh, and remove Data Connection records for the list page. */
 export function useDataConnections() {
@@ -16,7 +12,7 @@ export function useDataConnections() {
       const res = await httpDataSourceApi.list();
       setConnections(res.items ?? []);
     } catch (error) {
-      console.error("Failed to load data sources:", error);
+      console.error('Failed to load data sources:', error);
       setConnections([]);
     } finally {
       setLoading(false);

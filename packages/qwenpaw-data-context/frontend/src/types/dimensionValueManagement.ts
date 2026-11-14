@@ -1,4 +1,3 @@
-
 // 维度值管理数据
 export interface DimensionValueItem {
   // 主键

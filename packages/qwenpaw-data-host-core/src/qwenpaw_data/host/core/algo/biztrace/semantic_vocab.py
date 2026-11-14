@@ -53,17 +53,33 @@ class VocabSource:
 VOCAB_SOURCES: tuple[VocabSource, ...] = (
     # Business domains match on their canonical name only: display_name and
     # aliases are editorial labels and would over-link.
-    VocabSource(entity_type="biz_domain", path=BIZ_DOMAIN_PATH,
-                name_field="domain_name", id_field=None),
-    VocabSource(entity_type="metric", path=METRIC_PATH,
-                name_field="metric_name", id_field="metric_id",
-                synonym_field="synonyms"),
+    VocabSource(
+        entity_type="biz_domain",
+        path=BIZ_DOMAIN_PATH,
+        name_field="domain_name",
+        id_field=None,
+    ),
+    VocabSource(
+        entity_type="metric",
+        path=METRIC_PATH,
+        name_field="metric_name",
+        id_field="metric_id",
+        synonym_field="synonyms",
+    ),
     # /dimension rather than /dataset-dimension: only this one carries synonyms.
-    VocabSource(entity_type="dimension", path=DIMENSION_PATH,
-                name_field="dimension_name", id_field="dimension_id",
-                synonym_field="synonyms"),
-    VocabSource(entity_type="dataset", path=DATASET_PATH,
-                name_field="dataset_name", id_field="dataset_id"),
+    VocabSource(
+        entity_type="dimension",
+        path=DIMENSION_PATH,
+        name_field="dimension_name",
+        id_field="dimension_id",
+        synonym_field="synonyms",
+    ),
+    VocabSource(
+        entity_type="dataset",
+        path=DATASET_PATH,
+        name_field="dataset_name",
+        id_field="dataset_id",
+    ),
 )
 
 
@@ -148,9 +164,7 @@ class SemanticVocabulary:
         # A term claimed by more than one record is ambiguous, within a type or
         # across types, and is dropped rather than linked to an arbitrary one.
         return {
-            term: entries[0]
-            for term, entries in collected.items()
-            if len(entries) == 1
+            term: entries[0] for term, entries in collected.items() if len(entries) == 1
         }
 
     def _collect(
@@ -198,9 +212,7 @@ class SemanticVocabulary:
                 page_records = payload.get("records")
                 if not isinstance(page_records, list):
                     return records
-                records.extend(
-                    item for item in page_records if isinstance(item, dict)
-                )
+                records.extend(item for item in page_records if isinstance(item, dict))
                 total = payload.get("total")
                 if not page_records or not isinstance(total, int):
                     return records

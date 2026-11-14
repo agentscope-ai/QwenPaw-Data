@@ -1,30 +1,32 @@
-// 发起编织任务请求参数
+import type { SemanticConfigPage } from './semanticConfig';
+
+export type WeaveMode = 'FULL';
+
+export type WeavingTaskStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'DEGRADED' | 'FAILED' | 'KILLED';
+
 export interface ConfirmWeavingParams {
   datasource_id: string;
   task_name: string;
-  weave_mode: string;
+  weave_mode: WeaveMode;
 }
 
-// 编织任务状态
-export type WeavingTaskStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'KILLED';
-
-// 编织任务项
 export interface SemanticWeavingTask {
   id: number;
   task_id: string;
   task_name: string;
   datasource_id: string;
-  datasource_name?: string;
-  weave_mode: string;
+  datasource_name: string;
+  weave_mode: WeaveMode;
   status: WeavingTaskStatus;
-  error_msg?: string;
-  created_at?: string;
+  error_msg: string | null;
+  created_at: string;
 }
 
-// 任务列表查询参数
 export interface SemanticWeavingTaskQueryParams {
   datasource_name?: string;
   task_name?: string;
   page?: number;
   size?: number;
 }
+
+export type SemanticWeavingTaskPage = SemanticConfigPage<SemanticWeavingTask>;

@@ -5,18 +5,18 @@ import { githubLight } from '@uiw/codemirror-theme-github';
 import { useTranslation } from 'react-i18next';
 
 interface CodeMirrorSqlProps {
-    /** 占位提示文字 */
-    placeholder?: string;
-    /** 是否可编辑，false 时为只读模式 */
-    editable?: boolean;
-    /** 受控模式下的值；null 会被归一为空串（后端 sql_content 可能为 null） */
-    value?: string | null;
-    /** 值变化时的回调 */
-    onChange?: (value: string) => void;
-    /** 编辑器高度，默认 200px */
-    height?: string;
-    /** 自定义 className */
-    className?: string;
+  /** 占位提示文字 */
+  placeholder?: string;
+  /** 是否可编辑，false 时为只读模式 */
+  editable?: boolean;
+  /** 受控模式下的值；null 会被归一为空串（后端 sql_content 可能为 null） */
+  value?: string | null;
+  /** 值变化时的回调 */
+  onChange?: (value: string) => void;
+  /** 编辑器高度，默认 200px */
+  height?: string;
+  /** 自定义 className */
+  className?: string;
 }
 
 /**
@@ -26,50 +26,51 @@ interface CodeMirrorSqlProps {
  * - 与 Ant Design Form.Item 兼容
  */
 const CodeMirrorSql: React.FC<CodeMirrorSqlProps> = ({
-    placeholder,
-    editable = true,
-    value,
-    onChange,
-    height = '200px',
-    className,
+  placeholder,
+  editable = true,
+  value,
+  onChange,
+  height = '200px',
+  className,
 }) => {
-    const { t } = useTranslation();
-    // 非受控模式使用内部 state
-    const [internalValue, setInternalValue] = useState('');
+  const { t } = useTranslation();
+  // 非受控模式使用内部 state
+  const [internalValue, setInternalValue] = useState('');
 
-    // 判断是否为受控模式：当外部传入了 value prop 时为受控模式
-    const isControlled = value !== undefined;
-    // Form.Item 会把表单值原样传下来，后端 sql_content 可能为 null；
-    // CodeMirror 对非字符串 value 会直接 throw，这里统一归一成空串
-    const currentValue = isControlled ? (value ?? '') : internalValue;
+  // 判断是否为受控模式：当外部传入了 value prop 时为受控模式
+  const isControlled = value !== undefined;
+  // Form.Item 会把表单值原样传下来，后端 sql_content 可能为 null；
+  // CodeMirror 对非字符串 value 会直接 throw，这里统一归一成空串
+  const currentValue = isControlled ? (value ?? '') : internalValue;
 
-    const handleChange = (val: string) => {
-        // 非受控模式更新内部状态
-        if (!isControlled) {
-            setInternalValue(val);
-        }
-        // 无论受控还是非受控，都触发 onChange 回调
-        onChange?.(val);
-    };
+  const handleChange = (val: string) => {
+    // 非受控模式更新内部状态
+    if (!isControlled) {
+      setInternalValue(val);
+    }
+    // 无论受控还是非受控，都触发 onChange 回调
+    onChange?.(val);
+  };
 
-    // 只读模式的样式
-    const readOnlyStyle: React.CSSProperties = React.useMemo(() => !editable
-        ? { fontSize: '14px', backgroundColor: '#f5f5f5' }
-        : { fontSize: '14px' }, [editable]);
+  // 只读模式的样式
+  const readOnlyStyle: React.CSSProperties = React.useMemo(
+    () => (!editable ? { fontSize: '14px', backgroundColor: '#f5f5f5' } : { fontSize: '14px' }),
+    [editable],
+  );
 
-    return (
-        <CodeMirror
-            value={currentValue}
-            height={height}
-            theme={githubLight}
-            extensions={[sql()]}
-            onChange={handleChange}
-            editable={editable}
-            placeholder={placeholder ?? t('validation.inputSql')}
-            className={className}
-            style={readOnlyStyle}
-        />
-    );
+  return (
+    <CodeMirror
+      value={currentValue}
+      height={height}
+      theme={githubLight}
+      extensions={[sql()]}
+      onChange={handleChange}
+      editable={editable}
+      placeholder={placeholder ?? t('validation.inputSql')}
+      className={className}
+      style={readOnlyStyle}
+    />
+  );
 };
 
 export default CodeMirrorSql;

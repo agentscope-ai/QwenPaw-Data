@@ -1,0 +1,348 @@
+"""Declare CM tables and the external columns consumed from shared SQL."""
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    text,
+    column,
+    table,
+)
+
+metadata = MetaData()
+
+recovery_runs = Table(
+    "cm_recovery_runs",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("task_type", Text, primary_key=True),
+    Column("task_id", Text, primary_key=True),
+    Column("rid", Text, nullable=False),
+    Column(
+        "recovery_state",  # Stack state; also includes REGISTERED/CLEANING/CLOSED.
+        Text,
+        nullable=False,
+    ),
+    Column(
+        "result_status",  # Business result: SUCCESS/DEGRADED/FAILED/KILLED.
+        Text,
+    ),
+    Column("message", Text),
+    Column("heartbeat_at", Float),
+    Column("executor_pod", Text),
+    info={"holo_orientation": "row"},
+)
+
+embedding_jobs = Table(
+    "cm_embedding_jobs",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("job_id", Text, primary_key=True),
+    Column("created_by", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("attempted_at", Text, nullable=False),
+    Column("started_at", Text),
+    Column("finished_at", Text),
+    Column("error", Text),
+    Column("progress", Text, nullable=False),
+    Column("config_snapshot", Text, nullable=False),
+    Column("heartbeat_at", Float),
+    Column("executor_pod", Text),
+    Column("resume_count", Integer, nullable=False, server_default=text("0")),
+    info={"holo_orientation": "row"},
+)
+
+cron_jobs = Table(
+    "cm_cron_jobs",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("handler", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    Column("schedule_json", Text, nullable=False),
+    Column("next_run_at", Text),
+    Column("run_requested", Boolean, nullable=False, default=False),
+    Column("created_at", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
+    info={"holo_orientation": "row"},
+)
+
+# External projections stay outside CM's DDL metadata.
+model_usages = table(
+    "model_usages",
+    column("id", Text),
+    column("user_id", Text),
+    column("tenant_id", Text),
+    column("workspace_id", Text),
+    column("session_id", Text),
+    column("chat_id", Text),
+    column("source", Text),
+    column("source_step", Text),
+    column("model_type", Text),
+    column("provider_id", Text),
+    column("model_id", Text),
+    column("input_tokens", Integer),
+    column("output_tokens", Integer),
+    column("cache_read_tokens", Integer),
+    column("cache_creation_tokens", Integer),
+    column("duration_ms", Integer),
+    column("created_at", DateTime(timezone=True)),
+)
+providers = table(
+    "user_providers",
+    column("user_id"),
+    column("provider_id"),
+    column("api_key_enc"),
+    column("base_url"),
+)
+users = table(
+    "users",
+    column("id"),
+    column("tenant_id"),
+    column("status"),
+    column("username"),
+)
+tenants = table(
+    "tenants",
+    column("id"),
+    column("status"),
+    column("neo4j_database"),
+)
+workspaces = table(
+    "workspaces",
+    column("id"),
+    column("tenant_id"),
+    column("status"),
+    column("instance_status"),
+    column("instance_version"),
+    column("endpoint_ref"),
+    column("secret_ref"),
+)
+role_bindings = table(
+    "role_bindings",
+    column("user_id"),
+    column("scope_type"),
+    column("scope_id"),
+    column("role"),
+)
+datasource = table(
+    "datasource",
+    column("id"),
+    column("datasource_id"),
+    column("datasource_name"),
+    column("datasource_type"),
+    column("config"),
+    column("tenant_id"),
+    column("workspace_id"),
+    column("is_deleted"),
+)
+active_datasource_selection = table(
+    "active_datasource_selection",
+    column("tenant_id"),
+    column("workspace_id"),
+    column("user_id"),
+    column("datasource_id"),
+    column("updated_at"),
+)
+host_history_tables = (
+    table(
+        "sessions",
+        column("id"),
+        column("tenant_id"),
+        column("workspace_id"),
+        column("user_id"),
+        column("datasource_id"),
+        column("created_at"),
+        column("deleted_at"),
+    ),
+    table(
+        "chats",
+        column("id"),
+        column("session_id"),
+        column("tenant_id"),
+        column("workspace_id"),
+        column("user_id"),
+        column("sequence"),
+        column("user_input"),
+        column("datasource_id"),
+        column("status"),
+        column("plan"),
+        column("last_sequence_number"),
+        column("completed_at"),
+        column("created_at"),
+        column("updated_at"),
+    ),
+    table(
+        "chat_events",
+        column("chat_id"),
+        column("session_id"),
+        column("tenant_id"),
+        column("workspace_id"),
+        column("user_id"),
+        column("sequence_number"),
+        column("object"),
+        column("payload"),
+        column("created_at"),
+    ),
+)
+external_tables = (
+    providers,
+    users,
+    tenants,
+    workspaces,
+    role_bindings,
+    datasource,
+    active_datasource_selection,
+    *host_history_tables,
+)
+
+model_configs = Table(
+    "cm_user_model_config",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("user_id", Text, primary_key=True),
+    Column("llm_base_url", Text),
+    Column("llm_model", Text),
+    Column("embed_base_url", Text),
+    Column("embed_model", Text),
+    Column("embed_dim", Integer),
+    Column("updated_at", Text),
+    Column("updated_by", Text),
+    info={"holo_orientation": "row"},
+)
+provider_refs = Table(
+    "cm_model_provider_refs",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("user_id", Text, primary_key=True),
+    Column("channel", Text, primary_key=True),
+    Column("provider_id", Text, nullable=False),
+    info={"holo_orientation": "row"},
+)
+workspace_embedding_spaces = Table(
+    "cm_workspace_embedding_space",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("embed_model", Text),
+    Column("embed_base_url", Text),
+    Column("embed_dim", Integer),
+    info={"holo_orientation": "row"},
+)
+workspace_glossaries = Table(
+    "cm_kg_glossary",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("document", Text, nullable=False),
+    info={"holo_orientation": "row"},
+)
+documents = Table(
+    "cm_kg_documents",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("user_id", Text, primary_key=True),
+    Column("filename", Text, primary_key=True),
+    Column("document_id", Text, nullable=False),
+    Column("content_type", Text),
+    Column("byte_size", BigInteger, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
+    Column("ingest_error", Text),
+    Column("run_epoch", Integer),
+    info={"holo_orientation": "row"},
+)
+kg_user_claims = Table(
+    "cm_kg_user_claim",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("user_id", Text, primary_key=True),
+    Column("heartbeat_at", Float),
+    Column("executor_pod", Text),
+    Column("run_epoch", Integer, nullable=False, server_default=text("0")),
+    info={"holo_orientation": "row"},
+)
+user_ingest_claims = Table(
+    "cm_user_ingest_claim",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("user_id", Text, primary_key=True),
+    Column("heartbeat_at", Float),
+    Column("executor_pod", Text),
+    Column("run_epoch", Integer, nullable=False, server_default=text("0")),
+    info={"holo_orientation": "row"},
+)
+
+update_checkpoints = Table(
+    "cm_update_checkpoints",
+    metadata,
+    Column("graph_name", Text, primary_key=True),
+    Column("source_id", Text, primary_key=True),
+    Column("source_version", Text, nullable=False),
+    Column("updater_version", Text, nullable=False),
+    Column("processed_at", Text, nullable=False),
+    info={"holo_orientation": "row"},
+)
+sync_log = Table(
+    "sync_log",
+    metadata,
+    Column(
+        "id",
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    Column("task_id", Text),
+    Column("entity", Text),
+    Column("status", Text),
+    Column("applied", Integer),
+    Column("change_count", Integer),
+    Column("skipped", Text),
+    Column("errors", Text),
+    Column("tenant_id", Text),
+    Column("workspace_id", Text),
+    Column("created_by", Text),
+    Column("updated_by", Text),
+    Column("created_at", Text),
+    Column("updated_at", Text),
+    Column("is_deleted", Integer, default=0),
+    info={"holo_orientation": "row"},
+)
+sync_change = Table(
+    "sync_change",
+    metadata,
+    Column(
+        "id",
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    Column("sync_log_id", Integer),
+    Column("task_id", Text),
+    Column("seq", Integer),
+    Column("op", Text),
+    Column("sheet", Text),
+    Column("graph_key", Text),
+    Column("result", Text),
+    Column("reason", Text),
+    Column("tenant_id", Text),
+    Column("workspace_id", Text),
+    Column("created_by", Text),
+    Column("updated_by", Text),
+    Column("created_at", Text),
+    Column("updated_at", Text),
+    Column("is_deleted", Integer, default=0),
+    info={"holo_orientation": "row"},
+)

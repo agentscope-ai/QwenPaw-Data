@@ -1,60 +1,34 @@
+import type { SemanticPriority } from './semanticConfig';
 
-// 指标库数据
-export interface MetricLibItem {
-  // 主键
-  id?: number;
-  // 指标名称
-  metric_name: string;
-  // 数据源 ID
-  datasource_id?: string;
-  // 业务域 ID
-  domain_id?: number;
-  // 数据源名称（展示用）
-  datasource_name?: string;
-  // 业务域名称（展示用）
-  domain_name?: string;
-  // 描述
-  description?: string;
-  // 单位
-  unit?: string;
-  // 是否北极星指标
-  is_polaris?: boolean;
-  // 是否展示分布
-  show_distribution?: boolean;
-  // 是否可见
-  is_visible?: boolean;
-  // 同义词
-  synonyms?: string;
-  // 标签
-  tags?: string;
-  // 数据集ID（兼容旧字段）
-  dataset_id?: string;
-  // 数据集名称
-  dataset_name?: string;
-  // 域（兼容旧文本字段，逐步废弃）
-  domain?: string;
+export interface MetricCreateRequest {
+  domain_id: number; // 所属业务域 ID
+  metric_name: string; // 指标名称
+  description?: string | null; // 描述
+  synonyms?: string | null; // 同义词
+  priority?: SemanticPriority; // 优先级
 }
 
-// 查询指标库参数
+export type MetricUpdateRequest = Partial<
+  Pick<MetricCreateRequest, 'metric_name' | 'description' | 'synonyms' | 'priority'>
+>;
+
+export interface MetricResponse extends MetricCreateRequest {
+  metric_id: number; // 指标 ID
+  domain_name: string; // 业务域名称
+  priority: SemanticPriority; // 优先级
+}
+
+export type MetricLibItem = MetricResponse;
+
 export interface QueryMetricLibParams {
-  metric_name?: string;
-  datasource_id?: string;
-  domain_id?: number;
-  synonyms?: string;
-  page?: number;
-  size?: number;
-}
-
-// 指标重复检查结果
-export interface MetricDuplicate {
-  existing_metric: string;
-  similarity_judgment: string;
-  reason: string;
-  suggestion: string;
+  metric_name?: string; // 指标名称
+  datasource_id?: string; // 工作台使用的数据源范围过滤，独立字典页不传
+  domain_id?: number; // 所属业务域 ID
+  page?: number; // 页码
+  size?: number; // 每页数量
 }
 
 export interface MetricCheckResult {
-  input_metric: string;
-  domain?: string;
-  suggestion: string;
+  input_metric: string; // 待检查指标
+  suggestion: string; // 检查建议
 }

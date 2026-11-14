@@ -59,6 +59,11 @@ class AuthPrincipal:
         return required.issubset(self.scopes)
 
 
+# The full-scope QWENPAW_DATA_API_TOKEN compatibility key. Scoped keys always
+# use their registry id as both subject and credential id, so never equal this.
+LEGACY_PRINCIPAL = AuthPrincipal("legacy-admin", ALL_SCOPES, "legacy")
+
+
 @dataclass(frozen=True)
 class _ApiKey:
     identifier: str
@@ -164,19 +169,20 @@ def extract_bearer_token(auth_header: str | None) -> str:
 
 def authenticate_api_token(candidate: str) -> AuthPrincipal | None:
     """Authenticate a candidate against legacy and scoped credentials."""
-    if not candidate:
+    if not isinstance(candidate, str) or not candidate or len(candidate) > 16384:
         return None
     expected = get_configured_api_token()
-    if expected and secrets.compare_digest(candidate, expected):
-        return AuthPrincipal("legacy-admin", ALL_SCOPES, "legacy")
+    if expected and secrets.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8")):
+        return LEGACY_PRINCIPAL
 
-    candidate_digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+    candidate_bytes = candidate.encode("utf-8")
+    candidate_digest = hashlib.sha256(candidate_bytes).hexdigest().encode("ascii")
     matched: _ApiKey | None = None
     for record in get_configured_api_keys():
         valid = (
-            secrets.compare_digest(candidate, record.token)
+            secrets.compare_digest(candidate_bytes, record.token.encode("utf-8"))
             if record.token
-            else secrets.compare_digest(candidate_digest, record.sha256)
+            else secrets.compare_digest(candidate_digest, record.sha256.encode("utf-8"))
         )
         if valid and matched is None:
             matched = record

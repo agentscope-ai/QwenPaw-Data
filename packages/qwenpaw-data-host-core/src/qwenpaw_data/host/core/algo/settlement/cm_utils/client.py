@@ -3,16 +3,14 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
-
-from qwenpaw_data.host.core.cm_client import (
-    _trust_env_for_url,
-    resolve_cm_base_url,
-)
+from qwenpaw_data.host.core.integrations.cm import resolve_cm_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +24,16 @@ def _format_cm_error(exc: BaseException) -> str:
     detail = str(exc).strip()
     name = type(exc).__name__
     return f"{name}: {detail}" if detail else name
+
+
+def _trust_env_for_url(url: str) -> bool:
+    hostname = (urlparse(url).hostname or "").strip().strip("[]").lower()
+    if hostname == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return True
 
 
 def _meta_datasource_id(metadata: Any) -> str | None:
@@ -79,7 +87,9 @@ class SettlementCmClient:
     def _resolve_ds(self, kwargs: dict[str, Any]) -> str | None:
         return _meta_datasource_id(kwargs.get("metadata")) or self.datasource_id
 
-    def _with_ds(self, params: dict[str, Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _with_ds(
+        self, params: dict[str, Any], kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         out = {k: v for k, v in params.items() if v is not None and v != ""}
         ds = self._resolve_ds(kwargs)
         if ds:
@@ -108,7 +118,9 @@ class SettlementCmClient:
                 headers=self._headers(),
             )
         if not response.is_success:
-            detail = response.text[:500] if response.text else f"HTTP {response.status_code}"
+            detail = (
+                response.text[:500] if response.text else f"HTTP {response.status_code}"
+            )
             try:
                 body = response.json()
                 if isinstance(body, dict) and body.get("detail") is not None:
@@ -120,7 +132,11 @@ class SettlementCmClient:
                     )
             except Exception:
                 pass
-            raise RuntimeError(f"{path} [{response.status_code}]: {detail}")
+            raise httpx.HTTPStatusError(
+                f"{path} [{response.status_code}]: {detail}",
+                request=response.request,
+                response=response,
+            )
         if not response.content:
             return None
         try:
@@ -180,29 +196,13 @@ class SettlementCmClient:
             ),
         )
 
-    async def search_context(self, kwargs: dict[str, Any] | None = None) -> Any:
-        kwargs = kwargs or {}
-        body: dict[str, Any] = {
-            "query": kwargs.get("query", ""),
-            "stream": False,
-        }
-        ds = self._resolve_ds(kwargs)
-        if ds:
-            body["datasource_id"] = ds
-        domain = kwargs.get("domain")
-        if domain:
-            body["scope"] = {"domain": domain}
-        return await self._request(
-            "POST", f"{CM_API_PREFIX}/search_context", json_body=body
-        )
-
     async def feedback_card(
         self,
         kwargs: dict[str, Any] | None = None,
         *,
         mode: str,
     ) -> Any:
-        """POST feedback_card. ``mode=test`` dry-runs; ``mode=confirm`` writes."""
+        """POST feedback_card. ``mode=test`` dry-run；``mode=confirm`` 真实落图。"""
         mode_norm = str(mode).strip().lower()
         if mode_norm not in ("confirm", "test"):
             raise ValueError(
@@ -256,7 +256,6 @@ class SettlementCmClient:
             "search_metrics": self.search_metrics,
             "get_dimension": self.get_dimension,
             "get_dataset": self.get_dataset,
-            "search_context": self.search_context,
         }
         handler = handlers.get(tool_name)
         if handler is None:
@@ -272,6 +271,8 @@ class SettlementCmClient:
             detail = _format_cm_error(e)
             record["status"] = f"error: {detail}"
             record["result"] = detail
+            if isinstance(e, httpx.HTTPStatusError):
+                record["http_status"] = e.response.status_code
             logger.debug("CM REST %s failed", tool_name, exc_info=True)
         return record
 
@@ -285,8 +286,4 @@ class SettlementCmClient:
             return []
         if not isinstance(domains, list):
             return []
-        return [
-            d["name"]
-            for d in domains
-            if isinstance(d, dict) and d.get("name")
-        ]
+        return [d["name"] for d in domains if isinstance(d, dict) and d.get("name")]

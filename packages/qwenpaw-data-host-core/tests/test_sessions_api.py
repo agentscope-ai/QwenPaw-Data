@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 import re
+from unittest.mock import Mock
 
 import pytest
 
@@ -11,19 +12,19 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
+from qwenpaw_data.host.core.db.engine import get_session_factory  # noqa: E402
 
 
 @asynccontextmanager
 async def service_client(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
-    app = create_app(home=tmp_path, model=object())
+    # conftest supplies the isolated SQLite database and local identity.
+    app = create_app()
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
         async with httpx.AsyncClient(
             transport=transport,
-            base_url="http://testserver",
+            base_url="http://localhost",
         ) as http:
             yield http
 
@@ -60,7 +61,8 @@ async def test_session_crud_flow(tmp_path, monkeypatch) -> None:
         assert empty.json()["total"] == 0
 
         deleted = await http.delete(f"/api/v1/sessions/{sid}")
-        assert deleted.status_code == 204
+        assert deleted.status_code == 200
+        assert deleted.json() == {"status": "ok"}
         assert (await http.get(f"/api/v1/sessions/{sid}")).status_code == 404
         assert (await http.get("/api/v1/sessions")).json()["total"] == 0
 
@@ -73,21 +75,24 @@ async def test_chat_requires_existing_session(tmp_path, monkeypatch) -> None:
         assert response.status_code == 404
 
 
-async def test_chat_listing_and_sequence(tmp_path, monkeypatch) -> None:
+async def test_chat_listing_and_sequence(tmp_path, monkeypatch, seed_test_preferences) -> None:
+    launch = Mock()
+    monkeypatch.setattr("qwenpaw_data.host.core.api.routers.compat.launch_chat", launch)
     async with service_client(tmp_path, monkeypatch) as http:
+        await seed_test_preferences(get_session_factory())
         sid = (
             await http.post("/api/v1/sessions", json={})
         ).json()["session"]["id"]
 
-        # A fake-agent-free create would start a real runtime; stop it right away.
+        # Keep real admission/persistence; substitute only model execution.
         created = await http.post(
             f"/api/v1/sessions/{sid}/chats", json={"text": "turn 1"}
         )
         assert created.status_code == 200
         chat = created.json()["chat"]
         assert chat["sequence"] == 1
-
-        await http.post(f"/api/v1/sessions/{sid}/chats/{chat['id']}/stop")
+        launch.assert_called_once()
+        assert launch.call_args.args[1].id == chat["id"]
 
         listing = await http.get(f"/api/v1/sessions/{sid}/chats")
         assert listing.status_code == 200
@@ -96,6 +101,7 @@ async def test_chat_listing_and_sequence(tmp_path, monkeypatch) -> None:
 
         session = (await http.get(f"/api/v1/sessions/{sid}")).json()["session"]
         assert session["chat_count"] == 1
+        assert session["title"] == "turn 1"
         assert (
             await http.get("/api/v1/sessions/ses_missing/chats")
         ).status_code == 404

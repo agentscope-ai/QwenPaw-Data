@@ -1,0 +1,263 @@
+<style data-qwenpaw-data-chart-fallback-support>
+.chart-fallback {
+  min-height: 220px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+}
+</style>
+<script data-qwenpaw-data-chart-fallback-support>
+(function () {
+  var palette = ['#1C54E3', '#7347FF', '#00CEC9', '#fb6a3c', '#60a5fa', '#047857'];
+  window.__echartsInstances = window.__echartsInstances || [];
+  window.CHART_OPTS = window.CHART_OPTS || {};
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function toNumber(value) { var n = Number(value); return Number.isFinite(n) ? n : 0; }
+  function dataValue(item) {
+    if (Array.isArray(item)) return toNumber(item[item.length - 1]);
+    if (item && typeof item === 'object') return toNumber(item.value);
+    return toNumber(item);
+  }
+  function dataName(item, index) {
+    if (item && typeof item === 'object' && !Array.isArray(item) && item.name) return item.name;
+    return '项目 ' + (index + 1);
+  }
+  function seriesColor(series, index) {
+    var color = series && series.itemStyle && series.itemStyle.color;
+    if (color && typeof color === 'object' && color.colorStops && color.colorStops.length) {
+      color = color.colorStops[color.colorStops.length - 1].color;
+    }
+    return typeof color === 'string' && color ? color : palette[index % palette.length];
+  }
+  function optionSeries(option) {
+    if (!option || !option.series) return [];
+    return Array.isArray(option.series) ? option.series : [option.series];
+  }
+  function renderBarFallback(option) {
+    var series = optionSeries(option).filter(function (item) { return item && item.type === 'bar'; });
+    if (!series.length) return '';
+    var categories = option.xAxis && option.xAxis.data ? option.xAxis.data : [];
+    var rowCount = Math.max(categories.length, series.reduce(function (max, item) {
+      return Math.max(max, (item.data || []).length);
+    }, 0));
+    var totals = [];
+    for (var index = 0; index < rowCount; index += 1) {
+      totals[index] = series.reduce(function (sum, item) {
+        return sum + Math.max(0, dataValue((item.data || [])[index]));
+      }, 0);
+    }
+    var maxTotal = Math.max.apply(null, totals.concat([1]));
+    var rows = '';
+    for (var rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      var label = categories[rowIndex] || dataName((series[0].data || [])[rowIndex], rowIndex);
+      var bars = series.map(function (item, seriesIndex) {
+        var value = Math.max(0, dataValue((item.data || [])[rowIndex]));
+        var width = Math.max(2, value / maxTotal * 100);
+        var title = (item.name || ('系列 ' + (seriesIndex + 1))) + ': ' + value.toLocaleString();
+        return '<span title="' + escapeHtml(title) + '" style="display:inline-block;height:12px;width:' + width + '%;max-width:100%;background:' + escapeHtml(seriesColor(item, seriesIndex)) + ';border-radius:999px;margin-right:3px;"></span>';
+      }).join('');
+      rows += '<div style="display:grid;grid-template-columns:minmax(96px,160px) 1fr;gap:10px;align-items:center;margin:7px 0;">'
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475569;">' + escapeHtml(label) + '</span>'
+        + '<span style="display:flex;align-items:center;gap:3px;min-width:0;">' + bars + '</span>'
+        + '</div>';
+    }
+    return rows;
+  }
+  function renderPieFallback(option) {
+    var series = optionSeries(option).find(function (item) { return item && item.type === 'pie'; });
+    if (!series) return '';
+    var data = series.data || [];
+    var total = data.reduce(function (sum, item) { return sum + Math.max(0, dataValue(item)); }, 0) || 1;
+    return data.map(function (item, index) {
+      var value = Math.max(0, dataValue(item));
+      var percent = value / total * 100;
+      return '<div style="display:grid;grid-template-columns:minmax(80px,140px) 1fr auto;gap:10px;align-items:center;margin:8px 0;">'
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475569;">' + escapeHtml(dataName(item, index)) + '</span>'
+        + '<span style="height:12px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><span style="display:block;height:100%;width:' + percent + '%;background:' + escapeHtml(seriesColor(series, index)) + ';"></span></span>'
+        + '<span style="color:#64748b;font-variant-numeric:tabular-nums;">' + percent.toFixed(1) + '%</span>'
+        + '</div>';
+    }).join('');
+  }
+  function renderStaticChart(option) {
+    if (!option || !optionSeries(option).length) return '';
+    var body = renderPieFallback(option) || renderBarFallback(option);
+    if (!body) return '';
+    var title = option.title && option.title.text ? option.title.text : '图表静态预览';
+    return '<div style="min-height:220px;border:1px solid #dbe4f0;border-radius:12px;background:#fff;color:#334155;padding:14px 16px;font:12px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">'
+      + '<strong style="font-size:13px;color:#172033;">' + escapeHtml(title) + '</strong>'
+      + '<span style="color:#94a3b8;">ECharts 未加载，显示静态预览</span>'
+      + '</div>'
+      + body
+      + '</div>';
+  }
+  function renderPlaceholder() {
+    return '<div class="chart-fallback">图表运行库未加载，已保留同卡片的数据表/指标作为 fallback。</div>';
+  }
+  var CHART_CONTAINER_SELECTOR = '.chart-container, .chart-box > div[id], div[id^="chart-"], div[id^="chart_"]';
+  function isChartRenderable(container) {
+    var rect = container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+    return !!((rect && rect.width > 0 && rect.height > 0) || (container.offsetWidth > 0 && container.offsetHeight > 0));
+  }
+  function resizeInstance(instance) {
+    if (!instance || typeof instance.resize !== 'function') return;
+    if (typeof instance.isDisposed === 'function' && instance.isDisposed()) return;
+    // 单个实例 resize 抛错不能中断其余图表的 resize
+    try { instance.resize(); } catch (error) { /* ignore */ }
+  }
+  function instanceByDom(dom) {
+    var lib = window.echarts;
+    if (!dom || !lib || lib.__qwenpawDataFallback || typeof lib.getInstanceByDom !== 'function') return null;
+    try { return lib.getInstanceByDom(dom) || null; } catch (error) { return null; }
+  }
+  // 图表在 display:none 的面板里初始化时会按 100px 宽绘制；容器变为可见（尺寸变化）
+  // 时由 ResizeObserver 补一次 resize，不依赖实例是否登记、也不依赖固定的延时点。
+  var instanceOfDom = typeof WeakMap === 'function' ? new WeakMap() : null;
+  var observedDoms = typeof WeakSet === 'function' ? new WeakSet() : null;
+  var chartObserver = typeof window.ResizeObserver === 'function'
+    ? new window.ResizeObserver(function (entries) {
+      entries.forEach(function (entry) {
+        var rect = entry.contentRect;
+        var dom = entry.target;
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        var chart = (instanceOfDom && instanceOfDom.get(dom)) || instanceByDom(dom);
+        // 容器可能先于图表实例被观察；没有实例时继续听尺寸变化。
+        if (!chart) return;
+        if (typeof chart.isDisposed === 'function' && chart.isDisposed()) {
+          chartObserver.unobserve(dom);
+          if (observedDoms) observedDoms.delete(dom);
+          return;
+        }
+        var width = null;
+        var height = null;
+        try {
+          width = typeof chart.getWidth === 'function' ? chart.getWidth() : null;
+          height = typeof chart.getHeight === 'function' ? chart.getHeight() : null;
+        } catch (error) {
+          resizeInstance(chart);
+          return;
+        }
+        if (width !== dom.clientWidth || height !== dom.clientHeight) resizeInstance(chart);
+      });
+    })
+    : null;
+  function observeChartDom(dom) {
+    if (!chartObserver || !dom || dom.nodeType !== 1) return;
+    if (observedDoms) {
+      if (observedDoms.has(dom)) return;
+      observedDoms.add(dom);
+    }
+    chartObserver.observe(dom);
+  }
+  function observeChartContainers() {
+    document.querySelectorAll(CHART_CONTAINER_SELECTOR).forEach(observeChartDom);
+  }
+  function registerChart(instance, dom) {
+    if (!instance || (typeof instance.isDisposed === 'function' && instance.isDisposed())) return;
+    if (window.__echartsInstances.indexOf(instance) < 0) window.__echartsInstances.push(instance);
+    if ((!dom || dom.nodeType !== 1) && instance.getDom) dom = instance.getDom();
+    if (instanceOfDom && dom && dom.nodeType === 1) instanceOfDom.set(dom, instance);
+    observeChartDom(dom);
+  }
+  window.__qwenpawDataTrackEcharts = function () {
+    if (!window.echarts || typeof window.echarts.init !== 'function' || window.echarts.__qwenpawDataFallback) return false;
+    // Recover instances created before the runtime was inserted (legacy reports).
+    if (window.echarts.getInstanceByDom) {
+      document.querySelectorAll('[_echarts_instance_]').forEach(function (dom) {
+        registerChart(window.echarts.getInstanceByDom(dom));
+      });
+    }
+    var originalInit = window.echarts.init;
+    if (originalInit.__qwenpawDataTracked) return true;
+    function trackedInit(dom) {
+      var instance = originalInit.apply(this, arguments);
+      registerChart(instance, dom);
+      return instance;
+    }
+    trackedInit.__qwenpawDataTracked = true;
+    window.echarts.init = trackedInit;
+    return true;
+  };
+  window.__qwenpawDataInstallFallbackEcharts = function () {
+    if (window.echarts && typeof window.echarts.init === 'function' && !window.echarts.__qwenpawDataFallback) return false;
+    if (window.__qwenpawDataFallbackEchartsInstalled) return true;
+    window.__qwenpawDataFallbackEchartsInstalled = true;
+    window.echarts = {
+      __qwenpawDataFallback: true,
+      init: function (dom) {
+        return {
+          setOption: function (option) {
+            if (!dom) return;
+            if (dom.id) window.CHART_OPTS[dom.id] = option;
+            if (dom.dataset.qwenpawDataFallbackRendered === 'true') return;
+            dom.dataset.qwenpawDataFallbackRendered = 'true';
+            dom.innerHTML = renderStaticChart(option) || renderPlaceholder();
+          },
+          resize: function () {},
+          dispose: function () {}
+        };
+      },
+      getInstanceByDom: function () { return null; }
+    };
+    return true;
+  };
+  if (!window.__qwenpawDataTrackEcharts()) { window.__qwenpawDataInstallFallbackEcharts(); }
+  window.__qwenpawDataResizeEcharts = function () {
+    window.__qwenpawDataTrackEcharts();
+    var tracked = window.__echartsInstances || [];
+    for (var index = tracked.length - 1; index >= 0; index -= 1) {
+      var chart = tracked[index];
+      if (!chart || (typeof chart.isDisposed === 'function' && chart.isDisposed())) {
+        tracked.splice(index, 1);
+        continue;
+      }
+      var dom = chart.getDom && chart.getDom();
+      if (!dom || isChartRenderable(dom)) resizeInstance(chart);
+    }
+    // 兜住未登记的实例：片段重新加载了 echarts、或覆盖了 __echartsInstances
+    document.querySelectorAll(CHART_CONTAINER_SELECTOR).forEach(function (container) {
+      observeChartDom(container);
+      var instance = (instanceOfDom && instanceOfDom.get(container)) || instanceByDom(container);
+      if (instance && tracked.indexOf(instance) < 0 && isChartRenderable(container)) resizeInstance(instance);
+    });
+  };
+  window.__qwenpawDataRenderMissingChartFallback = function () {
+    var echartsReady = window.__qwenpawDataTrackEcharts();
+    if (!echartsReady) window.__qwenpawDataInstallFallbackEcharts();
+    document.querySelectorAll(CHART_CONTAINER_SELECTOR).forEach(function (container) {
+      if (container.dataset.qwenpawDataFallbackRendered === 'true') return;
+      if (container.children.length > 0 || container.textContent.trim()) return;
+      if (echartsReady && !isChartRenderable(container)) return;
+      container.dataset.qwenpawDataFallbackRendered = 'true';
+      var option = container.id && window.CHART_OPTS ? window.CHART_OPTS[container.id] : null;
+      container.innerHTML = renderStaticChart(option) || renderPlaceholder();
+    });
+  };
+  [0, 120, 600, 1200].forEach(function (delay) { setTimeout(window.__qwenpawDataResizeEcharts, delay); });
+  document.addEventListener('DOMContentLoaded', function () {
+    observeChartContainers();
+    window.__qwenpawDataResizeEcharts();
+    setTimeout(window.__qwenpawDataRenderMissingChartFallback, 800);
+  });
+  document.addEventListener('click', function () {
+    setTimeout(window.__qwenpawDataResizeEcharts, 0);
+    setTimeout(window.__qwenpawDataResizeEcharts, 120);
+    setTimeout(window.__qwenpawDataRenderMissingChartFallback, 1200);
+  });
+  window.addEventListener('load', function () {
+    window.__qwenpawDataResizeEcharts();
+    setTimeout(window.__qwenpawDataRenderMissingChartFallback, 300);
+  });
+  window.addEventListener('resize', window.__qwenpawDataResizeEcharts);
+})();
+</script>

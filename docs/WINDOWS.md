@@ -119,8 +119,13 @@ fixed demo datasource:
 ```powershell
 .\examples\init_demo.ps1 -Register
 qwenpaw-data datasource list
-qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
+
+Open the local Console, configure its model, select `Demo PG - GAAP use case`,
+and submit: “Analyze the average GAAP value of valid users for product X during
+March 2026; show the trend over time and explain any spikes with relevant KG
+events.” See [Console startup](../packages/qwenpaw-data-console/README.md).
+The former `qwenpaw-data run` command is retired in 0.4.
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
 `45.89`. To relate the spike to Knowledge Graph events, use the DataBridge UI

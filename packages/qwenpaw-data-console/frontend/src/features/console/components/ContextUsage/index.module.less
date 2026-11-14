@@ -1,0 +1,128 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--console-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+
+  &:hover,
+  &[data-open='true'] {
+    color: var(--console-primary);
+    background: color-mix(in srgb, var(--console-primary) 8%, transparent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--console-primary);
+    outline-offset: 2px;
+  }
+  &[data-reached='true'] {
+    color: var(--ant-color-warning, #d48806);
+  }
+}
+.ringTrack,
+.ringFill {
+  fill: none;
+  stroke-width: 2.5;
+}
+.ringTrack {
+  stroke: currentColor;
+  opacity: 0.18;
+}
+.ringFill {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition: stroke-dasharray 180ms ease;
+}
+.panel {
+  padding: 16px 18px;
+  margin-bottom: 10px;
+  border: 1px solid var(--console-border);
+  border-radius: 16px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  font-size: 12px;
+  max-height: min(420px, 50vh);
+  overflow-y: auto;
+}
+.header,
+.summary,
+.usageNote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.header {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.summary {
+  color: var(--console-muted);
+  font-variant-numeric: tabular-nums;
+}
+.percent {
+  color: var(--console-text);
+  font-size: 20px;
+  font-weight: 600;
+}
+.percent small {
+  font-size: 12px;
+  color: var(--console-muted);
+  font-weight: 400;
+}
+.trackArea {
+  position: relative;
+  margin: 12px 0 10px;
+}
+.track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--console-line);
+}
+.fill {
+  display: block;
+  height: 100%;
+  background: var(--console-primary);
+  transition: width 180ms ease;
+  border-radius: inherit;
+}
+.track[data-reached='true'] .fill {
+  background: var(--ant-color-warning, #d48806);
+}
+.marker {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 14px;
+  background: var(--console-muted);
+  transform: translateX(-1px);
+}
+.usageNote {
+  color: var(--console-muted);
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+.usageCard {
+  padding: 14px;
+  border: 1px solid var(--console-line);
+  border-radius: 12px;
+  background: var(--console-fill);
+}
+@media (max-width: 600px) {
+  .panel {
+    padding: 12px;
+  }
+  .summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+}

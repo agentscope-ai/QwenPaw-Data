@@ -14,7 +14,14 @@ import sys
 import pandas as pd
 from pathlib import Path
 
-PRIORITY_KEYWORDS = ["readme", "legend", "metadata", "description", "info", "dictionary"]
+PRIORITY_KEYWORDS = [
+    "readme",
+    "legend",
+    "metadata",
+    "description",
+    "info",
+    "dictionary",
+]
 
 
 def raw_preview(filepath, nlines=15):
@@ -31,12 +38,16 @@ def raw_preview(filepath, nlines=15):
 
 def explore_table(filepath, sep=None, nrows=5):
     """Profile a delimited text file (CSV/TSV)."""
-    print(f"\n{'='*60}\nTABLE: {filepath}\n{'='*60}")
+    print(f"\n{'=' * 60}\nTABLE: {filepath}\n{'=' * 60}")
     raw_preview(filepath)
     for encoding in ("utf-8-sig", "latin-1"):
         try:
-            df = pd.read_csv(filepath, sep=sep, engine="python", nrows=nrows, encoding=encoding)
-            print(f"\nParsed (encoding={encoding}) shape (first {nrows} rows): {df.shape}")
+            df = pd.read_csv(
+                filepath, sep=sep, engine="python", nrows=nrows, encoding=encoding
+            )
+            print(
+                f"\nParsed (encoding={encoding}) shape (first {nrows} rows): {df.shape}"
+            )
             print(f"Columns ({len(df.columns)}):")
             for i, col in enumerate(df.columns):
                 print(f"  {i}: {col} (dtype: {df[col].dtype})")
@@ -49,7 +60,7 @@ def explore_table(filepath, sep=None, nrows=5):
 
 def explore_excel(filepath, nrows=5):
     """Profile an Excel workbook, prioritizing README/metadata sheets."""
-    print(f"\n{'='*60}\nEXCEL: {filepath}\n{'='*60}")
+    print(f"\n{'=' * 60}\nEXCEL: {filepath}\n{'=' * 60}")
     try:
         xls = pd.ExcelFile(filepath)
     except Exception as e:
@@ -57,7 +68,9 @@ def explore_excel(filepath, nrows=5):
         return
 
     print(f"Sheet names: {xls.sheet_names}")
-    priority = [s for s in xls.sheet_names if any(k in s.lower() for k in PRIORITY_KEYWORDS)]
+    priority = [
+        s for s in xls.sheet_names if any(k in s.lower() for k in PRIORITY_KEYWORDS)
+    ]
     data_sheets = [s for s in xls.sheet_names if s not in priority]
 
     for sheet in priority + data_sheets:

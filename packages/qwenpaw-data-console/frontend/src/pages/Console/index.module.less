@@ -1,0 +1,507 @@
+// Page-owned styles.
+
+.consolePage {
+  --workspace-right-gap: var(--qwenpaw-data-layout-route-outer-margin);
+  position: relative;
+  display: grid;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  padding-right: var(--workspace-right-gap);
+  overflow: hidden;
+  background: transparent;
+  grid-template-columns: minmax(0, 1fr) var(--session-workspace-width);
+  transition:
+    grid-template-columns 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding-right 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.historyLoading {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: #718198;
+  font-size: 13px;
+  background: rgb(248 250 252 / 82%);
+  backdrop-filter: blur(3px);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .historyLoading {
+  color: var(--console-muted);
+  background: color-mix(in srgb, var(--qwenpaw-data-color-loading-surface) 88%, transparent);
+}
+
+.workspaceCollapsed {
+  --workspace-right-gap: 0px;
+  grid-template-columns: minmax(0, 1fr) 0;
+
+  .workspaceResizeHandle {
+    display: none;
+  }
+}
+
+.console {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  grid-template-rows: var(--console-topbar-height) 1fr;
+  overflow: hidden;
+  background: transparent;
+}
+
+.consoleHeader {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px 0 26px;
+  background: var(--qwenpaw-data-color-route-surface);
+  border: 0;
+  box-shadow: none;
+}
+
+.headerLeft,
+.sessionTitle {
+  display: flex;
+  align-items: center;
+}
+
+.headerLeft {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reviewBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  color: var(--qwenpaw-data-color-primary);
+  background: var(--qwenpaw-data-color-primary-bg);
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.reviewNotice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--qwenpaw-data-color-primary);
+  border-radius: 12px;
+
+  > span:nth-child(2) {
+    flex: 1;
+    min-width: 160px;
+  }
+}
+
+.headerChannelIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  line-height: 0;
+}
+
+.sessionTitle {
+  min-width: 0;
+  gap: 6px;
+
+  strong {
+    overflow: hidden;
+    color: var(--console-text);
+    font-size: 14px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: inline-grid;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    color: #94a3b8;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--console-primary);
+      background: var(--console-primary-soft);
+    }
+  }
+}
+
+.workspaceResizeHandle {
+  position: absolute;
+  z-index: 12;
+  top: calc(50% - 70px);
+  right: calc(var(--session-workspace-width) + var(--workspace-right-gap) - 7px);
+  width: 14px;
+  height: 38px;
+  padding: 0;
+  background: var(--console-surface);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: -4px 0 10px -5px rgb(15 23 42 / 28%);
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+  transition:
+    right 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 160ms ease;
+
+  &::before {
+    display: none;
+    content: '';
+  }
+
+  &::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 16px;
+    background-image: radial-gradient(circle, var(--console-muted) 1px, transparent 1.5px);
+    background-position: center;
+    background-size: 4px 4px;
+    content: '';
+    transform: translate(-50%, -50%);
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: #e9edf2;
+    box-shadow: -4px 0 10px -5px rgb(15 23 42 / 28%);
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    background-image: radial-gradient(circle, var(--console-primary) 1px, transparent 1.5px);
+  }
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .workspaceResizeHandle:hover,
+:global(:root[data-qwenpaw-data-theme='dark']) .workspaceResizeHandle:focus-visible,
+:global(:root[data-qwenpaw-data-theme='dark']) .workspaceCollapseHandle:hover,
+:global(:root[data-qwenpaw-data-theme='dark']) .workspaceCollapseHandle:focus-visible {
+  background: var(--qwenpaw-data-color-fill-secondary);
+}
+
+.workspaceCollapseHandle {
+  position: absolute;
+  z-index: 13;
+  top: 50%;
+  right: calc(var(--session-workspace-width) + var(--workspace-right-gap) - 7px);
+  display: grid;
+  width: 14px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  color: #61738a;
+  font-size: 12px;
+  background: var(--console-surface);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: -4px 0 10px -5px rgb(15 23 42 / 28%);
+  cursor: pointer;
+  outline: none;
+  transform: translateY(-50%);
+  transition:
+    right 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+
+  &:hover,
+  &:focus-visible {
+    color: #0b5fc6;
+    background: #e9edf2;
+    box-shadow: -4px 0 10px -5px rgb(15 23 42 / 28%);
+  }
+}
+
+.workspaceCollapsed .workspaceCollapseHandle {
+  right: 8px;
+}
+
+.workspaceResizing {
+  cursor: col-resize;
+  user-select: none;
+  transition: none;
+
+  .workspaceCollapseHandle {
+    transition:
+      color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .workspaceResizeHandle {
+    background: #e9edf2;
+    box-shadow: -4px 0 10px -5px rgb(15 23 42 / 28%);
+  }
+
+  .workspaceResizeHandle::after {
+    background-image: radial-gradient(circle, var(--console-primary) 1px, transparent 1.5px);
+  }
+}
+
+.artifactModal {
+  :global(.ant-modal-content) {
+    overflow: hidden;
+    border-radius: 14px;
+  }
+
+  :global(.ant-modal-body) {
+    max-height: calc(100vh - 280px);
+    padding-top: 8px;
+    overflow-y: auto;
+  }
+}
+
+// Compare mode swaps the single preview box for the two-pane GT panel, so the
+// body itself becomes the flex column that caps the height; each pane then
+// scrolls on its own instead of the whole body.
+.artifactModalCompare {
+  :global(.ant-modal-body) {
+    display: flex;
+    max-height: calc(100vh - 280px);
+    flex-direction: column;
+    overflow: hidden;
+  }
+}
+
+// Fullscreen compare fills the viewport; semantic inline styles let the body
+// flex between the header and the footer without clipping the action buttons.
+.artifactModalFullscreen {
+  // Override the design system's rounded fullscreen shell, including its header.
+  &,
+  :global(.ant-modal-content),
+  :global(.ant-modal-header) {
+    border-radius: 0 !important;
+  }
+
+  &:global(.ant-modal),
+  :global(.ant-modal) {
+    top: 0;
+    max-width: 100vw;
+    margin: 0;
+    padding-bottom: 0;
+  }
+
+  :global(.ant-modal-content) {
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  :global(.ant-modal-body) {
+    max-height: calc(100vh - 112px);
+  }
+}
+
+// The fullscreen + close pair rendered into the modal's `closeIcon` slot, so it
+// sits exactly where the default “×” was, just to its left.
+.compareModalActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.compareIconBtn {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+
+  &:hover {
+    color: #101828;
+    background: rgb(16 24 40 / 6%);
+  }
+}
+
+.artifactModalFileTitle {
+  flex: 1;
+}
+
+.artifactModalTitle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+
+  > div:last-child {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    color: #24324a;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > div:last-child > span {
+    min-width: 0;
+    overflow: hidden;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.artifactPreviewContent {
+  min-height: 340px;
+  max-height: min(480px, calc(100vh - 390px));
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid var(--console-line);
+  border-radius: 10px;
+}
+
+.artifactPreviewContentSplit {
+  // Each pane limits its own height; keep the headings and horizontal scrollbar visible.
+  max-height: none;
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .artifactModalTitle strong {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .artifactModalTitle > div:last-child > span {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .artifactPreviewContent {
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+.sessionTitle {
+  strong {
+    font-size: var(--text-title);
+  }
+
+  button {
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
+  }
+}
+
+.artifactModalTitle {
+  strong {
+    font-size: 15px;
+  }
+
+  > div:last-child > span {
+    font-size: 12px;
+  }
+}
+
+.consoleHeader {
+  padding: 0 22px;
+}
+
+.sessionTitle {
+  display: flex;
+  align-items: center;
+
+  strong {
+    font-size: 15px;
+  }
+}
+
+.console {
+  grid-template-rows: var(--console-topbar-height) minmax(0, 1fr);
+}
+
+.consoleHeader {
+  width: 100%;
+  background: var(--qwenpaw-data-color-route-surface);
+  border: 0;
+  box-shadow: none;
+}
+
+.consolePage,
+.console {
+  background: transparent;
+}
+
+.mobileMenu {
+  display: none;
+}
+
+.consoleHeader {
+  box-sizing: border-box;
+  height: var(--console-topbar-height);
+  min-height: var(--console-topbar-height);
+}
+
+@media (max-width: 1120px) {
+  .consolePage {
+    --workspace-right-gap: 0px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspaceResizeHandle {
+    display: none;
+  }
+
+  .workspaceCollapseHandle {
+    display: grid;
+    right: 8px;
+  }
+
+  .consolePage:not(.workspaceCollapsed) .workspaceCollapseHandle {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .consolePage,
+  .console {
+    height: 100%;
+  }
+
+  .mobileMenu {
+    display: inline-flex;
+    margin-right: 4px;
+  }
+
+  .consoleHeader {
+    padding-inline: 10px;
+  }
+}

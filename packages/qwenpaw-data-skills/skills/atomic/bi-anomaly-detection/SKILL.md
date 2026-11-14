@@ -62,7 +62,7 @@ description: 基于阈值检测时间序列中的显著异常波动点。当需�
 
 #### 方式一：使用脚本
 
-路径：`scripts/anomaly_detection.py`
+路径：`<skill-dir>/scripts/anomaly_detection.py`
 
 原理：根据传入的阈值参数计算对应的变化率，将变化率绝对值与阈值对比，超过阈值的数据点标记为异常。传入多个阈值时，异常点取交集。
 
@@ -87,14 +87,14 @@ description: 基于阈值检测时间序列中的显著异常波动点。当需�
 
 ```bash
 # 只检查日环比
-python scripts/anomaly_detection.py \
+python <skill-dir>/scripts/anomaly_detection.py \
   --input-file data.csv \
   --date-col "日期" \
   --metric-col "访问用户数" \
   --threshold-dod 0.10
 
 # 同时检查日环比和周同比（异常点取交集）
-python scripts/anomaly_detection.py \
+python <skill-dir>/scripts/anomaly_detection.py \
   --input-file data.csv \
   --date-col "日期" \
   --metric-col "访问用户数" \

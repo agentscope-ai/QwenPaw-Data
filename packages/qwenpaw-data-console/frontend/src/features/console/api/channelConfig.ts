@@ -1,6 +1,6 @@
-import { request } from "@/services/request";
+import { request } from '@/services/request';
 
-const BASE = "/system/channel-config";
+const BASE = '/system/channel-config';
 
 export interface FeishuConfig {
   enabled: boolean;
@@ -33,13 +33,13 @@ export interface WechatConfig {
   streaming_enabled: boolean;
 }
 
-export type ChannelKey = "feishu" | "dingtalk" | "wecom" | "wechat";
+export type ChannelKey = 'feishu' | 'dingtalk' | 'wecom' | 'wechat';
 
 export interface ChannelConfigResponse {
-  feishu: FeishuConfig;
-  dingtalk: DingTalkConfig;
-  wecom: WecomConfig;
-  wechat: WechatConfig;
+  feishu?: FeishuConfig;
+  dingtalk?: DingTalkConfig;
+  wecom?: WecomConfig;
+  wechat?: WechatConfig;
 }
 
 export interface TestResult {
@@ -63,7 +63,7 @@ export interface ChannelQrcodeStatusResponse {
   credentials: Record<string, string>;
 }
 
-function jsonOptions(method: "POST" | "PUT", body: unknown): RequestInit {
+function jsonOptions(method: 'POST' | 'PUT', body: unknown): RequestInit {
   return { method, body: JSON.stringify(body) };
 }
 
@@ -72,12 +72,10 @@ export const channelConfigApi = {
   update: (channel: ChannelKey, payload: ChannelConfigPayload) =>
     request<{ channel: ChannelKey; config: Record<string, unknown> }>(
       `${BASE}/${channel}`,
-      jsonOptions("PUT", payload),
+      jsonOptions('PUT', payload),
     ),
-  test: (channel: ChannelKey) =>
-    request<TestResult>(`${BASE}/${channel}/test`, { method: "POST" }),
-  getQrcode: (channel: ChannelKey) =>
-    request<ChannelQrcodeResponse>(`${BASE}/${channel}/qrcode`),
+  test: (channel: ChannelKey) => request<TestResult>(`${BASE}/${channel}/test`, { method: 'POST' }),
+  getQrcode: (channel: ChannelKey) => request<ChannelQrcodeResponse>(`${BASE}/${channel}/qrcode`),
   getQrcodeStatus: (channel: ChannelKey, pollToken: string) =>
     request<ChannelQrcodeStatusResponse>(
       `${BASE}/${channel}/qrcode/status?token=${encodeURIComponent(pollToken)}`,

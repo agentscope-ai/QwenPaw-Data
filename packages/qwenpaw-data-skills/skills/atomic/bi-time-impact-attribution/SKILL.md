@@ -85,7 +85,7 @@ description: 将累加型量值指标的周期波动拆解为结构变动、趋�
 
 #### 方式一：使用脚本
 
-路径：`scripts/time_impact_attribution.py`
+路径：`<skill-dir>/scripts/time_impact_attribution.py`
 
 原理：先排除事件干扰建立纯净指标基线，再将总变动拆解为结构变动、趋势和事件影响三部分：
 
@@ -116,7 +116,7 @@ description: 将累加型量值指标的周期波动拆解为结构变动、趋�
 
 ```bash
 # 有事件信息
-python scripts/time_impact_attribution.py \
+python <skill-dir>/scripts/time_impact_attribution.py \
   --input-file data.csv \
   --date-col "日期" \
   --metric-col "访问用户数" \
@@ -125,7 +125,7 @@ python scripts/time_impact_attribution.py \
   --prev-month 2025-01
 
 # 无事件信息（只拆解结构变动和趋势变动）
-python scripts/time_impact_attribution.py \
+python <skill-dir>/scripts/time_impact_attribution.py \
   --input-file data.csv \
   --date-col "日期" \
   --metric-col "访问用户数" \

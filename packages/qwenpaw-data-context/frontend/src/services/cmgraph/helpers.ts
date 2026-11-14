@@ -1,18 +1,20 @@
-import { request } from "../request";
-import type { ApiResponse, PaginationMeta, ApiGraphNode, ApiGraphEdge } from "./types";
+import { request } from '../request';
+import { ApiRequestError } from '../apiError';
+import type { ApiResponse, PaginationMeta, ApiGraphNode, ApiGraphEdge } from './types';
 
 /**
  * Send a CMGraph API request and unwrap the response envelope.
  * Automatically prepends /v1/admin prefix to the path.
  * Throws an Error when ok=false.
  */
-export async function cmRequest<T>(
-  path: string,
-  options?: RequestInit,
-): Promise<T> {
+export async function cmRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await request<ApiResponse<T>>(`/v1/admin${path}`, options);
   if (!response.ok) {
-    throw new Error(response.error?.message || "Request failed");
+    throw new ApiRequestError(response.error?.message || 'Request failed', {
+      status: 200,
+      code: response.error?.code,
+      body: response,
+    });
   }
   return response.data as T;
 }
@@ -27,7 +29,11 @@ export async function cmRequestWithMeta<T>(
 ): Promise<{ data: T; meta: PaginationMeta | null }> {
   const response = await request<ApiResponse<T>>(`/v1/admin${path}`, options);
   if (!response.ok) {
-    throw new Error(response.error?.message || "Request failed");
+    throw new ApiRequestError(response.error?.message || 'Request failed', {
+      status: 200,
+      code: response.error?.code,
+      body: response,
+    });
   }
   return { data: response.data as T, meta: response.meta };
 }
@@ -44,10 +50,10 @@ export function encodeKey(key: string): string {
  * Build a query string from a params object.
  * Automatically filters out undefined, null, and empty string values.
  */
-export function buildPageQuery(params: Record<string, unknown>): string {
+export function buildPageQuery(params: object): string {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") {
+    if (v !== undefined && v !== null && v !== '') {
       query.set(k, String(v));
     }
   });
@@ -69,13 +75,13 @@ export function apiNodeToGraphNode(apiNode: ApiGraphNode): {
   // Detect actual API format by presence of 'group' field
   const isExplorerFormat = !!apiNode.group;
 
-  const id = (isExplorerFormat ? (apiNode.id ?? apiNode.key) : (apiNode.key ?? apiNode.id)) || "";
+  const id = (isExplorerFormat ? (apiNode.id ?? apiNode.key) : (apiNode.key ?? apiNode.id)) || '';
   const display_name = isExplorerFormat
-    ? apiNode.label                       // actual: label = display_name (e.g. "阿里巴巴")
-    : (apiNode.display_name || apiNode.label || id);  // documented
+    ? apiNode.label // actual: label = display_name (e.g. "阿里巴巴")
+    : apiNode.display_name || apiNode.label || id; // documented
   const type = isExplorerFormat
-    ? apiNode.group!                      // actual: group = node type (e.g. "Entity")
-    : apiNode.label;                      // documented: label = node type
+    ? apiNode.group! // actual: group = node type (e.g. "Entity")
+    : apiNode.label; // documented: label = node type
   const properties = apiNode.properties ?? {};
 
   return {
@@ -99,9 +105,9 @@ export function apiEdgeToGraphEdge(apiEdge: ApiGraphEdge): {
   type: string;
   properties: Record<string, unknown>;
 } {
-  const source = apiEdge.source_key || apiEdge.from || "";
-  const target = apiEdge.target_key || apiEdge.to || "";
-  const relType = apiEdge.rel_type || apiEdge.type || "";
+  const source = apiEdge.source_key || apiEdge.from || '';
+  const target = apiEdge.target_key || apiEdge.to || '';
+  const relType = apiEdge.rel_type || apiEdge.type || '';
   const properties = apiEdge.properties || apiEdge.props || {};
 
   return {
@@ -122,38 +128,42 @@ export function extractNodesFromRows(
   rows: Record<string, unknown>[],
   columns: string[],
 ): { id: string; label: string; type: string; properties: Record<string, unknown> }[] {
-  const nodes: { id: string; label: string; type: string; properties: Record<string, unknown> }[] = [];
+  const nodes: { id: string; label: string; type: string; properties: Record<string, unknown> }[] =
+    [];
   const seenKeys = new Set<string>();
 
   rows.forEach((row, rowIndex) => {
     for (const col of columns) {
       const value = row[col];
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
 
       const props = value as Record<string, unknown>;
 
       // Generate node ID — try common key fields, fall back to column-index
-      const rawKey = (props.key as string) ||
-                     (props._id as string) ||
-                     (props.id as string) ||
-                     `${col}-${rowIndex}`;
+      const rawKey =
+        (props.key as string) ||
+        (props._id as string) ||
+        (props.id as string) ||
+        `${col}-${rowIndex}`;
       const id = seenKeys.has(rawKey) ? `${rawKey}-${rowIndex}` : rawKey;
       seenKeys.add(id);
 
       // Infer node type — try Neo4j metadata fields, then zone, then default
-      const type = (props._labels as string) ||
-                   (props.label as string) ||
-                   (props.type as string) ||
-                   (props.zone as string) ||
-                   "Node";
+      const type =
+        (props._labels as string) ||
+        (props.label as string) ||
+        (props.type as string) ||
+        (props.zone as string) ||
+        'Node';
 
       // Infer display name — try common name fields
-      const label = (props.display_name as string) ||
-                    (props.goal as string) ||
-                    (props.name as string) ||
-                    (props.title as string) ||
-                    (props.canonical_name as string) ||
-                    rawKey;
+      const label =
+        (props.display_name as string) ||
+        (props.goal as string) ||
+        (props.name as string) ||
+        (props.title as string) ||
+        (props.canonical_name as string) ||
+        rawKey;
 
       nodes.push({
         id,

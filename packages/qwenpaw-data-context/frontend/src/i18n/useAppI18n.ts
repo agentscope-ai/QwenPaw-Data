@@ -1,11 +1,11 @@
-import { useCallback } from "react";
-import { useTranslation } from "react-i18next";
+import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import i18n, {
   LANGUAGE_STORAGE_KEY,
   languageOptions,
   normalizeLang,
   type SupportedLang,
-} from "./index";
+} from './index';
 
 export function setAppLanguage(language: SupportedLang) {
   localStorage.setItem(LANGUAGE_STORAGE_KEY, language);

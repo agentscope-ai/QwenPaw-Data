@@ -25,6 +25,7 @@ Always discover files dynamically; never assume filenames:
 
 ```python
 from pathlib import Path
+
 files = list(Path("input").rglob("*"))
 ```
 
@@ -63,6 +64,7 @@ For large or complex workbooks, fall back to `openpyxl` read-only wrapped in `tr
 
 ```python
 from openpyxl import load_workbook
+
 wb = load_workbook("input/data.xlsx", read_only=True)
 print(f"Sheets: {wb.sheetnames}")
 for sheet_name in wb.sheetnames:
@@ -87,10 +89,10 @@ Astronomy/heliophysics tasks often ship array or binary formats. **Print keys an
 import numpy as np
 
 data = np.load("input/grid.npz")
-print(data.files)              # list available arrays
+print(data.files)  # list available arrays
 for k in data.files:
     print(k, data[k].shape, data[k].dtype)
-arr = data["potential"]        # use the actual array, not a synthesized field
+arr = data["potential"]  # use the actual array, not a synthesized field
 ```
 
 ### FITS (`.fits`)
@@ -99,9 +101,9 @@ arr = data["potential"]        # use the actual array, not a synthesized field
 from astropy.io import fits
 
 with fits.open("input/image.fits") as hdul:
-    hdul.info()                # list HDUs (headers + data units)
+    hdul.info()  # list HDUs (headers + data units)
     header = hdul[0].header
-    data = hdul[1].data        # table or image array
+    data = hdul[1].data  # table or image array
     print(data.columns if hasattr(data, "columns") else data.shape)
 ```
 
@@ -111,7 +113,7 @@ with fits.open("input/image.fits") as hdul:
 import h5py
 
 with h5py.File("input/data.h5", "r") as f:
-    f.visit(print)             # print all dataset paths
+    f.visit(print)  # print all dataset paths
     dset = f["group/dataset"]
     print(dset.shape, dset.dtype)
     values = dset[:]
@@ -145,7 +147,9 @@ def read_csv_robust(filepath):
         try:
             df = pd.read_csv(filepath, encoding=encoding)
             for col in df.select_dtypes(include=["object"]).columns:
-                df[col] = df[col].str.replace("\xa0", " ", regex=False)  # non-breaking spaces
+                df[col] = df[col].str.replace(
+                    "\xa0", " ", regex=False
+                )  # non-breaking spaces
             return df
         except (UnicodeDecodeError, UnicodeError):
             continue
@@ -170,10 +174,12 @@ Strip formatting before casting:
 ```python
 def sanitize_numeric(series):
     if series.dtype == "object":
-        series = (series.str.replace(",", "", regex=False)
-                        .str.replace("$", "", regex=False)
-                        .str.replace('"', "", regex=False)
-                        .str.strip())
+        series = (
+            series.str.replace(",", "", regex=False)
+            .str.replace("$", "", regex=False)
+            .str.replace('"', "", regex=False)
+            .str.strip()
+        )
     return pd.to_numeric(series, errors="coerce")
 ```
 
@@ -187,6 +193,7 @@ Handle composite strings (e.g., `"X or Y"` → average):
 
 ```python
 import numpy as np
+
 
 def parse_composite(val):
     if pd.isna(val):
@@ -222,12 +229,14 @@ def parse_censored(val):
     if pd.isna(val):
         return pd.NA
     val = str(val).strip()
-    if val.startswith("<"):      # below detection limit: half the limit (or 0, per methodology)
+    if val.startswith(
+        "<"
+    ):  # below detection limit: half the limit (or 0, per methodology)
         try:
             return float(val[1:]) / 2
         except ValueError:
             return pd.NA
-    if val.startswith(">"):      # above detection limit: use the limit value
+    if val.startswith(">"):  # above detection limit: use the limit value
         try:
             return float(val[1:])
         except ValueError:
@@ -334,6 +343,7 @@ Verify column names match across partitions; deduplicate if needed.
 ```python
 from bs4 import BeautifulSoup
 
+
 def parse_html_table(html_content):
     soup = BeautifulSoup(html_content, "html.parser")
     table = soup.find("table")
@@ -350,6 +360,7 @@ Extract years/categories dynamically from headers — never hardcode:
 
 ```python
 import re
+
 
 def extract_years_from_headers(headers):
     years = []
@@ -368,7 +379,9 @@ Map domain terms from the prompt to exact column names:
 
 ```python
 print("All columns:", df.columns.tolist())
-mutation_cols = [c for c in df.columns if "mutation" in c.lower() or "variant" in c.lower()]
+mutation_cols = [
+    c for c in df.columns if "mutation" in c.lower() or "variant" in c.lower()
+]
 ```
 
 If an entity's location is unknown, brute-force string-search across cells before assuming the schema:

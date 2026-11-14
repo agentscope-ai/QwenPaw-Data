@@ -21,6 +21,12 @@ class AttachmentRefSchema(ApiModel):
     filename: str
 
 
+class UserSchema(ApiModel):
+    user_id: str
+    username: str
+    display_name: str | None = None
+
+
 class DatasourceOptionSchema(ApiModel):
     id: str
     name: str
@@ -33,3 +39,6 @@ class DatasetOptionSchema(ApiModel):
     id: str
     name: str
     description: str = ""
+
+
+SCHEMA_VERSION = 5

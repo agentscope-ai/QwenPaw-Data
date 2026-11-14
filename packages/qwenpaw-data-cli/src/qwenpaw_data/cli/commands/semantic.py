@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
+
+from httpx import TimeoutException
 
 from qwenpaw_data.host.core.semantic_config_client import (
     SEMANTIC_CONFIG_PREFIX,
     SemanticConfigClient,
+    SemanticConfigClientError,
 )
 
 from qwenpaw_data.cli.util import (
@@ -21,9 +26,9 @@ from qwenpaw_data.cli.util import (
 )
 
 _WEAVE_PATH = f"{SEMANTIC_CONFIG_PREFIX}/weave-task"
-# DataBridge reports weave states in upper case (SUCCESS/FAILED/KILLED);
+# DataBridge reports weave states in upper case (SUCCESS/DEGRADED/FAILED/KILLED);
 # compare case-insensitively to stay tolerant of both spellings.
-_WEAVE_TERMINAL_STATES = frozenset({"success", "failed", "killed"})
+_WEAVE_TERMINAL_STATES = frozenset({"success", "degraded", "failed", "killed"})
 _WEAVE_POLL_SECONDS = 2.0
 
 
@@ -56,7 +61,7 @@ class Resource:
     list_filters: tuple[Field, ...]
     create_fields: tuple[Field, ...]
     update_fields: tuple[Field, ...]
-    dataset_batch_delete: bool = False
+    batch_delete: str | None = None
 
     @property
     def api_path(self) -> str:
@@ -73,21 +78,15 @@ RESOURCES: tuple[Resource, ...] = (
         path="biz-domain",
         help="Business domains",
         list_filters=(
-            _f("--datasource-id", "datasource_id"),
             _f("--name", "domain_name"),
         ),
         create_fields=(
-            _f("--datasource-id", "datasource_id"),
             _f("--name", "domain_name"),
-            _f("--display-name", "display_name"),
             _f("--description", "description"),
-            _f("--aliases", "aliases"),
         ),
         update_fields=(
             _f("--name", "domain_name"),
-            _f("--display-name", "display_name"),
             _f("--description", "description"),
-            _f("--aliases", "aliases"),
         ),
     ),
     Resource(
@@ -98,23 +97,18 @@ RESOURCES: tuple[Resource, ...] = (
             _f("--datasource-id", "datasource_id"),
             _f("--domain-id", "domain_id", value_type=int),
             _f("--name", "dataset_name"),
-            _f("--type", "dataset_type"),
         ),
         create_fields=(
             _f("--datasource-id", "datasource_id"),
             _f("--domain-id", "domain_id", value_type=int),
             _f("--name", "dataset_name"),
-            _f("--comment", "dataset_comment"),
-            _f("--type", "dataset_type"),
-            _f("--sql", "sql_content"),
-            _f("--parents", "parents"),
+            _f("--description", "description"),
+            _f("--source", "source"),
         ),
         update_fields=(
             _f("--name", "dataset_name"),
-            _f("--comment", "dataset_comment"),
-            _f("--type", "dataset_type"),
-            _f("--sql", "sql_content"),
-            _f("--parents", "parents"),
+            _f("--description", "description"),
+            _f("--source", "source"),
         ),
     ),
     Resource(
@@ -127,15 +121,21 @@ RESOURCES: tuple[Resource, ...] = (
             _f("--dataset-id", "dataset_id", value_type=int),
         ),
         create_fields=(
+            _f("--datasource-id", "datasource_id"),
+            _f("--domain-id", "domain_id", value_type=int),
             _f("--dataset-id", "dataset_id", value_type=int),
-            _f("--name", "column_name"),
-            _f("--comment", "column_comment"),
+            _f("--name", "field_name"),
+            _f("--description", "description"),
             _f("--data-type", "data_type"),
+            _f("--is-primary", "is_primary"),
+            _f("--is-nullable", "is_nullable"),
         ),
         update_fields=(
-            _f("--name", "column_name"),
-            _f("--comment", "column_comment"),
+            _f("--name", "field_name"),
+            _f("--description", "description"),
             _f("--data-type", "data_type"),
+            _f("--is-primary", "is_primary"),
+            _f("--is-nullable", "is_nullable"),
         ),
     ),
     Resource(
@@ -148,20 +148,21 @@ RESOURCES: tuple[Resource, ...] = (
             _f("--name", "dimension_name"),
         ),
         create_fields=(
-            _f("--datasource-id", "datasource_id"),
             _f("--domain-id", "domain_id", value_type=int),
             _f("--name", "dimension_name"),
             _f("--description", "description"),
-            _f("--parent-name", "parent_name"),
             _f("--synonyms", "synonyms"),
-            _f("--enums", "enums"),
+            _f("--dimension-type", "dimension_type"),
+            _f("--child-dimensions", "child_dimensions"),
+            _f("--priority", "priority"),
         ),
         update_fields=(
             _f("--name", "dimension_name"),
             _f("--description", "description"),
-            _f("--parent-name", "parent_name"),
             _f("--synonyms", "synonyms"),
-            _f("--enums", "enums"),
+            _f("--dimension-type", "dimension_type"),
+            _f("--child-dimensions", "child_dimensions"),
+            _f("--priority", "priority"),
         ),
     ),
     Resource(
@@ -169,17 +170,19 @@ RESOURCES: tuple[Resource, ...] = (
         path="dataset-dimension",
         help="Dataset-dimension bindings",
         list_filters=(
-            _f("--datasource-id", "datasource_id"),
-            _f("--domain-id", "domain_id", value_type=int),
             _f("--dataset-id", "dataset_id", value_type=int),
-            _f("--dataset-name", "dataset_name"),
             _f("--dimension-name", "dimension_name"),
         ),
         create_fields=(
+            _f("--datasource-id", "datasource_id"),
+            _f("--domain-id", "domain_id", value_type=int),
             _f("--dataset-id", "dataset_id", value_type=int),
+            _f("--dimension-id", "dimension_id", value_type=int),
+            _f("--expr", "expr"),
+            _f("--value-example", "value_example"),
         ),
-        update_fields=(),
-        dataset_batch_delete=True,
+        update_fields=(_f("--expr", "expr"), _f("--value-example", "value_example")),
+        batch_delete="dataset",
     ),
     Resource(
         name="metric",
@@ -191,21 +194,17 @@ RESOURCES: tuple[Resource, ...] = (
             _f("--name", "metric_name"),
         ),
         create_fields=(
-            _f("--datasource-id", "datasource_id"),
             _f("--domain-id", "domain_id", value_type=int),
             _f("--name", "metric_name"),
             _f("--description", "description"),
-            _f("--unit", "unit"),
             _f("--synonyms", "synonyms"),
-            _f("--tags", "tags"),
-            _f("--polaris", "is_polaris", is_bool=True),
+            _f("--priority", "priority"),
         ),
         update_fields=(
             _f("--name", "metric_name"),
             _f("--description", "description"),
-            _f("--unit", "unit"),
             _f("--synonyms", "synonyms"),
-            _f("--tags", "tags"),
+            _f("--priority", "priority"),
         ),
     ),
     Resource(
@@ -213,20 +212,26 @@ RESOURCES: tuple[Resource, ...] = (
         path="metric-formula-lib",
         help="Metric formulas",
         list_filters=(
-            _f("--datasource-id", "datasource_id"),
-            _f("--domain-id", "domain_id", value_type=int),
             _f("--metric-id", "metric_id", value_type=int),
             _f("--dataset-id", "dataset_id", value_type=int),
         ),
         create_fields=(
+            _f("--datasource-id", "datasource_id"),
+            _f("--domain-id", "domain_id", value_type=int),
             _f("--metric-id", "metric_id", value_type=int),
             _f("--dataset-id", "dataset_id", value_type=int),
-            _f("--formula", "formula"),
+            _f("--expr", "expr"),
+            _f("--time-window", "time_window"),
+            _f("--additivity", "additivity"),
+            _f("--is-default", "is_default", value_type=int),
         ),
         update_fields=(
-            _f("--formula", "formula"),
+            _f("--expr", "expr"),
+            _f("--time-window", "time_window"),
+            _f("--additivity", "additivity"),
+            _f("--is-default", "is_default", value_type=int),
         ),
-        dataset_batch_delete=True,
+        batch_delete="metric",
     ),
 )
 
@@ -253,6 +258,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         type=Path,
         required=True,
         help="Path to the semantic configuration .xlsx workbook",
+    )
+    import_parser.add_argument(
+        "--datasource-id", required=True, help="Datasource for the imported workbook"
     )
     import_parser.set_defaults(handler=handle_import)
 
@@ -305,17 +313,18 @@ def _register_resource(
     update_parser.set_defaults(handler=handle_resource_update, resource=resource)
 
     delete_parser = actions.add_parser("delete", help="Delete a record")
-    if resource.dataset_batch_delete:
+    if resource.batch_delete:
         delete_parser.add_argument(
             "record_id",
             type=int,
             nargs="?",
-            help="Record id (omit when using --dataset-id)",
+            help=f"Record id (omit when using --{resource.batch_delete}-id)",
         )
         delete_parser.add_argument(
-            "--dataset-id",
+            f"--{resource.batch_delete}-id",
+            dest="batch_id",
             type=int,
-            help=f"Delete every {resource.name} of one dataset",
+            help=f"Delete every {resource.name} of one {resource.batch_delete}",
         )
     else:
         delete_parser.add_argument("record_id", type=int, help="Record id")
@@ -367,7 +376,11 @@ def _build_payload(
     if payload_file is not None and flag_values:
         raise ValueError("pass either --file or field flags, not both")
     if payload_file is not None:
-        return load_json_object(payload_file)
+        payload = load_json_object(payload_file)
+        unknown = set(payload) - {field.key for field in fields}
+        if unknown:
+            raise ValueError("unsupported payload fields: " + ", ".join(sorted(unknown)))
+        return payload
     if not flag_values:
         raise ValueError("nothing to send: pass field flags or --file")
     return flag_values
@@ -426,17 +439,18 @@ def handle_resource_update(args: argparse.Namespace) -> int:
 
 def handle_resource_delete(args: argparse.Namespace) -> int:
     resource: Resource = args.resource
-    dataset_id = getattr(args, "dataset_id", None)
-    if dataset_id is not None and args.record_id is not None:
-        raise ValueError("pass either a record id or --dataset-id, not both")
-    if dataset_id is not None:
-        subject = f"every {resource.name} of dataset {dataset_id}"
-        path = f"{resource.api_path}/dataset/{dataset_id}"
+    batch_id = getattr(args, "batch_id", None)
+    batch_flag = f"--{resource.batch_delete}-id" if resource.batch_delete else None
+    if batch_id is not None and args.record_id is not None:
+        raise ValueError(f"pass either a record id or {batch_flag}, not both")
+    if batch_id is not None:
+        subject = f"every {resource.name} of {resource.batch_delete} {batch_id}"
+        path = f"{resource.api_path}/{resource.batch_delete}/{batch_id}"
     elif args.record_id is not None:
         subject = f"{resource.name} {args.record_id}"
         path = f"{resource.api_path}/{args.record_id}"
     else:
-        raise ValueError("pass a record id or --dataset-id")
+        raise ValueError(f"pass a record id or {batch_flag}")
     if not confirm_deletion(subject, assume_yes=args.yes):
         print("aborted")
         return 1
@@ -454,6 +468,7 @@ def handle_import(args: argparse.Namespace) -> int:
     result = SemanticConfigClient().post(
         f"{SEMANTIC_CONFIG_PREFIX}/import/excel",
         files={
+            "datasource_id": (None, args.datasource_id),
             "file": (
                 path.name,
                 content,
@@ -462,7 +477,7 @@ def handle_import(args: argparse.Namespace) -> int:
         },
     )
     print_json(result)
-    return 0
+    return 1 if isinstance(result, dict) and result.get("success") is False else 0
 
 
 def _register_weave(subparsers: argparse._SubParsersAction) -> None:
@@ -483,7 +498,7 @@ def _register_weave(subparsers: argparse._SubParsersAction) -> None:
         default="FULL",
         help="Weave mode (default: FULL)",
     )
-    submit_parser.add_argument("--name", help="Optional task name")
+    submit_parser.add_argument("--name", required=True, help="Task name")
     submit_parser.add_argument(
         "--wait",
         action="store_true",
@@ -509,12 +524,11 @@ def _register_weave(subparsers: argparse._SubParsersAction) -> None:
     kill_parser.set_defaults(handler=handle_weave_kill)
 
 
-def _find_weave_task(client: SemanticConfigClient, task_id: str) -> dict[str, Any] | None:
-    page = client.list_page(_WEAVE_PATH, page=1, size=100)
-    for record in page["records"]:
-        if isinstance(record, dict) and record.get("task_id") == task_id:
-            return record
-    return None
+def _find_weave_task(client: SemanticConfigClient, task_id: str, *, timeout: float) -> dict[str, Any]:
+    record = client.get(f"{_WEAVE_PATH}/{quote(task_id, safe='')}", timeout=timeout)
+    if not isinstance(record, dict) or record.get("task_id") != task_id:
+        raise ValueError("weave task lookup returned an unexpected task")
+    return record
 
 
 def _wait_for_weave_task(
@@ -522,10 +536,14 @@ def _wait_for_weave_task(
     task: dict[str, Any],
     *,
     timeout: float,
-    poll_seconds: float = _WEAVE_POLL_SECONDS,
+    poll_seconds: float | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Poll until the task is terminal. Returns (last_record, finished)."""
     task_id = str(task.get("task_id") or "")
+    if not task_id:
+        raise ValueError("weave submission did not return a task id")
+    if poll_seconds is None:
+        poll_seconds = _WEAVE_POLL_SECONDS
     last_status = _weave_status(task)
     print(f"weave task {task_id}: {last_status or 'submitted'}", file=sys.stderr)
     deadline = time.monotonic() + timeout
@@ -539,13 +557,23 @@ def _wait_for_weave_task(
             print("", file=sys.stderr)
             return current, True
         print(".", end="", file=sys.stderr, flush=True)
-        time.sleep(poll_seconds)
-        current = _find_weave_task(client, task_id) or current
+        time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            current = _find_weave_task(client, task_id, timeout=min(client.timeout, remaining))
+        except SemanticConfigClientError as exc:
+            if time.monotonic() >= deadline and isinstance(exc.__cause__, TimeoutException):
+                break
+            raise
     print("", file=sys.stderr)
     return current, False
 
 
 def handle_weave_submit(args: argparse.Namespace) -> int:
+    if args.wait and (not math.isfinite(args.timeout) or args.timeout <= 0):
+        raise ValueError("--timeout must be a finite positive number when using --wait")
     client = SemanticConfigClient()
     task = client.post(
         f"{_WEAVE_PATH}/submit",

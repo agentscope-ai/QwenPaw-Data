@@ -1,4 +1,4 @@
-"""Shared QwenPaw Data dotenv resolution."""
+"""Shared QwenPawData dotenv resolution."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def qwenpaw_data_repo_root() -> Path:
 
 
 def qwenpaw_data_env_file() -> Path:
-    """Return the configured QwenPaw Data env file path."""
+    """Return the configured QwenPawData env file path."""
 
     raw = (os.getenv(QWENPAW_DATA_ENV_FILE) or "").strip()
     if raw:
@@ -31,7 +31,7 @@ def qwenpaw_data_env_file() -> Path:
 
 
 def load_qwenpaw_data_env(*, override: bool = False) -> Path:
-    """Load the QwenPaw Data env file without consulting package-local env files."""
+    """Load the QwenPawData env file without consulting package-local env files."""
 
     path = qwenpaw_data_env_file()
     try:

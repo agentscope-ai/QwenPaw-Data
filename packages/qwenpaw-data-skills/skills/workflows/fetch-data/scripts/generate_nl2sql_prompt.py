@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Render NL2SQL prompt from context JSON file(s) and optional problem.json.
+"""Render the NL2SQL prompt from the structured problem and context.json.
 
-Does not call LLM or MCP. See SKILL.md Step 4 for usage.
+``context.json`` is ``{"metrics": {...}, "tables": {...}}``; see SKILL.md Step 4,
+"context.json", for the format.
+
+Does not call LLM or MCP.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
 from typing import Any
 
 from _common import (
@@ -22,138 +23,98 @@ from _common import (
     write_text,
 )
 
+MAX_VALUES_SHOWN = 10
+NONE_BLOCK = "``(none)``"
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument(
-        "--problem",
-        default=None,
-        help="problem.json from Step 1",
-    )
-    p.add_argument(
-        "--context",
-        action="append",
-        default=[],
-        help="Context JSON path; repeatable (later files override keys)",
-    )
-    p.add_argument(
-        "--metrics",
-        type=str,
-        help="Relative path to metric JSON file"
-    )
-    p.add_argument(
-        "--schema",
-        type=str,
-        help="Relative path to JSON file including table metadata"
-    )
+    p.add_argument("--problem", required=True, help="Structured problem JSON (Step 1)")
+    p.add_argument("--context", required=True, help="context.json ({metrics, tables})")
     add_common_args(p)
     return p.parse_args(argv)
 
 
-def render_metrics(metrics_path: Path) -> str:
+def _one_line(value: Any) -> str:
+    return str(value).replace("\n", " ").strip() if value else ""
+
+
+def render_metrics(metrics: dict[str, Any] | None) -> str:
     """Markdown block consumed by ``{{metrics}}`` in the prompt template."""
-    if not metrics_path.exists():
-        raise ValueError(f"The file {metrics_path.absolute().as_posix()} doesn't exist.")
-    
-    with open(metrics_path, 'r') as file:
-        metrics_json = json.load(file)
-        metrics = metrics_json.get("metrics", [])
-    
     if not metrics:
-        return "``(none)``"
-    
+        return NONE_BLOCK
+
     parts: list[str] = []
-    for m in metrics:
-        name = m.get("metric_name", "?")
-        synonyms = m.get("synonyms") or []
+    for name, m in metrics.items():
         head = f"- **{name}**"
-        flags = []
-        if m.get("metric_type"):
-            flags.append(m["metric_type"])
-        if m.get("is_north_star"):
-            flags.append("north_star")
-        if flags:
-            head += f"  ({', '.join(flags)})"
-        if synonyms:
-            head += f"  synonyms={synonyms}"
+        if str(m.get("priority") or "").lower() == "high":
+            head += "  (priority=high)"
+        if m.get("alias"):
+            head += f"  aliases={m['alias']}"
+        if m.get("src"):
+            head += f"  src={m['src']}"
         parts.append(head)
-        
-        for f in m.get("formulas") or []:
-            ds = f.get("dataset", "?")
-            formula = (f.get("formula") or "").strip()
-            dr = f.get("date_range") or ""
-            derived = f.get("derived_from") or []
-            sub = f"  - dataset=`{ds}`"
-            if dr:
-                sub += f"  date_range={dr}"
-            if derived:
-                sub += f"  derived_from={derived}"
+        if m.get("desc"):
+            parts.append(f"  - description: {_one_line(m['desc'])}")
+
+        for c in m.get("calibers") or []:
+            sub = f"  - dataset=`{c.get('table', '?')}`"
+            if c.get("window"):
+                sub += f"  time_window={c['window']}"
+            if c.get("additivity"):
+                sub += f"  additivity={c['additivity']}"
+            if c.get("default") is True:
+                sub += "  is_default=true"
             parts.append(sub)
-            if formula:
-                indented = formula.replace("\n", "\n      ")
-                parts.append(f"      formula: {indented}")
+            if c.get("expr"):
+                parts.append(f"      formula: {_one_line(c['expr'])}")
     return "\n".join(parts).rstrip() + "\n"
 
 
-def render_schema(schema_path: Path) -> str:
-    """Markdown block consumed by ``{{schema}}`` in the prompt template."""
-    if not schema_path.exists():
-        raise ValueError(f"The file {schema_path.absolute().as_posix()} doesn't exist.")
-    
-    with open(schema_path, 'r') as file:
-        datasets = json.load(file)
+def _render_col(name: str, col: list[Any]) -> str | None:
+    """One column ``[dtype, desc, values?]``; None when it carries no information."""
+    dtype = col[0] if len(col) > 0 else None
+    desc = _one_line(col[1]) if len(col) > 1 else ""
+    values = col[2] if len(col) > 2 and col[2] else []
+    if not dtype and not desc:  # graph noise, e.g. a field named `where`
+        return None
 
-    if not datasets:
-        return "``(none)``"
-    
+    line = f"  - `{name}` ({dtype or '?'})"
+    if desc:
+        line += f" — {desc}"
+    if values:
+        shown = values[:MAX_VALUES_SHOWN]
+        more = (
+            f", ...(+{len(values) - MAX_VALUES_SHOWN})"
+            if len(values) > MAX_VALUES_SHOWN
+            else ""
+        )
+        line += f"  values={shown}{more}"
+    return line
+
+
+def render_schema(tables: dict[str, Any] | None) -> str:
+    """Markdown block consumed by ``{{schema}}`` in the prompt template."""
+    if not tables:
+        return NONE_BLOCK
+
     parts: list[str] = []
-    for ds in datasets:
-        domain = ds.get("domain") or ""
-        table = ds.get("table_name") or ds.get("dataset_name") or "<unknown>"
-        full = f"{table}"
-        desc = ds.get("description") or ""
-        dtype = ds.get("dataset_type") or ""
-        head = f"### Table: {full}"
-        if domain or dtype:
-            head += f"  ({'/'.join(p for p in [domain, dtype] if p)})"
-        parts.append(head)
-        if desc:
-            parts.append(f"- description: {desc}")
-        
+    for name, t in tables.items():
+        parts.append(f"### Table: {name}")
+        if t.get("desc"):
+            parts.append(f"- description: {_one_line(t['desc'])}")
+        if t.get("note"):
+            parts.append(f"- note: {_one_line(t['note'])}")
         parts.append("- columns:")
-        for col in ds.get("columns") or []:
-            cname = col.get("column_name", "?")
-            ctype = col.get("dtype", "?") or col.get("data_type", "?")
-            comment = (col.get("description") or col.get("comment") or "").replace("\n", " ").strip()
-            if col.get("topline_value"):
-                comment += f" (topline_value={col.get('topline_value')!r})"
-            line = f"  - `{cname}` ({ctype})"
-            if comment:
-                line += f" — {comment}"
-            ctype_tag = col.get("column_type")
-            if ctype_tag:
-                line += f" [{ctype_tag}]"
-            enums = col.get("enums") or []
-            if enums:
-                shown = enums[:10]
-                more = "" if len(enums) <= 10 else f", ...(+{len(enums) - 10})"
-                line += f"  enums={shown}{more}"
-            elif col.get("sample"):
-                line += f"  sample={col['sample']!r}"
-            elif col.get("sample_values"):
-                line += f"  sample={col['sample_values']!r}"
-            parts.append(line)
+        for col_name, col in (t.get("cols") or {}).items():
+            line = _render_col(col_name, col)
+            if line:
+                parts.append(line)
         parts.append("")  # blank line between tables
     return "\n".join(parts).rstrip() + "\n"
-
-
-def load_problem(problem_path: str | Path | None) -> dict[str, Any]:
-    if problem_path:
-        return read_json(problem_path)
-    return {}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -161,16 +122,14 @@ def main(argv: list[str] | None = None) -> int:
     logger = setup_logging(args.log_level)
 
     try:
-        structured_problem = load_problem(Path(args.problem))
-        question = structured_problem.get("question", "")
-        metrics_part = render_metrics(Path(args.metrics))
-        schema_part = render_schema(Path(args.schema))
-        template_vars: dict[str, Any] = {
-            "schema": schema_part,
-            "metrics": metrics_part,
-            "question": question,
-        }
-        prompt_text = render_prompt("nl2sql.md", **template_vars)
+        question = read_json(args.problem).get("question", "")
+        context = read_json(args.context)
+        prompt_text = render_prompt(
+            "nl2sql.md",
+            schema=render_schema(context.get("tables")),
+            metrics=render_metrics(context.get("metrics")),
+            question=question,
+        )
     except Exception as e:
         fatal(logger, str(e))
         return 1

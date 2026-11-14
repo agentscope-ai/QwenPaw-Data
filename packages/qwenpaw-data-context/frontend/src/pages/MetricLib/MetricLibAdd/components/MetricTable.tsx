@@ -1,7 +1,4 @@
-import {
-  CloseOutlined,
-  InfoCircleOutlined,
-} from '@/design';
+import { CloseOutlined, InfoCircleOutlined } from '@/design';
 import type { ActionType, EditableFormInstance, ProColumns } from '@/design';
 import { EditableProTable } from '@/design';
 import { Button, Space, Typography } from '@/design';
@@ -178,7 +175,9 @@ const MetricTable: React.FC<MetricTableProps> = ({
               onClick={() => {
                 action?.saveEditable?.(record.id);
               }}
-            >{t('common.save')}</Button>
+            >
+              {t('common.save')}
+            </Button>
             <Button
               type="link"
               size="small"
@@ -187,12 +186,9 @@ const MetricTable: React.FC<MetricTableProps> = ({
                 action?.cancelEditable?.(record.id);
               }}
             />
-            <Button
-              type="link"
-              danger
-              size="small"
-              onClick={() => onDeleteRow(record.id)}
-            >{t('common.delete')}</Button>
+            <Button type="link" danger size="small" onClick={() => onDeleteRow(record.id)}>
+              {t('common.delete')}
+            </Button>
           </Space>
         );
       }
@@ -205,13 +201,12 @@ const MetricTable: React.FC<MetricTableProps> = ({
               action?.startEditable?.(record.id);
               onEditableKeysChange([record.id]);
             }}
-           >{t('common.edit')}</Button>
-          <Button
-            type="link"
-            danger
-            size="small"
-            onClick={() => onDeleteRow(record.id)}
-           >{t('common.delete')}</Button>
+          >
+            {t('common.edit')}
+          </Button>
+          <Button type="link" danger size="small" onClick={() => onDeleteRow(record.id)}>
+            {t('common.delete')}
+          </Button>
         </Space>
       );
     },
@@ -261,9 +256,7 @@ const MetricTable: React.FC<MetricTableProps> = ({
         emptyText: (
           <div style={{ padding: 40, textAlign: 'center' }}>
             <InfoCircleOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />
-            <p style={{ marginTop: 16, color: '#999' }}>
-              {t('metricAdd.emptyTableHint')}
-            </p>
+            <p style={{ marginTop: 16, color: '#999' }}>{t('metricAdd.emptyTableHint')}</p>
           </div>
         ),
       }}

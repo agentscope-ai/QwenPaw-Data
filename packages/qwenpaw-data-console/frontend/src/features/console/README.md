@@ -1,17 +1,30 @@
 # Console feature boundary
 
 `DataConsole` is the standalone conversation console for the new
-`datapaw-host-core/api`. It lives in `packages/datapaw-host-core/frontend`
+`qwenpaw-data-host-core/api`. It lives in `packages/qwenpaw-data-console/frontend`
 and is not a UI wrapper around the legacy `qwenpaw-plugin` console.
 
 ## Structure
 
 - `src/pages/`: route-level screens only (`Console`, `Sessions`, and settings).
 - `src/layouts/ConsoleLayout/`: shared `/console` route shell and outlet context.
-- `components/`: Console navigation, workspace, and AgentScope Runtime renderers.
-- `mocks/`: removable demo fixtures and the AgentScope Runtime mock adapter.
+- `components/`: Console navigation, workspace, and AgentScope Runtime renderers;
+  styled components use `ComponentName/index.tsx` plus `index.module.less`.
+- `index.module.less`: page/component-owned CSS Modules live beside their owner;
+  `features/console/index.module.less` contains only cross-component states,
+  responsive rules, and shared design primitives.
 - `api/`: wire types, REST client, and authenticated SSE reader for `/api`.
-- `model/`: event projection, navigation policies, and the Console controller hook.
+- `model/artifacts/`: artifact access, HTML preview, and Markdown serialization.
+- `model/chat/`: the Console controller hook and chat/session request helpers.
+- `model/plan/`: plan projection and editor policies.
+- `model/runtime/`: SSE projection, Runtime message mapping, timeline, and queue policies.
+- `model/session/`: Console-owned session list and polling policies.
+- `model/settlement/`: settlement card projection and loading hook.
+
+Cron scheduling and catalog filtering live under their owning features in
+`src/features/cron/model/` and `src/features/sessions/model/`. Route builders
+shared by the Console shell and those pages live in
+`src/shared/navigation/sessionNavigation.ts`.
 
 The `/console` route owns the entire Host Core frontend viewport. DataBridge
 remains a separate Context Management frontend and is reached through its
@@ -36,5 +49,6 @@ running Chat from its `last_sequence_number`. New input is acknowledged through
 `POST /console/chat`; the returned Chat and its SSE stream update the same
 projection used by the conversation and workspace shell.
 
-`mocks/runtime.ts` remains only as an explicit visual/test fixture. Production
-components do not import or create the mock Runtime session/response.
+Large artifact-list visual checks use the development-only `mock_artifacts`
+query parameter implemented by `SessionWorkspace`; production builds do not
+create mock Runtime sessions or responses.

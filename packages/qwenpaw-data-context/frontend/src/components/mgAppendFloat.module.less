@@ -1,0 +1,107 @@
+/* Matches Graph Center Cypher overlay: top-right glass card + iOS ease. */
+
+.float {
+  z-index: 9;
+  width: min(420px, calc(100% - 28px));
+  max-height: calc(100% - 28px);
+  overflow: auto;
+  padding: 14px 16px 16px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #d9d9d9;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+  pointer-events: none;
+  transform-origin: top right;
+  transition:
+    opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.canvas {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.page {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+}
+
+.open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.titles {
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin: -4px -6px 0 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: rgba(0, 0, 0, 0.88);
+    background: rgba(0, 0, 0, 0.04);
+  }
+}
+
+.form {
+  :global(.ant-form-item) {
+    margin-bottom: 12px;
+  }
+
+  :global(.ant-form-item:last-child) {
+    margin-bottom: 0;
+  }
+
+  :global(textarea.ant-input),
+  :global(.ant-input) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

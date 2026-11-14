@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 """Settlement card subject identity for dedupe / replace."""
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
 # Strip a single trailing parenthetical annotation from an entity display name.
-_TRAILING_PAREN = re.compile(
-    r"^(?P<head>.+?)\s*[（(][^）)]*[）)]\s*$"
-)
+_TRAILING_PAREN = re.compile(r"^(?P<head>.+?)\s*[（(][^）)]*[）)]\s*$")
 # Table / datasource id: keep the token before the first paren annotation.
-_LEADING_TOKEN = re.compile(
-    r"^(?P<head>[^（(]+?)(?:\s*[（(].*)?$"
-)
+_LEADING_TOKEN = re.compile(r"^(?P<head>[^（(]+?)(?:\s*[（(].*)?$")
 
 
 def canonical_name(raw: str) -> str:
@@ -73,7 +70,7 @@ def _annotation_text(raw: str) -> str:
         return ""
     # recover inner annotation
     inner = re.search(r"[（(]([^）)]*)[）)]\s*$", text)
-    return (inner.group(1).strip() if inner else "")
+    return inner.group(1).strip() if inner else ""
 
 
 def subject_key(card_type: str, fields: dict[str, Any]) -> str | None:

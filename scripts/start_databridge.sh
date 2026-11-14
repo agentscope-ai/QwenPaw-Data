@@ -14,6 +14,7 @@ Options:
   --log-level LEVEL           Log level for uvicorn. Default: info
   --reload                    Enable DataBridge service reload mode
   --skip-frontend             Start only the database and DataBridge API
+  --skip-neo4j                Use the configured Neo4j without starting a local instance
   -h, --help                  Show this help
 
 Environment:
@@ -45,9 +46,13 @@ context_root="${repo_root}/packages/qwenpaw-data-context"
 frontend_root="${context_root}/frontend"
 frontend_port="3000"
 
-# shellcheck source=scripts/env.sh
-source "${script_dir}/env.sh"
+# shellcheck source=scripts/common/env.sh
+source "${script_dir}/common/env.sh"
 load_qwenpaw_data_env
+graph_backend="$(qwenpaw_data_graph_backend)" || exit $?
+if [[ "${graph_backend}" == "holo_age" ]]; then
+  qwenpaw_data_require_holo_age_env || exit $?
+fi
 
 host="${CONTEXT_HOST:-127.0.0.1}"
 frontend_host="${FRONTEND_HOST:-127.0.0.1}"
@@ -55,6 +60,7 @@ port="${CONTEXT_PORT:-8765}"
 log_level="${CONTEXT_LOG_LEVEL:-info}"
 reload=0
 skip_frontend=0
+skip_neo4j=0
 api_pid=""
 frontend_pid=""
 
@@ -100,6 +106,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-frontend)
       skip_frontend=1
+      shift
+      ;;
+    --skip-neo4j)
+      skip_neo4j=1
       shift
       ;;
     -h|--help)
@@ -255,7 +265,13 @@ start_databases() {
 
 cd "${context_root}"
 
-start_databases
+if [[ "${graph_backend}" == "neo4j" && "${skip_neo4j}" != "1" ]]; then
+  start_databases
+elif [[ "${graph_backend}" == "neo4j" ]]; then
+  echo "Using configured Neo4j without starting a local instance."
+else
+  echo "Graph backend: Holo AGE (using configured external connection)."
+fi
 
 cmd=(
   "${python_cmd}" scripts/serve.py

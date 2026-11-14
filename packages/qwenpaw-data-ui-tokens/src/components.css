@@ -1,0 +1,643 @@
+/* Shared component geometry and surface semantics for Data Console and Context. */
+
+.qwenpaw-data-sider-account-card {
+  position: relative;
+  display: grid;
+  width: 100%;
+  padding: 10px;
+  color: var(--qwenpaw-data-color-text-secondary);
+  background: rgb(255 255 255 / 72%);
+  border: 1px solid rgb(148 163 184 / 16%);
+  border-radius: 18px;
+  box-shadow: none;
+  gap: 9px;
+}
+
+.qwenpaw-data-sider-account-card__identity {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.qwenpaw-data-sider-account-card__identity-row {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 2px 6px 2px 2px;
+  align-items: center;
+  color: #334155;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 16px;
+  cursor: pointer;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  transition:
+    color var(--qwenpaw-data-motion-fast) ease,
+    background var(--qwenpaw-data-motion-fast) ease;
+}
+
+.qwenpaw-data-sider-account-card__identity-row:hover,
+.qwenpaw-data-sider-account-card__identity-row:focus-visible,
+.qwenpaw-data-sider-account-card__identity-row[aria-expanded='true'] {
+  color: var(--qwenpaw-data-color-primary-active);
+  background: rgb(219 234 254 / 58%);
+  outline: none;
+}
+
+.qwenpaw-data-sider-account-card__identity-row:focus-visible {
+  box-shadow: 0 0 0 2px rgb(22 119 255 / 22%);
+}
+
+.qwenpaw-data-sider-account-card__identity-row > strong,
+.qwenpaw-data-sider-account-card__identity-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qwenpaw-data-sider-account-card__identity-row > strong {
+  font-weight: 650;
+}
+
+.qwenpaw-data-sider-account-card__workspace-row {
+  color: #718096;
+}
+
+.qwenpaw-data-sider-account-card__workspace-row > span:last-child {
+  font-size: 12px;
+}
+
+.qwenpaw-data-sider-account-card__identity-icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #54708f;
+  font-size: 15px;
+  background: rgb(255 255 255 / 86%);
+  border: 1px solid rgb(148 163 184 / 16%);
+  border-radius: 50%;
+}
+
+.qwenpaw-data-sider-account-card__actions {
+  display: grid;
+  padding-top: 8px;
+  border-top: 1px solid rgb(148 163 184 / 16%);
+  gap: 6px;
+}
+
+.qwenpaw-data-sider-account-card__action-slot {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  place-items: center;
+}
+
+.qwenpaw-data-sider-account-card__action-slot +
+.qwenpaw-data-sider-account-card__action-slot::before {
+  position: absolute;
+  top: 50%;
+  left: -3px;
+  width: 1px;
+  height: 14px;
+  background: rgb(148 163 184 / 26%);
+  content: '';
+  transform: translateY(-50%);
+}
+
+.qwenpaw-data-sider-account-card__action-slot button,
+.qwenpaw-data-sider-account-card__action-slot .ant-btn {
+  display: inline-grid !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  place-items: center;
+  color: #61738a !important;
+  font-size: 15px;
+  line-height: 1;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+}
+
+.qwenpaw-data-sider-account-card__action-slot button:hover,
+.qwenpaw-data-sider-account-card__action-slot button:focus-visible,
+.qwenpaw-data-sider-account-card__action-slot .ant-btn:hover,
+.qwenpaw-data-sider-account-card__action-slot .ant-btn:focus-visible {
+  color: var(--qwenpaw-data-color-primary-active) !important;
+  background: rgb(219 234 254 / 78%) !important;
+}
+
+.qwenpaw-data-sider-account-card__action-slot button:disabled,
+.qwenpaw-data-sider-account-card__action-slot .ant-btn:disabled {
+  color: #9aa5b4 !important;
+  background: transparent !important;
+  cursor: not-allowed;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card {
+  color: var(--qwenpaw-data-color-text-secondary);
+  background: rgb(20 27 36 / 78%);
+  border-color: rgb(148 163 184 / 20%);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__identity-row,
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__workspace-row {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__identity-row:hover,
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__identity-row:focus-visible,
+:root[data-qwenpaw-data-theme='dark']
+  .qwenpaw-data-sider-account-card__identity-row[aria-expanded='true'] {
+  color: var(--qwenpaw-data-color-primary-hover);
+  background: rgb(64 150 255 / 14%);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__identity-icon {
+  color: #9db3cc;
+  background: rgb(255 255 255 / 6%);
+  border-color: rgb(148 163 184 / 20%);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__actions {
+  border-top-color: rgb(148 163 184 / 20%);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__action-slot +
+.qwenpaw-data-sider-account-card__action-slot::before {
+  background: rgb(148 163 184 / 30%);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__action-slot button,
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__action-slot .ant-btn {
+  color: #aab7c8 !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__action-slot button:hover,
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__action-slot button:focus-visible,
+:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__action-slot .ant-btn:hover,
+:root[data-qwenpaw-data-theme='dark']
+  .qwenpaw-data-sider-account-card__action-slot .ant-btn:focus-visible {
+  color: var(--qwenpaw-data-color-primary-hover) !important;
+  background: rgb(64 150 255 / 16%) !important;
+}
+
+.qwenpaw-data-sider-account-dropdown .ant-dropdown-menu {
+  min-width: 196px;
+}
+
+.qwenpaw-data-sider-workspace-dropdown {
+  inset-inline-start: -1px !important;
+  inset-inline-end: auto !important;
+  width: calc(100% + 2px) !important;
+}
+
+.qwenpaw-data-sider-workspace-dropdown .ant-dropdown-menu {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.qwenpaw-data-sider-workspace-dropdown .ant-dropdown-menu-item-group-list {
+  margin-inline: 0;
+}
+
+.ant-btn,
+.ant-btn-compact-item {
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
+}
+
+.ant-btn-icon-only {
+  aspect-ratio: 1;
+  padding-inline: 0 !important;
+  border-radius: 50% !important;
+}
+
+input.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-input-number-group-wrapper,
+.ant-input-search .ant-input-group,
+.ant-select-selector,
+.ant-picker {
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
+}
+
+/* Keep the text caret clear of the fully rounded input edge. Affix inputs use
+ * their wrapper as the inset so the padding is applied exactly once. */
+input.ant-input {
+  padding-inline: 16px !important;
+}
+
+.ant-input-affix-wrapper {
+  padding-inline: 16px !important;
+}
+
+.ant-input-affix-wrapper > input.ant-input {
+  padding-inline: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Input.Search is one control: the addon and icon button must not create a
+ * second surface or a seam inside the pill outline. */
+.ant-input-search {
+  overflow: hidden;
+  background: var(--qwenpaw-data-color-form-surface) !important;
+  border: 1px solid var(--qwenpaw-data-color-border-secondary) !important;
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
+  transition:
+    border-color var(--qwenpaw-data-motion-fast) ease,
+    box-shadow var(--qwenpaw-data-motion-fast) ease;
+}
+
+.ant-input-search:hover {
+  border-color: var(--qwenpaw-data-color-primary-hover) !important;
+}
+
+.ant-input-search:focus-within {
+  border-color: var(--qwenpaw-data-color-primary) !important;
+  box-shadow: 0 0 0 2px var(--qwenpaw-data-color-primary-bg) !important;
+}
+
+.ant-input-search .ant-input-group,
+.ant-input-search .ant-input-affix-wrapper,
+.ant-input-search .ant-input-group-addon,
+.ant-input-search .ant-input-search-button {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.ant-input-search .ant-input-affix-wrapper {
+  padding-inline: 16px 8px !important;
+}
+
+.ant-input-search .ant-input-group-addon {
+  border-radius: 0 !important;
+}
+
+.ant-input-search .ant-input-search-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50% !important;
+}
+
+.ant-input-search .ant-input-search-button:hover,
+.ant-input-search .ant-input-search-button:focus-visible {
+  background: var(--qwenpaw-data-color-fill) !important;
+}
+
+/* Textarea affix wrappers also carry the generic input wrapper class. Keep
+ * this more specific than page-level pill overrides, including runtime forms. */
+textarea.ant-input,
+.ant-input-affix-wrapper.ant-input-textarea-affix-wrapper,
+textarea.data-runtime-input,
+.data-runtime-input-affix-wrapper.data-runtime-input-textarea-affix-wrapper {
+  border-radius: var(--qwenpaw-data-radius-textarea) !important;
+}
+
+.ant-card:not(.ant-card-type-inner),
+.ant-pro-card:not(.ant-card-type-inner),
+.qwenpaw-data-card-primary {
+  background: transparent;
+  border: 1px solid var(--qwenpaw-data-color-border) !important;
+  border-radius: var(--qwenpaw-data-radius-card-primary) !important;
+  box-shadow: none;
+  transition:
+    border-color var(--qwenpaw-data-motion-fast) ease,
+    box-shadow var(--qwenpaw-data-motion-fast) ease,
+    transform var(--qwenpaw-data-motion-fast) ease;
+}
+
+.ant-card:not(.ant-card-type-inner):hover,
+.ant-pro-card:not(.ant-card-type-inner):hover,
+.qwenpaw-data-card-primary:hover {
+  box-shadow: var(--qwenpaw-data-card-hover-shadow);
+}
+
+.ant-card.ant-card-type-inner,
+.ant-pro-card.ant-card-type-inner,
+.qwenpaw-data-card-secondary {
+  background: var(--qwenpaw-data-color-fill-tertiary);
+  border: 0 !important;
+  border-radius: var(--qwenpaw-data-radius-card-secondary) !important;
+  box-shadow: none;
+}
+
+.ant-modal .ant-modal-content,
+.ant-drawer .ant-drawer-content {
+  overflow: hidden;
+  background: var(--qwenpaw-data-color-drawer-surface);
+  border: 0 !important;
+  border-radius: var(--qwenpaw-data-radius-overlay-large) !important;
+  box-shadow: var(--qwenpaw-data-overlay-shadow) !important;
+}
+
+.ant-drawer .ant-drawer-content-wrapper {
+  box-shadow: none !important;
+}
+
+/* Route drawers stay inside the rounded route surface instead of covering the canvas. */
+.qwenpaw-data-route-drawer.ant-drawer {
+  position: absolute;
+  overflow: hidden;
+}
+
+.qwenpaw-data-route-drawer .ant-drawer-mask {
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.qwenpaw-data-route-drawer .ant-drawer-content-wrapper {
+  box-sizing: border-box;
+  max-width: calc(100% - var(--qwenpaw-data-space-sm));
+  padding: var(--qwenpaw-data-space-sm) var(--qwenpaw-data-space-sm) var(--qwenpaw-data-space-sm) 0;
+}
+
+.qwenpaw-data-route-drawer .ant-drawer-content {
+  box-shadow: 0 4px 16px -6px rgb(15 23 42 / 22%) !important;
+}
+
+.ant-drawer .ant-drawer-close {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0 !important;
+  place-items: center;
+  border: 0 !important;
+  border-radius: 50% !important;
+}
+
+.ant-drawer .ant-drawer-close:hover,
+.ant-drawer .ant-drawer-close:focus-visible {
+  background: var(--qwenpaw-data-color-fill) !important;
+}
+
+.qwenpaw-data-route-drawer .ant-picker,
+.qwenpaw-data-route-drawer .ant-input,
+.qwenpaw-data-route-drawer .ant-input-affix-wrapper,
+.qwenpaw-data-route-drawer .ant-input-number,
+.qwenpaw-data-route-drawer .ant-select-selector {
+  border-color: var(--qwenpaw-data-color-border-secondary) !important;
+}
+
+.qwenpaw-data-route-drawer .ant-picker:hover,
+.qwenpaw-data-route-drawer .ant-input:hover,
+.qwenpaw-data-route-drawer .ant-input-affix-wrapper:hover,
+.qwenpaw-data-route-drawer .ant-input-number:hover,
+.qwenpaw-data-route-drawer .ant-select:hover .ant-select-selector {
+  border-color: var(--qwenpaw-data-color-primary-hover) !important;
+}
+
+.qwenpaw-data-route-drawer .ant-picker-focused,
+.qwenpaw-data-route-drawer .ant-input:focus,
+.qwenpaw-data-route-drawer .ant-input-focused,
+.qwenpaw-data-route-drawer .ant-input-affix-wrapper-focused,
+.qwenpaw-data-route-drawer .ant-input-number-focused,
+.qwenpaw-data-route-drawer .ant-select-focused .ant-select-selector {
+  border-color: var(--qwenpaw-data-color-primary) !important;
+  box-shadow: 0 0 0 2px var(--qwenpaw-data-color-primary-bg) !important;
+}
+
+.qwenpaw-data-route-drawer .ant-picker {
+  padding-inline: 16px;
+}
+
+.qwenpaw-data-route-drawer .ant-picker-input {
+  min-width: 0;
+}
+
+.qwenpaw-data-route-drawer .ant-picker-input > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.qwenpaw-data-route-drawer .ant-picker-suffix {
+  flex: none;
+  margin-inline: 8px 0;
+}
+
+.qwenpaw-data-route-drawer .ant-input-textarea-affix-wrapper {
+  padding-inline: 0 !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] input.ant-input,
+:root[data-qwenpaw-data-theme='dark'] textarea.ant-input,
+:root[data-qwenpaw-data-theme='dark'] .ant-input-affix-wrapper,
+:root[data-qwenpaw-data-theme='dark'] .ant-input-textarea-affix-wrapper,
+:root[data-qwenpaw-data-theme='dark'] .ant-input-number,
+:root[data-qwenpaw-data-theme='dark'] .ant-input-number-input,
+:root[data-qwenpaw-data-theme='dark'] .ant-select-selector,
+:root[data-qwenpaw-data-theme='dark'] .ant-picker {
+  background: var(--qwenpaw-data-color-form-surface) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-tooltip .ant-tooltip-inner {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-tooltip-surface);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-tooltip .ant-tooltip-arrow::before {
+  background: var(--qwenpaw-data-color-tooltip-surface);
+}
+
+.qwenpaw-data-route-drawer .ant-input-textarea-affix-wrapper > textarea.ant-input {
+  padding-inline: 12px !important;
+}
+
+.qwenpaw-data-route-drawer .ant-form-item-label > label {
+  width: 100%;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.qwenpaw-data-form-label-with-description {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.qwenpaw-data-form-label-text {
+  flex: none;
+  white-space: nowrap;
+}
+
+.qwenpaw-data-form-label-description {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--qwenpaw-data-color-text-quaternary);
+  font-size: var(--qwenpaw-data-font-size-base);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ant-modal .ant-modal-header,
+.ant-modal .ant-modal-footer,
+.ant-drawer .ant-drawer-header,
+.ant-drawer .ant-drawer-body,
+.ant-drawer .ant-drawer-footer {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-drawer-surface);
+  border: 0 !important;
+}
+
+.ant-dropdown .ant-dropdown-menu,
+.ant-popover .ant-popover-inner,
+.ant-select-dropdown,
+.ant-picker-dropdown .ant-picker-panel-container,
+.ant-cascader-dropdown,
+.ant-tree-select-dropdown {
+  background: var(--qwenpaw-data-color-drawer-surface);
+  border: 0 !important;
+  border-radius: var(--qwenpaw-data-radius-overlay-small) !important;
+  box-shadow: var(--qwenpaw-data-overlay-shadow) !important;
+}
+
+.ant-select-dropdown .ant-select-item {
+  border-radius: var(--qwenpaw-data-radius-sm) !important;
+}
+
+.ant-tooltip,
+.data-runtime-tooltip {
+  box-sizing: border-box;
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: min(420px, calc(100vw - 24px)) !important;
+}
+
+.ant-tooltip .ant-tooltip-content,
+.data-runtime-tooltip .data-runtime-tooltip-content {
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.qwenpaw-data-popup-pill {
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
+}
+
+.ant-tooltip .ant-tooltip-inner,
+.data-runtime-tooltip .data-runtime-tooltip-inner {
+  box-sizing: border-box;
+  display: flex;
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  align-items: center;
+  padding: 8px 12px !important;
+  border-radius: var(--qwenpaw-data-radius-overlay-small) !important;
+  font-size: 12px !important;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.qwenpaw-data-popup-multiline {
+  border-radius: var(--qwenpaw-data-radius-overlay-small) !important;
+}
+
+.qwenpaw-data-overflow-tooltip {
+  width: max-content !important;
+  max-width: min(420px, calc(100vw - 24px)) !important;
+}
+
+.qwenpaw-data-overflow-tooltip .ant-tooltip-inner {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.qwenpaw-data-overflow-tooltip-multiline {
+  width: max-content !important;
+  max-width: min(420px, calc(100vw - 24px)) !important;
+}
+
+.qwenpaw-data-overflow-tooltip-multiline .ant-tooltip-content,
+.qwenpaw-data-overflow-tooltip-multiline .ant-tooltip-inner {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  min-inline-size: 0 !important;
+}
+
+.qwenpaw-data-overflow-tooltip .qwenpaw-data-popup-multiline {
+  border-radius: var(--qwenpaw-data-radius-overlay-small) !important;
+}
+
+.ant-tag,
+.ant-tabs-tab,
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab,
+.ant-pagination-item,
+.ant-pagination-prev .ant-pagination-item-link,
+.ant-pagination-next .ant-pagination-item-link,
+.ant-pagination-options .ant-select-selector,
+.ant-pagination-options-quick-jumper input,
+.ant-segmented,
+.ant-segmented-item {
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
+}
+
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab-active,
+.ant-segmented-item-selected {
+  background: var(--qwenpaw-data-color-form-surface) !important;
+}
+
+.ant-pagination-item-active {
+  background: var(--qwenpaw-data-color-primary-bg) !important;
+}
+
+/* Frame block code once, at the editor/viewer boundary rather than each line. */
+.cm-editor,
+.ant-codeHighlighter,
+.data-runtime-codeHighlighter,
+.qwenpaw-data-code-frame,
+pre:not(:where(.ant-codeHighlighter, .data-runtime-codeHighlighter) pre) {
+  border: 1px solid var(--qwenpaw-data-color-border-secondary, #f0f0f0) !important;
+  border-radius: var(--qwenpaw-data-radius-lg, 12px) !important;
+}
+
+.cm-editor .cm-scroller {
+  border-radius: inherit;
+}
+
+.cm-editor.cm-focused {
+  border-color: var(--qwenpaw-data-color-primary) !important;
+  box-shadow: 0 0 0 2px var(--qwenpaw-data-color-primary-bg);
+  outline: none;
+}
+
+.ant-codeHighlighter,
+.data-runtime-codeHighlighter {
+  overflow: hidden;
+}
+
+.ant-codeHighlighter .ant-codeHighlighter-code,
+.data-runtime-codeHighlighter .data-runtime-codeHighlighter-code {
+  border: 0;
+}
+
+pre:not(:where(.ant-codeHighlighter, .data-runtime-codeHighlighter) pre) {
+  padding: 12px 16px;
+  overflow: auto;
+}

@@ -15,7 +15,7 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
 ## 核心原则
 
 1. **SKILL 即规范**：每个 SKILL.md 由领域专家编写，定义了该能力唯一正确的执行流程。即使你认为可以简化，也必须完整遵循
-2. **脚本优先**：有脚本（scripts/）必须调脚本，不可用时才降级为自行实现
+2. **脚本优先**：SKILL.md 点名且文件存在的脚本必须调用；没有则按步骤/fallback 做，不要编造脚本
 3. **参数优先级**：用户显式指定 > 域知识包 > 语义层接口 > SKILL 默认值
 4. **按需调用**：禁止一次性预读所有 SKILL，根据当前执行到的子任务和步骤逐个加载对应 SKILL
 
@@ -31,15 +31,15 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
 | ---- | ---- | ---- | ----- |
 | L0 路由 | `skills/routing/` | 判定用户意图属于哪种任务类型（查询/分析/建模/报告/非数据），将请求分发至对应处理链路 | `data-intent-router` |
 | L1 规划 | `skills/planning/` | 补充上下文、匹配分析模块和指标，将用户需求转化为结构化的可执行分析计划 | `analysis-plan-builder` |
-| Workflows | `skills/workflows/` | 按分析计划编排原子技能与取数能力，完成从数据获取到结论汇总的完整分析流程 | `fetch-data`（取数）<br>`bi-metric-analysis`（指标观测与异常归因）<br>`bi-retention-analysis`（留存率分析）<br>`bi-conversion-analysis`（转化率分析）<br>`bi-cohort-analysis`（同期群分析） |
-| Atomic | `skills/atomic/` | 执行单一、独立的分析动作（计算、检测、下拆、归因、聚类、报告等） | **指标观测与计算**：`bi-metric-observation`、`bi-retention-rate`、`bi-conversion-rate`<br>**异常检测与阈值**：`bi-anomaly-detection`、`bi-adaptive-threshold`<br>**归因与下钻**：`bi-dimension-drilldown`、`bi-attribution-analysis`、`bi-time-impact-attribution`、`bi-new-dimension-analysis`<br>**统计与画像**：`bi-event-analysis`、`bi-funnel-analysis`、`bi-comparison-analysis`、`bi-distribution-analysis`、`bi-clustering`、`bi-ltv-analysis`<br>**报告输出**：`bi-report-generation` |
-| Runtime | `skills/runtime/` | 横切面强制规范，约束所有层的执行行为（产物落盘、数据复用、异常处理、语义层查询） | `runtime-guide`、`bi-semantic-layer-guide` |
+| Workflows | `skills/workflows/` | 按分析计划编排原子技能与取数能力，完成从数据获取到结论汇总的完整分析流程 | `fetch-data`（取数）<br>`bi-metric-analysis`（指标观测与异常归因）<br>`bi-retention-analysis`（留存率分析）<br>`bi-conversion-analysis`（转化率分析）<br>`bi-cohort-analysis`（同期群分析）<br>`report-reproduction`（报告复现：复现已有业务报告的数值与样式，并固化为周期任务）<br>`data-science-analysis`（本地数据文件的定量分析）<br>`data-modeling`（表格数据的预测建模） |
+| Atomic | `skills/atomic/` | 执行单一、独立的分析动作（计算、检测、下拆、归因、聚类、报告等） | **指标观测与计算**：`bi-metric-observation`、`bi-retention-rate`、`bi-conversion-rate`<br>**异常检测与阈值**：`bi-anomaly-detection`、`bi-adaptive-threshold`<br>**归因与下钻**：`bi-dimension-drilldown`、`bi-attribution-analysis`、`bi-time-impact-attribution`、`bi-new-dimension-analysis`、`bi-causal-attribution`<br>**统计与画像**：`bi-funnel-analysis`、`bi-comparison-analysis`、`bi-distribution-analysis`、`bi-clustering`、`bi-ltv-analysis`<br>**报告输出**：`bi-report-generation`、`bi-dashboard-generation`、`report-format-extractor`、`report-schedule-builder` |
+| Domains | `skills/domains/` | 特定数据源 / 工具的使用规则，由取数与规划类技能按需加载 | `cm-skills`（CM 工具与图查询）<br>`query-odps`（ODPS 只读 SQL 规范） |
 | Meta | `skills/meta/` | 仓库使用与协作约定，加载其它任何 SKILL 之前必须先读 | `skill-hub-guide`（本文件） |
 
 
 ### 典型调用链路
 
-下面给出几种常见任务类型的链路。Runtime 层（`runtime-guide`、`bi-semantic-layer-guide`）在所有链路里**全程生效**，不再在每条链路中重复展开；`fetch-data` 在任何需要新取数的链路前置生效。
+下面给出几种常见任务类型的链路。落盘与反问遵循系统提示；`fetch-data` 在任何需要新取数的链路前置生效。需要向用户消歧或确认时，统一按系统提示的反问规则调用 `ask_user_question`。
 
 #### 1. BI 业务分析链路（任务类型 = 2a）
 
@@ -128,7 +128,7 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
   → Workflows fetch-data           按子任务序列按需取数
   → 按子任务序列调用 Atomic：
       bi-distribution-analysis（分布、缺失、异常值）、
-      bi-event-analysis（事件计数与聚合）、
+      bi-metric-observation（事件计数与聚合）、
       bi-clustering（密度型子结构发现）等
   → 无固定 Workflows 编排，由 agent 按计划串接
 ```
@@ -154,7 +154,7 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
   → Workflows fetch-data           取计算所需数据
   → 直接调用对应 Atomic：
       bi-ltv-analysis、bi-funnel-analysis、bi-conversion-rate、
-      bi-retention-rate、bi-event-analysis、bi-distribution-analysis 之一或多个
+      bi-retention-rate、bi-metric-observation、bi-distribution-analysis 之一或多个
   → 返回计算结果（一般无需走 L1 规划）
 ```
 
@@ -166,7 +166,21 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
   → Atomic bi-report-generation    将既有结论组织为可视化 HTML 报告
 ```
 
-#### 6. 数据查询链路（任务类型 = 1a / 1b）
+#### 6. 报告复现链路（任务类型 = 2f）
+
+```
+用户提供已有报告（上传文件或 URL），要求复现其数值与样式，或把已验证的复现固化为周期任务
+  → L0 data-intent-router          判定为报告复现（2f）
+  → Workflows report-reproduction  首轮仅 `rr parse` 建出 manifest 并生成 Plan，随后停止；
+                                   后续轮次按 Section 推进：
+      → fetch-data / query-odps        Section 需要新数据时按口径取数、写 ODPS SQL
+      → bi-* 分析 Skill                按 recipe 引用的分析方法计算
+      → report-schedule-builder        基线 Section 全部通过后，冻结 recipe 并产出定时任务描述符
+      → report-format-extractor        提取原报告的版式规范 format_spec.json
+      → bi-report-generation           按 format_spec.json 生成最终 report.html
+```
+
+#### 7. 数据查询链路（任务类型 = 1a / 1b）
 
 ```
 用户问题
@@ -178,17 +192,7 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
 
 ## 强制约束
 
-### 必须做
+以下规则执行时必须遵守：
 
-- 每个步骤必须查阅对应 SKILL.md，按其定义的步骤顺序执行
-- 产物必须落盘，遵循 `runtime-guide` 定义的目录和命名规范；取数产物遵循 `fetch-data` 定义的存储路径
 - 同一份数据只获取一次，不重复计算
-- 异常如实记录，不隐藏、不替代、不编造
-- 语义层可用时，按 `bi-semantic-layer-guide` 优先查询指标定义与维度信息，再进入业务计算
-
-### 禁止做
-
-- 禁止跳过 SKILL 定义的步骤（如跳过异常检测直接归因、跳过取数直接编结果）
-- 禁止忽略脚本（脚本可用时不得自行实现替代）
-- 禁止编造数据（所有数字必须来自数据文件）
-- 禁止自行发明分析方法（SKILL 未定义的方法不得使用）
+- 取数产物的路径遵循 `fetch-data` 的定义；系统提示 `<qwenpaw-data-analysis-environment>` 只规定 Session 产物目录，不覆盖该技能自己的存储路径

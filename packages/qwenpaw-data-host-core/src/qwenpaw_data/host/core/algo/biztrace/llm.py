@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from agentscope.message import SystemMsg, UserMsg
 
+from qwenpaw_data.tracing.core.names import Step
+
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
 
@@ -135,7 +137,7 @@ class StructuredLLM:
         system: str,
         user: str,
         schema: dict[str, Any],
-        schema_name: str,
+        step: Step,
     ) -> dict[str, Any]:
         """Return the parsed object, raising StructuredLLMError on failure."""
 
@@ -147,7 +149,7 @@ class StructuredLLM:
             last_error: Exception | None = None
             for attempt in range(self.attempts):
                 try:
-                    return await self._call(messages, schema, schema_name)
+                    return await self._call(messages, schema, step)
                 # The transport is provider SDK code now, and a small model
                 # missing the schema is not an exception type worth naming:
                 # anything short of cancellation is one failed attempt.
@@ -171,31 +173,28 @@ class StructuredLLM:
                     )
             self.failures += 1
             raise StructuredLLMError(
-                f"{schema_name} generation failed: {last_error}"
+                f"{step} generation failed: {last_error}"
             ) from last_error
 
     async def _call(
         self,
         messages: list[Any],
         schema: dict[str, Any],
-        schema_name: str,
+        step: Step,
     ) -> dict[str, Any]:
-        """One attempt, capped by this step's own budget.
-
-        The model retries the calls its provider considers retryable, so the
-        cap is what keeps a stalled step from outliving the turn it belongs to.
-        """
+        """One attempt, capped by this step's own budget so a stalled step cannot outlive its turn."""
 
         response = await asyncio.wait_for(
             self.model.generate_structured_output(
                 messages=messages,
                 structured_model=_tolerant_schema(schema),
+                source_step=step,
             ),
             timeout=self.timeout,
         )
         payload = response.content
         if not isinstance(payload, dict):
-            raise StructuredLLMError(f"{schema_name} response is not a JSON object")
+            raise StructuredLLMError(f"{step} response is not a JSON object")
         return _decode_containers(payload, schema)
 
 

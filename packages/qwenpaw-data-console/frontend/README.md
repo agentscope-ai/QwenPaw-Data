@@ -1,15 +1,49 @@
-# Console frontend
+# QwenPawData Host Core Frontend
 
-Shared React chat application for the official Host HTTP/SSE contract.
-Product branding is supplied by `ConsoleConfig` at runtime, through
-`/console-config.js`; no domain-specific rebuild is required.
+Standalone React frontend for `qwenpaw-data-host-core`.
 
-From the repository root, run `python scripts/build_console.py` to build
-both packaged UIs. Run `npm test --prefix packages/qwenpaw-data-console/frontend`
-for stream projection and API contract checks.
+The application owns the Session / Chat / Segment / Plan / Artifact / Trace
+console and talks to the Host Core `/api` routes. Context Management and
+DataBridge remain in `packages/qwenpaw-data-context/frontend`.
 
-For frontend development, `npm run dev` proxies local APIs to a Console
-running on port 18768. The dev server listens on 18769.
+## Local development
 
-Optional `QWENPAW_DATA_CONSOLE_SMOKE_PATH` points to a real Host replay JSON
-containing `chat` and `events`. The contract test checks chunked SSE replay.
+Start the Host Core API:
+
+```bash
+export QWENPAW_DATA_HOME="$HOME/.qwenpaw-data"
+export QWENPAW_DATA_DB_URL="sqlite+aiosqlite:///${QWENPAW_DATA_HOME}/host.sqlite3"
+uvicorn qwenpaw_data.host.core.api.app:app --reload --port 8000
+```
+
+When `QWENPAW_DATA_AUTH_SECRET` is set, also start the Auth API on port `8088` and
+sign in through the DataBridge frontend before opening the Host console.
+
+Start this frontend:
+
+```bash
+cd packages/qwenpaw-data-console/frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3100/console`.
+
+Environment variables:
+
+- `VITE_API_BASE_URL`: optional absolute Host Core API URL.
+- `QWENPAW_DATA_HOST_API_BASE_URL`: Vite development proxy target; defaults to
+  `http://localhost:8000`.
+- `VITE_AUTH_API_URL` / `VITE_AUTH_URL`: Auth API URL. Development requests
+  to `/api/auth/me`, `/api/auth/refresh`, and `/api/auth/switch-workspace` use
+  the local proxy; production builds use this absolute URL when configured.
+- `VITE_AUTH_FRONTEND_URL`: login frontend used for authentication redirects.
+- `VITE_CONTEXT_FRONTEND_URL`: DataBridge frontend entry; defaults to
+  `http://localhost:3000`.
+
+## Theme
+
+The color palette, typography, radii, and control sizing are defined once in
+`src/theme.ts` and passed through `@agentscope-ai/design` `ConfigProvider`.
+Page CSS consumes the emitted semantic CSS variables and should not patch
+Ant Design component colors directly.

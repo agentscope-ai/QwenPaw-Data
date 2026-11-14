@@ -1,58 +1,29 @@
-"""Standalone QwenPaw Data agent (AgentScope 2.0)."""
+"""QwenPawData AgentScope agent shared by production runtimes."""
 
 from __future__ import annotations
 
-import logging
-import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
-from pathlib import Path, PurePath
-from typing import Any, Literal
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
-from agentscope.event import (
-    AgentEvent,
-    ReplyStartEvent,
-    RequireUserConfirmEvent,
-    UserConfirmResultEvent,
+from agentscope.agent import Agent
+from agentscope.agent._config import (
+    ContextConfig,
+    InjectionConfig,
+    ModelConfig,
+    ReActConfig,
 )
-from agentscope.message import AssistantMsg, Msg, TextBlock
+from agentscope.event import ReplyStartEvent, AgentEvent
+from agentscope.message import AssistantMsg, Msg, TextBlock, UserMsg
 from agentscope.middleware import MiddlewareBase
 from agentscope.model import ChatModelBase
 from agentscope.permission import PermissionContext, PermissionMode
-from agentscope.state import AgentState
+from agentscope.state import AgentState, TaskContext
 from agentscope.tool import Toolkit
 from agentscope.workspace import Offloader
 
-from ..artifact_paths import model_visible_path
-from ..config import DEFAULT_PROMPT_DIR
-from ..mcp_cm import inject_datasource_metadata
-from ..orchestration import DefaultGraphToHint, RuntimeStateManager
-from ..orchestration.middleware import (
-    QwenPawDataHintMiddleware,
-    QwenPawDataPromptMiddleware,
-    QwenPawDataReplyMiddleware,
-    QwenPawDataTraceMiddleware,
-)
-from ..orchestration.task_graph import (
-    SOP,
-    graph_nodes,
-    is_graph_done,
-    nodes_to_sop,
-    sop_to_nodes,
-)
-from ..permission import ConfirmationHandler, deny_confirmation
-from ..utils.msg import user_msg
-from .mcp_client_log import log_mcp_client_event
-from .tool_diagnostics import log_awaiting_tool_calls
-from .middleware.tool_timeout import ToolTimeoutMiddleware
-
-logger = logging.getLogger(__name__)
-
-_MAX_DRIVE_ROUNDS = 6
-
 
 class QwenPawDataAgent(Agent):
-    """Standalone QwenPaw Data agent built on AgentScope 2.0 ``Agent``."""
+    """QwenPawData agent shared by production runtimes."""
 
     def __init__(
         self,
@@ -65,225 +36,59 @@ class QwenPawDataAgent(Agent):
         offloader: Offloader | None = None,
         model_config: ModelConfig = ModelConfig(),
         context_config: ContextConfig = ContextConfig(),
-        react_config: ReActConfig = ReActConfig(
-            max_iters=100, interruption_raise_cancelled_error=True,
-        ),
         *,
-        runtime_state: RuntimeStateManager | None = None,
+        react_config: ReActConfig,
         request_context: dict[str, Any] | None = None,
-        mode: str = "agent",
-        session_id: str = "default",
-        workspace_dir: PurePath | str | None = None,
-        artifact_dir: PurePath | str | None = None,
-        session_trace_writer: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-        confirmation_handler: ConfirmationHandler | None = None,
     ) -> None:
-        self._mode: Literal["plan", "agent"] = mode  # type: ignore[assignment]
-        self._session_id = session_id
-        self._workspace_dir = model_visible_path(
-            workspace_dir or getattr(offloader, "workdir", Path.cwd()),
-        )
-        self._artifact_dir = model_visible_path(
-            artifact_dir or self._workspace_dir / "artifacts" / session_id,
-        )
-        self._runtime_state = runtime_state or RuntimeStateManager(
-            graph_to_hint=DefaultGraphToHint(),
-        )
         self._request_context = dict(request_context or {})
-        self._session_trace_writer = session_trace_writer
-        self._confirmation_handler = confirmation_handler
-        self._cm_mcp_tool_prefixes = set(
-            getattr(toolkit, "_qwenpaw_data_cm_mcp_tool_prefixes", set()),
-        )
-
-        if state is None:
-            state = AgentState(
-                permission_context=PermissionContext(
-                    mode=PermissionMode.DONT_ASK,
-                ),
-            )
-
-        middlewares = [ToolTimeoutMiddleware()] + (middlewares or []) + self._build_middlewares()
-
         super().__init__(
             name=name,
             system_prompt=system_prompt,
             model=model,
             toolkit=toolkit,
-            middlewares=middlewares,
-            state=state,
+            middlewares=middlewares or [],
+            state=state
+            if state is not None
+            else AgentState(
+                permission_context=PermissionContext(mode=PermissionMode.BYPASS),
+            ),
             offloader=offloader,
             model_config=model_config,
             context_config=context_config,
             react_config=react_config,
+            injection_config=InjectionConfig(timezone="Asia/Shanghai"),
         )
 
-        self.set_mode(mode)
+    def get_plan(self) -> TaskContext:
+        return self.state.tasks_context
 
-    @property
-    def session_id(self) -> str:
-        return self._session_id
-
-    @property
-    def plan_notebook(self) -> RuntimeStateManager:
-        """Backward-compatible alias for _runtime_state."""
-        return self._runtime_state
-
-    def set_mode(self, new_mode: str) -> None:
-        if new_mode not in ("agent", "plan"):
-            logger.warning("QwenPawDataAgent.set_mode: invalid mode %r", new_mode)
-            return
-        self._mode = new_mode  # type: ignore[assignment]
-        self.state.tool_context.activated_groups = [new_mode]
-        set_qwenpaw_data_mode = getattr(self.toolkit, "set_qwenpaw_data_mode", None)
-        if callable(set_qwenpaw_data_mode):
-            set_qwenpaw_data_mode(new_mode)
-
-    def set_request_context(self, request_context: dict[str, Any] | None) -> None:
-        self._request_context = dict(request_context or {})
-
-    def get_plan(self) -> SOP:
-        """返回当前规划结果。"""
-        rs = self._runtime_state
-        graph_id = rs.current_graph_id
-        if not graph_id:
-            raise RuntimeError(
-                "planning did not produce a task graph; "
-                "check the model output and plan-mode prompt.",
-            )
-        return nodes_to_sop(rs._nodes, graph_id, rs._graph_registry)
-
-    def get_plan_states(self) -> dict[str, str]:
-        """当前活跃图的 ``node_id → state`` 快照。"""
-        rs = self._runtime_state
-        graph_id = rs.current_graph_id
-        if not graph_id:
-            return {}
-        return {n.id: n.state for n in graph_nodes(rs._nodes, graph_id)}
-
-    async def replace_plan(
+    def replace_plan(
         self,
-        sop: SOP | dict | str,
+        plan: TaskContext,
         *,
         reason: str | None = None,
-    ) -> SOP:
-        """整体替换当前计划；节点运行态重置为 todo，由后续执行重新推进。"""
-        rs = self._runtime_state
-        graph_id, nodes, graph_meta = sop_to_nodes(sop)
-        rs._graph_registry[graph_id] = graph_meta
-        await rs.load_graph_from_nodes(graph_id, nodes)
+    ) -> TaskContext:
+        """Replace the current Plan. Concurrent with Plan tools: last write wins."""
+        self.state.tasks_context = plan
         self.state.context.append(self._plan_changed_message(reason))
-        return nodes_to_sop(rs._nodes, graph_id, rs._graph_registry)
+        return self.state.tasks_context
 
     @staticmethod
-    def _plan_changed_message(reason: str | None = None) -> Msg:
+    def _plan_changed_message(reason: str | None = None) -> UserMsg:
         lines = [
             "[用户更新了当前计划]",
             "当前计划已被完整替换，请依据最新的 system plan hint 继续。",
         ]
         if reason:
             lines.append(f"修改原因：{reason}")
-        return user_msg("\n".join(lines))
+        return UserMsg(name="user", content="\n".join(lines))
 
-    async def execute_sop(
-        self,
-        sop: SOP | dict | str,
-        *,
-        stream: bool = False,
-    ) -> Msg | AsyncGenerator[AgentEvent, None]:
-        """加载 SOP 并驱动当前 agent 执行到完成。"""
-
-        async def event_stream() -> AsyncGenerator[AgentEvent, None]:
-            rs = self._runtime_state
-            graph_id, nodes, graph_meta = sop_to_nodes(sop)
-            rs._graph_registry[graph_id] = graph_meta
-            await rs.load_graph_from_nodes(graph_id, nodes)
-            async for event in self.reply_stream(
-                user_msg(
-                    "请按当前已加载的执行计划（current_plan）逐步执行，"
-                    "完成每个节点后用 update_subtask 记录进度，直到所有节点完成。",
-                ),
-            ):
-                yield event
-
-        if stream:
-            return event_stream()
-
-        msg = await self._collect_reply(event_stream())
-        return self._finalize_reply(msg)
+    def set_request_context(self, request_context: dict[str, Any] | None) -> None:
+        self._request_context = dict(request_context or {})
 
     async def reply(self, inputs: Any = None) -> Msg:
         msg = await self._collect_reply(self.reply_stream(inputs))
         return self._finalize_reply(msg)
-
-    async def reply_stream(
-        self,
-        inputs: Any = None,
-    ) -> AsyncGenerator[AgentEvent, None]:
-        # A later graph-free reply must not inherit the previous turn's result.
-        self._runtime_state.last_finished_graph_id = None
-        try:
-            async for event in self._reply_with_confirmations(inputs):
-                yield event
-        except Exception:
-            log_awaiting_tool_calls(
-                agent_name=self.name,
-                state=self.state,
-                source="reply_stream",
-            )
-            raise
-
-        if self._mode != "agent":
-            return
-
-        graph_id = self._runtime_state.current_graph_id
-        if graph_id and not is_graph_done(self._runtime_state._nodes, graph_id):
-            async for event in self._continue_current_graph_stream(graph_id):
-                yield event
-
-    async def _reply_with_confirmations(
-        self,
-        inputs: Any,
-    ) -> AsyncGenerator[AgentEvent, None]:
-        """Drive AgentScope confirmation events without leaving a run parked."""
-        pending_inputs = inputs
-        while True:
-            confirmation: RequireUserConfirmEvent | None = None
-            async for event in super().reply_stream(pending_inputs):
-                if isinstance(event, RequireUserConfirmEvent):
-                    confirmation = event
-                yield event
-
-            if confirmation is None:
-                return
-
-            result = await self._resolve_confirmation(confirmation)
-            pending_inputs = result
-
-    async def _resolve_confirmation(
-        self,
-        event: RequireUserConfirmEvent,
-    ) -> UserConfirmResultEvent:
-        if self._confirmation_handler is None:
-            logger.warning(
-                "permission confirmation requested without a handler; denying",
-            )
-            return deny_confirmation(event)
-        try:
-            result = await self._confirmation_handler(event)
-        except Exception:
-            logger.warning(
-                "permission confirmation handler failed; denying",
-                exc_info=True,
-            )
-            return deny_confirmation(event)
-        if result.reply_id != event.reply_id:
-            logger.warning(
-                "permission confirmation handler returned a mismatched reply id; "
-                "denying",
-            )
-            return deny_confirmation(event)
-        return result
 
     async def _collect_reply(
         self,
@@ -305,18 +110,10 @@ class QwenPawDataAgent(Agent):
 
         if final_msg is None:
             raise RuntimeError("QwenPawDataAgent did not produce a final message.")
-
         return final_msg
 
     def _finalize_reply(self, msg: Msg) -> Msg:
-        if self._mode != "agent":
-            return msg
-
-        graph_id = (
-            self._runtime_state.current_graph_id
-            or self._runtime_state.last_finished_graph_id
-        )
-        return self.set_execution_metadata(msg, graph_id=graph_id)
+        return msg
 
     async def handle_interrupt(
         self,
@@ -324,142 +121,9 @@ class QwenPawDataAgent(Agent):
         **kwargs: Any,
     ) -> Msg:
         _ = (msg, kwargs)
-        gn = self._runtime_state._graph_nodes()
-        if gn:
-            from ..orchestration.task_graph import graph_to_markdown
-
-            graph_md = graph_to_markdown(
-                self._runtime_state._nodes,
-                self._runtime_state._current_graph_id or "",
-            )
-            text = (
-                f"任务已暂停。当前进度：\n{graph_md}\n\n"
-                "你可以：\n"
-                "- 直接说「继续」恢复执行\n"
-                "- 告诉我需要修改的内容\n"
-                "- 在任务面板中修改后点击继续"
-            )
-        else:
-            text = "已中断。有什么需要调整的吗？"
-
         return Msg(
             name=self.name,
-            content=[TextBlock(type="text", text=text)],
+            content=[TextBlock(type="text", text="已中断。有什么需要调整的吗？")],
             role="assistant",
             metadata={"_is_interrupted": True},
         )
-
-    def set_execution_metadata(self, msg: Msg, *, graph_id: str | None) -> Msg:
-        rs = self._runtime_state
-        msg.metadata["graph_id"] = graph_id
-        msg.metadata["completed"] = bool(graph_id) and is_graph_done(rs._nodes, graph_id)
-        msg.metadata["nodes"] = [
-            {"id": n.id, "name": n.name, "state": n.state}
-            for n in graph_nodes(rs._nodes, graph_id)
-        ] if graph_id else []
-        msg.metadata["artifacts"] = [
-            item.model_dump(mode="json") for item in rs.artifacts
-        ]
-        return msg
-
-    async def _continue_current_graph_stream(
-        self,
-        graph_id: str,
-    ) -> AsyncGenerator[AgentEvent, None]:
-        rs = self._runtime_state
-        try:
-            async for event in self._reply_with_confirmations(
-                user_msg("继续执行剩余未完成的节点。"),
-            ):
-                yield event
-        except Exception:
-            log_awaiting_tool_calls(
-                agent_name=self.name,
-                state=self.state,
-                source="continue_current_graph",
-            )
-            raise
-        rounds = 1
-        while (
-            not is_graph_done(rs._nodes, graph_id)
-            and rounds < _MAX_DRIVE_ROUNDS
-        ):
-            try:
-                async for event in self._reply_with_confirmations(
-                    user_msg("继续执行剩余未完成的节点。"),
-                ):
-                    yield event
-            except Exception:
-                log_awaiting_tool_calls(
-                    agent_name=self.name,
-                    state=self.state,
-                    source="continue_current_graph",
-                )
-                raise
-            rounds += 1
-
-    def _inject_datasource_metadata(self, tool_call: Any) -> None:
-        inject_datasource_metadata(
-            tool_call,
-            request_context=self._request_context,
-            cm_mcp_tool_prefixes=self._cm_mcp_tool_prefixes,
-        )
-
-    async def _execute_tool_call(
-        self,
-        tool_call: Any,
-        kept_rules: list[Any] | None = None,
-    ) -> AsyncGenerator[Any, None]:
-        """Inject CM metadata before AgentScope validates tool inputs."""
-        self._inject_datasource_metadata(tool_call)
-        tool_name = str(getattr(tool_call, "name", "") or "")
-        if not tool_name.startswith("mcp__"):
-            async for item in super()._execute_tool_call(tool_call, kept_rules):
-                yield item
-            return
-
-        # MCP tool call: mirror DataBridge's protocol log on the client side
-        # so a hang can be attributed by comparing both logs.
-        call_id = str(getattr(tool_call, "id", "") or "")
-        log_mcp_client_event(
-            "MCP_TOOL_CALL_START tool=%s tool_call_id=%s", tool_name, call_id,
-        )
-        t0 = time.monotonic()
-        try:
-            async for item in super()._execute_tool_call(tool_call, kept_rules):
-                yield item
-        except BaseException as exc:
-            log_mcp_client_event(
-                "MCP_TOOL_CALL_END tool=%s tool_call_id=%s %dms error=%s: %s",
-                tool_name,
-                call_id,
-                int((time.monotonic() - t0) * 1000),
-                type(exc).__name__,
-                exc,
-            )
-            raise
-        log_mcp_client_event(
-            "MCP_TOOL_CALL_END tool=%s tool_call_id=%s %dms",
-            tool_name,
-            call_id,
-            int((time.monotonic() - t0) * 1000),
-        )
-
-    def _build_middlewares(self) -> list[MiddlewareBase]:
-        """Build the QwenPaw Data middleware stack."""
-        rs = self._runtime_state
-        return [
-            QwenPawDataReplyMiddleware(rs),
-            QwenPawDataTraceMiddleware(
-                rs,
-                session_trace_writer=self._session_trace_writer,
-            ),
-            QwenPawDataPromptMiddleware(
-                mode_getter=lambda: self._mode,
-                session_id=self._session_id,
-                workspace_dir=self._workspace_dir,
-                artifact_dir=self._artifact_dir,
-                prompt_dir=DEFAULT_PROMPT_DIR,
-            ),
-            QwenPawDataHintMiddleware(rs),
-        ]

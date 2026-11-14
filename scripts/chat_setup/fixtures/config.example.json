@@ -1,0 +1,61 @@
+{
+  "accounts": {
+    "platform_admin": "platform_admin",
+    "tenants": [
+      {
+        "key": "acme",
+        "id": "fb48c81f2e8741a9",
+        "name": "Acme",
+        "admin": "acme-admin",
+        "default_workspace": {
+          "key": "ws1",
+          "id": "d35d88a968f84ffc",
+          "name": "WS-1"
+        },
+        "extra_workspaces": []
+      }
+    ],
+    "users": [
+      {
+        "username": "acme-admin",
+        "tenant": "acme",
+        "role": "tenant_admin",
+        "workspace": null
+      },
+      {
+        "username": "alice",
+        "tenant": "acme",
+        "role": "member",
+        "workspace": "ws1"
+      }
+    ]
+  },
+  "models": {
+    "host": {
+      "provider_id": "dashscope",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen3.6-plus",
+      "api_key": ""
+    },
+    "llm": {
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen3.7-max",
+      "api_key": ""
+    },
+    "embedding": {
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "text-embedding-v3",
+      "dim": 1024,
+      "api_key": ""
+    }
+  },
+  "datasource": {
+    "name": "holo_demo",
+    "host": "",
+    "port": 5432,
+    "database": "holo_demo",
+    "user": "postgres",
+    "password": ""
+  },
+  "workbook": ""
+}

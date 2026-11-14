@@ -3,544 +3,478 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-from datetime import datetime, timezone
-from functools import partial
-from pathlib import Path
-from typing import Any, Awaitable, Callable, Literal
+from contextlib import suppress
+from typing import Any, Literal
 
+from agentscope.agent import Agent
 from agentscope.event import EventType
-from agentscope.message import UserMsg
+from agentscope.state import TaskContext
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from qwenpaw_data.host.core.algo.biztrace.transformer import BizTraceTransformer
-from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
-from qwenpaw_data.host.core.algo.settlement import SettlementManager, SettlementSettings
+from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.agent.tools.plan_tools import PLAN_TOOL_NAMES
 from qwenpaw_data.host.core.domain.chat import Chat
-from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
+from qwenpaw_data.host.core.domain.chat_failure import ChatFailure
+from qwenpaw_data.host.core.domain.exception import IterationLimitExceeded
 from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.orchestration.tools import PLAN_TOOL_NAMES
-from qwenpaw_data.host.core.registry import QwenPawDataHostRegistry
+from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
+from qwenpaw_data.host.core.integrations.cm import fetch_datasource_type
+from qwenpaw_data.host.core.tracing.records import tracer_send_status, tracer_send_stop
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.settings import get_settings
+from qwenpaw_data.host.core.repositories import (
+    ChatCommandRepository,
+    ChatRepository,
+    McpRepository,
+    PreferencesRepository,
+    SessionRepository,
+    SkillStateRepository,
+)
+from qwenpaw_data.host.core.repositories.agent_state import AgentStateStore
+from qwenpaw_data.host.core.runtime.builder import get_agent_builder
 from qwenpaw_data.host.core.runtime.context import RunContext
 from qwenpaw_data.host.core.runtime.envelope import Envelope
 from qwenpaw_data.host.core.runtime.executor import AgentExecutor
-from qwenpaw_data.host.core.runtime.registry import get_runtime_registry
+from qwenpaw_data.host.core.query_log import Step, log_error, log_info
 from qwenpaw_data.host.core.runtime.turn import TurnInput
-from qwenpaw_data.host.core.store.protocols import ChatEventStore, ChatStore
 from qwenpaw_data.host.core.stream.hub import get_hub
+from qwenpaw_data.host.core.utils.agent import close_interrupted_tool_calls
+from qwenpaw_data.host.core.utils.plan import to_task_context
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
-from qwenpaw_data.host.core.utils.ids import create_id
-from qwenpaw_data.host.core.utils.workspace import list_session_files
+from qwenpaw_data.host.core.utils.time import utcnow
+from qwenpaw_data.host.core.workspace import get_workspace_manager
 
 Outcome = Literal["completed", "canceled", "failed"]
 
-FOLLOWUP_ENABLED_ENV = "QWENPAW_DATA_FOLLOWUP_ENABLED"
-BIZTRACE_ENABLED_ENV = "QWENPAW_DATA_BIZ_TRACE_ENABLED"
-BIZTRACE_JOIN_TIMEOUT_SECONDS = 90.0
-
 logger = logging.getLogger(__name__)
-
-# Keep strong references to fire-and-forget settlement runs until they finish.
-_SETTLEMENT_TASKS: set[asyncio.Task] = set()
-
-
-def _followup_enabled() -> bool:
-    raw = (os.environ.get(FOLLOWUP_ENABLED_ENV) or "1").strip().lower()
-    return raw not in {"0", "false", "off"}
-
-
-def _biztrace_enabled() -> bool:
-    raw = (os.environ.get(BIZTRACE_ENABLED_ENV) or "1").strip().lower()
-    return raw not in {"0", "false", "off"}
 
 
 class ChatRuntime:
-    """Orchestrate one Chat turn on a Session-scoped host agent."""
+    """Orchestrate one Chat turn on a Session-scoped agent."""
 
     def __init__(
         self,
-        *,
-        chats: ChatStore,
-        events: ChatEventStore,
-        hosts: QwenPawDataHostRegistry,
-        prefs: Any = None,
-        sessions: Any = None,
-        settlement: Any = None,
+        session_factory: async_sessionmaker[AsyncSession],
+        chat_id: str,
     ) -> None:
-        self.chats = chats
-        self.events = events
-        self.hosts = hosts
-        self.prefs = prefs
-        self.sessions = sessions
-        self.settlement = settlement
-        self._executor = AgentExecutor()
+        self.session_factory = session_factory
+        self._chat_id = chat_id
+        self._executor: AgentExecutor | None = None
+        self._tasks: list[asyncio.Task] = []
         self._finished = asyncio.Event()
         self._cancel_requested = False
-        self._agent: Any = None
+        self._agent: QwenPawDataAgent | None = None
         self._run_context: RunContext | None = None
-        self._stream: OutputStream | None = None
-        self._followup: FollowUpRecommend | None = None
-        self._biztrace: BizTraceTransformer | None = None
-        self._envelope: Envelope | None = None
-        self._artifact_seen: dict[str, tuple[int, int]] = {}
+        self._access_token: str | None = None
 
     @property
-    def agent(self) -> Any:
+    def agent(self) -> QwenPawDataAgent:
         if self._agent is None:
             raise RuntimeError("CONFLICT: chat runtime agent is not ready")
         return self._agent
 
-    def answer(
-        self,
-        *,
-        clarification_id: str,
-        result: dict[str, Any],
-    ) -> None:
-        self._executor.answer_clarification(
-            clarification_id=clarification_id,
-            result=result,
-        )
-
-    async def steer(
-        self,
-        text: str,
-        artifact_comments: list[dict] | None = None,
-    ) -> None:
-        """Enqueue steer text and wait until it is injected into the agent."""
-        await self._executor.steer(text, artifact_comments)
-
     async def run(
         self,
-        chat_id: str,
         *,
         identity: Identity,
+        access_token: str | None = None,
+        mcp_headers: dict[str, dict[str, str]] | None = None,
         runtime_config: UserRuntimeConfig | None = None,
         context_model_header: str | None = None,
     ) -> None:
-        registry = get_runtime_registry()
-        registry.register(chat_id, self)
         try:
             await self._run(
-                chat_id,
                 identity=identity,
+                access_token=access_token,
+                mcp_headers=mcp_headers or {},
                 runtime_config=runtime_config,
                 context_model_header=context_model_header,
             )
         finally:
-            await self._executor.stop()
-            registry.unregister(chat_id)
-            self._finished.set()
-            await get_hub().close(chat_id)
+            await self.clear()
 
-    async def cancel(self) -> None:
+    async def cancel(self, *, timeout: float | None = None) -> bool:
+        """Stop the turn and wait until it has unwound.
+
+        Returns once ``run`` has finished: the agent task and its tools are
+        gone, the workspace lease is released and the terminal event is
+        persisted. The wait is bounded (default: the heartbeat TTL, after which
+        the chat is treated as stale anyway); returns False if it ran out.
+        """
         if self._finished.is_set():
-            return
+            return True
+        await self._request_cancel()
+        if timeout is None:
+            timeout = get_settings().stream.heartbeat_ttl_seconds
+        try:
+            await asyncio.wait_for(self._finished.wait(), timeout=timeout)
+        except TimeoutError:
+            logger.warning(
+                "chat %s did not unwind within %ss of cancel", self._chat_id, timeout
+            )
+            return False
+        return True
+
+    async def _request_cancel(self) -> None:
         self._cancel_requested = True
-        await self._executor.stop()
-        await self._finished.wait()
+        if self._executor is not None:
+            await self._executor.stop()
+
+    async def clear(self) -> None:
+        # 取消后台任务（watch cancel 等）
+        for task in self._tasks:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        self._tasks.clear()
+
+        # 关闭agent执行器
+        if self._executor is not None:
+            await self._executor.stop()
+
+        # 其它
+        self._finished.set()
+        await get_hub().close(self._chat_id)
+
+    def add_watch_cancel_task(self) -> None:
+        async def watch() -> None:
+            interval = get_settings().stream.sse_poll_seconds
+            while not self._cancel_requested:
+                async with self.session_factory() as db:
+                    if await ChatCommandRepository(db).has_cancel(self._chat_id):
+                        # Not cancel(): clear() cancels this task before it
+                        # marks the run finished, so it must not wait for that.
+                        await self._request_cancel()
+                        return
+                await asyncio.sleep(interval)
+
+        self._tasks.append(asyncio.create_task(watch()))
+
+    def add_heartbeat_task(self, identity: Identity) -> None:
+        async def beat() -> None:
+            interval = get_settings().stream.heartbeat_interval_seconds
+            while not self._cancel_requested:
+                try:
+                    async with self.session_factory() as db:
+                        await ChatRepository(db, identity).touch_heartbeat(
+                            self._chat_id
+                        )
+                        await db.commit()
+                except Exception:
+                    logger.exception("chat %s heartbeat failed", self._chat_id)
+                await asyncio.sleep(interval)
+
+        self._tasks.append(asyncio.create_task(beat()))
+
+    def add_watch_plan_task(self) -> None:
+        if self._run_context is None:
+            raise RuntimeError("run context is required")
+        identity = self._run_context.identity
+
+        async def watch() -> None:
+            interval = get_settings().stream.sse_poll_seconds
+            while not self._cancel_requested:
+                async with self.session_factory() as db:
+                    pending = await ChatCommandRepository(db).take_plans(self._chat_id)
+                    if pending:
+                        for item in pending:
+                            self.agent.replace_plan(
+                                to_task_context(item["plan"]),
+                                reason=item["reason"],
+                            )
+                        await ChatRepository(db, identity).update_plan(
+                            self._chat_id, self.agent.get_plan()
+                        )
+                        await db.commit()
+                await asyncio.sleep(interval)
+
+        self._tasks.append(asyncio.create_task(watch()))
 
     async def _run(
         self,
-        chat_id: str,
         *,
         identity: Identity,
+        access_token: str | None,
+        mcp_headers: dict[str, dict[str, str]],
         runtime_config: UserRuntimeConfig | None = None,
         context_model_header: str | None = None,
     ) -> None:
-        chat = await self.chats.get(chat_id)
-        if chat.status != "running":
-            raise ValueError(f"chat not runnable: {chat.status}")
+        self._access_token = access_token
+        async with self.session_factory() as db:
+            chat = await ChatRepository(db, identity).get(self._chat_id)
+            if chat.status != "running":
+                raise ValueError(f"chat not runnable: {chat.status}")
+            session = await SessionRepository(db, identity).get(chat.session_id)
+            if not session.id.strip():
+                raise ValueError("session_id is required")
+            if runtime_config is None:
+                prefs = await PreferencesRepository(db, identity).load()
+                runtime_config = prefs.resolve()
+            disabled_skills = await SkillStateRepository(
+                db, identity, agent_id=session.agent_id
+            ).disabled_names()
+            state = await AgentStateStore(db, identity).load(session.id)
+        self.add_heartbeat_task(identity)
+        self.add_watch_cancel_task()
 
+        agent: QwenPawDataAgent | None = None
         envelope: Envelope | None = None
         outcome: Outcome = "failed"
-        error: dict[str, Any] | None = None
+        failure: ChatFailure | None = None
         try:
-            host = self.hosts.get(session_id=chat.session_id)
-            stream = OutputStream(
-                self.events,
-                session_id=chat.session_id,
-                chat_id=chat.id,
-                identity=chat.identity,
+            paths = UserAgentPaths.from_identity(
+                home=get_settings().paths.home,
+                identity=session.identity,
+                agent_id=session.agent_id,
+                session_id=session.id,
             )
-            self._stream = stream
-            envelope = Envelope(stream)
-            self._envelope = envelope
+            paths.artifact_dir.mkdir(parents=True, exist_ok=True)
+            envelope = Envelope(
+                self._output_stream(chat),
+                session_factory=self.session_factory,
+            )
             await envelope.begin()
-
-            request_context = {
-                "datasource_id": chat.datasource_id,
-                "user_id": chat.identity.user_id,
-            }
-            if runtime_config is not None:
-                from ..providers.factory import build_model
-
-                host.model = build_model(runtime_config.default)
-                if host._agent is not None:
-                    host._agent.model = host.model
-            agent = await host.get_agent(
-                mode="agent",
-                request_context=request_context,
-            )
-            if runtime_config is not None:
-                from ..api.models.runtime_models import MODEL_BINDING_HEADER
-
-                for client in getattr(agent.toolkit, "_qwenpaw_context_clients", []):
-                    await client.set_runtime_headers(
-                        {MODEL_BINDING_HEADER: context_model_header}
-                        if context_model_header
-                        else {}
-                    )
-            self._agent = agent
-            self._run_context = RunContext(
-                session_id=chat.session_id,
-                chat_id=chat.id,
-                workspace=host.workspace,
-                paths=host.paths,
-                identity=identity,
-                request_context=request_context,
-            )
-            if runtime_config is not None:
-                self._run_context.user_runtime_config = runtime_config
-            else:
-                await self._load_runtime_config(identity)
-            if _followup_enabled():
-                await self._start_followup(chat, envelope)
-            if _biztrace_enabled():
-                await self._start_biztrace(chat, envelope)
-            if self._cancel_requested:
-                outcome, error = "canceled", None
-            else:
-                await self._executor.start(
-                    agent,
-                    TurnInput.from_chat(chat),
-                    envelope,
-                    after_event_callback=self._after_event_callback,
+            async with get_workspace_manager().lease(paths) as workspace:
+                datasource_id = chat.datasource_id or session.datasource_id
+                dataset_names = chat.dataset_names or None
+                datasource_type = await fetch_datasource_type(
+                    access_token,
+                    datasource_id=datasource_id,
                 )
-                await self._deliver_biztrace()
-                await self._deliver_followup(envelope)
-                outcome, error = "completed", None
-        except asyncio.CancelledError:
-            outcome, error = "canceled", None
-        except Exception as exc:
-            logger.exception("chat %s failed", chat_id)
-            outcome, error = (
-                "failed",
-                {
-                    "code": "VALIDATION",
-                    "message": str(exc),
-                },
-            )
-
-        await self._executor.stop()
-        if outcome != "completed":
-            # Cancel/failure path: stop collecting without waiting on results.
-            if self._followup is not None:
-                await self._followup.append(None, last=True)
-            if self._biztrace is not None:
-                await self._biztrace.append(None, last=True)
-        await self._finish(chat, envelope, outcome, error=error)
-        if outcome == "completed":
-            self._schedule_settlement(chat, identity)
-
-    async def _load_runtime_config(self, identity: Identity) -> None:
-        """Attach the user's model preferences to the run context; never raises."""
-        if self.prefs is None or self._run_context is None:
-            return
-        try:
-            prefs = await self.prefs.load(identity.user_id)
-            self._run_context.user_runtime_config = prefs.runtime_config()
-        except Exception:
-            logger.exception("failed to load preferences for chat runtime")
-
-    def _schedule_settlement(self, chat: Chat, identity: Identity) -> None:
-        """Fire-and-forget settlement detection after a completed turn."""
-        if self.sessions is None or self.settlement is None:
-            return
-        try:
-            settings = SettlementSettings()
-            if not settings.enabled:
-                return
-            ctx = self._run_context
-            manager = SettlementManager(
-                sessions=self.sessions,
-                chats=self.chats,
-                events=self.events,
-                cards=self.settlement,
-                identity=identity,
-                user_runtime_config=ctx.user_runtime_config if ctx else None,
-                settings=settings,
-            )
-            task = asyncio.create_task(
-                manager.on_chat_finish(
+                await self._setup_mcp(
+                    workspace,
+                    paths=paths,
+                    session_id=session.id,
                     chat_id=chat.id,
-                    session_id=chat.session_id,
+                    envelope=envelope,
+                    access_token=access_token,
+                    mcp_headers=mcp_headers,
+                    datasource_id=datasource_id,
+                    dataset_names=dataset_names,
+                    context_model_header=context_model_header,
                 )
-            )
-            _SETTLEMENT_TASKS.add(task)
-            task.add_done_callback(_SETTLEMENT_TASKS.discard)
-        except Exception:
-            logger.exception(
-                "settlement: failed to schedule detection for chat %s", chat.id
-            )
+                run_context = RunContext(
+                    session_id=session.id,
+                    chat_id=chat.id,
+                    workspace=workspace,
+                    paths=paths,
+                    user_runtime_config=runtime_config,
+                    identity=identity,
+                    session_factory=self.session_factory,
+                    disabled_skills=disabled_skills,
+                    request_context={
+                        "datasource_id": datasource_id,
+                        "datasource_type": datasource_type,
+                        "dataset_names": dataset_names,
+                        "access_token": access_token,
+                        "parent_session_id": session.parent_session_id,
+                    },
+                )
+                self._run_context = run_context
+                self._executor = AgentExecutor(run_context)
+                self._log_chat_start(chat, run_context)
+                state.tasks_context = chat.plan
+                agent = await get_agent_builder(session.agent_id).build(
+                    run_context=run_context,
+                    envelope=envelope,
+                    state=state,
+                )
+                self._agent = agent
+                close_interrupted_tool_calls(agent)
+                self.add_watch_plan_task()
+                if self._cancel_requested:
+                    outcome, failure = "canceled", None
+                else:
+                    await self._executor.start(
+                        agent,
+                        TurnInput.from_chat(chat),
+                        envelope,
+                        after_event_callback=self._after_event_callback,
+                    )
+                    outcome, failure = "completed", None
+        except IterationLimitExceeded as exc:
+            outcome, failure = "failed", ChatFailure.iteration_limit(exc.agent_name)
+        except asyncio.CancelledError:
+            outcome, failure = "canceled", None
+        except Exception as exc:
+            logger.exception("chat %s failed", self._chat_id)
+            outcome, failure = "failed", ChatFailure.from_exception(exc)
 
-    async def _start_followup(
+        await self._finish(chat, agent, envelope, outcome, failure=failure)
+
+    def _output_stream(self, chat: Chat) -> OutputStream:
+        return OutputStream(
+            self.session_factory,
+            session_id=chat.session_id,
+            chat_id=chat.id,
+            identity=chat.identity,
+            last_sequence_number=chat.last_sequence_number,
+        )
+
+    async def _setup_mcp(
         self,
-        chat: Chat,
+        workspace: Any,
+        *,
+        paths: UserAgentPaths,
+        session_id: str,
+        chat_id: str,
         envelope: Envelope,
+        access_token: str | None,
+        mcp_headers: dict[str, dict[str, str]],
+        datasource_id: str | None,
+        dataset_names: list[str] | None,
+        context_model_header: str | None = None,
     ) -> None:
-        try:
-            followup = FollowUpRecommend(
-                run_context=self._run_context,
-                previous_followups=await self._load_previous_followups(chat),
-            )
-            await followup.start()
-            await followup.append(
-                {
-                    "kind": "user_input",
-                    "payload": UserMsg(
-                        name="user", content=chat.user_input
-                    ).model_dump(),
-                }
-            )
-            self._followup = followup
-        except Exception:
-            logger.exception("followup: failed to start for chat %s", chat.id)
-            self._followup = None
-
-    async def _start_biztrace(
-        self,
-        chat: Chat,
-        envelope: Envelope,
-    ) -> None:
-        try:
-            transformer = BizTraceTransformer(
-                run_context=self._run_context,
-                envelope=envelope,
-            )
-            await transformer.start()
-            await transformer.append(
-                {
-                    "kind": "user_input",
-                    "payload": UserMsg(
-                        name="user", content=chat.user_input
-                    ).model_dump(),
-                }
-            )
-            self._artifact_seen = self._artifact_snapshot()
-            self._biztrace = transformer
-        except Exception:
-            logger.exception("biztrace: failed to start for chat %s", chat.id)
-            self._biztrace = None
-
-    async def _deliver_biztrace(self) -> None:
-        """Cap the wait here: the algorithm's join is shielded and has no limit."""
-        biztrace = self._biztrace
-        if biztrace is None:
-            return
-        try:
-            await biztrace.append(None, last=True)
-            await asyncio.wait_for(
-                biztrace.join(), timeout=BIZTRACE_JOIN_TIMEOUT_SECONDS
-            )
-        except TimeoutError:
-            logger.warning(
-                "biztrace: join timed out after %ss for chat %s; "
-                "completing with raw trace only",
-                BIZTRACE_JOIN_TIMEOUT_SECONDS,
-                biztrace.chat_id,
-            )
-        except Exception:
-            logger.exception("biztrace: delivery failed")
-
-    async def _deliver_followup(self, envelope: Envelope) -> None:
-        followup = self._followup
-        if followup is None:
-            return
-        try:
-            await followup.append(None, last=True)
-            questions = await followup.join()
-            if questions:
-                await envelope.send_followup(questions)
-        except Exception:
-            logger.exception("followup: delivery failed")
-
-    async def _load_previous_followups(self, chat: Chat) -> tuple[str, ...]:
-        """Questions recommended earlier in this Session, for dedup."""
-        try:
-            chats = await self.chats.list_for_session(chat.session_id)
-            questions: list[str] = []
-            for prior in chats:
-                if prior.id == chat.id:
-                    continue
-                for obj in await self.events.read_after(prior.id, -1):
-                    if obj.object == "followup.generated":
-                        questions.extend(obj.followup.questions)
-            return tuple(questions)
-        except Exception:
-            logger.exception(
-                "followup: failed to load previous followups for session %s",
-                chat.session_id,
-            )
-            return ()
+        await McpRepository(paths.mcp_manifest).sync(
+            workspace,
+            agent_id=paths.agent_id,
+            session_id=session_id,
+            request_id=chat_id,
+            mcp_headers=mcp_headers,
+            stream=envelope.stream,
+            access_token=access_token,
+            datasource_id=datasource_id,
+            dataset_names=dataset_names,
+            context_model_header=context_model_header,
+        )
 
     async def _after_event_callback(self, event: Any) -> None:
-        if self._biztrace is not None and self._is_tool_success(event):
-            # Delta first: the pipeline binds pending files to the coming
-            # TOOL_RESULT_END, so order matters.
-            await self._register_new_files()
-        if hasattr(event, "model_dump"):
-            entry = {"kind": "agent_event", "payload": event.model_dump()}
-            if self._followup is not None:
-                await self._followup.append(dict(entry))
-            if self._biztrace is not None:
-                await self._biztrace.append(dict(entry))
         if event.type != EventType.TOOL_RESULT_START:
             return
         if event.tool_call_name not in PLAN_TOOL_NAMES:
             return
         await self._save_plan()
 
-    @staticmethod
-    def _is_tool_success(event: Any) -> bool:
-        evt_type = getattr(event, "type", None)
-        if hasattr(evt_type, "value"):
-            evt_type = evt_type.value
-        if evt_type != EventType.TOOL_RESULT_END.value:
-            return False
-        tool_state = getattr(event, "state", None)
-        if hasattr(tool_state, "value"):
-            tool_state = tool_state.value
-        return tool_state == "success"
-
-    async def _register_new_files(self) -> None:
-        """Diff the artifact directory; notify the stream and the algorithm."""
-        biztrace = self._biztrace
-        envelope = self._envelope
-        if biztrace is None or envelope is None:
-            return
-        try:
-            current = self._artifact_snapshot()
-            changed = [
-                path
-                for path, stamp in current.items()
-                if self._artifact_seen.get(path) != stamp
-            ]
-            self._artifact_seen = current
-            if not changed:
-                return
-            now = datetime.now(timezone.utc)
-            files: dict[str, str] = {}
-            for path in changed:
-                name = Path(path).name
-                await envelope.stream.artifact_registered(
-                    id=create_id("artifact"),
-                    name=name,
-                    path=path,
-                    created_at=now,
-                    updated_at=now,
-                )
-                files[name] = path
-            await biztrace.append(
-                {"kind": "artifact_delta", "payload": {"files": files}}
-            )
-        except Exception:
-            logger.exception(
-                "biztrace: failed to register artifact files for chat %s",
-                biztrace.chat_id,
-            )
-
-    def _artifact_snapshot(self) -> dict[str, tuple[int, int]]:
+    async def _save_plan(self) -> None:
         ctx = self._run_context
-        if ctx is None:
-            return {}
-        artifact_dir = Path(ctx.paths.artifact_dir)
-        stamps: dict[str, tuple[int, int]] = {}
-        for item in list_session_files(artifact_dir):
-            path = item["rel_path"]
-            try:
-                stat = (artifact_dir / path).stat()
-            except OSError:
-                continue
-            stamps[path] = (stat.st_size, stat.st_mtime_ns)
-        return stamps
-
-    async def replace_plan(
-        self,
-        plan: dict[str, Any],
-        *,
-        reason: str | None = None,
-    ) -> dict[str, Any]:
-        """Replace the live plan wholesale; persists and streams the snapshot."""
-        agent = self.agent
-        await agent.replace_plan(plan, reason=reason)
-        return await self._save_plan() or {}
-
-    async def _save_plan(self) -> dict[str, Any] | None:
-        ctx = self._run_context
-        stream = self._stream
-        if self._agent is None or ctx is None or stream is None:
-            return None
-        try:
-            snapshot = self._agent.get_plan().model_dump(mode="json")
-        except RuntimeError:
-            return None
-        if not snapshot.get("nodes"):
-            # finish_plan archives the graph; keep the last real plan
-            # visible instead of clobbering it with an empty snapshot.
-            return None
-        states = self._agent.get_plan_states()
-        for node in snapshot.get("nodes") or []:
-            state = states.get(node.get("node_id"))
-            if state is not None:
-                node["state"] = state
-        await self.chats.update_plan(ctx.chat_id, snapshot)
-        await stream.task_status(
-            event_type="graph_updated",
-            graph_snapshot=snapshot,
-        )
-        return snapshot
+        async with self.session_factory() as db:
+            await ChatRepository(db, ctx.identity).update_plan(
+                ctx.chat_id, self.agent.get_plan()
+            )
+            await db.commit()
 
     async def _finish(
         self,
         chat: Chat,
+        agent: Agent | None,
         envelope: Envelope | None,
         outcome: Outcome,
         *,
-        error: dict[str, Any] | None = None,
+        failure: ChatFailure | None = None,
     ) -> None:
-        emit_terminal: Callable[[], Awaitable[None]]
+        if agent is not None:
+            close_interrupted_tool_calls(agent)
+            chat.plan = agent.state.tasks_context
+            agent.state.tasks_context = TaskContext()
+            chat.agent_state = agent.state.model_dump(mode="json")
+
+        if envelope is not None:
+            await envelope.finalize()
+
         if outcome == "completed":
             chat.mark_status("completed")
-            emit_terminal = envelope.complete
         elif outcome == "canceled":
             chat.cancel()
-            if envelope is not None:
-                emit_terminal = envelope.cancel
-            else:
-                emit_terminal = OutputStream(
-                    self.events,
-                    session_id=chat.session_id,
-                    chat_id=chat.id,
-                    identity=chat.identity,
-                ).response_cancelled
         else:
-            failure = error or {}
-            chat.error = {
-                "code": str(failure.get("code") or "VALIDATION"),
-                "message": str(failure.get("message") or "Chat execution failed"),
-            }
-            chat.mark_status("failed")
-            if envelope is not None:
-                emit_terminal = partial(envelope.fail, error=failure)
-            else:
-                emit_terminal = partial(
-                    OutputStream(
-                        self.events,
-                        session_id=chat.session_id,
-                        chat_id=chat.id,
-                        identity=chat.identity,
-                    ).response_failed,
-                    error=failure,
+            if failure is None:
+                raise ValueError("failure is required")
+            chat.mark_failed(failure)
+
+        async with self.session_factory() as db:
+            if agent is not None:
+                await AgentStateStore(db, chat.identity).save(
+                    chat.session_id, agent.state
                 )
-        await self.chats.reload_event_watermark(chat)
-        await self.chats.save(chat)
-        await emit_terminal()
+            await ChatRepository(db, chat.identity).save(chat)
+            await ChatCommandRepository(db).clear(chat.id)
+            if outcome == "canceled":
+                await tracer_send_stop(db, chat)
+            await tracer_send_status(db, chat, outcome, failure)
+            await db.commit()
+
+        if outcome == "completed":
+            if envelope is None:
+                raise RuntimeError("envelope is required")
+            await envelope.emit_completed()
+        elif outcome == "canceled":
+            if envelope is not None:
+                await envelope.emit_cancelled()
+            else:
+                await self._output_stream(chat).response_cancelled()
+        else:
+            if failure is None:
+                raise ValueError("failure is required")
+            wire = failure.to_dict()
+            if envelope is not None:
+                await envelope.emit_failed(error=wire)
+            else:
+                await self._output_stream(chat).response_failed(error=wire)
+
+        if envelope is not None:
+            await envelope.stream.flush()
+        ctx = self._chat_end_context(chat, agent, outcome, failure)
+        if outcome == "failed":
+            log_error(
+                request_id=chat.id,
+                step=Step.CHAT_FAILED,
+                message="Chat turn failed",
+                context=ctx,
+            )
+            return
+        log_info(
+            request_id=chat.id,
+            step=Step.CHAT_END,
+            message="Chat turn finished",
+            context=ctx,
+        )
+
+    def _log_chat_start(self, chat: Chat, run_context: RunContext) -> None:
+        model = run_context.user_runtime_config.default
+        cfg = run_context.user_runtime_config
+        identity = run_context.identity
+        log_info(
+            request_id=chat.id,
+            step=Step.CHAT_START,
+            message="Chat turn started",
+            context={
+                "session_id": chat.session_id,
+                "user_id": identity.user_id,
+                "tenant_id": identity.tenant_id,
+                "workspace_id": identity.workspace_id,
+                "agent_id": run_context.paths.agent_id,
+                "provider_id": model.provider_id,
+                "model_id": model.model_id,
+                "thinking_enabled": model.thinking_enabled,
+                "context_size": model.context_size,
+                "react_max_iters": cfg.react_max_iters,
+                "trigger_ratio": cfg.context_trigger_ratio,
+                "reserve_ratio": cfg.context_reserve_ratio,
+                "datasource_id": run_context.request_context.get("datasource_id"),
+                "datasource_type": run_context.request_context.get("datasource_type"),
+                "sequence": chat.sequence,
+                "input_chars": len(chat.user_input),
+                "attachment_count": len(chat.attachments),
+                "comment_count": len(chat.artifact_comments),
+            },
+        )
+
+    def _chat_end_context(
+        self,
+        chat: Chat,
+        agent: Agent | None,
+        outcome: Outcome,
+        failure: ChatFailure | None,
+    ) -> dict[str, Any]:
+        ctx: dict[str, Any] = {
+            "session_id": chat.session_id,
+            "outcome": outcome,
+            "duration_ms": int((utcnow() - chat.started_at).total_seconds() * 1000),
+        }
+        if agent is not None:
+            ctx["react_iters"] = int(agent.state.cur_iter)
+        if outcome == "failed":
+            if failure is None:
+                raise ValueError("failure is required")
+            ctx["code"] = failure.code
+            ctx["error"] = failure.cause
+        return ctx

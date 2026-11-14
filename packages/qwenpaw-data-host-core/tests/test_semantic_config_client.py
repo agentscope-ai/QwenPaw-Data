@@ -43,6 +43,21 @@ def test_request_drops_none_params() -> None:
     _client(handler, api_token="").get("/x", params={"page": 1, "name": None})
 
 
+def test_get_supports_request_timeout_without_changing_default() -> None:
+    timeouts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json={})
+
+    client = _client(handler, api_token="", timeout=30)
+    client.get("/x", timeout=0.5)
+    client.get("/x")
+    assert timeouts == [0.5, 30]
+    with pytest.raises(ValueError, match="positive"):
+        client.get("/x", timeout=0)
+
+
 def test_error_protocol_message_is_surfaced() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

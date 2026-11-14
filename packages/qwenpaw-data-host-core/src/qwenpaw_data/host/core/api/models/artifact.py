@@ -16,6 +16,20 @@ class ArtifactSchema(ApiModel):
     updated_at: datetime
 
 
+class SessionSegmentRefSchema(ApiModel):
+    segment_id: str
+    chat_id: str
+    title: str
+
+
+class SessionSegmentArtifactSchema(ApiModel):
+    name: str
+    description: str = ""
+    relative_path: str
+    chat_id: str
+    segments: list[SessionSegmentRefSchema]
+
+
 class ArtifactLineRefSchema(ApiModel):
     artifact_id: str
     content_hash: str

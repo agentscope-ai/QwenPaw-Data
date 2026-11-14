@@ -1,33 +1,124 @@
-/* eslint-disable react-refresh/only-export-components -- public design-system barrel */
-import { createContext, forwardRef, useContext, useMemo } from "react";
-import type { ComponentProps, CSSProperties, HTMLAttributes, JSX, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import {
+  createContext,
+  forwardRef,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { ComponentProps, CSSProperties, HTMLAttributes, JSX, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Empty as AgentscopeEmpty,
+  Form as AgentscopeForm,
   getCommonConfig,
   Spinner,
   Table as AgentscopeTable,
   Upload as AgentscopeUpload,
-} from "@agentscope-ai/design";
+} from '@agentscope-ai/design';
 import {
   EditableProTable as AntEditableProTable,
   ProTable as AntProTable,
   type EditableProTableProps,
   type ProTableProps,
-} from "@ant-design/pro-components";
+} from '@ant-design/pro-components';
 import {
+  Drawer as AntDrawer,
+  type DrawerProps as AntDrawerProps,
   Tooltip as AntTooltip,
-  type GetRef,
   type TooltipProps as AntTooltipProps,
-} from "antd";
-import { QuestionCircleOutlined } from "@ant-design/icons";
-import type { TableProps } from "antd";
-import classNames from "classnames";
+} from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
+import type { TableProps } from 'antd';
+import classNames from 'classnames';
 
-export * from "@agentscope-ai/design";
-export * from "@ant-design/icons";
-// 上游设计体系的公开中性别名，统一以 baseTheme 对内暴露。
-export { purpleTheme as baseTheme } from "@agentscope-ai/design";
+export * from '@agentscope-ai/design';
+export * from '@ant-design/icons';
+// Explicit ownership avoids ambiguous export-star resolution in the embedded library.
+export {
+  AimOutlined,
+  ApartmentOutlined,
+  ApiOutlined,
+  AppstoreOutlined,
+  AreaChartOutlined,
+  ArrowLeftOutlined,
+  BankOutlined,
+  BarChartOutlined,
+  BranchesOutlined,
+  BulbOutlined,
+  CaretRightOutlined,
+  CheckCircleFilled,
+  CheckCircleOutlined,
+  CheckOutlined,
+  CloseCircleOutlined,
+  CloseOutlined,
+  CloudSyncOutlined,
+  CodeOutlined,
+  CompassOutlined,
+  CompressOutlined,
+  CopyOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
+  DeleteOutlined,
+  DeleteRowOutlined,
+  DeploymentUnitOutlined,
+  DownOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  ExclamationCircleFilled,
+  ExclamationCircleOutlined,
+  ExpandOutlined,
+  ExperimentOutlined,
+  FileExcelOutlined,
+  FileMarkdownFilled,
+  FilePdfFilled,
+  FileTextFilled,
+  FileTextOutlined,
+  FileUnknownOutlined,
+  FileWordFilled,
+  FireOutlined,
+  FullscreenOutlined,
+  FundOutlined,
+  GlobalOutlined,
+  HistoryOutlined,
+  HomeOutlined,
+  InfoCircleOutlined,
+  LeftOutlined,
+  LoadingOutlined,
+  LockOutlined,
+  LogoutOutlined,
+  MenuOutlined,
+  MinusCircleOutlined,
+  MinusOutlined,
+  MoonOutlined,
+  MoreOutlined,
+  PartitionOutlined,
+  PlusOutlined,
+  QuestionCircleOutlined,
+  RadarChartOutlined,
+  ReloadOutlined,
+  RightOutlined,
+  RobotOutlined,
+  RollbackOutlined,
+  SafetyCertificateOutlined,
+  SaveOutlined,
+  SearchOutlined,
+  SettingOutlined,
+  ShareAltOutlined,
+  StopOutlined,
+  SunOutlined,
+  TeamOutlined,
+  ThunderboltOutlined,
+  UndoOutlined,
+  UpOutlined,
+  UploadOutlined,
+  UserAddOutlined,
+  UserOutlined,
+  WarningOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+} from '@ant-design/icons';
 export {
   PageContainer,
   ProLayout,
@@ -35,20 +126,61 @@ export {
   type EditableFormInstance,
   type ProColumns,
   type ProFormInstance,
-} from "@ant-design/pro-components";
-export type { EditableProTableProps, ProTableProps } from "@ant-design/pro-components";
-export type { TableProps } from "antd";
+} from '@ant-design/pro-components';
+export type { EditableProTableProps, ProTableProps } from '@ant-design/pro-components';
+export type { TableProps } from 'antd';
 export type UploadProps = ComponentProps<typeof AgentscopeUpload>;
 
 type SparkTooltipProps = AntTooltipProps & {
-  mode?: "dark" | "light";
+  mode?: 'dark' | 'light';
   maxHeight?: number | string;
 };
 
-export const Tooltip = forwardRef<GetRef<typeof AntTooltip>, SparkTooltipProps>(function Tooltip(
+const DrawerFormContext = createContext(false);
+const AgentscopeFormItem = AgentscopeForm.Item;
+
+function DrawerAwareFormItem({
+  extra,
+  label,
+  ...props
+}: ComponentProps<typeof AgentscopeFormItem>) {
+  const insideRouteDrawer = useContext(DrawerFormContext);
+  const moveDescriptionToLabel = insideRouteDrawer && Boolean(extra) && Boolean(label);
+  const descriptionTitle = typeof extra === 'string' ? extra : undefined;
+
+  return (
+    <AgentscopeFormItem
+      {...props}
+      extra={moveDescriptionToLabel ? undefined : extra}
+      label={
+        moveDescriptionToLabel ? (
+          <span className="qwenpaw-data-form-label-with-description">
+            <span className="qwenpaw-data-form-label-text">{label}</span>
+            <span className="qwenpaw-data-form-label-description" title={descriptionTitle}>
+              （{extra}）
+            </span>
+          </span>
+        ) : (
+          label
+        )
+      }
+    />
+  );
+}
+
+function SharedForm(props: ComponentProps<typeof AgentscopeForm>) {
+  return <AgentscopeForm {...props} />;
+}
+
+export const Form = Object.assign(SharedForm, AgentscopeForm, {
+  Item: DrawerAwareFormItem,
+});
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const Tooltip = forwardRef<any, SparkTooltipProps>(function Tooltip(
   {
-    mode = "dark",
-    maxHeight = "90vh",
+    mode = 'dark',
+    maxHeight = '90vh',
     styles,
     classNames: tooltipClassNames,
     arrow = false,
@@ -62,7 +194,7 @@ export const Tooltip = forwardRef<GetRef<typeof AntTooltip>, SparkTooltipProps>(
   const rootClassName = classNames(
     tooltipClassNames?.root,
     overlayClassName,
-    mode === "light" && `${sparkPrefix}-tooltip-light`,
+    mode === 'light' && `${sparkPrefix}-tooltip-light`,
   );
 
   return (
@@ -74,7 +206,7 @@ export const Tooltip = forwardRef<GetRef<typeof AntTooltip>, SparkTooltipProps>(
         ...styles,
         body: {
           maxHeight,
-          overflow: "auto",
+          overflow: 'auto',
           ...styles?.body,
         },
       }}
@@ -90,6 +222,23 @@ export const Tooltip = forwardRef<GetRef<typeof AntTooltip>, SparkTooltipProps>(
   );
 });
 
+export function Drawer({ mask = true, rootClassName, rootStyle, ...props }: AntDrawerProps) {
+  return (
+    <DrawerFormContext.Provider value>
+      <AntDrawer
+        {...props}
+        getContainer={false}
+        mask={mask}
+        rootClassName={classNames('qwenpaw-data-route-drawer', rootClassName)}
+        rootStyle={{
+          ...rootStyle,
+          position: 'absolute',
+        }}
+      />
+    </DrawerFormContext.Provider>
+  );
+}
+
 type AccessibleFormLabelProps = {
   label: string;
   description: string;
@@ -97,26 +246,26 @@ type AccessibleFormLabelProps = {
 
 export function AccessibleFormLabel({ label, description }: AccessibleFormLabelProps) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <span>{label}</span>
-      <Tooltip title={description} trigger={["hover", "focus"]}>
+      <Tooltip title={description} trigger={['hover', 'focus']}>
         <button
           type="button"
           aria-label={`${label}: ${description}`}
           onClick={(event) => event.preventDefault()}
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             width: 14,
             height: 14,
             padding: 0,
-            color: "rgba(0, 0, 0, 0.45)",
+            color: 'rgba(0, 0, 0, 0.45)',
             fontSize: 14,
             lineHeight: 1,
-            background: "transparent",
+            background: 'transparent',
             border: 0,
-            cursor: "help",
+            cursor: 'help',
           }}
         >
           <QuestionCircleOutlined aria-hidden="true" />
@@ -126,18 +275,14 @@ export function AccessibleFormLabel({ label, description }: AccessibleFormLabelP
   );
 }
 
-type FixedColumn = {
-  hidden?: boolean;
-  hideInTable?: boolean;
-  title?: unknown;
-  fixed?: unknown;
-};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FixedColumn = Record<string, any>;
 
 function hasHorizontalScroll(scroll: unknown): boolean {
   return (
-    typeof scroll === "object" &&
+    typeof scroll === 'object' &&
     scroll !== null &&
-    "x" in scroll &&
+    'x' in scroll &&
     (scroll as { x?: unknown }).x !== undefined &&
     (scroll as { x?: unknown }).x !== false
   );
@@ -148,15 +293,15 @@ function isVisibleTableColumn(column: FixedColumn): boolean {
 }
 
 function getColumnTitleText(title: unknown): string {
-  if (typeof title === "string" || typeof title === "number") {
+  if (typeof title === 'string' || typeof title === 'number') {
     return String(title).trim();
   }
-  return "";
+  return '';
 }
 
 function isMeaninglessIdColumn(column: FixedColumn): boolean {
   const title = getColumnTitleText(column.title);
-  return title.toLowerCase() === "id" || title.endsWith("ID") || /\sid$/i.test(title);
+  return title.toLowerCase() === 'id' || title.endsWith('ID') || /\sid$/i.test(title);
 }
 
 function withFixedEdgeColumns<Column extends FixedColumn>(
@@ -186,10 +331,10 @@ function withFixedEdgeColumns<Column extends FixedColumn>(
 
   return columnsWithoutId.map((column, index) => {
     if (index === firstIndex && column.fixed == null) {
-      return { ...column, fixed: "left" };
+      return { ...column, fixed: 'left' };
     }
     if (index === lastIndex && column.fixed == null) {
-      return { ...column, fixed: "right" };
+      return { ...column, fixed: 'right' };
     }
     return column;
   });
@@ -202,7 +347,61 @@ function useFixedEdgeColumns<Column extends FixedColumn>(
   return useMemo(() => withFixedEdgeColumns(columns, scroll), [columns, scroll]);
 }
 
-export function Table<RecordType = unknown>(props: TableProps<RecordType>) {
+function useAdaptiveTableBodyHeight(enabled: boolean) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(320);
+
+  useLayoutEffect(() => {
+    if (!enabled) return undefined;
+
+    const root = rootRef.current;
+    if (!root) return undefined;
+
+    let animationFrame = 0;
+    const update = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const tableHeader = root.querySelector<HTMLElement>('.ant-table-thead');
+        if (!tableHeader) return;
+
+        const boundary = root.parentElement;
+        const boundaryBottom = Math.min(
+          window.innerHeight,
+          boundary?.getBoundingClientRect().bottom ?? window.innerHeight,
+        );
+        const pagination = root.querySelector<HTMLElement>('.ant-pagination');
+        const paginationSpace = pagination ? pagination.getBoundingClientRect().height + 16 : 0;
+        const adaptiveMinimum = Math.max(280, Math.min(420, Math.floor(window.innerHeight * 0.42)));
+        const available = Math.max(
+          adaptiveMinimum,
+          Math.floor(
+            boundaryBottom - tableHeader.getBoundingClientRect().bottom - paginationSpace - 24,
+          ),
+        );
+        setHeight((current) => (Math.abs(current - available) > 1 ? available : current));
+      });
+    };
+
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    if (root.parentElement) observer.observe(root.parentElement);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, { capture: true, passive: true });
+    update();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [enabled]);
+
+  return { rootRef, height };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function Table<RecordType = any>(props: TableProps<RecordType>) {
   const columns = useFixedEdgeColumns(
     props.columns as readonly FixedColumn[] | undefined,
     props.scroll,
@@ -211,7 +410,7 @@ export function Table<RecordType = unknown>(props: TableProps<RecordType>) {
   return (
     <AgentscopeTable<RecordType>
       {...props}
-      columns={columns as TableProps<RecordType>["columns"]}
+      columns={columns as TableProps<RecordType>['columns']}
     />
   );
 }
@@ -219,9 +418,10 @@ export function Table<RecordType = unknown>(props: TableProps<RecordType>) {
 export function ProTable<
   DataSource extends object,
   Params extends object = Record<string, unknown>,
-  ValueType = "text",
+  ValueType = 'text',
 >(props: ProTableProps<DataSource, Params, ValueType>) {
   const { t } = useTranslation();
+  const [requestTotal, setRequestTotal] = useState<number>();
   const columns = useFixedEdgeColumns(
     props.columns as readonly FixedColumn[] | undefined,
     props.scroll,
@@ -231,26 +431,83 @@ export function ProTable<
       ? false
       : {
           defaultCollapsed: false,
-          searchText: t("common.search"),
-          resetText: t("common.reset"),
-          ...(typeof props.search === "object" ? props.search : {}),
+          searchText: t('common.search'),
+          resetText: t('common.reset'),
+          ...(typeof props.search === 'object' ? props.search : {}),
         };
+  const adaptiveScrollEnabled = props.pagination !== false && props.scroll?.y === undefined;
+  const { rootRef, height: tableBodyHeight } = useAdaptiveTableBodyHeight(adaptiveScrollEnabled);
+  type RequestHandler = NonNullable<typeof props.request>;
+  const request = useMemo(
+    () =>
+      props.request
+        ? ((async (...args: Parameters<RequestHandler>) => {
+            const result = await props.request!(...args);
+            setRequestTotal(
+              typeof result.total === 'number' ? result.total : (result.data?.length ?? 0),
+            );
+            return result;
+          }) as RequestHandler)
+        : undefined,
+    [props.request],
+  );
+  const explicitTotal =
+    typeof props.pagination === 'object' && typeof props.pagination.total === 'number'
+      ? props.pagination.total
+      : undefined;
+  const pagination =
+    props.pagination === false
+      ? false
+      : {
+          ...props.pagination,
+          showTotal: undefined,
+        };
+  const scroll = {
+    ...props.scroll,
+    ...(adaptiveScrollEnabled ? { y: tableBodyHeight } : {}),
+  };
+  const summaryCount =
+    explicitTotal ?? requestTotal ?? props.dataSource?.length ?? props.defaultData?.length ?? 0;
+  const headerTitle = (
+    <div className="context-table-toolbar-title">
+      <span className="context-table-summary">{t('common.total', { count: summaryCount })}</span>
+      {props.headerTitle ? (
+        <span className="context-table-toolbar-extra">{props.headerTitle}</span>
+      ) : null}
+    </div>
+  );
 
   return (
-    <AntProTable<DataSource, Params, ValueType>
-      {...props}
-      columns={columns as ProTableProps<DataSource, Params, ValueType>["columns"]}
-      search={search}
-    />
+    <div
+      ref={rootRef}
+      className="context-adaptive-table-viewport"
+      style={
+        adaptiveScrollEnabled
+          ? ({
+              '--context-adaptive-table-body-height': `${tableBodyHeight}px`,
+            } as CSSProperties)
+          : undefined
+      }
+    >
+      <AntProTable<DataSource, Params, ValueType>
+        {...props}
+        className={classNames('context-adaptive-table', props.className)}
+        columns={columns as ProTableProps<DataSource, Params, ValueType>['columns']}
+        headerTitle={headerTitle}
+        pagination={pagination}
+        request={request}
+        scroll={scroll}
+        search={search}
+      />
+    </div>
   );
 }
 
 export function EditableProTable<
-  // 上游 EditableProTableProps 泛型约束即为 Record<string, any>，无法收窄
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DataSource extends Record<string, any>,
   Params extends object = Record<string, unknown>,
-  ValueType = "text",
+  ValueType = 'text',
 >(props: EditableProTableProps<DataSource, Params, ValueType>) {
   const columns = useFixedEdgeColumns(
     props.columns as readonly FixedColumn[] | undefined,
@@ -260,41 +517,41 @@ export function EditableProTable<
   return (
     <AntEditableProTable<DataSource, Params, ValueType>
       {...props}
-      columns={columns as EditableProTableProps<DataSource, Params, ValueType>["columns"]}
+      columns={columns as EditableProTableProps<DataSource, Params, ValueType>['columns']}
     />
   );
 }
 
-type Size = "small" | "middle" | "large" | number;
+type Size = 'small' | 'middle' | 'large' | number;
 
 function resolveGap(size: Size | [Size, Size] | undefined): string {
   const map = { small: 8, middle: 16, large: 24 } as const;
-  const value = Array.isArray(size) ? size[0] : size ?? "small";
-  return `${typeof value === "number" ? value : map[value]}px`;
+  const value = Array.isArray(size) ? size[0] : (size ?? 'small');
+  return `${typeof value === 'number' ? value : map[value]}px`;
 }
 
 export function Space({
   children,
-  direction = "horizontal",
-  size = "small",
+  direction = 'horizontal',
+  size = 'small',
   align,
   wrap,
   style,
   ...rest
 }: HTMLAttributes<HTMLDivElement> & {
-  direction?: "horizontal" | "vertical";
+  direction?: 'horizontal' | 'vertical';
   size?: Size | [Size, Size];
-  align?: CSSProperties["alignItems"];
+  align?: CSSProperties['alignItems'];
   wrap?: boolean;
 }) {
   return (
     <div
       {...rest}
       style={{
-        display: "flex",
-        flexDirection: direction === "vertical" ? "column" : "row",
+        display: 'flex',
+        flexDirection: direction === 'vertical' ? 'column' : 'row',
         alignItems: align,
-        flexWrap: wrap ? "wrap" : undefined,
+        flexWrap: wrap ? 'wrap' : undefined,
         gap: resolveGap(size),
         ...style,
       }}
@@ -314,17 +571,17 @@ export function Row({
   ...rest
 }: HTMLAttributes<HTMLDivElement> & {
   gutter?: number | [number, number];
-  align?: CSSProperties["alignItems"];
+  align?: CSSProperties['alignItems'];
 }) {
-  const columnGap = Array.isArray(gutter) ? gutter[0] : gutter ?? 0;
-  const rowGap = Array.isArray(gutter) ? gutter[1] : gutter ?? 0;
+  const columnGap = Array.isArray(gutter) ? gutter[0] : (gutter ?? 0);
+  const rowGap = Array.isArray(gutter) ? gutter[1] : (gutter ?? 0);
   return (
     <RowColumnGapContext.Provider value={columnGap}>
       <div
         {...rest}
         style={{
-          display: "flex",
-          flexWrap: "wrap",
+          display: 'flex',
+          flexWrap: 'wrap',
           alignItems: align,
           columnGap,
           rowGap,
@@ -345,7 +602,7 @@ export function Col({
   ...rest
 }: HTMLAttributes<HTMLDivElement> & {
   span?: number;
-  flex?: CSSProperties["flex"];
+  flex?: CSSProperties['flex'];
   xs?: number;
   sm?: number;
   md?: number;
@@ -363,7 +620,7 @@ export function Col({
     <div
       {...rest}
       style={{
-        flex: flex ?? (width ? `0 0 ${width}` : "1 1 0"),
+        flex: flex ?? (width ? `0 0 ${width}` : '1 1 0'),
         maxWidth: width,
         ...style,
       }}
@@ -382,7 +639,7 @@ function Title({
   level?: 1 | 2 | 3 | 4 | 5;
   style?: CSSProperties;
 }) {
-  const Tag: keyof JSX.IntrinsicElements = `h${level}`;
+  const Tag = `h${level}` as keyof JSX.IntrinsicElements;
   return <Tag style={style}>{children}</Tag>;
 }
 
@@ -396,7 +653,7 @@ function Text({
   style,
 }: {
   children?: ReactNode;
-  type?: "secondary" | "success" | "warning" | "danger";
+  type?: 'secondary' | 'success' | 'warning' | 'danger';
   ellipsis?: boolean;
   strong?: boolean;
   code?: boolean;
@@ -404,22 +661,22 @@ function Text({
   style?: CSSProperties;
 }) {
   const colorMap: Record<string, string> = {
-    secondary: "rgba(0, 0, 0, 0.45)",
-    success: "#389e0d",
-    warning: "#d48806",
-    danger: "#cf1322",
+    secondary: 'rgba(0, 0, 0, 0.45)',
+    success: '#389e0d',
+    warning: '#d48806',
+    danger: '#cf1322',
   };
-  const Tag = code ? "code" : "span";
+  const Tag = code ? 'code' : 'span';
   return (
     <Tag
       className={className}
-      title={typeof children === "string" && ellipsis ? children : undefined}
+      title={typeof children === 'string' && ellipsis ? children : undefined}
       style={{
         color: type ? colorMap[type] : undefined,
         fontWeight: strong ? 600 : undefined,
-        overflow: ellipsis ? "hidden" : undefined,
-        textOverflow: ellipsis ? "ellipsis" : undefined,
-        whiteSpace: ellipsis ? "nowrap" : undefined,
+        overflow: ellipsis ? 'hidden' : undefined,
+        textOverflow: ellipsis ? 'ellipsis' : undefined,
+        whiteSpace: ellipsis ? 'nowrap' : undefined,
         ...style,
       }}
     >
@@ -434,8 +691,8 @@ export function Divider({ style }: { style?: CSSProperties }) {
   return (
     <div
       style={{
-        borderTop: "1px solid rgba(5, 5, 5, 0.06)",
-        margin: "16px 0",
+        borderTop: '1px solid rgba(5, 5, 5, 0.06)',
+        margin: '16px 0',
         ...style,
       }}
     />
@@ -450,23 +707,23 @@ export function Spin({
   children?: ReactNode;
   spinning?: boolean;
   tip?: ReactNode;
-  size?: "small" | "default" | "large";
+  size?: 'small' | 'default' | 'large';
 }) {
   if (children) {
     return (
-      <div style={{ position: "relative" }}>
+      <div style={{ position: 'relative' }}>
         {spinning ? (
           <div
             style={{
-              position: "absolute",
+              position: 'absolute',
               inset: 0,
               zIndex: 1,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
               gap: 8,
-              background: "rgba(255, 255, 255, 0.6)",
+              background: 'rgba(255, 255, 255, 0.6)',
             }}
           >
             <Spinner />
@@ -499,18 +756,16 @@ export function Result({
     <div
       style={{
         minHeight: 280,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
         gap: 16,
-        textAlign: "center",
+        textAlign: 'center',
       }}
     >
       {title ? <h2 style={{ margin: 0 }}>{title}</h2> : null}
-      {subTitle ? (
-        <div style={{ color: "rgba(0, 0, 0, 0.45)" }}>{subTitle}</div>
-      ) : null}
+      {subTitle ? <div style={{ color: 'rgba(0, 0, 0, 0.45)' }}>{subTitle}</div> : null}
       {extra ? <div>{extra}</div> : null}
     </div>
   );

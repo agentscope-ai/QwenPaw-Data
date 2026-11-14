@@ -1,0 +1,48 @@
+---
+config:
+  theme: base
+  fontFamily: PingFang SC, Microsoft YaHei, Arial, sans-serif
+  themeVariables:
+    fontSize: 18px
+    lineColor: '#64748b'
+    clusterBkg: '#ffffff'
+    clusterBorder: '#dbe2ea'
+  flowchart:
+    htmlLabels: true
+    useMaxWidth: false
+    wrappingWidth: 420
+    nodeSpacing: 28
+    rankSpacing: 30
+    padding: 18
+    curve: linear
+---
+flowchart LR
+    subgraph Modules["Module layers"]
+        direction TB
+        Entry["1. Application<br/>api · mcp · runtime · server.py"]
+        Business["2. Business<br/>metadata · knowledge · user<br/>embedding · cron · migration<br/>compatibility (Trace / Search / Explorer)"]
+        Shared["3. Infrastructure<br/>store · sql · process · heartbeat<br/>auth · model · db.py<br/>Backend adapters: store/neo4j, sql/connectors"]
+        Foundation["4. Contracts<br/>schema · settings<br/>utils: shared leaf utilities"]
+        Entry --> Business --> Shared --> Foundation
+    end
+
+    subgraph Flow["Plan write flow"]
+        direction TB
+        Input["API / MCP<br/>Bind trusted identity and Scope"]
+        Draft["Business service calls Process<br/>NodeDraft / EdgeDraft"]
+        Plan["Business service builds<br/>TransactionPlan"]
+        Execute["Store executes atomically"]
+        Result["TransactionResult"]
+        Input --> Draft --> Plan --> Execute --> Result
+    end
+
+    Modules ~~~ Flow
+
+    classDef entry fill:#ebfbee,stroke:#94b89a,color:#1e293b;
+    classDef business fill:#f3f0ff,stroke:#b6a8d5,color:#1e293b;
+    classDef shared fill:#fff9db,stroke:#c9ba78,color:#1e293b;
+    classDef foundation fill:#e7f5ff,stroke:#91b8d2,color:#1e293b;
+    class Entry,Input entry;
+    class Business,Draft,Plan business;
+    class Shared,Execute,Result shared;
+    class Foundation foundation;
