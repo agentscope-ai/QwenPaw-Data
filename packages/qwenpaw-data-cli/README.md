@@ -19,6 +19,7 @@ Available command groups:
 - `doctor`
 - `run` / `chat` (explicit Host-service connection)
 - `plan` (prompt-only SOP generation through Host, without execution)
+- `execute` (client-scheduled SOP DAG execution through Host)
 
 `run` and `chat` now use the current Host API, not the legacy in-process DAG
 runtime. Select an already-running Host explicitly:
@@ -56,10 +57,31 @@ agent, allocate an execution workspace, query a datasource, or run tools. Supply
 schema/facts in the prompt if needed; otherwise the generated plan must include
 discovery steps. The datasource ID is context, not proof of schema inspection.
 `--output` exclusively creates a new file and refuses to overwrite existing data.
-This does not restore the legacy tool-assisted planner or the strict DAG executor.
+This does not restore the legacy tool-assisted planner.
 
-**Remaining compatibility gaps:** `execute` and the old in-process
-`QwenPawDataHost` interface are not restored. Remote `run` is a normal agent turn,
+Execute a validated SOP using a deterministic dependency scheduler:
+
+```bash
+qwenpaw-data execute --host-url http://127.0.0.1:8000 sales.yaml
+```
+
+The client starts one Host turn per node, sequentially in topological order.
+A successor cannot start until all predecessors have successful terminal
+responses. Failed, cancelled or truncated turns abort execution; Ctrl+C stops
+the active turn. Node IDs and the session ID are printed to stderr. Tool approval
+uses the same deny-by-default handling as `run`. Validate malformed/cyclic SOPs
+before any session creation. A new dedicated session is the default;
+`--session-id` uses that session's existing datasource and rejects an accompanying
+`--datasource-id` override.
+
+This schedules turns, not every tool action within them; a successful terminal
+response is not independent verification of the business outcome. Completed
+turns remain in Host history, but DAG checkpoint/resume, automatic retries,
+parallel execution and rollback of tool side effects are not implemented.
+Rerunning the file executes every node again; inspect history before retrying.
+
+**Remaining compatibility gaps:** the old in-process
+`QwenPawDataHost` interface is not restored. Remote `run` is a normal agent turn,
 not a claim of legacy plan-and-execute SOP equivalence.
 
 Run `qwenpaw-data doctor` before the first task to check supported Python/Node

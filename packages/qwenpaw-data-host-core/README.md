@@ -2,11 +2,11 @@
 
 Shared host foundation for QwenPaw Data.
 
-This package owns the non-HTTP QwenPaw Data host runtime:
+This package owns the QwenPaw Data host service and its Python client:
 
-- `QwenPawDataHost` runtime handle for `plan`, `execute`, and `run`
+- `HostClient` for remote `plan`, dependency-ordered `execute`, and `run`
 - AgentScope agent, toolkit, workspace tools, and prompt templates
-- DAG orchestration, session trace storage, and artifact path helpers
+- SQL-backed sessions, event streams, and artifact path helpers
 - MCP Context Manager timeout and metadata injection helpers
 - Context Manager HTTP discovery client used by CLI integrations
 
@@ -74,8 +74,26 @@ the session's authorized model preferences but does not start a Chat, allocate
 an execution workspace, inspect datasource schemas or call agent tools. The
 request is bounded to 32,768 characters and the model call to 60 seconds.
 Duplicate node IDs, unknown/cyclic dependencies and runtime state fields are
-rejected. The SOP can be serialized as YAML; strict SOP execution remains an
-open compatibility requirement, separate from the current advisory task plan.
+rejected. The SOP can be serialized as YAML.
+
+`host.execute(session_id, sop)` accepts a SOP, dictionary or YAML string and
+returns an async event stream. It validates the entire graph before admission,
+then executes nodes sequentially in topological order, with one Host turn per
+node. Each dependency must finish with a successful terminal response before
+its successor starts. Failed/cancelled/truncated streams stop the whole run;
+closing the generator stops the active turn. Events include `sop_node_id`, and
+completed predecessor text is provided to downstream nodes. Tools, permissions,
+credentials and workspace isolation remain owned by the existing Host runtime.
+
+This is a client-side scheduling guarantee, not a model-enforced DAG: the model
+cannot advance the scheduler, but its actions within a node remain agentic.
+The server's advisory task plan is not used to decide readiness. Completion
+does not independently validate business outcomes. There is no parallel node
+execution, durable DAG checkpoint/resume, automatic retry or rollback of tool
+side effects. Do not rerun an interrupted SOP expecting it to skip completed
+nodes. Use a dedicated session to avoid interleaving unrelated conversation
+turns; normal server session-conflict checks still apply. The old in-process
+`QwenPawDataHost` interface and legacy tool-assisted planner remain unsupported.
 
 ### Storage backends
 

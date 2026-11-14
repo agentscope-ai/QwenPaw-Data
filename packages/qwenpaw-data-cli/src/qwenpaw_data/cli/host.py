@@ -6,7 +6,9 @@ import argparse
 import os
 import signal
 import sys
+from collections.abc import AsyncIterator
 from contextlib import aclosing
+from typing import Any
 
 from qwenpaw_data.host.core.client import HostClient, HostClientError
 
@@ -53,13 +55,35 @@ async def print_turn(
     stream: bool,
     datasource_id: str | None = None,
 ) -> None:
+    await print_events(
+        client,
+        session_id,
+        client.run(session_id, text, datasource_id=datasource_id),
+        stream=stream,
+    )
+
+
+async def print_events(
+    client: HostClient,
+    session_id: str,
+    events: AsyncIterator[dict[str, Any]],
+    *,
+    stream: bool,
+) -> None:
+    """Render one or more turns while preserving approval and cleanup behavior."""
     text_messages: set[str] = set()
     streamed: dict[str, list[str]] = {}
     confirmed: set[str] = set()
-    async with aclosing(
-        client.run(session_id, text, datasource_id=datasource_id)
-    ) as events:
+    current_node = None
+    async with aclosing(events) as events:
         async for event in events:
+            node_id = event.get("sop_node_id")
+            if node_id is not None and node_id != current_node:
+                current_node = node_id
+                text_messages.clear()
+                streamed.clear()
+                confirmed.clear()
+                print(f"SOP node: {node_id}", file=sys.stderr)
             if event["object"] == "message":
                 if event.get("role") == "assistant" and event["type"] == "message":
                     text_messages.add(event["id"])

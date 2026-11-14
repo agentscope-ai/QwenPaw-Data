@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
-from qwenpaw_data.cli.commands import plan
+from qwenpaw_data.cli.commands import execute, plan
 from qwenpaw_data.cli.main import build_parser
 from qwenpaw_data.host.core.domain.sop import SOP
 
@@ -78,3 +78,66 @@ async def test_existing_session_datasource_is_not_silently_overridden():
     )
     with pytest.raises(ValueError, match="session datasource"):
         await plan.handle(args)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["not a mapping", "name: empty\ndescription: x\nexpected_outcome: x\nnodes: []"],
+)
+async def test_execute_invalid_file_rejected_before_network(
+    tmp_path, monkeypatch, text
+):
+    path = tmp_path / "plan.yaml"
+    path.write_text(text)
+
+    def unexpected(_):
+        pytest.fail("Invalid SOP must not create a session")
+
+    monkeypatch.setattr(execute, "create_client", unexpected)
+    args = build_parser().parse_args(
+        ["execute", str(path), "--host-url", "http://host"]
+    )
+    with pytest.raises(ValueError):
+        await execute.handle(args)
+
+
+async def test_execute_uses_existing_session_and_renders_node(
+    tmp_path, monkeypatch, capsys
+):
+    path = tmp_path / "plan.yaml"
+    path.write_text(
+        "name: test\ndescription: x\nexpected_outcome: x\nnodes:\n"
+        "- name: inspect\n  description: x\n  expected_outcome: x\n"
+    )
+
+    class Client:
+        create_session = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        async def execute(self, session_id, sop):
+            assert session_id == "s1" and sop.name == "test"
+            yield {
+                "sop_node_id": "node_000",
+                "object": "message",
+                "id": "m1",
+                "role": "assistant",
+                "type": "message",
+                "status": "completed",
+                "content": [{"type": "text", "text": "evidence"}],
+            }
+
+    client = Client()
+    monkeypatch.setattr(execute, "create_client", lambda _: client)
+    args = build_parser().parse_args(
+        ["execute", str(path), "--session-id", "s1", "--no-stream"]
+    )
+    assert await execute.handle(args) == 0
+    client.create_session.assert_not_awaited()
+    output = capsys.readouterr()
+    assert output.out == "evidence\n"
+    assert "SOP node: node_000" in output.err
