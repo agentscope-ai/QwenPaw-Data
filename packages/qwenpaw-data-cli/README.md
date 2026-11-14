@@ -20,6 +20,7 @@ Available command groups:
 - `run` / `chat` (explicit Host-service connection)
 - `plan` (prompt-only SOP generation through Host, without execution)
 - `execute` (client-scheduled SOP DAG execution through Host)
+- `migration` (offline JSON inspection, verified backup and read-only preparation)
 
 `run` and `chat` now use the current Host API, not the legacy in-process DAG
 runtime. Select an already-running Host explicitly:
@@ -144,6 +145,49 @@ task record as JSON to stdout; the exit code is `0` only for `success`.
 Remote agent commands use the models configured in Host preferences. The CLI
 does not forward local model credentials or override the server's model selection.
 
+## Legacy JSON migration preparation
+
+`migration inspect`, `backup` and `plan` are available; **there is no import/apply
+command yet**. Stop all source writers before backup/planning. Use a separate
+backup and target home; source data is never overwritten. For example:
+
+```bash
+qwenpaw-data migration inspect --source-home /absolute/old-home --identity-map identities.json
+qwenpaw-data migration backup --source-home /absolute/old-home --destination /absolute/backup --source-stopped
+qwenpaw-data migration plan --source-home /absolute/old-home --backup /absolute/backup \
+  --target-home /absolute/new-home --identity-map identities.json --source-stopped \
+  --target-key-env MIGRATION_TARGET_KEY --source-key-env MIGRATION_SOURCE_KEY \
+  --context-trigger-ratio 0.8 --context-reserve-ratio 0.1
+```
+
+Set the named key variables securely before invoking the command; arguments are
+variable **names**, never secret values. The target key is 32 bytes encoded as
+hex; the old key accepts at least 32 bytes. Omit `--source-key-env` only if old
+credentials are plaintext. Keep both keys separately: backups do not capture
+environment secrets, and planning does not provision the target master key.
+Use the actual target runtime ratio defaults, not necessarily the example values.
+
+Identity mapping format:
+
+```json
+{"version":1,"users":{"old-user":{"user_id":"new-user","tenant_id":"tenant","workspace_id":"workspace"}}}
+```
+
+For extra models missing context size, supply `--model-context-sizes models.json`
+with `{"version":1,"users":{"old-user":{"provider/model":12345}}}`. Values must
+be correct for the selected model; unknown or unused additions are rejected.
+`--disable-cron` explicitly consents to **propose** imported jobs as disabled.
+Planning never runs them. Removed catalog models, old DAG data, agent state and
+unassigned shared workspace files remain explicit blockers. Known CLI logs and
+recognized empty lock files are retained only in the verified backup and listed
+as notices; unknown/nonempty lock files require explicit disposition.
+
+Exit `0` means conversion checks passed, `2` means there are reported blockers,
+and `1` means the command failed. Even with `conversion_complete: true`, the plan
+reports `import_ready: false`: target database conflicts, Auth membership,
+transactional file/SQL import, idempotence and rollback are not yet implemented.
+Reports contain counts/paths and safe errors, not source payloads or credentials.
+
 ## Output and logs
 
 The CLI writes streamed agent events, final answers, and execution summaries to
@@ -156,6 +200,12 @@ The log rotates at 50 MB and keeps two backups as `qwenpaw_data.log.1` and
 `qwenpaw_data.log.2`. Rotation assumes one active CLI process per `QWENPAW_DATA_HOME`.
 Direct users of `qwenpaw-data-host-core` continue to own their process logging
 configuration.
+
+Migration commands do not configure persistent CLI logging and temporarily
+suspend existing CLI-owned file handlers, including on failure, so selecting
+the old home as `QWENPAW_DATA_HOME` does not append or rotate its logs. They still
+print JSON reports and concise errors; external handlers installed by an
+in-process caller remain that caller's responsibility.
 
 This package intentionally omits `serve` and local initialization helpers from
 the public CLI help.

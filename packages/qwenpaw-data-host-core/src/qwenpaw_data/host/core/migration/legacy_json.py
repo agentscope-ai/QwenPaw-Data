@@ -13,6 +13,7 @@ import json
 import os
 import stat
 import sys
+import unicodedata
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -22,6 +23,11 @@ from typing import Any, BinaryIO, Iterator
 
 class MigrationError(ValueError):
     """Safe-to-display migration failure; never include source document values."""
+
+
+_CLI_LOG_PATHS = frozenset(
+    {"host/qwenpaw_data.log", "host/qwenpaw_data.log.1", "host/qwenpaw_data.log.2"}
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +74,12 @@ def _canonical(value: Any) -> bytes:
 
 def _signature(info: os.stat_result) -> tuple[int, ...]:
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _portable_key(value: str) -> str:
+    # Filesystems may normalize Unicode as well as ignore case. Preserve the
+    # original spelling, but never merge two identities or file paths by alias.
+    return unicodedata.normalize("NFC", value).casefold()
 
 
 def _chunks(stream: BinaryIO, size: int) -> Iterator[bytes]:
@@ -200,11 +212,11 @@ def scan_source(source_home: Path, *, limits: Limits = Limits()) -> Snapshot:
         for name in [*dirs, *sorted(names)]:
             path = Path(folder) / name
             relative = path.relative_to(home).as_posix()
-            if "\\" in relative or relative.casefold() in portable_names:
+            if "\\" in relative or _portable_key(relative) in portable_names:
                 raise MigrationError(
                     f"Non-portable or case-colliding source path: {relative}"
                 )
-            portable_names.add(relative.casefold())
+            portable_names.add(_portable_key(relative))
             info = path.lstat()
             if stat.S_ISLNK(info.st_mode):
                 raise MigrationError(
@@ -302,11 +314,11 @@ def identity_mapping(data: Any) -> dict[str, dict[str, str]]:
         checked = {key: _component(value) for key, value in target.items()}
         # Preferences are keyed globally by user_id. Do not merge credentials
         # just because the target workspace happens to differ.
-        if checked["user_id"].casefold() in new_users:
+        if _portable_key(checked["user_id"]) in new_users:
             raise MigrationError(
                 "Multiple legacy users cannot map to the same target user_id"
             )
-        new_users.add(checked["user_id"].casefold())
+        new_users.add(_portable_key(checked["user_id"]))
         mapped[old_user] = checked
     return mapped
 
@@ -379,12 +391,35 @@ def inspect_source(
             finding("identity_mapping_required", path)
         return value
 
+    file_paths = {f.path for f in snapshot.files}
     for source in snapshot.files:
         kind, path = source.kind, source.path
         if kind in {"archive_only", "shared_workspace", "dag_state"}:
             # Included byte-for-byte in backup, but must be accounted for by an
             # importer; an inventory is not permission to discard these files.
-            if not path.endswith(".lock"):
+            name = PurePosixPath(path).name
+            locked = (
+                PurePosixPath(path).with_name(name[1:-5]).as_posix()
+                if name.startswith(".") and name.endswith(".lock") and len(name) > 6
+                else ""
+            )
+            empty_known_lock = (
+                source.size == 0
+                and locked in file_paths
+                and _kind(locked)
+                in {
+                    "sessions",
+                    "preferences",
+                    "chats",
+                    "events",
+                    "cron",
+                    "settlement",
+                    "attachments",
+                    "feedback",
+                    "agent_state",
+                }
+            )
+            if not empty_known_lock and path not in _CLI_LOG_PATHS:
                 finding("explicit_file_disposition_required", path)
             continue
         if kind in {"artifacts", "uploads"}:
@@ -477,7 +512,6 @@ def inspect_source(
         max_seq = max((seq for sid, seq in sequences if sid == doc["id"]), default=0)
         if type(count) is not int or count < max_seq:
             finding("session_chat_count_requires_reconciliation", path)
-    file_paths = {f.path for f in snapshot.files}
     for doc, who, path in attachments.values():
         session_ref(doc, who, path)
         sid = _component(doc.get("session_id"))
