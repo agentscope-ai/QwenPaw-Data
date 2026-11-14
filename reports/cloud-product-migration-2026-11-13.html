@@ -36,7 +36,7 @@
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>42e2e19</code>；Host 收敛、安全修复、真实 demo、Console lint、SQL 提交边界及持久化契约迁移已提交。Context 单行测试导入修正与初始化入口修复为两批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>741094c</code>；Host 收敛、安全修复、真实 demo、Console lint、SQL 提交边界、持久化契约及旧表补列修复已提交。Context 单行测试导入修正与初始化入口修复为两批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
     </section>
     <section aria-labelledby="scope">
@@ -93,6 +93,7 @@
             <tr><th scope="row">Console lint 恢复</th><td>044a466：21 个 lint 错误归零，保留 3 个现有 hooks warnings；254 项测试通过、1 项跳过，Console 生产构建与 73 个 Context 嵌入模块绑定检查通过。测试桩改用明确 DOM/AST/消息类型，未关闭规则或删除测试；不是浏览器视觉验收，构建仍有大 chunk 等警告。</td></tr>
             <tr><th scope="row">HTTP / SQL 提交边界</th><td>d9fb06c：先复现 session/配置在响应发出时尚未提交，以及提交失败仍返回 200；84 处路由数据库依赖改为响应前提交，FastAPI 最低版本升至支持该 scope 的 0.121，锁定版本未变。107 项 Host/API 检查通过，覆盖原生/兼容入口的响应发送边界、回滚及全部路由 scope 检查。真实 PostgreSQL / Neo4j 双 demo 复验通过；SSE 与后台任务保留独立会话。CI 的一次 404 与此竞态相符，但未取得该次失败的服务端完整现场，不断言它是唯一原因。</td></tr>
             <tr><th scope="row">SQL 持久化契约</th><td>42e2e19：旧双 store 套件迁至 SQL repositories 与单 writer OutputStream，保留跨连接读回、隔离、分页、加密、cron 和复盘状态检查。先复现非法事件消耗序号，再修复验证顺序；扩大选择集 188 项通过、1 项既有多 writer 竞态 xfail。全量收集 5,119 项，剩 3 个收集错误；JSON 转换器仍未实现。</td></tr>
+            <tr><th scope="row">Fork / SQL 旧表升级</th><td>741094c：fork、快照、文件访问迁至当前 API/SQL，验证附件、事件、业务快照与 agent state 的复制及源数据保留。先复现缺少数据库默认值导致旧表补列失败，再加入空数组默认值；SQLite 回归与独立 PostgreSQL 16 真实升级均保留已有行，重复启动通过，临时容器已清理。定向选择集 46 项通过，2 项本地签名分享检查未纳入且仍保留失败；没有把定向通过视为整个 fork/share 或 subagent 套件通过。</td></tr>
             <tr><th scope="row">初始化入口（待批准）</th><td>Windows CI 确认漏装本地 Auth/Tracing；Bash 还漏 Console。工作区修复补齐七包，并使独立 Context 从当前 uv.lock 导出依赖，解决隔离安装发现的 6 项版本/缺包冲突。39 项检查通过、4 项平台跳过；隔离副本的 Python/Bash 安装、CLI/MCP 配置、依赖一致性与 Context API 导入通过；全新 Context 未装 Hologres pool，已有 adapter 不被删除。未做修复后的原生 Windows 验收，未重建 UI；尚未提交。</td></tr>
           </tbody>
         </table>
@@ -105,12 +106,13 @@
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
         <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。JSON 迁移须显式映射旧 user_id 与新租户/工作区身份，验证文件引用、凭据、备份与回滚。目前未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>093bb96 的 run 43638207092 已结束：demo、数据库、Docker、发行包构建安装四项通过，CodeQL 通过；Python 两平台、前端、供应链及 Windows 仍失败。当前全量收集剩 3 个错误：Host 的 clarification、steer clarification 旧接口，以及 Context 旧路由检查在导入时装配真实 Neo4j。额外 Host 扩面诊断未忽略收集错误，达到 12 个失败阈值后停止：1,522 通过、27 跳过、1 个既有 xfail、10 失败、2 个收集错误；暴露 fork/share 的 8 项旧接口检查与 subagent 环境提示的 2 项失败，后续测试尚未运行完。Context GraphCanvas 的 12 个 lint 错误待修；初始化修复待批准；定向回归不等于远端 CI 验收。</li>
+        <li><strong>修复完整 CI：</strong>4c14d83 的 run 43639023017 已结束：demo、数据库、Docker、发行包构建安装四项通过，CodeQL 通过；Python 两平台、前端、供应链及 Windows 仍失败。最近全量收集剩 3 个错误：Host 的 clarification、steer clarification 旧接口，以及 Context 旧路由检查在导入时装配真实 Neo4j。此前 Host 限额诊断为 1,522 通过、27 跳过、1 个既有 xfail、10 失败、2 个收集错误，未跑完整套；本轮修复其中 6 个 fork/schema 问题与 2 个环境提示断言后，继续运行暴露 16 个旧 subagent 检查失败：仍调用已变更的 middleware 构造接口。生产 DataAgentBuilder 不接入旧 spawn_subagent，须迁往 RunContext/TaskContext，不能据文件存在宣称能力保留。Context GraphCanvas 的 12 个 lint 错误待修；初始化修复待批准；定向回归不等于远端 CI 验收。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
         <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 可能分配重复序号，现有 strict xfail 仍复现；本轮只修复非法载荷消耗序号，不把单 writer 并发通过当作跨 writer 正确性证明。</li>
       </ol>
       <p class="warning">待 review 的行为差异：internal 澄清问题数量为提示性建议，答复经 SQL 命令排队；旧 OSS 要求硬性数量上限与同步“已答复”409。本轮未改变生产语义，等待确认后迁移对应测试。</p>
       <p class="warning">待 review 的旧 MCP 入口：建议实际调用方迁往 internal 原生工具，再移除无效旧入口；另一方案是保留旧契约并补齐兼容适配。当前只确认 execute_sql 的旧 HTTP 转发 404，未将其他旧工具一概判为不可用，也未擅自删除兼容入口。</p>
+      <p class="warning">待 review 的文件分享：internal 依赖 OSS 对象存储签名下载；旧开源版还支持无需对象存储的本地签名链接。当前本地签名分享的 2 项测试仍失败，未删除或标为跳过。可选择以 internal 为准，或把本地签名分享作为可选后端接入；普通本地预览/下载已通过。</p>
       <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
     </section>
     <footer>
