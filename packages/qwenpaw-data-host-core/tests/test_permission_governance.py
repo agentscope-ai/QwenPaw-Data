@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from agentscope.agent import Agent
+from pathlib import Path
+
+import pytest
 from agentscope.event import (
     ConfirmResult,
     RequireUserConfirmEvent,
@@ -16,7 +18,8 @@ from qwenpaw_data.host.core.permission import (
     deny_confirmation,
     resolve_permission_mode,
 )
-from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.agent.dag_execution import DAGExecution
+from qwenpaw_data.host.core.orchestration import RuntimeStateManager
 
 
 def test_library_permission_defaults_are_workspace_aware() -> None:
@@ -28,8 +31,7 @@ def test_library_permission_defaults_are_workspace_aware() -> None:
 
 def test_explicit_permission_mode_is_preserved() -> None:
     assert (
-        resolve_permission_mode("local", "accept_edits")
-        is PermissionMode.ACCEPT_EDITS
+        resolve_permission_mode("local", "accept_edits") is PermissionMode.ACCEPT_EDITS
     )
 
 
@@ -60,7 +62,8 @@ def test_unattended_confirmation_is_denied() -> None:
     assert result.confirm_results[0].tool_call is tool_call
 
 
-async def test_agent_resumes_after_confirmation(monkeypatch) -> None:
+@pytest.mark.parametrize("handler_mode", ["approve", "missing", "mismatch", "error"])
+async def test_agent_resumes_after_confirmation(handler_mode) -> None:
     tool_call = ToolCallBlock(
         id="call-1",
         name="Bash",
@@ -72,7 +75,7 @@ async def test_agent_resumes_after_confirmation(monkeypatch) -> None:
     )
     received = []
 
-    async def fake_reply_stream(self, inputs=None):
+    async def fake_reply_stream(inputs=None):
         received.append(inputs)
         if len(received) == 1:
             yield required
@@ -80,19 +83,29 @@ async def test_agent_resumes_after_confirmation(monkeypatch) -> None:
             yield inputs
 
     async def confirm(event):
+        if handler_mode == "error":
+            raise RuntimeError("handler failed")
         return UserConfirmResultEvent(
-            reply_id=event.reply_id,
+            reply_id="another-reply" if handler_mode == "mismatch" else event.reply_id,
             confirm_results=[
                 ConfirmResult(confirmed=True, tool_call=event.tool_calls[0]),
             ],
         )
 
-    monkeypatch.setattr(Agent, "reply_stream", fake_reply_stream)
-    agent = object.__new__(QwenPawDataAgent)
-    agent._confirmation_handler = confirm
-
-    events = [event async for event in agent._reply_with_confirmations("start")]
+    execution = DAGExecution(
+        RuntimeStateManager(),
+        mode="plan",
+        session_id="test",
+        workspace_dir=Path("/workspace"),
+        artifact_dir=Path("/workspace/artifacts/test"),
+        session_trace_writer=None,
+        confirmation_handler=None if handler_mode == "missing" else confirm,
+    )
+    events = [
+        event async for event in execution.reply_stream(fake_reply_stream, "start")
+    ]
 
     assert events[0] is required
     assert isinstance(received[1], UserConfirmResultEvent)
-    assert received[1].confirm_results[0].confirmed is True
+    assert received[1].reply_id == "reply-1"
+    assert received[1].confirm_results[0].confirmed is (handler_mode == "approve")

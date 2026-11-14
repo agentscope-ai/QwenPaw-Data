@@ -95,6 +95,14 @@ nodes. Use a dedicated session to avoid interleaving unrelated conversation
 turns; normal server session-conflict checks still apply. The old in-process
 `QwenPawDataHost` interface and legacy tool-assisted planner remain unsupported.
 
+The lower-level `QwenPawDataAgent` again accepts an explicit
+`orchestration.RuntimeStateManager` for standalone DAG operation: plan/agent
+tool groups, graph-aware reply metadata, trace writing and deny-by-default
+confirmation handling. Without a runtime state or explicit mode, it continues
+to use the service's `TaskContext` and command-driven execution. This is an
+incremental embedding restoration, not a working `QwenPawDataHost` factory yet;
+its toolkit, workspace and SQL-artifact assembly still require adaptation.
+
 ### Storage backends
 
 The current service uses SQL repositories backed by the shared control-plane

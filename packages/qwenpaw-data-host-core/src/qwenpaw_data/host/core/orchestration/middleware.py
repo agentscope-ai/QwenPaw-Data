@@ -138,7 +138,7 @@ class QwenPawDataPromptMiddleware(MiddlewareBase):
         )
         if env_hint:
             sys_prompt = sys_prompt + "\n\n" + env_hint
-        return sys_prompt
+        return "\n\n".join(part for part in (current_prompt, sys_prompt) if part)
 
 
 class QwenPawDataHintMiddleware(MiddlewareBase):

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import os
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
 
 from agentscope.message import TextBlock, ToolResultState
@@ -37,8 +39,25 @@ def timeout_error(name: str, seconds: float) -> str:
 class ToolTimeoutMiddleware(MiddlewareBase):
     """Bound one acting call; skip when tool_timeout_enabled is false."""
 
-    def __init__(self, *, run_context: RunContext) -> None:
+    def __init__(
+        self,
+        timeout_seconds: float | None = None,
+        *,
+        run_context: RunContext | None = None,
+    ) -> None:
+        if run_context is not None and timeout_seconds is not None:
+            raise ValueError("Choose runtime settings or a fixed timeout, not both")
         self._ctx = run_context
+        self.timeout_seconds = None
+        if run_context is None:
+            seconds = float(
+                timeout_seconds
+                if timeout_seconds is not None
+                else os.environ.get("QWENPAW_DATA_TOOL_TIMEOUT_SECONDS", "1800")
+            )
+            if not math.isfinite(seconds) or seconds <= 0:
+                raise ValueError("Tool timeout must be positive and finite")
+            self.timeout_seconds = seconds
 
     async def on_acting(  # type: ignore[override]
         self,
@@ -47,10 +66,10 @@ class ToolTimeoutMiddleware(MiddlewareBase):
         next_handler: Callable[..., AsyncGenerator],
     ) -> AsyncGenerator[Any, None]:
         _ = agent
-        cfg = self._ctx.user_runtime_config
-        seconds = cfg.tool_timeout_seconds
+        cfg = self._ctx.user_runtime_config if self._ctx is not None else None
+        seconds = cfg.tool_timeout_seconds if cfg is not None else self.timeout_seconds
         name = str(getattr(input_kwargs["tool_call"], "name", "") or "")
-        if not cfg.tool_timeout_enabled:
+        if cfg is not None and not cfg.tool_timeout_enabled:
             async for item in next_handler(**input_kwargs):
                 yield item
             return
