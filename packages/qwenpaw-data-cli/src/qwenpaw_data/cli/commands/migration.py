@@ -67,6 +67,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     plan.add_argument("--identity-map", type=Path, required=True)
     plan.add_argument("--source-stopped", action="store_true", required=True)
     plan.add_argument(
+        "--target-db-env",
+        help="Optional explicit environment variable NAME holding an initialized target database URL; read-only Auth/schema/conflict checks only",
+    )
+    plan.add_argument(
+        "--target-stopped",
+        action="store_true",
+        help="Confirm target writers are stopped; required with --target-db-env",
+    )
+    plan.add_argument(
         "--source-key-env",
         help="Explicit environment variable NAME holding the old hex master key; omit only for plaintext credentials",
     )
@@ -248,5 +257,31 @@ def handle_plan(args: argparse.Namespace) -> int:
         source_stopped=args.source_stopped,
         limits=_limits(args),
     )
-    print(json.dumps(plan.report(), ensure_ascii=False, indent=2))
-    return 2 if plan.issues else 0
+    report = plan.report()
+    target_issues = ()
+    if args.target_db_env or args.target_stopped:
+        import os
+        import re
+        from qwenpaw_data.host.core.migration.legacy_json import MigrationError
+        from qwenpaw_data.host.core.migration.target import validate_target
+
+        if not args.target_db_env or not args.target_stopped:
+            raise MigrationError(
+                "Target checks require both --target-db-env and --target-stopped"
+            )
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.target_db_env):
+            raise MigrationError(
+                "Target database argument must be an environment variable name, not a connection URL"
+            )
+        database_url = os.environ.get(args.target_db_env)
+        if not database_url:
+            raise MigrationError(
+                "Explicit target database variable is missing or empty"
+            )
+        check = validate_target(plan, database_url=database_url, target_stopped=True)
+        report["target_validation"] = check.report()
+        report["target_database_checked"] = True
+        report["target_identity_membership_checked"] = True
+        target_issues = check.issues
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 2 if plan.issues or target_issues else 0

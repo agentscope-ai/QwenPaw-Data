@@ -182,10 +182,34 @@ unassigned shared workspace files remain explicit blockers. Known CLI logs and
 recognized empty lock files are retained only in the verified backup and listed
 as notices; unknown/nonempty lock files require explicit disposition.
 
-Exit `0` means conversion checks passed, `2` means there are reported blockers,
-and `1` means the command failed. Even with `conversion_complete: true`, the plan
-reports `import_ready: false`: target database conflicts, Auth membership,
-transactional file/SQL import, idempotence and rollback are not yet implemented.
+Optionally add `--target-db-env MIGRATION_TARGET_DB --target-stopped` to `plan`
+after stopping target writers. Set that variable securely to the **already
+initialized target control-plane/Host database** URL. No ambient database setting
+is used. Supported URLs are file `sqlite:////absolute/target.sqlite` (no query
+options) or synchronous `postgresql+psycopg://.../database` (the existing
+`qwenpaw-data-auth[postgres]` optional driver; host, user and database must be
+explicit). The check validates
+required columns/primary keys, active users/tenants/workspaces and native Auth
+roles, then checks all prepared primary keys for existing rows. Conflicts block
+even if values are identical. Preference-only users also require authorization.
+It does not create accounts, tables, files, keys, or overwrite/merge rows.
+
+SQLite must be an existing regular file, with no `-wal`, `-shm` or `-journal`
+sidecars; checkpoint/close it through its owning application first. The checker
+never deletes or recovers journals. Its [immutable read-only connection](https://www.sqlite.org/uri.html)
+requires the stopped-writer acknowledgement and checks for file changes.
+PostgreSQL checks use a [read-only repeatable-read transaction](https://www.postgresql.org/docs/current/sql-set-transaction.html)
+with query timeouts and rollback; this is not a promise of zero server-side disk
+activity. PostgreSQL-compatible/Hologres services are not yet accepted as tested
+targets. The selected database must be the one the target deployment will use.
+
+Exit `0` means conversion and any requested target checks passed, `2` means there
+are reported blockers, and `1` means the command failed (including unavailable
+or incompatible target schema). Even with `conversion_complete: true` and
+`target_validation.target_checks_passed: true`, the plan reports `import_ready:
+false`: target key provisioning, transactional file/SQL import, idempotence and
+rollback are not yet implemented. Preflight is a point-in-time check, not a
+reservation; import must revalidate all mutable state.
 Reports contain counts/paths and safe errors, not source payloads or credentials.
 
 ## Output and logs

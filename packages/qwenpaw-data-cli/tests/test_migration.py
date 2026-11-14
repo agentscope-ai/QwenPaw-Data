@@ -283,3 +283,60 @@ def test_migration_error_suspends_and_restores_existing_cli_file_handler(
         handler.flush()
     assert "after-migration-marker" in logfile.read_text()
     assert "migration-dotenv-warning" not in logfile.read_text()
+
+
+def test_cli_optional_target_check_reports_auth_blockers_without_bootstrapping(
+    tmp_path, monkeypatch, capsys
+):
+    from sqlalchemy import create_engine
+    from qwenpaw_data_auth.database import metadata
+    from qwenpaw_data.host.core.db.tables import Base
+
+    args = plan_args(tmp_path, monkeypatch)
+    db = tmp_path / "explicit.sqlite"
+    url = f"sqlite:///{db}"
+    engine = create_engine(url)
+    metadata.create_all(engine)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    before = db.read_bytes()
+    monkeypatch.setenv("QPD_MIGRATION_TEST_DB", url)
+    assert (
+        main([*args, "--target-db-env", "QPD_MIGRATION_TEST_DB", "--target-stopped"])
+        == 2
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["conversion_complete"] is True
+    assert report["target_database_checked"] is True
+    assert report["target_identity_membership_checked"] is True
+    assert (
+        report["target_validation"]["issues"][0]["code"]
+        == "target_identity_not_authorized"
+    )
+    assert report["target_validation"]["target_checks_passed"] is False
+    assert report["import_ready"] is False
+    assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--target-stopped"],
+        ["--target-db-env", "QPD_MIGRATION_TEST_DB"],
+        ["--target-db-env", "QPD_MIGRATION_TEST_DB", "--target-stopped"],
+        [
+            "--target-db-env",
+            "postgresql://private-user:private-key@localhost/db",
+            "--target-stopped",
+        ],
+    ],
+)
+def test_cli_target_selection_requires_explicit_name_value_and_stop_ack(
+    tmp_path, monkeypatch, capsys, extra
+):
+    args = plan_args(tmp_path, monkeypatch)
+    monkeypatch.delenv("QPD_MIGRATION_TEST_DB", raising=False)
+    assert main([*args, *extra]) == 1
+    output = capsys.readouterr()
+    assert "private-key" not in output.out + output.err
+    assert not (tmp_path / "target").exists()

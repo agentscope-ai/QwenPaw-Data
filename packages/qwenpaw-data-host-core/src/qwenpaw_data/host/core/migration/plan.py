@@ -52,6 +52,13 @@ class FilePlacement:
 
 
 @dataclass(frozen=True)
+class TargetIdentity:
+    user_id: str
+    tenant_id: str
+    workspace_id: str
+
+
+@dataclass(frozen=True)
 class MigrationPlan:
     source: Snapshot = field(repr=False)
     target_home: Path
@@ -61,6 +68,7 @@ class MigrationPlan:
     directories: tuple[str, ...] = field(repr=False)
     issues: tuple[PlanIssue, ...]
     notices: tuple[PlanIssue, ...]
+    identities: tuple[TargetIdentity, ...] = field(repr=False, default=())
 
     def report(self) -> dict[str, Any]:
         return {
@@ -401,4 +409,9 @@ def prepare_migration(
         tuple(sorted(directories)),
         tuple(sorted(set(issues))),
         tuple(sorted(set(notices))),
+        tuple(
+            TargetIdentity(**users[user_id])
+            for user_id in sorted(inspection.required_user_ids)
+            if user_id in users
+        ),
     )
