@@ -24,6 +24,7 @@ row_count 表示返回/预览行数，total_row_count 优先采用驱动计数�
 
 产物保存在 `QWENPAW_DATA_HOME/<tenant>/<workspace>/.cm/sql_downloads/<result_id>.csv`，
 成功关闭查询与连接后原子发布，文件权限 0600。同 Workspace 成员可下载，默认有效期 24 小时。
+写入失败时先关闭 CSV 句柄再清理临时文件，Windows 不会因打开的句柄阻止清理。
 下载逐次检查期限；非空导出最多每 60 秒触发一次清理，Runtime 的定时 Sweep 也会清理过期 CSV。
 复用原 QWENPAW_DATA_HOME 可读取尚未过期的 develop 产物和链接，不自动迁移其他历史目录。
 

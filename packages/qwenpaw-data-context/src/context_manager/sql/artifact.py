@@ -53,16 +53,17 @@ def save_sql_result(
     directory = _directory(scope)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     result_id = uuid4().hex
-    with NamedTemporaryFile(
+    stream = NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
         newline="",
         dir=directory,
         prefix=".result-",
         delete=False,
-    ) as stream:
-        temporary = Path(stream.name)
-        try:
+    )
+    temporary = Path(stream.name)
+    try:
+        with stream:
             writer = csv.writer(stream)
             writer.writerow(columns)
             for row in rows:
@@ -74,10 +75,9 @@ def save_sql_result(
                         for value in row
                     ]
                 )
-            stream.close()
-            temporary.replace(directory / f"{result_id}.csv")
-        finally:
-            temporary.unlink(missing_ok=True)
+        temporary.replace(directory / f"{result_id}.csv")
+    finally:
+        temporary.unlink(missing_ok=True)
     return result_id
 
 
