@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from agentscope.tool import Bash, Read
+from agentscope.tool import Bash, PowerShell, Read
 
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.settings import clear_settings
@@ -59,7 +60,7 @@ async def test_manager_reuses_local_workspace_within_ttl(
             assert all(Path(skill.dir).parent == paths.skills for skill in skills)
             tools = await first.list_tools()
             tool_types = {type(tool) for tool in tools}
-            assert Bash in tool_types
+            assert (PowerShell if os.name == "nt" else Bash) in tool_types
             assert Read in tool_types
         async with manager.lease(
             _paths(tmp_path / "home", session_id="session-b")

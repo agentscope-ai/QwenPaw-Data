@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -347,9 +347,9 @@ async def test_role_injection_allowlists_tools_and_fetch_skill(
     assert isinstance(sql_middleware, SqlArtifactMiddleware)
     assert sql_middleware._run_context.session_id == "s1"
     assert sql_middleware._run_context.paths.agent_id == "test-agent"
-    assert sql_middleware._run_context.paths.agent_artifact_dir(
+    assert Path(sql_middleware._run_context.paths.agent_artifact_dir(
         sql_middleware._run_context.workspace
-    ) == str(tmp_path / "workspace/artifacts/s1")
+    )) == tmp_path / "workspace/artifacts/s1"
     assert kwargs["react_config"].interruption_raise_cancelled_error is True
     assert kwargs["react_config"].max_iters == 19
 

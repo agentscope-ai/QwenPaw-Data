@@ -179,6 +179,7 @@ def test_publish_complete_private_key_is_idempotent_and_runtime_compatible(
         "",
         "x" * 65537,
     ],
+    ids=["wrong-key", "corrupt", "non-utf8", "blank", "empty", "oversized"],
 )
 def test_wrong_key_or_invalid_credentials_prevent_any_key_creation(target, value):
     home, database, url = target

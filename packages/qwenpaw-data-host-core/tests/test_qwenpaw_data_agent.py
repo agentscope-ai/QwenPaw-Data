@@ -331,10 +331,11 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         )
         expected_artifact_dir = expected_workspace / "artifacts" / session.id
         assert expected_artifact_dir.is_dir()
-        assert str(expected_artifact_dir) in str(model.messages)
-        assert "local workspace" in str(model.messages)
-        assert "1 [pending] Persisted task" in str(model.messages)
-        assert "Name:" not in str(model.messages)
+        prompt_text = "\n".join(message.get_text_content() or "" for message in model.messages)
+        assert expected_artifact_dir.as_posix() in prompt_text.replace("\\", "/")
+        assert "local workspace" in prompt_text
+        assert "1 [pending] Persisted task" in prompt_text
+        assert "Name:" not in prompt_text
         assert not (tmp_path / "home" / "sessions").exists()
         assert PLAN_TOOL_NAMES <= model.tool_names
         if delegate:

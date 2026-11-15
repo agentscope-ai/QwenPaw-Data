@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -195,6 +196,7 @@ def _live_host(tmp_path):
             [sys.executable, "-m", "uvicorn", "qwenpaw_data.host.core.api.app:app",
              "--host", "127.0.0.1", "--port", str(port)],
             cwd=tmp_path, env=env, stdout=log, stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
         started = False
         try:
@@ -213,7 +215,13 @@ def _live_host(tmp_path):
             started = True
             yield url, token
         finally:
-            process.terminate()
+            if process.poll() is None:
+                if os.name == "nt":
+                    # terminate() uses TerminateProcess and cannot run lifespan
+                    # cleanup; signal only this child's dedicated process group.
+                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                else:
+                    process.terminate()
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:

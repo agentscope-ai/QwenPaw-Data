@@ -42,7 +42,9 @@ def guarded_open(file, mode="r", *args, **kwargs):
 
 
 provider = trace.get_tracer_provider()
-with ExitStack() as stack:
+# Windows creates a loopback socket pair when its event loop starts. Create
+# that test-owned loop before guarding tracing imports and runtime operations.
+with asyncio.Runner() as runner, ExitStack() as stack:
     guards = [stack.enter_context(patch(target, side_effect=AssertionError(target)))
               for target in (
                   "socket.socket.connect",
@@ -90,7 +92,7 @@ with ExitStack() as stack:
         await tracer_send_score(name="stop", value=1, chat_id="chat-1")
         await tracer_delete_score(id="stop:chat-1")
 
-    asyncio.run(exercise())
+    runner.run(exercise())
     tracing.tracer_shutdown()
     assert trace.get_tracer_provider() is provider
     assert all(guard.call_count == 0 for guard in guards)

@@ -930,7 +930,7 @@ async def test_react_loads_cm_skill_references_and_searches(
         }
         assert query["limit"] == 200
         assert "LIMIT" not in query["cypher"]
-    initial = str(model.seen[0][0])
+    initial = "\n".join(message.get_text_content() or "" for message in model.seen[0][0])
     assert "业务域名称：trade" in initial
     assert domain_id not in initial
     assert "<name>cm-skills</name>" in initial

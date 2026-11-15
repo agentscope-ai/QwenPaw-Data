@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import inspect
+import os
 from pathlib import Path
 import shutil
 import uuid
@@ -109,7 +110,7 @@ async def test_local_workspace_seeds_qwenpaw_data_skills(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_local_workspace_bash_uses_workspace_cwd(tmp_path: Path) -> None:
+async def test_local_workspace_shell_uses_workspace_cwd(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     workspace = _local_workspace(paths)
     marker = f"artifacts/cwd-check-{uuid.uuid4().hex}.txt"
@@ -119,10 +120,16 @@ async def test_local_workspace_bash_uses_workspace_cwd(tmp_path: Path) -> None:
     try:
         await workspace.initialize()
         tools = await workspace.list_tools()
-        bash = next(tool for tool in tools if tool.name == "Bash")
-
-        stream = await bash(
-            command=f"mkdir -p artifacts && printf workspace > {marker}",
+        shell_name = "PowerShell" if os.name == "nt" else "Bash"
+        shell = next(tool for tool in tools if tool.name == shell_name)
+        command = (
+            "New-Item -ItemType Directory -Force artifacts | Out-Null; "
+            f"Set-Content -LiteralPath '{marker}' -Value workspace -NoNewline -Encoding ascii"
+            if os.name == "nt"
+            else f"mkdir -p artifacts && printf workspace > {marker}"
+        )
+        stream = await shell(
+            command=command,
             description="write cwd marker",
         )
         chunks = [chunk async for chunk in stream]
