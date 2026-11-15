@@ -47,3 +47,21 @@ The color palette, typography, radii, and control sizing are defined once in
 `src/theme.ts` and passed through `@agentscope-ai/design` `ConfigProvider`.
 Page CSS consumes the emitted semantic CSS variables and should not patch
 Ant Design component colors directly.
+
+## Security-pinned dependencies
+
+Use the repository's Node.js 22.22+ toolchain and `npm ci`; do not skip the
+`postinstall` patches for a runnable build. The Chat SDK stays pinned to its
+internal-compatible beta and retains the existing UI patch.
+
+Security overrides upgrade DOMPurify, KaTeX, Prism and URI decoding without
+downgrading the Chat SDK. `query-string+7.1.3.patch` adapts its CommonJS decoder
+import to the fixed decoder's ESM default export; removing that patch breaks
+query parsing even when `npm audit` is clean. The minimatch override is scoped
+to typescript-eslint so ESLint's older CommonJS matcher keeps its own API.
+
+After changing these pins, run `npm ci`, `npm audit`, `npm run lint`, `npm test`
+and `npm run build`. Also check browser HTML sanitization, Markdown/math,
+syntax highlighting and Mermaid rendering. A clean audit is not runtime
+compatibility evidence. The supply-chain job uses `--ignore-scripts` only to
+inventory dependencies; the frontend build installs and applies the patches.
