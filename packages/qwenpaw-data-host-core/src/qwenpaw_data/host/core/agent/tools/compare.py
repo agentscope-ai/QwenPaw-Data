@@ -517,7 +517,7 @@ def _display_path(path: Path, root: Path | None) -> str:
     if root is None:
         return str(path)
     try:
-        return str(path.relative_to(root))
+        return path.relative_to(root).as_posix()
     except ValueError:
         return str(path)
 

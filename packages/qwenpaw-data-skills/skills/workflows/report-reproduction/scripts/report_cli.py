@@ -789,7 +789,7 @@ class ReportStore:
 
     def _relative(self, path: Path) -> str:
         """Express an artifact path relative to the product root."""
-        return str(path.resolve().relative_to(self.product_root.resolve()))
+        return path.resolve().relative_to(self.product_root.resolve()).as_posix()
 
     def _section_path(self, section_id: str, filename: str) -> Path:
         validated_section_id(section_id)
@@ -2172,20 +2172,16 @@ def parse_document(
                     section_id=section_id,
                     title=title,
                     level=level,
-                    source_path=str(source_md.relative_to(product_root)),
-                    draft_path=str(
-                        (section_dir / "baseline" / "draft.md").relative_to(
-                            product_root
-                        )
-                    ),
-                    spec_path=str(
-                        (section_dir / "spec.json").relative_to(product_root)
-                    ),
-                    comparison_path=str(
-                        (section_dir / "baseline" / COMPARISON_FILE).relative_to(
-                            product_root
-                        )
-                    ),
+                    source_path=source_md.relative_to(product_root).as_posix(),
+                    draft_path=(section_dir / "baseline" / "draft.md")
+                    .relative_to(product_root)
+                    .as_posix(),
+                    spec_path=(section_dir / "spec.json")
+                    .relative_to(product_root)
+                    .as_posix(),
+                    comparison_path=(section_dir / "baseline" / COMPARISON_FILE)
+                    .relative_to(product_root)
+                    .as_posix(),
                     blocked_by=[previous_id] if previous_id else [],
                 )
             )
@@ -2195,7 +2191,7 @@ def parse_document(
     return ReportManifest(
         report_id=parsed.report_id,
         title=parsed.title,
-        source_path=str(materialized.relative_to(product_root)),
+        source_path=materialized.relative_to(product_root).as_posix(),
         source_period=source_period,
         target_period=target_period,
         sections=section_progress,
@@ -2244,7 +2240,7 @@ def build_recipe(product_root: Path, manifest: ReportManifest) -> ReportRecipe:
             queries.append(
                 QueryRecipe(
                     section_id=section_id,
-                    query_path=str(query_path.resolve().relative_to(resolved_root)),
+                    query_path=query_path.resolve().relative_to(resolved_root).as_posix(),
                     parameters=names,
                 )
             )

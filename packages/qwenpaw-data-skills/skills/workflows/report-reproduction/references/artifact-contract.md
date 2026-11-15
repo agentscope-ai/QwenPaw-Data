@@ -2,6 +2,8 @@
 
 所有路径相对于当前 Session artifact 目录：
 
+JSON 中的产物相对路径统一使用 `/` 分隔符，包括 Windows；操作系统原生路径仅用于本地文件访问。
+
 ```text
 report-reproduction/
 ├── source/original.*
