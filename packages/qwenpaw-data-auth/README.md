@@ -182,7 +182,7 @@ curl -X POST http://localhost:8088/api/platform/tenants \
 1. 登录 `http://localhost:3000/login`，首次建议前往 `http://localhost:3000/user-center/account/change-password` 修改密码（`POST /api/auth/change-password`）；
 2. 登录后自动进入业务前端 `http://localhost:3000`：
    - 可读全局 MG（只读）、读写**自己**的 TG/KG（图管理直达"我的图谱"三张图视图）；
-   - 数据源、数据集、指标等页面为只读；无语义编织、Excel 导入、模型配置权限；
+   - 数据源、数据集、指标等页面为只读；无语义编织、Excel 导入权限，可管理本人的模型配置；
 3. 属于多个 Workspace 时，可在业务前端右上角切换，或调用 `POST /api/auth/switch-workspace`。
 
 ---
@@ -232,7 +232,7 @@ curl -X POST http://127.0.0.1:8088/api/auth/temporary-access \
 
 - **`QWENPAW_DATA_SERVICE_SECRET` 必须独立于 `QWENPAW_DATA_AUTH_SECRET`。** 后者是对称签名密钥，一旦作为请求头外泄，持有者可直接伪造任意 token（含 `platform_admin`）；独立密钥可单独轮换，且不会作废在线会话。
 - **该端点只允许内网直连 8088。** `deploy/nginx.conf` 已显式 `deny all`，因为它凭服务密钥即可为任意 `user_id` 签票。
-- **吊销的生效速度按服务而异。** 登出、改密、角色绑定变更、停用用户都会抬高 `users.token_revoked_before`，但各服务据此拦截的时机不同：Auth 自身端点每请求现查控制面，**立即**生效；Context 靠 5 分钟一轮的 `revocation_sync_loop` 同步，**最坏延迟 5 分钟**；Host 的入口只做 HMAC 签名 + `exp` 校验，不查吊销水位线，**已签发的 access 会一直有效到自然过期**。因此 access ttl（默认 24h，也是 cookie / 代签票的寿命）就是 Host 侧的吊销暴露窗口；需要更快收敛就调低 `QWENPAW_DATA_ACCESS_TOKEN_TTL`。权限（而非身份）仍由下游每请求现算。
+- **当前 Auth、Host、Context 在请求鉴权时读取控制面状态。** Auth 与 Context 使用 `authorize_request`；Host 使用 `request_identity_payload` 与 `principal_from_payload`。三者检查用户和租户状态、当前成员关系及 `users.token_revoked_before`，早于撤销水位签发的令牌被拒绝；Host/Context 不允许无当前工作区权限的业务访问。此路径不依赖旧 Context 的周期同步，也不是只等 access 自然过期。Auth 的 `/api/auth/me` 可为仍有效但已无成员关系的账号返回空工作区集合，不代表仍可访问业务。撤权检查不自动取消已经鉴权并开始的请求、SSE 或后台操作；这些路径的后续授权与取消由各业务服务负责。
 - 审计事件为 `service_access_issued` / `service_access_denied`。
 
 ## 开发与测试
