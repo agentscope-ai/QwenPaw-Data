@@ -99,6 +99,8 @@ def test_connection_and_user_cancellation_are_not_statement_timeouts(error, back
 
 @pytest.mark.parametrize("timeout", [0, 75])
 def test_postgres_applies_budget_before_query_and_closes(monkeypatch, timeout):
+    import psycopg
+
     monkeypatch.setattr(executor, "SQL_STATEMENT_TIMEOUT_MS", timeout)
     monkeypatch.setattr(executor, "_pg_connect_kwargs", lambda **kw: {})
     conn = MagicMock()
@@ -107,7 +109,7 @@ def test_postgres_applies_budget_before_query_and_closes(monkeypatch, timeout):
     cursor.description = []
     cursor.rowcount = 0
     cursor.fetchmany.return_value = []
-    monkeypatch.setattr(executor.psycopg, "connect", lambda **kw: conn)
+    monkeypatch.setattr(psycopg, "connect", lambda **kw: conn)
     result = executor._execute_sql_via_psycopg("SELECT 1", datasource_id="a")
     statements = [call.args[0] for call in cursor.execute.call_args_list]
     assert statements == ([f"SET statement_timeout = {timeout}"] if timeout else []) + [

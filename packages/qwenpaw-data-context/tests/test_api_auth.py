@@ -282,9 +282,12 @@ def test_every_application_api_route_has_an_explicit_policy(
 ) -> None:
     monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
     from context_manager.api.authorization import unclassified_app_routes
-    from context_manager.api.server import create_app
+    from context_manager.api.app import create_api_app
+    from context_manager.metadata.weaving.integration import mount_editor
 
-    assert unclassified_app_routes(create_app()) == []
+    app = create_api_app()
+    mount_editor(app)
+    assert unclassified_app_routes(app) == []
 
 
 def test_get_dataset_columns_endpoint_is_registered_and_classified(
@@ -302,9 +305,9 @@ def test_get_dataset_columns_endpoint_is_registered_and_classified(
         _walk_route_templates,
         required_scopes_for_request,
     )
-    from context_manager.api.server import create_app
+    from context_manager.api.app import create_api_app
 
-    app = create_app()
+    app = create_api_app()
     registered = {
         (path, method)
         for path, methods in _walk_route_templates(app.routes)

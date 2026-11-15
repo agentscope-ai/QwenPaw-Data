@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from context_manager.api.server import _event_loop_lag_monitor
+from context_manager.api.lifespan import _event_loop_lag_monitor
 
 
 async def test_event_loop_monitor_records_blocking_lag(monkeypatch):

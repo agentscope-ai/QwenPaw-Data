@@ -13,10 +13,10 @@ from context_manager.api import (
     import_api,
     semantic_api,
     semantic_io_api,
-    server,
     tg_admin_api,
     trace_api,
 )
+from context_manager.api.app import create_api_app
 from context_manager.metadata.weaving import MetadataWeavingService
 from qwenpaw_data.context.blocking_io import (
     BlockingIOOverloaded,
@@ -24,6 +24,8 @@ from qwenpaw_data.context.blocking_io import (
     BlockingPool,
 )
 from semantic_config.routers import weave_task_router
+
+app = create_api_app()
 
 
 def _mounted_endpoints(routes, prefix=""):
@@ -86,7 +88,7 @@ def test_async_routes_use_the_governor_instead_of_default_to_thread():
     assert "run_in_executor" not in inspect.getsource(doc_api)
     assert "asyncio.to_thread" not in inspect.getsource(import_api)
 
-    endpoints = _mounted_endpoints(server.app.routes)
+    endpoints = _mounted_endpoints(app.routes)
     for path in (
         "/api/v1/cm/domains",
         "/api/v3/cm/explore",
@@ -129,7 +131,7 @@ def test_semantic_import_http_paths_forward_the_app_governor():
 
 
 def test_background_writeback_uses_governed_submission():
-    endpoints = _mounted_endpoints(server.app.routes)
+    endpoints = _mounted_endpoints(app.routes)
     sql_source = inspect.getsource(endpoints["/api/v1/rdb/execute_sql"])
     feedback_source = inspect.getsource(
         endpoints["/api/v1/semantic/feedback_card"]
@@ -139,7 +141,7 @@ def test_background_writeback_uses_governed_submission():
 
 
 async def test_blocking_failures_have_explicit_http_overload_semantics():
-    overload_handler = server.app.exception_handlers[BlockingIOOverloaded]
+    overload_handler = app.exception_handlers[BlockingIOOverloaded]
     overload_response = await overload_handler(
         None,
         BlockingIOOverloaded(BlockingPool.GRAPH, "graph.read", "saturated"),
@@ -148,7 +150,7 @@ async def test_blocking_failures_have_explicit_http_overload_semantics():
     assert overload_response.headers["retry-after"] == "1"
     assert json.loads(overload_response.body)["pool"] == "graph"
 
-    timeout_handler = server.app.exception_handlers[BlockingIOTimeout]
+    timeout_handler = app.exception_handlers[BlockingIOTimeout]
     timeout_response = await timeout_handler(
         None,
         BlockingIOTimeout(BlockingPool.SQL, "sql.execute", "expired"),
