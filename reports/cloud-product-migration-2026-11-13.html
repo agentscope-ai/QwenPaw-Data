@@ -36,7 +36,7 @@
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>91bb2e9</code>；Host 收敛、安全修复、真实 demo、Console lint/依赖审计、SQL 提交边界、持久化契约、旧表补列、原生 subagent、流批次取消恢复，以及 JSON 预检/备份、记录/凭据/偏好转换、目标检查、本地密钥配置、SQL/文件导入恢复与回滚、加密计划和显式 CLI 操作流程已提交。Context 单行测试导入、初始化入口和 GraphCanvas 类型修复为三批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>371f626</code>；Host 收敛与旧嵌入入口清理、安全修复、真实 demo、Console lint/依赖审计、SQL 提交边界、持久化契约、旧表补列、原生 subagent、流批次取消恢复，以及 JSON 预检/备份、记录/凭据/偏好转换、目标检查、本地密钥配置、SQL/文件导入恢复与回滚、加密计划和显式 CLI 操作流程已提交。Context 单行测试导入、初始化入口和 GraphCanvas 类型修复为三批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
     </section>
     <section aria-labelledby="scope">
@@ -115,7 +115,8 @@
         </table>
       </div>
       <p class="muted">以上是不同提交的定向验证，选择集有重叠，不累加为总覆盖量；不代表全套 CI、浏览器交互或真实外部后端通过。</p>
-      <p class="muted">当前工作区全量收集：5,709 项、3 个错误（Context blocking route 与 Host 两个旧澄清接口）。该结果包含待批准的 Context 导入修正和初始化测试，不代表仅已推送提交的验收结果。</p>
+      <p>旧嵌入入口清理（371f626）：删除无生产调用的旧 core/registry/model 三个模块及 CLI 创建工厂，净减 421 行；原生 runtime、provider、权限/沙箱和迁移代码保留。CLI/HostClient/SOP/模型绑定/工作区选择集 202 通过、1 跳过；最终入口与包边界复验 16 通过。新建 Host/CLI wheel 安装到临时目录，检查实际导入来自 wheel；阻止 Context 导入后，原生 HostClient 创建会话及 SQLite 重启读取通过。依赖复用现有虚拟环境，不宣称全新依赖安装或真实模型调用；旧文件可从 Git 历史恢复，未修改用户数据。</p>
+      <p class="muted">当前工作区全量收集：5,711 项、3 个错误（Context blocking route 与 Host 两个旧澄清接口）。该结果包含待批准的 Context 导入修正和初始化测试，不代表仅已推送提交的验收结果。</p>
       <p>验证入口：<code>scripts/tests/run_pytest.sh</code>；对应测试位于 Host、Console 和 tracing 包。完整 CI 结果以 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">PR 检查页</a> 为准。</p>
     </section>
     <section aria-labelledby="remaining">
@@ -123,7 +124,7 @@
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
         <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。导入/恢复/回滚的显式 CLI、原生 Host 读取及保留策略已通过合成数据验收；继续验证真实部署升级，保护用户修改及新依赖，不盲目删除暂存或目录。共享 workspace、未完成聊天/水位、远端部署密钥一致性仍待处理。自定义模型大小补充已支持，移除的目录模型须明确重映射；旧 DAG 状态不得静默丢弃。尚未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>最近检查的已完成 run 43656130067：demo、数据库、Docker、发行包构建安装四项通过；对应 CodeQL 43656130026 通过；Python 两平台、前端、供应链及 Windows 仍失败。此 run 早于 Console 依赖修复，后者尚待远端 CI 验收。Windows 确认缺 Auth 包；远端收集为 4 个错误，工作区待批准修正后为 3 个。最新 Host/CLI 扩面：2,536 通过、28 跳过、1 个既有 xfail、2 失败、2 个收集错误；失败为旧本地签名分享要求未配置对象存储时返回 200，收集错误为 clarification 的旧 toolkit/CronToolServices 与 steer clarification 的旧 ClarificationConflict 导入。两类行为差异仍待 review，未删除检查。历史 toolkit/Host 残留、Context 旧路由导入待修；初始化与 GraphCanvas lint 修复已验证暂存、待批准；本地扩大回归不等于远端 CI 验收。</li>
+        <li><strong>修复完整 CI：</strong>依赖修复后的 run 43656769528 已确认供应链、demo、数据库、Docker 通过；对应 CodeQL 43656769579 通过；Python 两平台和前端失败，观察时发行包/Windows 尚未结束，不视为完整 CI 通过。Windows 既有失败确认缺 Auth 包；远端收集为 4 个错误，工作区待批准修正后为 3 个。最新 Host/CLI 扩面：2,536 通过、28 跳过、1 个既有 xfail、2 失败、2 个收集错误；失败为旧本地签名分享要求未配置对象存储时返回 200，收集错误为 clarification 的旧 toolkit/CronToolServices 与 steer clarification 的旧 ClarificationConflict 导入。两类行为差异仍待 review，未删除检查。旧 Host 创建入口已删除，历史 toolkit 与 Context 旧路由导入仍待收敛；初始化与 GraphCanvas lint 修复已验证暂存、待批准；本地扩大回归不等于远端 CI 验收。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
         <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 分配重复序号的 strict xfail 已再次实证；取消恢复修复不解决此竞争。待 review：保留 internal 批量机制并加入写者所有权/接管协议（推荐），或接受逐事件事务落盘的额外写入开销。已发布序号不能在冲突后直接重编号；提交结果不明仍须明确恢复协议。</li>
       </ol>
