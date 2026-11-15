@@ -6,7 +6,7 @@ from qwenpaw_data_auth.breakglass import consume_raw_cypher_grant, raw_query_dig
 from qwenpaw_data_auth.config import AuthConfig
 from qwenpaw_data_auth.database import get_db, query_one
 from qwenpaw_data_auth.provision_backend import configured_provision_backends
-from conftest import PASSWORD, bootstrap_and_onboard, login, seed_user
+from qwenpaw_data_auth_test_support import PASSWORD, bootstrap_and_onboard, login, seed_user
 
 
 @pytest.fixture

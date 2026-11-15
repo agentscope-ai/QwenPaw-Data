@@ -16,7 +16,7 @@ from qwenpaw_data_auth.database import get_db, query_one, reset_engines
 from qwenpaw_data_auth.password import verify_password
 from qwenpaw_data_auth.server import create_app
 from qwenpaw_data_auth.token import TokenIssuer
-from conftest import PASSWORD, seed_user
+from qwenpaw_data_auth_test_support import PASSWORD, seed_user
 
 pytestmark = pytest.mark.usefixtures("local_mode")
 

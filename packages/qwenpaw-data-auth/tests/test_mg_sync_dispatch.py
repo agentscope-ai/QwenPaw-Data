@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from qwenpaw_data_auth.asgi_dispatch import DualASGI, is_auth_path
 from qwenpaw_data_auth.mg_sync import sync_user_workspaces
 from qwenpaw_data_auth.token import TokenVerifier
-from conftest import seed_user
+from qwenpaw_data_auth_test_support import seed_user
 
 
 @pytest.mark.parametrize("path,expected", [("/api/auth/status", True), ("/api/platform", True), ("/api/users", True),
