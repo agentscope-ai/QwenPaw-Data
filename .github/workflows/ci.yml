@@ -46,23 +46,6 @@ jobs:
       - name: Run tests
         run: uv run pytest -q
 
-      - name: API smoke test
-        run: |
-          uv run python packages/qwenpaw-data-context/scripts/serve.py \
-            --port 8799 --log-level warning &
-          SERVE_PID=$!
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8799/api/health >/dev/null 2>&1; then
-              echo "smoke test OK"
-              kill "$SERVE_PID"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "smoke test FAILED" >&2
-          kill "$SERVE_PID" || true
-          exit 1
-
   frontend:
     name: Frontend (lint + build)
     runs-on: ubuntu-latest
@@ -320,6 +303,46 @@ jobs:
           QWENPAW_DATA_TEST_NEO4J_URI: bolt://127.0.0.1:7687
           QWENPAW_DATA_TEST_NEO4J_PASSWORD: qwenpaw-data-test
         run: uv run pytest -q tests/integration/test_database_services.py
+
+      - name: Context API smoke with real dependencies
+        env:
+          QWENPAW_DATA_HOME: ${{ runner.temp }}/context-smoke-home
+          QWENPAW_DATA_DB_URL: sqlite+aiosqlite:///${{ runner.temp }}/context-smoke.db
+          QWENPAW_DATA_ENV_FILE: /dev/null
+          NEO4J_URI: bolt://127.0.0.1:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: qwenpaw-data-test
+        run: |
+          # Context validates the shared schema; each owner creates its own tables.
+          uv run python - <<'PY'
+          import asyncio
+          from qwenpaw_data_auth import AuthConfig, bootstrap_local
+          from qwenpaw_data.host.core.db.engine import init_db, reset_engine
+          bootstrap_local(AuthConfig.from_env())
+          async def prepare():
+              try:
+                  await init_db()
+              finally:
+                  await reset_engine()
+          asyncio.run(prepare())
+          PY
+          uv run python packages/qwenpaw-data-context/scripts/serve.py \
+            --port 8799 --log-level warning &
+          SERVE_PID=$!
+          trap 'kill "$SERVE_PID" 2>/dev/null || true; wait "$SERVE_PID" || true' EXIT
+          for i in $(seq 1 30); do
+            if ! kill -0 "$SERVE_PID" 2>/dev/null; then
+              echo "Context exited before becoming healthy" >&2
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:8799/api/health >/dev/null 2>&1; then
+              echo "Context smoke test OK"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Context smoke test FAILED" >&2
+          exit 1
 
   cli-demo-smoke:
     name: Deterministic CLI demo smoke
