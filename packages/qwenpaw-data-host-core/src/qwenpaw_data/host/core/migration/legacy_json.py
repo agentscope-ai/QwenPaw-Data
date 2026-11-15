@@ -73,7 +73,15 @@ def _canonical(value: Any) -> bytes:
 
 
 def _signature(info: os.stat_result) -> tuple[int, ...]:
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    # Windows Python 3.12+ reports creation time through stat().st_ctime_ns
+    # but change time through fstat().st_ctime_ns (CPython #157671). Compare
+    # creation time explicitly there; POSIX retains its change-time check.
+    timestamp = (
+        getattr(info, "st_birthtime_ns", info.st_ctime_ns)
+        if sys.platform == "win32"
+        else info.st_ctime_ns
+    )
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, timestamp)
 
 
 def _portable_key(value: str) -> str:
@@ -180,7 +188,16 @@ def _read_file(
         if not stat.S_ISREG(info.st_mode) or _signature(info) != expected:
             raise MigrationError(f"Source changed during inventory: {relative}")
         yield stream
-        if _signature(os.fstat(stream.fileno())) != expected or path.resolve() != path:
+        after = os.fstat(stream.fileno())
+        if (
+            _signature(after) != expected
+            # Always compare change time through the same descriptor API,
+            # including on Windows where the portable signature uses birth time.
+            or after.st_ctime_ns != info.st_ctime_ns
+            or after.st_nlink != info.st_nlink
+            or path.resolve() != path
+            or _signature(path.lstat()) != expected
+        ):
             raise MigrationError(f"Source changed during read: {relative}")
 
 
