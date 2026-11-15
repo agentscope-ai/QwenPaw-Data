@@ -35,8 +35,8 @@ worker. Without `QWENPAW_DATA_API_TOKEN`, only loopback clients are accepted.
 | `GET /sessions/{sid}/chats` | List a session's chats |
 | `POST /sessions/{sid}/chats/{cid}/stop` | Cancel a running turn |
 | `GET /sessions/{sid}/chats/{cid}/events` | SSE stream: replays persisted history, then live events; supports `Last-Event-ID` (or `after_sequence_number`) resume |
-| `POST /sessions/{sid}/chats/{cid}/steer` | Inject steering text into the running turn (204; 409 when not active) |
-| `POST /sessions/{sid}/chats/{cid}/clarification/answer` | Deliver an `ask_user_question` result to the paused turn |
+| `POST /sessions/{sid}/chats/{cid}/steer` | Commit steering text/comments to the SQL command queue (200; 409 when not active) |
+| `POST /sessions/{sid}/chats/{cid}/clarification/answer` | Commit an `ask_user_question` result for runtime consumption (200; 404 when the chat is not active) |
 | `GET/PUT/DELETE /preferences/providers[/{id}]` · `.../models/{id}` · `GET/PUT /preferences/active-models` | Model provider credentials (masked in responses), model overrides, active model selection |
 | `GET /datasources` | DataBridge datasource discovery proxied through the service |
 | `GET/POST /cron/jobs` · `GET/PUT/DELETE /cron/jobs/{id}` · `POST .../pause|resume|run` | Scheduled agent runs: a cron expression or one-shot time opens a console chat with the configured message/datasource (single-process APScheduler) |
@@ -105,12 +105,32 @@ owns identity, approvals, workspace lifecycle, SQL persistence and trace events.
 The SOP document model remains a client-side contract, not a second server
 runtime. The retired `host.core.core`, `host.core.registry`, `host.core.model`
 modules and CLI `create_qwenpaw_data` factory have been removed; configure
-models through the service's provider/preferences APIs. Remaining legacy
-modules do not constitute a supported embedding API.
+models through the service's provider/preferences APIs. The retired grouped
+`agent.toolkit` is also removed; `DataAgentBuilder` assembles the native toolkit.
+Remaining legacy modules do not constitute a supported embedding API.
 
 Migration work may break old OSS interfaces. Conflicting OSS architectural
 choices require review before replacement; security hardening, safe handling
 of existing data, optional infrastructure and OSS packaging remain requirements.
+
+### Clarification and file sharing
+
+Clarification question/option counts are advisory schema descriptions, not hard
+array limits. Semantic fields still reject blank values and unknown fields.
+Invalid clarification settings fail validation. The native toolkit always
+registers `ask_user_question`; when clarification is disabled for a chat, the
+executor supplies an explicit user-absent result instead of waiting for a UI.
+Steering and clarification APIs commit SQL commands before acknowledging them;
+they do not require a runtime in the receiving process. Repeated clarification
+answers are queued, not synchronously rejected as already answered.
+
+File sharing (`POST /sessions/{sid}/files/share`) requires a configured Alibaba
+OSS bucket and returns an expiring object-store download URL. The historical
+local signed-link resolver and `QWENPAW_DATA_SHARE_SECRET` fallback are not
+supported. Without object storage, authenticated local preview and download
+(`GET /sessions/{sid}/files/access`) remain available. Issuing a share URL
+requires write access to the session; possessing that external signed URL
+grants download access until it expires, independently of Host authentication.
 
 ### Storage backends
 

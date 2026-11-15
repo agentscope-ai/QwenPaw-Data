@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -261,9 +261,17 @@ async def test_files_access(tmp_path, monkeypatch) -> None:
             assert response.status_code == status, bad
 
 
-async def test_share_link_roundtrip(tmp_path, monkeypatch) -> None:
+async def test_share_link_uses_configured_object_store(tmp_path, monkeypatch) -> None:
+    store = Mock()
+    store.create_signed_download_url.return_value = "https://objects.invalid/signed-report"
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.api.routers.artifact.get_oss_store", lambda: store,
+    )
     async with service_client(
-        tmp_path, monkeypatch, QWENPAW_DATA_SHARE_SECRET="test-secret"
+        tmp_path, monkeypatch,
+        QWENPAW_DATA_OSS_ACCESS_KEY_ID="test-id",
+        QWENPAW_DATA_OSS_ACCESS_KEY_SECRET="test-secret",
+        QWENPAW_DATA_OSS_BUCKET="test-bucket",
     ) as (http, app):
         sid, _, _ = await _seed_forkable_session(http, app)
 
@@ -273,34 +281,48 @@ async def test_share_link_roundtrip(tmp_path, monkeypatch) -> None:
         assert shared.status_code == 200, shared.text
         body = shared.json()
         assert body["name"] == "report.md"
-        url = body["url"]
-        assert url.startswith("/api/v1/files/shared/")
+        assert body["url"] == store.create_signed_download_url.return_value
+        assert body["expires_at"]
+        settings = get_settings().oss
+        object_path = f"{settings.prefix}/{sid}/report.md"
+        store.upload_file.assert_called_once_with(object_path, "# 结论".encode())
+        store.create_signed_download_url.assert_called_once_with(
+            object_path,
+            expires_in=settings.share_ttl_seconds,
+            download_filename="report.md",
+        )
 
-        resolved = await http.get(url)
-        assert resolved.status_code == 200
-        assert resolved.text == "# 结论"
-
-        # Tampered signature and truncated token both fail closed.
-        tampered = await http.get(url[:-1] + ("0" if url[-1] != "0" else "1"))
-        assert tampered.status_code == 404
+        # The removed local token resolver cannot expose files.
         broken = await http.get("/api/v1/files/shared/not-a-token", params={"sig": "x"})
         assert broken.status_code == 404
 
 
-async def test_share_requires_secret(tmp_path, monkeypatch) -> None:
-    async with service_client(tmp_path, monkeypatch) as (http, app):
+async def test_share_requires_object_storage_even_with_legacy_secret(tmp_path, monkeypatch) -> None:
+    async with service_client(
+        tmp_path, monkeypatch, QWENPAW_DATA_SHARE_SECRET="legacy-secret",
+    ) as (http, app):
         sid, _, _ = await _seed_forkable_session(http, app)
         response = await http.post(
             f"/api/v1/sessions/{sid}/files/share", json={"path": "report.md"}
         )
-        assert response.status_code in (400, 422)
+        assert response.status_code == 400
+        assert response.json()["code"] == "VALIDATION"
+        assert response.json()["message"] == "OSS is not configured"
 
 
-async def test_shared_route_bypasses_bearer_auth(tmp_path, monkeypatch) -> None:
+async def test_share_creation_and_local_access_require_bearer_auth(tmp_path, monkeypatch) -> None:
+    store = Mock()
+    store.create_signed_download_url.return_value = "https://objects.invalid/signed-out"
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.api.routers.artifact.get_oss_store", lambda: store,
+    )
     async with service_client(
         tmp_path,
         monkeypatch,
         QWENPAW_DATA_API_TOKEN="api-token",
+        QWENPAW_DATA_OSS_ACCESS_KEY_ID="test-id",
+        QWENPAW_DATA_OSS_ACCESS_KEY_SECRET="test-secret",
+        QWENPAW_DATA_OSS_BUCKET="test-bucket",
     ) as (http, app):
         headers = {"Authorization": "Bearer api-token"}
         created = await http.post(
@@ -311,14 +333,29 @@ async def test_shared_route_bypasses_bearer_auth(tmp_path, monkeypatch) -> None:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         (artifact_dir / "out.txt").write_text("shared", encoding="utf-8")
 
+        denied = await http.post(
+            f"/api/v1/sessions/{sid}/files/share", json={"path": "out.txt"},
+        )
+        assert denied.status_code == 401
+        store.upload_file.assert_not_called()
+        denied_preview = await http.get(
+            f"/api/v1/sessions/{sid}/files/access", params={"path": "out.txt"},
+        )
+        assert denied_preview.status_code == 401
+
         shared = await http.post(
             f"/api/v1/sessions/{sid}/files/share",
             json={"path": "out.txt"},
             headers=headers,
         )
         assert shared.status_code == 200, shared.text
-        # No Authorization header on the resolver: the signature is enough.
-        resolved = await http.get(shared.json()["url"])
+        assert shared.json()["url"] == store.create_signed_download_url.return_value
+        # External signed-link verification belongs to the object store; local
+        # previews still require Host authentication.
+        resolved = await http.get(
+            f"/api/v1/sessions/{sid}/files/access",
+            params={"path": "out.txt"}, headers=headers,
+        )
         assert resolved.status_code == 200
         assert resolved.text == "shared"
 
