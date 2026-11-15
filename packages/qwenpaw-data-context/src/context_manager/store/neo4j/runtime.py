@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from itertools import islice
 from typing import Any, TypeVar
 
-from neo4j import Driver, ManagedTransaction, Session, unit_of_work
+from neo4j import READ_ACCESS, Driver, ManagedTransaction, Session, Transaction
 from neo4j.exceptions import (
     DriverError,
     IncompleteCommit,
@@ -25,7 +25,7 @@ _QUERY_ACQUISITION_TIMEOUT_SECONDS = 5.0
 
 
 class Neo4jRuntime(GraphRuntime[GraphTarget]):
-    """Execute managed work against one tenant/workspace graph target."""
+    """Execute work against one tenant/workspace graph target."""
 
     def __init__(self, driver: Driver, target: GraphTarget) -> None:
         """Bind a driver and exact graph target without opening a session."""
@@ -86,12 +86,19 @@ class Neo4jRuntime(GraphRuntime[GraphTarget]):
         try:
             with self._session(
                 health=operation == "health" and not write,
-                no_retry=operation == "execute_query" and not write,
+                native_query=operation == "execute_query" and not write,
             ) as session:
                 # Readiness checks must report an unavailable backend instead
                 # of waiting through the driver's managed-transaction retries.
                 if operation == "health" and not write:
                     return _run(session, query, values, max_rows=max_rows)
+                if operation == "execute_query":
+                    # Explicit transactions never retry, including when the
+                    # driver's retry clock cannot distinguish adjacent reads.
+                    with session.begin_transaction(timeout=10) as transaction:
+                        return _run(
+                            transaction, query, values, read_only=True, max_rows=max_rows
+                        )
                 executor = session.execute_write if write else session.execute_read
 
                 def execute(tx):
@@ -99,27 +106,23 @@ class Neo4jRuntime(GraphRuntime[GraphTarget]):
                         tx,
                         query,
                         values,
-                        read_only=operation == "execute_query",
                         max_rows=max_rows,
                     )
 
-                if operation == "execute_query":
-                    execute = unit_of_work(timeout=10)(execute)
                 return executor(execute)
         except (Neo4jError, DriverError) as exc:
             raise self._error(exc, operation) from exc
 
-    def _session(self, *, health: bool = False, no_retry: bool = False) -> Any:
+    def _session(self, *, health: bool = False, native_query: bool = False) -> Any:
         """Open one session using the configured database when supplied."""
         options: dict[str, object] = {}
         if self._target.database is not None:
             options["database"] = self._target.database
         if health:
             options["connection_acquisition_timeout"] = _HEALTH_ACQUISITION_TIMEOUT_SECONDS
-        if no_retry:
-            # User-facing native queries have their own server timeout and
-            # should report a disconnected backend instead of driver retries.
-            options["max_transaction_retry_time"] = 0
+        if native_query:
+            # Explicit transactions inherit routing from the session.
+            options["default_access_mode"] = READ_ACCESS
             options["connection_acquisition_timeout"] = _QUERY_ACQUISITION_TIMEOUT_SECONDS
         return self._driver.session(**options)
 
@@ -205,7 +208,7 @@ class _BoundRuntime(GraphRuntime[GraphTarget]):
 
 
 def _run(
-    transaction: ManagedTransaction | Session,
+    transaction: ManagedTransaction | Transaction | Session,
     query: str,
     parameters: Mapping[str, object],
     *,

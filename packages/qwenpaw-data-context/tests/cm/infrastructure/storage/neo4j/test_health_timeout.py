@@ -17,26 +17,32 @@ from urllib.parse import urlparse
 import pytest
 from context_manager.store import StoreError
 from context_manager.store.neo4j import GraphTarget, Neo4jRuntime
-from neo4j import GraphDatabase
+from neo4j import READ_ACCESS, GraphDatabase
 
 
 class _EstablishedHealthStall(AssertionError):
     pass
 
 
-def test_user_query_disables_retries_without_changing_normal_sessions() -> None:
+def test_user_query_uses_read_routing_without_changing_normal_sessions() -> None:
     driver = Mock()
     runtime = Neo4jRuntime(driver, GraphTarget("tenant", "workspace"))
-    runtime._session(no_retry=True)
+    runtime._session(native_query=True)
     driver.session.assert_called_with(
-        max_transaction_retry_time=0, connection_acquisition_timeout=5.0
+        default_access_mode=READ_ACCESS, connection_acquisition_timeout=5.0
     )
     runtime._session()
     driver.session.assert_called_with()
 
 
 @pytest.mark.parametrize(("operation", "limit"), [("health", 4), ("execute_query", 7)])
-def test_connection_acquisition_is_bounded(operation: str, limit: int) -> None:
+def test_connection_acquisition_is_bounded(
+    operation: str, limit: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Coarse clocks can yield equal initial samples even with retry time zero.
+    # Keep network deadlines and the elapsed-time assertion on the real clock.
+    retry_clock = iter((0.0, 0.0, 1.0))
+    monkeypatch.setattr("neo4j._sync.work.session.monotonic", lambda: next(retry_clock))
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen()

@@ -14,7 +14,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 from sqlalchemy import create_engine
@@ -271,9 +271,6 @@ class _ManagedSession:
         self.committed = True
         return result
 
-    def execute_read(self, callback):
-        return callback(self.transaction)
-
 
 @pytest.mark.parametrize("failure", ["backend", "validation"])
 def test_caught_write_failure_keeps_managed_transaction_uncommittable(pure, failure):
@@ -308,14 +305,15 @@ def test_caught_write_failure_keeps_managed_transaction_uncommittable(pure, fail
 def test_runtime_native_read_timeout_and_driver_close_are_enforced(pure):
     plan = SimpleNamespace(consume=lambda: SimpleNamespace(query_type="r"))
     tx = Mock(run=Mock(side_effect=[plan, iter([{"value": 1}])]))
-    session = _ManagedSession(tx)
-    callback = []
-    original = session.execute_read
-    session.execute_read = lambda work: (callback.append(work), original(work))[1]
+    session = MagicMock()
+    session.__enter__.return_value = session
+    session.begin_transaction.return_value.__enter__.return_value = tx
     driver = Mock(session=Mock(return_value=session))
     runtime = pure.neo_runtime.Neo4jRuntime(driver, pure.neo_target.GraphTarget("tenant", "workspace"))
     assert runtime.read("RETURN 1", {}, operation="execute_query") == ({"value": 1},)
-    assert callback[0].timeout == 10
+    session.begin_transaction.assert_called_once_with(timeout=10)
+    session.execute_read.assert_not_called()
+    session.begin_transaction.return_value.__exit__.assert_called_once_with(None, None, None)
     runtime.close()
     runtime.close()
     driver.close.assert_called_once()

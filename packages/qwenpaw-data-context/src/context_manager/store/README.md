@@ -129,6 +129,8 @@ uv run python scripts/common/workspace_provisioner.py
 `execute_query` 原样执行 Neo4j Cypher 或完整 Holo AGE SQL，不重写范围、不推断返回列。
 调用方负责语句准入与数据范围；MCP 先经 [Query Service](../cypher/README.md) 校验只读及当前用户范围。
 Neo4j 用 EXPLAIN 检查只读，Holo 使用只读事务；两端复用已有连接池，无需临时图或账号。
+Neo4j 的独立原生查询使用读取路由的显式事务，不自动重试；连接获取上限为 5 秒，
+服务端事务超时为 10 秒。这不是端到端期限，不能约束已建立连接上的所有网络停顿。
 Holo 返回驱动原始列值，普通值或 JSON 转换由 SQL 显式声明，参数不能绑定在 dollar-quoted Cypher 内。
 Explorer/Metadata 所需原始分数和 Core 读取暂留 [legacy_reads.py](legacy_reads.py)。
 
