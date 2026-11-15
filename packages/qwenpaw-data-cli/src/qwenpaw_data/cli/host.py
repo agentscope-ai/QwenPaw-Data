@@ -42,7 +42,7 @@ def add_host_args(parser: argparse.ArgumentParser) -> None:
 def create_client(args: argparse.Namespace) -> HostClient:
     if not args.host_url:
         raise ValueError(
-            "--host-url or QWENPAW_DATA_HOST_URL is required; local embedding is not yet restored"
+            "--host-url or QWENPAW_DATA_HOST_URL is required; local in-process embedding is unsupported"
         )
     return HostClient(args.host_url, token=os.getenv("QWENPAW_DATA_HOST_TOKEN"))
 

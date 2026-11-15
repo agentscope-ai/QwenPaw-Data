@@ -103,7 +103,10 @@ introduced in `9b154b7`, rather than maintaining a second execution path.
 Use `HostClient` for Python integrations and CLI SOP execution. The service
 owns identity, approvals, workspace lifecycle, SQL persistence and trace events.
 The SOP document model remains a client-side contract, not a second server
-runtime. Remaining legacy modules do not constitute a supported embedding API.
+runtime. The retired `host.core.core`, `host.core.registry`, `host.core.model`
+modules and CLI `create_qwenpaw_data` factory have been removed; configure
+models through the service's provider/preferences APIs. Remaining legacy
+modules do not constitute a supported embedding API.
 
 Migration work may break old OSS interfaces. Conflicting OSS architectural
 choices require review before replacement; security hardening, safe handling

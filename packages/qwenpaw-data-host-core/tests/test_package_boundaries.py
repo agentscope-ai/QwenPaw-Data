@@ -32,6 +32,18 @@ def test_host_source_does_not_import_context_paths() -> None:
     assert "qwenpaw_data.context.paths" not in source
 
 
+def test_retired_in_process_host_entrypoints_are_not_shipped() -> None:
+    """One service runtime: the retired JSON/DAG host must not return in wheels."""
+    import importlib.util
+
+    from qwenpaw_data.host import core
+
+    assert not hasattr(core, "QwenPawDataHost")
+    for module in ("core", "registry", "model"):
+        assert importlib.util.find_spec(f"qwenpaw_data.host.core.{module}") is None
+        assert not (SOURCE_ROOT / "qwenpaw_data" / "host" / "core" / f"{module}.py").exists()
+
+
 def test_host_paths_import_without_workspace_dependencies(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SOURCE_ROOT)

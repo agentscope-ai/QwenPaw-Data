@@ -198,23 +198,6 @@ def request_context_from_args(args: argparse.Namespace) -> dict[str, Any]:
     return {"datasource_id": datasource_id}
 
 
-def create_qwenpaw_data(
-    request_context: dict[str, Any] | None = None,
-    workspace_type: str | None = None,
-    permission_mode: str | None = None,
-    confirmation_handler: Any = None,
-) -> Any:
-    from qwenpaw_data.host.core import QwenPawDataHost, resolve_qwenpaw_data_home
-
-    return QwenPawDataHost(
-        home=resolve_qwenpaw_data_home(),
-        workspace_type=workspace_type or resolve_workspace_type(),
-        request_context=request_context,
-        permission_mode=permission_mode,
-        confirmation_handler=confirmation_handler,
-    )
-
-
 def read_prompt(args: argparse.Namespace) -> str:
     if args.file and args.prompt:
         raise ValueError("pass either prompt text or --file, not both")

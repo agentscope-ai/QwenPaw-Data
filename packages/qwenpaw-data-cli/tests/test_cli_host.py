@@ -8,6 +8,12 @@ from qwenpaw_data.cli.host import create_client, print_turn, read_terminal_input
 from qwenpaw_data.cli.main import build_parser
 
 
+def test_retired_in_process_factory_is_not_available():
+    from qwenpaw_data.cli import util
+
+    assert not hasattr(util, "create_qwenpaw_data")
+
+
 class EventsClient:
     def __init__(self, events):
         self.events = events
@@ -104,7 +110,7 @@ def test_no_implicit_local_execution_or_databridge_token(monkeypatch):
     monkeypatch.delenv("QWENPAW_DATA_HOST_TOKEN", raising=False)
     monkeypatch.setenv("QWENPAW_DATA_API_TOKEN", "databridge-only-token")
     args = build_parser().parse_args(["run", "hello"])
-    with pytest.raises(ValueError, match="host-url"):
+    with pytest.raises(ValueError, match="host-url.*in-process embedding is unsupported"):
         create_client(args)
 
 
