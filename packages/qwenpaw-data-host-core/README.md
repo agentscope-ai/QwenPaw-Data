@@ -132,6 +132,13 @@ supported. Without object storage, authenticated local preview and download
 requires write access to the session; possessing that external signed URL
 grants download access until it expires, independently of Host authentication.
 
+Compare-picker uploads never overwrite an existing destination, including a
+dangling symbolic link. Without directory-descriptor support (notably Windows),
+publication requires a filesystem supporting hard links, such as NTFS; unsupported
+filesystems fail instead of falling back to an unsafe exclusive-open operation.
+This fallback does not provide POSIX directory pinning against concurrent directory
+replacement by another process.
+
 ### Storage backends
 
 The current service uses SQL repositories backed by the shared control-plane

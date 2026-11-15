@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -297,12 +298,22 @@ async def upload_workspace_file(
     # Pin the directory on platforms supporting dir_fd so concurrent renames
     # cannot redirect writes through an agent-created uploads symlink.
     directory_fd = None
+    temporary = None
     try:
         if os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW"):
             try:
                 directory_fd = os.open(dest_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             except OSError:
                 raise_api("FORBIDDEN", "unsafe upload directory", status=403)
+        else:
+            # Windows exclusive-open can follow a dangling destination symlink.
+            # Publish a completed sibling file with a non-overwriting hard link
+            # instead; an existing destination (including a link) stays intact.
+            with tempfile.NamedTemporaryFile(
+                dir=dest_dir, prefix=".upload-", delete=False
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(data)
         stem, suffix = Path(filename).stem, Path(filename).suffix
         counter = 0
         while True:
@@ -311,13 +322,12 @@ async def upload_workspace_file(
                 if directory_fd is not None:
                     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                                  0o600, dir_fd=directory_fd)
-                    stream = os.fdopen(fd, "wb")
+                    with os.fdopen(fd, "wb") as stream:
+                        stream.write(data)
                 else:
                     if dest_dir.is_symlink() or dest_dir.resolve() != dest_dir:
                         raise_api("FORBIDDEN", "unsafe upload directory", status=403)
-                    stream = (dest_dir / name).open("xb")
-                with stream:
-                    stream.write(data)
+                    os.link(temporary, dest_dir / name)
                 return {"path": f"uploads/{name}"}
             except FileExistsError:
                 # Includes dangling symlinks and concurrent duplicate uploads.
@@ -325,3 +335,5 @@ async def upload_workspace_file(
     finally:
         if directory_fd is not None:
             os.close(directory_fd)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
