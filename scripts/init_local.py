@@ -43,7 +43,6 @@ def initialize_context(
 ) -> None:
     context = root / "packages" / "qwenpaw-data-context"
     frontend = context / "frontend"
-    requirements = context / "requirements.lock.txt"
     if python_spec is None:
         version_file = context / ".python-version"
         python_spec = (
@@ -69,7 +68,44 @@ def initialize_context(
         raise RuntimeError(
             f"Expected Python environment was not created: {context_python}"
         )
-    run([uv, "pip", "install", "--python", context_python, "-r", requirements])
+    with tempfile.NamedTemporaryFile(
+        prefix="qwenpaw-data-context-", suffix=".txt", delete=False
+    ) as handle:
+        requirements = Path(handle.name)
+    try:
+        run(
+            [
+                uv,
+                "export",
+                "--package",
+                "qwenpaw-data-context",
+                "--no-dev",
+                "--frozen",
+                "--format",
+                "requirements-txt",
+                "--no-emit-workspace",
+                "--output-file",
+                requirements,
+            ],
+            cwd=root,
+            quiet=True,
+        )
+        # Keep optional adapters already installed in an existing Context venv.
+        run(
+            [
+                uv,
+                "pip",
+                "install",
+                "--python",
+                context_python,
+                "--require-hashes",
+                "--no-deps",
+                "-r",
+                requirements,
+            ]
+        )
+    finally:
+        requirements.unlink(missing_ok=True)
     run(
         [
             uv,
@@ -79,9 +115,14 @@ def initialize_context(
             context_python,
             "--editable",
             context,
+            "--editable",
+            root / "packages" / "qwenpaw-data-auth",
+            "--editable",
+            root / "packages" / "qwenpaw-data-tracing",
             "--no-deps",
         ],
     )
+    run([uv, "pip", "check", "--python", context_python])
 
     if not skip_npm_install:
         run(
@@ -207,22 +248,31 @@ def main(argv: list[str] | None = None) -> int:
                 root / "packages" / "qwenpaw-data-skills",
                 "--editable",
                 root / "packages" / "qwenpaw-data-console",
+                "--editable",
+                root / "packages" / "qwenpaw-data-auth",
+                "--editable",
+                root / "packages" / "qwenpaw-data-tracing",
             ],
             cwd=root,
         )
     finally:
         requirements.unlink(missing_ok=True)
 
+    run([uv, "pip", "check", "--python", workspace_python], cwd=root)
     qwenpaw_data = venv_executable(workspace_venv, "qwenpaw-data")
     if not qwenpaw_data.exists():
-        raise RuntimeError(f"Expected QwenPaw Data CLI was not installed: {qwenpaw_data}")
+        raise RuntimeError(
+            f"Expected QwenPaw Data CLI was not installed: {qwenpaw_data}"
+        )
 
     launcher: Path | None = None
     if not args.skip_cli_link:
         launcher = install_cli_launcher(root, qwenpaw_data)
 
     if not args.skip_mcp_config:
-        base_url = os.getenv("QWENPAW_DATA_CM_BASE_URL", "http://127.0.0.1:8765").rstrip("/")
+        base_url = os.getenv(
+            "QWENPAW_DATA_CM_BASE_URL", "http://127.0.0.1:8765"
+        ).rstrip("/")
         config = [
             {
                 "name": "databridge",
@@ -239,7 +289,11 @@ def main(argv: list[str] | None = None) -> int:
             }
         ]
         with tempfile.NamedTemporaryFile(
-            "w", prefix="qwenpaw-data-mcp-", suffix=".json", encoding="utf-8", delete=False
+            "w",
+            prefix="qwenpaw-data-mcp-",
+            suffix=".json",
+            encoding="utf-8",
+            delete=False,
         ) as handle:
             json.dump(config, handle)
             import_path = Path(handle.name)

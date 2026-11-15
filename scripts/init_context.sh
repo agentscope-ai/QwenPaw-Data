@@ -42,7 +42,6 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 context_root="${repo_root}/packages/qwenpaw-data-context"
 frontend_root="${context_root}/frontend"
-requirements_file="${context_root}/requirements.lock.txt"
 
 # shellcheck source=scripts/common/env.sh
 source "${script_dir}/common/env.sh"
@@ -117,8 +116,8 @@ if [[ ! -d "${context_root}" ]]; then
   echo "qwenpaw-data-context package not found: ${context_root}" >&2
   exit 1
 fi
-if [[ ! -f "${requirements_file}" ]]; then
-  echo "Context requirements lock file not found: ${requirements_file}" >&2
+if [[ ! -f "${repo_root}/uv.lock" ]]; then
+  echo "Workspace lock file not found: ${repo_root}/uv.lock" >&2
   exit 1
 fi
 if [[ ! -f "${frontend_root}/package.json" ]]; then
@@ -150,9 +149,20 @@ if [[ ! -x "${python_cmd}" ]]; then
   exit 1
 fi
 
-run "${uv_cmd}" pip install --python "${python_cmd}" -r "${requirements_file}" \
-  --editable "${repo_root}/packages/qwenpaw-data-auth" --editable "${repo_root}/packages/qwenpaw-data-tracing"
-run "${uv_cmd}" pip install --python "${python_cmd}" --editable "${context_root}" --no-deps
+requirements_file="$(mktemp "${TMPDIR:-/tmp}/qwenpaw-data-context-requirements.XXXXXX")"
+trap 'rm -f "${requirements_file}"' EXIT
+(
+  cd "${repo_root}"
+  "${uv_cmd}" export --package qwenpaw-data-context --no-dev --frozen \
+    --format requirements-txt --no-emit-workspace --output-file "${requirements_file}" >/dev/null
+)
+# Install the locked closure without removing optional adapters from an existing venv.
+run "${uv_cmd}" pip install --python "${python_cmd}" --require-hashes --no-deps -r "${requirements_file}"
+run "${uv_cmd}" pip install --python "${python_cmd}" --no-deps \
+  --editable "${context_root}" \
+  --editable "${repo_root}/packages/qwenpaw-data-auth" \
+  --editable "${repo_root}/packages/qwenpaw-data-tracing"
+run "${uv_cmd}" pip check --python "${python_cmd}"
 
 if [[ "${skip_npm_install}" != "1" ]]; then
   if [[ -f "${frontend_root}/package-lock.json" ]]; then
