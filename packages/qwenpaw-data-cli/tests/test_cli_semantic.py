@@ -399,6 +399,7 @@ def test_weave_submit_wait_times_out_with_kill_hint(
     fake_client.reset(
         {
             "POST": {"task_id": "t-4", "status": "PENDING"},
+            "GET": {"task_id": "t-4", "status": "PENDING"},
         },
     )
 

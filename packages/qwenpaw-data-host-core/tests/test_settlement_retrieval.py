@@ -433,17 +433,23 @@ async def test_successful_retrieval_still_requires_successful_judgement(
     }
 
 
-async def test_api_and_fallback_share_one_deadline():
+async def test_api_and_fallback_share_one_deadline(monkeypatch):
+    from qwenpaw_data.host.core.algo.settlement import confirmer
+
     unit, cm, retriever = _confirmer({"status": "no_match"}, cm_timeout=0.06)
     record = cm.call.return_value
+    deadline = asyncio.timeout(None)
+    timeout = Mock(return_value=deadline)
+    monkeypatch.setattr(confirmer, "asyncio", SimpleNamespace(timeout=timeout))
 
     async def api(*args, **kwargs):
-        await asyncio.sleep(0.04)
         return record
 
     async def graph(*args, **kwargs):
-        await asyncio.sleep(0.04)
-        return "检索完成，没有相关记录。"
+        # Expire the same enclosing deadline after HTTP has completed, without
+        # assuming a loaded Windows runner can schedule within 20 milliseconds.
+        deadline.reschedule(asyncio.get_running_loop().time())
+        await asyncio.Event().wait()
 
     cm.call.side_effect = api
     retriever.retrieve.side_effect = graph
@@ -452,6 +458,7 @@ async def test_api_and_fallback_share_one_deadline():
         await unit._query_cm(_item(), calls)
     assert calls == [{"status": "ok"}]
     retriever.retrieve.assert_awaited_once()
+    timeout.assert_called_once_with(0.06)
 
 
 def test_retrieval_prompt_structure_and_examples():
