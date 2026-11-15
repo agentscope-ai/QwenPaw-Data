@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Graph } from '@antv/g6';
+import type { EdgeData, ElementDatum, IElementEvent, NodeData } from '@antv/g6';
 import type { GraphNode, GraphEdge } from '../types';
 import { getNodeColor } from '../nodeColors';
 import { BRAND_PRIMARY } from '@/brand';
@@ -76,18 +77,18 @@ function appendTooltipRow(root: HTMLElement, label: string, value: string) {
   root.appendChild(row);
 }
 
-function createTooltipContent(item: any) {
+function createTooltipContent(item: ElementDatum | undefined) {
   const root = document.createElement('div');
   root.className = styles.graphTooltip;
 
-  const datum = item ?? {};
+  const datum: Partial<ElementDatum> = item ?? {};
   const data = datum.data ?? {};
   const isEdge = 'source' in datum || 'target' in datum;
   const title = document.createElement('div');
   title.className = styles.graphTooltipTitle;
   title.textContent = isEdge
-    ? data.label || datum.id || 'Relationship'
-    : data.label || datum.id || 'Node';
+    ? (data.label as string) || datum.id || 'Relationship'
+    : (data.label as string) || datum.id || 'Node';
   root.appendChild(title);
 
   if (isEdge) {
@@ -251,16 +252,16 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
         node: {
           type: 'circle',
           style: {
-            size: (d: any) => {
-              const degree = d.data?.degree || 0;
+            size: (d: NodeData) => {
+              const degree = (d.data?.degree as number) || 0;
               return getNodeSize(degree);
             },
-            fill: (d: any) => d.data?.color || '#78909c',
+            fill: (d: NodeData) => (d.data?.color as string) || '#78909c',
             stroke: '#fff',
             lineWidth: 2,
-            labelText: (d: any) => {
+            labelText: (d: NodeData) => {
               const label = (d.data?.label as string) || '';
-              const degree = d.data?.degree || 0;
+              const degree = (d.data?.degree as number) || 0;
               return compactNodeLabel(label, getNodeSize(degree));
             },
             labelFill: '#fff',
@@ -291,8 +292,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
             stroke: '#b0b8c0',
             lineWidth: 1,
             endArrow: true,
-            curveOffset: (d: any) => d.data?.curveOffset || 0,
-            labelText: (d: any) => (d.data?.label as string) || '',
+            curveOffset: (d: EdgeData) => (d.data?.curveOffset as number) || 0,
+            labelText: (d: EdgeData) => (d.data?.label as string) || '',
             labelFontSize: 10,
             labelFill: '#888',
             labelBackground: true,
@@ -320,8 +321,9 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
             type: 'tooltip',
             key: 'full-label-tooltip',
             trigger: 'hover',
-            enable: (_event: any, items: any[]) => items.length > 0,
-            getContent: (_event: any, items: any[]) => createTooltipContent(items[0]),
+            enable: (_event: IElementEvent, items: ElementDatum[]) => items.length > 0,
+            getContent: (_event: IElementEvent, items: ElementDatum[]) =>
+              createTooltipContent(items[0]),
             onOpenChange: () => {},
           },
           {
@@ -349,12 +351,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
       mountedGraph = graph;
       graphRef.current = graph;
 
-      graph.on('node:click', (evt: any) => {
+      graph.on('node:click', (evt: IElementEvent) => {
         const nodeId = evt.target?.id;
         if (nodeId) callbacksRef.current.onNodeClick?.(nodeId);
       });
 
-      graph.on('edge:click', (evt: any) => {
+      graph.on('edge:click', (evt: IElementEvent) => {
         const edgeId = evt.target?.id;
         if (edgeId) callbacksRef.current.onEdgeClick?.(edgeId);
       });
