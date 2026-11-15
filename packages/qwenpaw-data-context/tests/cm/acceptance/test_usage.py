@@ -59,6 +59,7 @@ def usage_client(tmp_path, monkeypatch):
         "QWENPAW_DATA_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'usage.sqlite3'}"
     )
     monkeypatch.setenv("QWENPAW_DATA_AUTH_MODE", "local")
+    monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_BACKEND", "local")
     monkeypatch.setenv("QWENPAW_DATA_PREFERENCES_MASTER_SECRET", "ab" * 32)
     monkeypatch.delenv("QWENPAW_DATA_AUTH_SECRET", raising=False)
     monkeypatch.setenv("QWENPAW_DATA_CHANNELS", "feishu,dingtalk,wecom,wechat")

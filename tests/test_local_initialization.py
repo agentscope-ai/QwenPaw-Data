@@ -51,6 +51,8 @@ def test_portable_initializer_installs_complete_workspace(
 
     monkeypatch.setattr(initializer, "run", record)
     args = [
+        "--uv",
+        "uv",
         "--skip-build",
         "--skip-npm-install",
         "--skip-cli-link",

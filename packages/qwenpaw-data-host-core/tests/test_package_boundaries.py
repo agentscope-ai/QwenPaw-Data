@@ -79,6 +79,7 @@ def test_host_api_starts_without_context_packages(tmp_path: Path) -> None:
         QWENPAW_DATA_HOME=str(tmp_path),
         QWENPAW_DATA_ENV_FILE=str(tmp_path / "absent.env"),
         QWENPAW_DATA_AUTH_MODE="local",
+        QWENPAW_DATA_WORKSPACE_BACKEND="local",
         QWENPAW_DATA_DB_URL=f"sqlite+aiosqlite:///{tmp_path / 'host.db'}",
         PYTHONDONTWRITEBYTECODE="1",
         PYTHONPATH=os.pathsep.join(str(root / "packages" / package / "src") for package in (

@@ -412,6 +412,7 @@ def test_model_config_gateway_reaches_context_without_graph(tmp_path, frontend):
                 portal = create_app(
                     host_url="http://127.0.0.1:1", token="unused-host-token",
                     frontend=frontend, bridge_url=bridge_url, bridge_token=token,
+                    bridge_frontend=frontend,
                 )
                 with TestClient(portal) as client:
                     url = "/databridge/api/system/model-config/"
