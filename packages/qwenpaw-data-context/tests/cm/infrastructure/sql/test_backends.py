@@ -1,6 +1,8 @@
 """Verify SQLite reads and cloud SDK mapping without remote database access."""
 
 import sqlite3
+import os
+from contextlib import closing
 
 import pytest
 from context_manager.sql import (
@@ -16,8 +18,8 @@ def target(config):
 
 @pytest.fixture
 def sqlite_file(tmp_path):
-    path = tmp_path / "data #?.db"
-    with sqlite3.connect(path) as db:
+    path = tmp_path / ("data #%.db" if os.name == "nt" else "data #?.db")
+    with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE facts (id INTEGER, name TEXT)")
         db.executemany(
             "INSERT INTO facts VALUES (?, ?)", [(1, "一"), (2, "two"), (3, None)]
@@ -41,7 +43,7 @@ def test_sqlite_reads_existing_file_and_enforces_read_only(sqlite_file, read_onl
         assert count == -1
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             connection.query("DELETE FROM facts", max_rows=1, timeout_ms=1000)
-    with sqlite3.connect(sqlite_file) as db:
+    with closing(sqlite3.connect(sqlite_file)) as db:
         assert db.execute("SELECT COUNT(*) FROM facts").fetchone() == (3,)
 
 

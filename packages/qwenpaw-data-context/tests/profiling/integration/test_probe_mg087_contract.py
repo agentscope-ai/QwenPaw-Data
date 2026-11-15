@@ -26,6 +26,7 @@ from profiling.repositories import staging_repo
 from profiling.services import promote
 from semantic_config.config import get_settings
 from semantic_config.db import init_db
+from semantic_config.engine import reset_engine
 from semantic_config.services.weave_assembler import _split_triple_dollar
 
 from profiling.algo.inputs.probe_facts_input import StaticProbeFactsInput
@@ -66,6 +67,7 @@ async def _scalar(conn, sql) -> int:
 def test_metric_caliber_dedup_key_includes_dataset_and_window():
     async def _run():
         settings, originals, tmp_path = _isolated_db()
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -164,8 +166,10 @@ def test_metric_caliber_dedup_key_includes_dataset_and_window():
                 )
                 == 0
             )
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = originals
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -175,6 +179,7 @@ def test_metric_caliber_dedup_key_includes_dataset_and_window():
 def test_multi_value_columns_roundtrip_triple_dollar():
     async def _run():
         settings, originals, tmp_path = _isolated_db()
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -270,8 +275,10 @@ def test_multi_value_columns_roundtrip_triple_dollar():
             assert expr == "channel"
             # domain_id 派生自父数据集（对齐 dataset_dimension_service.create）
             assert bound_domain == dom_id
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = originals
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -398,6 +405,7 @@ def test_promote_resolves_dataset_id_by_name_after_upload_wash():
 
     async def _run():
         settings, originals, tmp_path = _isolated_db()
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -543,8 +551,10 @@ def test_promote_resolves_dataset_id_by_name_after_upload_wash():
 
             with pytest.raises(BadRequestError):
                 await promote._complete_metric_manage(conn, ds, "METRIC_MANAGE", admin)
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = originals
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -558,6 +568,7 @@ def test_caliber_stage_excel_roundtrip_preserves_identity_columns():
 
     async def _run():
         settings, originals, tmp_path = _isolated_db()
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -624,8 +635,10 @@ def test_caliber_stage_excel_roundtrip_preserves_identity_columns():
             assert row["column_role"] == "date", "column_role 在往返中被洗掉（缺陷 D）"
             assert row["column_name"] == "order_ts", "血缘列 column_name 在往返中被洗掉"
             assert row["domain_id"] == 7
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = originals
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -638,6 +651,7 @@ def test_promote_rejects_blank_name_keys():
 
     async def _run():
         settings, originals, tmp_path = _isolated_db()
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -689,8 +703,10 @@ def test_promote_rejects_blank_name_keys():
                 await promote._complete_dimension_manage(
                     conn, ds, "DIMENSION_MANAGE", admin
                 )
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = originals
             Path(tmp_path).unlink(missing_ok=True)
 
@@ -703,6 +719,7 @@ def test_promote_reresolves_dangling_dataset_id():
 
     async def _run():
         settings, originals, tmp_path = _isolated_db()
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -773,8 +790,10 @@ def test_promote_reresolves_dangling_dataset_id():
                 conn, "SELECT dataset_id FROM metric_formula_lib WHERE is_deleted=0"
             )
             assert got == real_id, f"悬空 id 未被回落名称解析纠正：{got}"
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = originals
             Path(tmp_path).unlink(missing_ok=True)
 

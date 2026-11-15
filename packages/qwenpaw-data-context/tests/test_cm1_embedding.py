@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import create_engine, select, update
-from sqlalchemy.pool import StaticPool
 
 from context_manager.db import CMDatabase
 from context_manager.model import ModelConfigError, ResolvedModel
@@ -35,8 +34,10 @@ def embedding_modules():
 
 
 @pytest.fixture
-def jobs_database(embedding_modules, monkeypatch):
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+def jobs_database(embedding_modules, monkeypatch, tmp_path):
+    # Worker threads need independent transactions, not one StaticPool connection
+    # whose rollback can undo another worker's uncommitted state transition.
+    engine = create_engine(f"sqlite:///{tmp_path / 'jobs.db'}")
     database = CMDatabase(engine)
     metadata.create_all(engine, tables=[embedding_jobs, recovery_runs])
     monkeypatch.setattr(embedding_modules.repository, "get_database", lambda: database)

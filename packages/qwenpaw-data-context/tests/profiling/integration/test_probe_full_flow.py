@@ -31,6 +31,7 @@ from profiling.stages import STAGE_DEFS, def_by_stage
 from profiling.stub_provider import StubProvider
 from semantic_config.config import get_settings
 from semantic_config.db import init_db
+from semantic_config.engine import reset_engine
 from profiling.db import init_probe_db
 from semantic_config.repositories import datasource_repo as ds_repo
 from semantic_config.integration import mount_semantic_config
@@ -89,6 +90,7 @@ def test_probe_full_flow_stub_promotes_all_stages():
         tmp.close()
         settings.db_url = "sqlite+aiosqlite:///" + tmp.name
         orchestrator.load_provider = StubProvider
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -203,8 +205,10 @@ def test_probe_full_flow_stub_promotes_all_stages():
                 == 0
             )
 
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = original_db
             orchestrator.load_provider = original_load_provider
             Path(tmp.name).unlink(missing_ok=True)
@@ -221,6 +225,7 @@ def test_probe_prereq_blocks_downstream_start():
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp.close()
         settings.db_url = "sqlite+aiosqlite:///" + tmp.name
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -244,8 +249,10 @@ def test_probe_prereq_blocks_downstream_start():
 
             with pytest.raises(BadRequestError):
                 await orchestrator.submit(conn, ds, "DATASET", admin)
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = original_db
             Path(tmp.name).unlink(missing_ok=True)
 
@@ -298,6 +305,7 @@ def test_probe_results_pending_first_and_stage_excel_roundtrip():
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp.close()
         settings.db_url = "sqlite+aiosqlite:///" + tmp.name
+        conn = None
         try:
             await init_db()
             await init_probe_db()
@@ -390,8 +398,10 @@ def test_probe_results_pending_first_and_stage_excel_roundtrip():
                 (1, "渠道"),
                 (1, "活动"),
             }
-            await conn.close()
         finally:
+            if conn is not None:
+                await conn.close()
+            await reset_engine()
             settings.db_url = original_db
             Path(tmp.name).unlink(missing_ok=True)
 
