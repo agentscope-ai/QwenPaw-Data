@@ -1,0 +1,6 @@
+# Keep the exact bytes verified by vendor-assets.json on every checkout.
+/echarts.min.js -text
+/icons.css -text
+/licenses/echarts-LICENSE.txt -text
+/licenses/echarts-NOTICE.txt -text
+/licenses/bootstrap-icons-LICENSE.txt -text
