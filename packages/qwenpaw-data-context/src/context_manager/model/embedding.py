@@ -16,6 +16,7 @@ from typing import Any, Protocol, Self, runtime_checkable
 import httpx
 from openai import AsyncOpenAI
 
+from ..executor import drain
 from ..settings import get_settings
 from ..utils.validation import (
     optional_trimmed_text,
@@ -110,7 +111,7 @@ class OpenAIEmbedCaller:
         self._dimensions = dimensions
         self._batch_size = batch_size
         self._max_concurrency = max_concurrency
-        self._run_sync = run_sync or asyncio.to_thread
+        self._run_sync = run_sync
         self._closed = False
         self._owns_client = client is None
         if client is not None:
@@ -335,11 +336,18 @@ class OpenAIEmbedCaller:
                     await asyncio.sleep(delay)
                     continue
 
-                return await self._run_sync(
+                processing = (
                     self._process_response,
                     response,
                     len(texts),
                     record_response,
+                )
+                if self._run_sync is not None:
+                    return await self._run_sync(*processing)
+                # Standalone callers also retain usage/client lifetime until
+                # the decoder finishes; injected executors own their admission.
+                return await drain(
+                    asyncio.create_task(asyncio.to_thread(*processing))
                 )
 
     def _process_response(
