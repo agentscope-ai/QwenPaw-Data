@@ -36,7 +36,7 @@
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p class="muted">Internal develop：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
-        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>649d6a6</code>；Host 收敛、安全修复、真实 demo、Console lint、SQL 提交边界、持久化契约、旧表补列、原生 subagent、流批次取消恢复，以及 JSON 预检/备份、记录/凭据/偏好转换、目标检查、本地密钥配置、SQL/文件导入恢复与回滚、加密计划和显式 CLI 操作流程已提交。Context 单行测试导入、初始化入口和 GraphCanvas 类型修复为三批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
+        OSS 分支：<code>sync/cloud-0.4.0</code> · 本阶段代码基线：<code>91bb2e9</code>；Host 收敛、安全修复、真实 demo、Console lint/依赖审计、SQL 提交边界、持久化契约、旧表补列、原生 subagent、流批次取消恢复，以及 JSON 预检/备份、记录/凭据/偏好转换、目标检查、本地密钥配置、SQL/文件导入恢复与回滚、加密计划和显式 CLI 操作流程已提交。Context 单行测试导入、初始化入口和 GraphCanvas 类型修复为三批独立的待批准暂存修改；此前 594 项工作区合并验证包含未提交的导入修正。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
     </section>
     <section aria-labelledby="scope">
@@ -82,7 +82,7 @@
             <tr><th scope="row">前端 / 打包</th><td>前端 254 项通过、1 项跳过；两个 UI 构建与 Console wheel 检查通过。Wheel 网关检查使用 stub Host，不等于全包安装验收。</td></tr>
             <tr><th scope="row">后续 CI 修复</th><td>命令载荷与工厂方法分离后 51 项检查通过；CI 静态规则、锁文件及依赖导出检查通过。PostgreSQL 驱动仅加入开发依赖。</td></tr>
             <tr><th scope="row">本地功能 replay</th><td>Docker 专项 16 项、CLI/SOP/SSE 选择集 144 项通过；修复 SSE 终止事件发布竞态与提示符 Ctrl+C。真实 Host/SQLite/Docker/CLI 验证三轮持久化、错误 token 拒绝、Ctrl+C 后 canceled；plan 产出有效 YAML，未创建 Chat 或执行 workspace。模型是本地协议 fixture，非真实分析效果验收。</td></tr>
-            <tr><th scope="row">依赖安全修复</th><td>OpenTelemetry 1.45.2 已于 3ed8712 推送；回归包含于此前 124 项选择集，工作区与独立 Context Python 依赖审计通过。Console npm 审计仍未通过，不能泛称全供应链安全。</td></tr>
+            <tr><th scope="row">依赖安全修复</th><td>OpenTelemetry 1.45.2 已于 3ed8712 推送；回归包含于此前 124 项选择集，工作区与独立 Context Python 依赖审计通过。Console 后续修复见下方；某次依赖审计通过不等于无安全风险或完整发布验收。</td></tr>
             <tr><th scope="row">严格执行 / 独立安装</th><td>CLI/SOP/打包选择集 215 项通过。七包 14 个 wheel/sdist 产物、版本/静态资源校验及全新环境 176 个依赖一致性检查通过；脱离源码 PYTHONPATH 的安装态 Host/SQLite/Docker/CLI 完成 plan、逆序 SOP 的依赖调度、run/chat 持久化、鉴权拒绝和取消。Hologres pool 未安装。模型仍为本地协议 fixture。</td></tr>
             <tr><th scope="row">服务架构收敛 / CI 装配</th><td>锁文件对齐后，服务端计划状态、审批/取消、轨迹、模型选择、SQL 配置持久化、计划编辑命令、HostClient/CLI SOP、Profiling 与图查询边界的扩大合并选择集 594 项通过、1 项 Windows 专属检查在 macOS 跳过。真实 Host/SQLite/Docker/CLI 此前已通过 plan、严格 SOP 顺序、三轮持久化、鉴权拒绝与 Ctrl+C 取消；模型为本地替身。开发组补齐可选 SDK，普通发行包仍不强制 Hologres；测试辅助模块不再依赖收集顺序。未跳过旧测试来伪造通过，本地全量收集错误从 20 → 13 → 9 → 7 → 5；全量 CI 仍未通过。</td></tr>
             <tr><th scope="row">当前服务替代旧 Host 测试</th><td>配置 API → SQL → builder、workspace 租户/用户/agent 作用域、session 产物路径、MCP 凭据与会话隔离已接到当前实现。HTTP/SQL/SSE 冒烟 9 项通过（包含于上述 594 项）：原生/兼容路由、游标续传、并发冲突、取消、失败、重启恢复、终态写入竞态；JSON 模式验证启动拒绝而非假称兼容。Agent/Context 使用替身，Docker 工厂初始化模拟；不等于真实模型、网络流式时延或外部后端验收。</td></tr>
@@ -110,6 +110,7 @@
             <tr><th scope="row">流批次取消 / 发布恢复</th><td>649d6a6：先复现取消丢失待写批次及终态清理重试遗漏的 4 项失败，再修复提交前保留批次/清理意图、已知提交后仅重试发布，避免重复插入。新增 8 项恢复检查；定向 23 通过、竞争用例仍 xfail。独立 SQLite/PostgreSQL 验证写入前后、终态清理、发布和会话关闭阶段的任务取消，SQL 原子性、原序号重试及 live 发布通过；专用容器已清理。保留 internal 的 32 条 delta 批量机制，未修改 internal。此项是进程内取消恢复，不证明进程崩溃、提交结果不明或多 writer 正确性。Host/CLI 扩面 2,536 通过、28 跳过、1 xfail；仅剩既有 2 个分享失败及 2 个澄清收集错误。</td></tr>
             <tr><th scope="row">初始化入口（待批准）</th><td>Windows CI 确认漏装本地 Auth/Tracing；Bash 还漏 Console。工作区修复补齐七包，并使独立 Context 从当前 uv.lock 导出依赖，解决隔离安装发现的 6 项版本/缺包冲突。39 项检查通过、4 项平台跳过；隔离副本的 Python/Bash 安装、CLI/MCP 配置、依赖一致性与 Context API 导入通过；全新 Context 未装 Hologres pool，已有 adapter 不被删除。未做修复后的原生 Windows 验收，未重建 UI；尚未提交。</td></tr>
             <tr><th scope="row">Context 图 UI lint（待批准）</th><td>GraphCanvas 单文件以 G6 数据/事件类型替换 12 处显式 any，不改变布局、样式、提示及点击逻辑，不放宽 lint 规则。前端 lint 从 12 错误降为 0（28 个既有 warning 保留）；TypeScript 和 24 项现有测试通过；console-mode 生产构建、embedded 构建及 73 模块绑定检查通过。修改前后 TypeScript 编译产物经仅格式归一化后逐字节一致；无压缩或标识符混淆，无新增永久测试。未做浏览器交互/真实图后端验收，尚未提交，不能宣称远端 CI 已修复。</td></tr>
+            <tr><th scope="row">Console 依赖审计 / SDK 兼容</th><td>91bb2e9：npm 审计从 27 项（9 high、1 critical）降为 0，不降级 Chat SDK，不放宽审计门槛；升级 DOMPurify、KaTeX、Prism、URI 解码器及锁文件内可兼容依赖，minimatch 仅覆盖 typescript-eslint。query-string 补丁适配新版解码器的 ESM 默认导出；去掉补丁时新增检查 2 失败，恢复后 3 通过。隔离副本 npm ci 成功应用两份补丁；Node 22.22 和本机 Node 24 上均 254 通过、1 既有跳过；lint 0 错误/3 既有 warning、类型检查、Console 生产构建及 SBOM 生成通过。构建复用已验证的 Context embedded 产物；浏览器工具导航失败，未完成 HTML 净化/Markdown/图表交互验收。<a href="https://github.com/advisories/GHSA-238p-pmpm-9mq7">KaTeX 上游修复依据</a>；不代表所有漏洞类别或真实后端已验收。</td></tr>
           </tbody>
         </table>
       </div>
@@ -122,7 +123,7 @@
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
         <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。导入/恢复/回滚的显式 CLI、原生 Host 读取及保留策略已通过合成数据验收；继续验证真实部署升级，保护用户修改及新依赖，不盲目删除暂存或目录。共享 workspace、未完成聊天/水位、远端部署密钥一致性仍待处理。自定义模型大小补充已支持，移除的目录模型须明确重映射；旧 DAG 状态不得静默丢弃。尚未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>最近检查的已完成 run 43655139327：demo、数据库、Docker、发行包构建安装四项通过；对应 CodeQL 43655139342 通过；Python 两平台、前端、供应链及 Windows 仍失败。Windows 确认缺 Auth 包；远端收集为 4 个错误，工作区待批准修正后为 3 个。新增流取消修复的远端验收尚未完成。最新 Host/CLI 扩面：2,536 通过、28 跳过、1 个既有 xfail、2 失败、2 个收集错误；失败为旧本地签名分享要求未配置对象存储时返回 200，收集错误为 clarification 的旧 toolkit/CronToolServices 与 steer clarification 的旧 ClarificationConflict 导入。两类行为差异仍待 review，未删除检查。历史 toolkit/Host 残留、Context 旧路由导入和供应链问题待修；初始化与 GraphCanvas lint 修复已验证暂存、待批准；本地扩大回归不等于远端 CI 验收。</li>
+        <li><strong>修复完整 CI：</strong>最近检查的已完成 run 43656130067：demo、数据库、Docker、发行包构建安装四项通过；对应 CodeQL 43656130026 通过；Python 两平台、前端、供应链及 Windows 仍失败。此 run 早于 Console 依赖修复，后者尚待远端 CI 验收。Windows 确认缺 Auth 包；远端收集为 4 个错误，工作区待批准修正后为 3 个。最新 Host/CLI 扩面：2,536 通过、28 跳过、1 个既有 xfail、2 失败、2 个收集错误；失败为旧本地签名分享要求未配置对象存储时返回 200，收集错误为 clarification 的旧 toolkit/CronToolServices 与 steer clarification 的旧 ClarificationConflict 导入。两类行为差异仍待 review，未删除检查。历史 toolkit/Host 残留、Context 旧路由导入待修；初始化与 GraphCanvas lint 修复已验证暂存、待批准；本地扩大回归不等于远端 CI 验收。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
         <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 分配重复序号的 strict xfail 已再次实证；取消恢复修复不解决此竞争。待 review：保留 internal 批量机制并加入写者所有权/接管协议（推荐），或接受逐事件事务落盘的额外写入开销。已发布序号不能在冲突后直接重编号；提交结果不明仍须明确恢复协议。</li>
       </ol>
