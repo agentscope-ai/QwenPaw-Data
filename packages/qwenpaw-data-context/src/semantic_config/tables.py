@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import os
-
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -20,34 +18,10 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.schema import CreateTable
+from qwenpaw_data_auth.sql_ddl import HOLOGRES_ROW as _HOLO_ROW
 
 # semantic_config 与 profiling 共用同一 MetaData（同库、同一次 create_all 语义）。
 metadata = MetaData()
-
-
-def _target_is_hologres() -> bool:
-    """True 仅当 QWENPAW_DATA_DB_URL 指向 Hologres（host 带 ``hologres.aliyuncs.com``）。
-
-    ``orientation`` 行存参数是 Hologres 特有；标准 PostgreSQL / PolarDB for PG 不认，
-    DDL 会报 ``unrecognized parameter "orientation"``。据 host 自动判定只对 Hologres 注入。
-    """
-    return "hologres.aliyuncs.com" in os.environ.get("QWENPAW_DATA_DB_URL", "")
-
-
-# --- Hologres 行存：CREATE TABLE 末尾注入 WITH (orientation='row') --------------
-# 仅对 postgresql 方言 + 目标为 Hologres 时生效；SQLite / 真 PG 走默认编译。标记位放在 Table.info。
-@compiles(CreateTable, "postgresql")
-def _pg_create_table_with_orientation(element, compiler, **kw):  # noqa: ANN001
-    sql = compiler.visit_create_table(element, **kw)
-    orientation = element.element.info.get("holo_orientation")
-    if orientation and _target_is_hologres():
-        sql = sql.rstrip() + f" WITH (orientation='{orientation}')\n\n"
-    return sql
-
-
-_HOLO_ROW = {"holo_orientation": "row"}
 
 
 def _pk() -> Column:

@@ -147,4 +147,4 @@ def test_schema_uses_configured_backend_and_serializes_postgres_ddl(monkeypatch,
     assert [event for event, _ in events] == (["create", "migrate"] if hologres else ["lock", "create", "migrate"])
     if not hologres:
         assert events[0][1] == "SELECT pg_advisory_xact_lock(716234019)"
-    assert database._target_is_hologres() is not hologres
+    assert "orientation" not in str(CreateTable(users).compile(dialect=postgresql.dialect()))

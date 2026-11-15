@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, Optional
@@ -27,10 +26,10 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.pool import StaticPool
-from sqlalchemy.schema import CreateTable
 from sqlalchemy.sql import expression
 
 from qwenpaw_data_auth.config import runtime_home
+from qwenpaw_data_auth.sql_ddl import HOLOGRES_ROW, ddl_target
 
 # ---------------------------------------------------------------------------
 # Schema (SQLAlchemy Core Table metadata)
@@ -85,35 +84,10 @@ _TS_DEFAULT = _utcnow_iso()
 
 # Row-oriented storage for Hologres point access; ignored by SQLite. The value
 # is stashed in ``Table.info`` and materialised as a ``WITH (orientation='row')``
-# clause by the PostgreSQL ``CreateTable`` hook below (SQLAlchemy has no generic
+# clause by the shared PostgreSQL ``CreateTable`` hook (SQLAlchemy has no generic
 # per-table ``WITH`` kwarg). Scoping via ``info`` keeps the hook from touching
 # unrelated tables created in the same process.
-_HOLO_ROW = {"info": {"holo_orientation": "row"}}
-_ddl_hologres: ContextVar[bool | None] = ContextVar("auth_ddl_hologres", default=None)
-
-
-def _target_is_hologres() -> bool:
-    """True 仅当控制面 DSN 指向 Hologres（其 host 带 ``hologres.aliyuncs.com``）。
-
-    ``orientation`` 是 Hologres 特有存储参数；标准 PostgreSQL / PolarDB for PG
-    不认，DDL 会报 ``unrecognized parameter "orientation"``。据 QWENPAW_DATA_DB_URL 的
-    host 自动判定：只有 Hologres 才注入行存子句，真 PG 走默认编译。
-    """
-    selected = _ddl_hologres.get()
-    if selected is not None:
-        return selected
-    return "hologres.aliyuncs.com" in os.environ.get("QWENPAW_DATA_DB_URL", "")
-
-
-@compiles(CreateTable, "postgresql")
-def _pg_create_table_with_orientation(element, compiler, **kw):  # noqa: ANN001, ARG001
-    sql = compiler.visit_create_table(element, **kw)
-    orientation = element.element.info.get("holo_orientation")
-    if orientation and _target_is_hologres():
-        # Append after the closing paren; ``visit_create_table`` ends with
-        # ``)\n\n`` which we trim before adding the Hologres storage clause.
-        sql = sql.rstrip() + f" WITH (orientation='{orientation}')\n\n"
-    return sql
+_HOLO_ROW = {"info": HOLOGRES_ROW}
 
 
 def _sqlite_fk(columns, refcolumns, name):  # noqa: ANN001, ANN201
@@ -580,7 +554,7 @@ def _migrate_columns(conn, sqlite: bool) -> None:  # noqa: ANN001
     """Backfill legacy columns on an already-initialized SQL database."""
     if sqlite:
         raise ValueError("SQLite migrations are handled in the SQLite transaction")
-    if _target_is_hologres():
+    if "hologres.aliyuncs.com" in (conn.engine.url.host or "").lower():
         for table, column, definition in _HOLO_ADDITIVE_COLUMNS:
             existing = {
                 row[0]
@@ -620,9 +594,7 @@ def _reject_duplicates(conn, query: str, message: str) -> None:  # noqa: ANN001
 def init_schema(dsn: str = "") -> None:
     engine = _get_engine(dsn)
     if engine.dialect.name == "postgresql":
-        is_hologres = "hologres.aliyuncs.com" in (engine.url.host or "").lower()
-        token = _ddl_hologres.set(is_hologres)
-        try:
+        with ddl_target(engine.url) as is_hologres:
             if is_hologres:
                 metadata.create_all(engine)
                 # Hologres rejects DML after DDL in the same transaction.
@@ -633,8 +605,6 @@ def init_schema(dsn: str = "") -> None:
                     conn.exec_driver_sql("SELECT pg_advisory_xact_lock(716234019)")
                     metadata.create_all(conn)
                     _migrate_columns(conn, False)
-        finally:
-            _ddl_hologres.reset(token)
         return
 
     metadata.create_all(engine)

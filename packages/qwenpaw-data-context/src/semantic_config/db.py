@@ -15,6 +15,7 @@ from typing import AsyncIterator
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from qwenpaw_data_auth.sql_ddl import ddl_target
 
 from semantic_config.config import get_settings
 from semantic_config.engine import (
@@ -142,7 +143,8 @@ async def init_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await lock_schema_initialization(conn)
-        await conn.run_sync(lambda c: metadata.create_all(c, tables=SC_TABLE_LIST))
+        with ddl_target(engine.url):
+            await conn.run_sync(lambda c: metadata.create_all(c, tables=SC_TABLE_LIST))
         await conn.run_sync(_ensure_stateless_columns)
         if engine.dialect.name == "sqlite":
             await conn.run_sync(_ensure_datasource_description_sync)

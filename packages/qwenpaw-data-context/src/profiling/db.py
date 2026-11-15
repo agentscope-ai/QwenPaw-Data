@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from qwenpaw_data_auth.sql_ddl import ddl_target
 
 from semantic_config.engine import (
     get_engine,
@@ -26,9 +27,10 @@ async def init_probe_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await lock_schema_initialization(conn)
-        await conn.run_sync(
-            lambda c: metadata.create_all(c, tables=PROFILING_TABLE_LIST)
-        )
+        with ddl_target(engine.url):
+            await conn.run_sync(
+                lambda c: metadata.create_all(c, tables=PROFILING_TABLE_LIST)
+            )
     await migrate_legacy_probe_schema(engine)
 
 
