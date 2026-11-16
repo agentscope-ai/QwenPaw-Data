@@ -43,7 +43,7 @@ async def test_metadata_batches_create_patch_and_rebuild_both_domains_in_neo4j(
     )
     service = MetadataImportService(
         store,
-        StaticModelService(FakeCaller()),
+        StaticModelService(FakeCaller(dimensions=1024)),
         executor=executor,
         recovery=recovery.service,
     )

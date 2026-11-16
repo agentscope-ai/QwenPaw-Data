@@ -304,6 +304,14 @@ jobs:
           QWENPAW_DATA_TEST_NEO4J_PASSWORD: qwenpaw-data-test
         run: uv run pytest -q tests/integration/test_database_services.py
 
+      - name: Context graph transactions and query authorization
+        env:
+          CM_BATCH_NEO4J_URI: bolt://127.0.0.1:7687
+          CM_BATCH_NEO4J_PASSWORD: qwenpaw-data-test
+          CM_EXPLORER_TEST_NEO4J_URI: bolt://127.0.0.1:7687
+          CM_EXPLORER_TEST_NEO4J_PASSWORD: qwenpaw-data-test
+        run: bash scripts/tests/run_pytest.sh packages/qwenpaw-data-context/tests/cm
+
       - name: Context API smoke with real dependencies
         env:
           QWENPAW_DATA_HOME: ${{ runner.temp }}/context-smoke-home

@@ -69,13 +69,20 @@ class ModelUsageRecorder:
     def stop(self, timeout: float = 3.0) -> bool:
         """Stop admission and join within the first shutdown deadline."""
         with self._condition:
+            wait_deadline = monotonic() + max(0.0, timeout)
             if self._deadline is None:
-                self._deadline = monotonic() + max(0.0, timeout)
+                self._deadline = wait_deadline
+            wait_deadline = min(wait_deadline, self._deadline)
             self._condition.notify_all()
             thread = self._thread
-            remaining = min(max(0.0, timeout), max(0.0, self._deadline - monotonic()))
         if thread is not None:
-            thread.join(remaining)
+            # A timed join may return before a coarse monotonic clock reaches
+            # the deadline. Recheck it before abandoning queued writes.
+            while thread.is_alive():
+                remaining = wait_deadline - monotonic()
+                if remaining <= 0:
+                    break
+                thread.join(remaining)
         with self._condition:
             if self._expired():
                 self._discard_queue()

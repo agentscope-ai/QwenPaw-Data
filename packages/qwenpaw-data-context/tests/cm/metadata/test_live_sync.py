@@ -51,8 +51,8 @@ def test_neo4j_failure_in_final_batch_rolls_back_earlier_datasources_and_state(
     database_engine,
 ):
     store, _, shared, alice, _ = sync_graph
-    seed_metadata(store, shared, "east")
-    seed_metadata(store, shared, "west")
+    seed_metadata(store, shared, "east", embedding_dim=1024)
+    seed_metadata(store, shared, "west", embedding_dim=1024)
     service = MetadataSyncService(store, database_engine=database_engine)
     plan = service._prepare_plan(alice)
     # A valid operation shape with an invalid required property fails in the final Store batch.

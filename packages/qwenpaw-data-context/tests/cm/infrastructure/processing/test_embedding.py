@@ -13,12 +13,13 @@ from context_manager.store import NodeDraft
 class RecordingEmbedder:
     """Return deterministic vectors while recording the exact provider inputs."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, dimensions: int = 2) -> None:
         self.calls: list[tuple[str, ...]] = []
+        self.dimensions = dimensions
 
     @staticmethod
-    def vector(text: str) -> tuple[float, ...]:
-        return (float(len(text)), float(sum(map(ord, text))))
+    def vector(text: str, dimensions: int = 2) -> tuple[float, ...]:
+        return (float(len(text)), float(sum(map(ord, text)))) + (0.0,) * (dimensions - 2)
 
     async def embed(
         self,
@@ -29,7 +30,7 @@ class RecordingEmbedder:
     ) -> tuple[tuple[float, ...], ...]:
         assert dimensions is None and model is None
         self.calls.append(tuple(texts))
-        return tuple(self.vector(text) for text in texts)
+        return tuple(self.vector(text, self.dimensions) for text in texts)
 
     async def aclose(self) -> None:
         """Release no resources for the in-memory embedder."""

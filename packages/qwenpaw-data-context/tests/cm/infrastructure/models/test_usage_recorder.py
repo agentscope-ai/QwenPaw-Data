@@ -132,8 +132,10 @@ def test_stop_flushes_partial_batch_without_waiting_for_interval(
 
 @pytest.mark.parametrize("failures", [0, 1])
 def test_inflight_write_may_return_but_never_retry_or_start_next_batch(
-    event, threads, failures, caplog
+    event, threads, failures, caplog, monkeypatch
 ):
+    # Keep joins on the real clock while emulating coarse Windows clock ticks.
+    monkeypatch.setattr(usage_recorder, "monotonic", lambda: int(monotonic() * 64) / 64)
     repository = Repository(failures=failures, block_write=True)
     recorder = ModelUsageRecorder(repository, batch_size=1)
     recorder.start()

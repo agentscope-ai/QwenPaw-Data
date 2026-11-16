@@ -269,18 +269,18 @@ def test_caught_write_failure_cannot_commit_preceding_changes(graph, operation):
 
 def test_search_projection_preserves_index_ranking_and_scoped_results(graph):
     original, runtime, (alice, bob) = graph
+    catalog = Neo4jSchemaCatalog(
+        GRAPH_SCHEMA,
+        NEO4J_PHYSICAL_SCHEMA.constraints,
+        tuple(index for index in NEO4J_PHYSICAL_SCHEMA.indexes if index.node is ENTITY),
+    )
+    ensure_schema(runtime, catalog)
     store = Neo4jGraphStore(
         runtime,
         GRAPH_SCHEMA,
         original.access,
         make_glossary(GRAPH_SCHEMA),
-        catalog=Neo4jSchemaCatalog(
-            GRAPH_SCHEMA,
-            NEO4J_PHYSICAL_SCHEMA.constraints,
-            tuple(
-                index for index in NEO4J_PHYSICAL_SCHEMA.indexes if index.node is ENTITY
-            ),
-        ),
+        catalog=catalog,
     )
     vector = (0.25,) * 1024
     for scope in (alice, bob):

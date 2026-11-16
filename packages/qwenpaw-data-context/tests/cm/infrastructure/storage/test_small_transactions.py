@@ -38,7 +38,7 @@ def publication(graph, recovery):  # noqa: F811 - imported pytest fixture
     )
     service = MetadataImportService(
         store,
-        StaticModelService(FakeCaller()),
+        StaticModelService(FakeCaller(dimensions=1024)),
         executor=executor,
         recovery=recovery.service,
     )
@@ -100,7 +100,10 @@ async def test_real_rebuild_failure_and_retry_preserve_committed_vectors(
     with monkeypatch.context() as patch:
         patch.setattr(Neo4jGraphStore, "patch_nodes", fail_after_first)
         with pytest.raises(StoreError, match="rebuild batch failure"):
-            await embed_all(store, scope, RecordingEmbedder(), executor=executor)
+            await embed_all(
+                store, scope, RecordingEmbedder(dimensions=1024),
+                executor=executor, page_size=100,
+            )
     assert commits == [1]
     changed = [
         row
@@ -109,7 +112,10 @@ async def test_real_rebuild_failure_and_retry_preserve_committed_vectors(
     ]
     # The Domain page committed; the first Metric page rolled back.
     assert len(changed) == 0
-    assert await embed_all(store, scope, RecordingEmbedder(), executor=executor) == 231
+    assert await embed_all(
+        store, scope, RecordingEmbedder(dimensions=1024),
+        executor=executor, page_size=100,
+    ) == 231
     assert commits == [1, 1, 100, 100, 30]
     for row in store.list_nodes(METRIC, scope=scope, limit=1000):
         assert {

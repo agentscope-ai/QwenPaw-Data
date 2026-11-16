@@ -83,7 +83,7 @@ async def test_memory_management_replaces_references_and_soft_deletes_without_cr
     (manual,) = store.list_nodes(USER_MEMORY, scope=read_scope)
     assert not manual.properties.get("embedding")
     assert not manual.properties.get("embedding_hash")
-    embedder = FakeLlmCaller(embeddings=((1.0, 0.0),))
+    embedder = FakeLlmCaller(embeddings=((1.0,) + (0.0,) * 1023,))
     assert await embed_all(store, write_scope, embedder, executor=executor) == 1
     (original,) = store.get_nodes(USER_MEMORY, (manual.key,), scope=read_scope)
 

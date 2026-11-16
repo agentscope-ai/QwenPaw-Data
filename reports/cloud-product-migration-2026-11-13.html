@@ -31,11 +31,11 @@
   <header>QwenPaw-Data / Cloud → OSS</header>
   <main>
     <section aria-labelledby="overview">
-      <p class="label">整体迁移报告 · 更新于 2026-11-14</p>
+      <p class="label">整体迁移报告 · 更新于 2026-11-15</p>
       <h1 id="overview">主要能力已移植，发布验收尚未完成</h1>
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
-      <p>最新完整 CI（76d081c）：Ubuntu、macOS、数据库、Docker、发行包、前端、demo、供应链及 CodeQL 均通过；Windows 从 156 失败 / 25 错误降至 45 失败 / 3 错误（4,963 通过、371 跳过、1 xfail）。迁移文件签名、上传保护、报告路径、资源哈希和原生生命周期修复已获 Windows 复验。CSV 清理已另行推送（3551445），其新 CI 尚未结束；SQLite 测试资源修复已暂存待批准。仍不具备发布条件。<a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/43675912421">该轮 CI 证据</a></p>
+      <p>最新完整 CI（87c9545）：Ubuntu、macOS、数据库、Docker、发行包、前端、demo、供应链及 CodeQL 均通过；Windows 为 32 失败、0 fixture 错误（4,979 通过、371 跳过、1 xfail），此前为 156 失败 / 25 错误。CSV 与 SQLite 测试资源修复已获原生复验。剩余失败为 30 项 Bash/WSL 启动场景、Neo4j 超时和 usage recorder；Neo4j 修复已另行推送（7e8cec2），等待新 CI。仍不具备发布条件。<a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/43730094186">该轮 CI 证据</a></p>
       <p class="muted">Internal 审计快照（尚未重新确认远端最新 develop）：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
         OSS 分支：<code>sync/cloud-0.4.0</code> · Host 入口清理基线：<code>371f626</code>；Host 收敛、安全修复、真实 demo、Console lint/依赖审计、SQL 提交边界、持久化契约、旧表补列、原生 subagent、流批次取消恢复，以及 JSON 预检/备份、记录/凭据/偏好转换、目标检查、本地密钥配置、SQL/文件导入恢复与回滚、加密计划和显式 CLI 操作流程已提交。用户批准的四批已独立提交并推送：测试装配 62f4189、初始化入口 10bd7eb、GraphCanvas 3b709cd、共享 DDL 813e154。澄清与分享按 internal 收敛，原生契约测试及旧 toolkit 清理已推送（3e5e9fc）。本地全量通过，远端暴露新的环境依赖与取消竞态；三批后续修复已批准并推送：测试隔离 3f6bb43、解码取消 b173423、真实依赖 smoke/报告 773eb94。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
@@ -79,7 +79,9 @@
           <tbody>
             <tr><th scope="row">Windows 文件与产物兼容</th><td>d0e1d9d：迁移跨 stat/fstat 使用相同语义的时间字段，保留句柄变更时间、链接数与路径身份复核；迁移回归 570 项通过，临时诊断从 2 失败变为 3 通过。依据 <a href="https://github.com/python/cpython/issues/157671">CPython 时间字段差异</a>并核对 3.12 实现。1ad1031：无 dir_fd 时使用完整临时文件和不覆盖硬链接发布上传，API 备用分支 16 项、发布失败/碰撞诊断 3 项通过；要求硬链接文件系统，未证明并发目录替换隔离。23fd3bf：报告相对路径统一为正斜线，报告/比较选择集 191 项通过。32bfa79：5 个供应商资源在 autocrlf=true 的真实隔离检出后仍匹配原哈希。以上不替代原生 Windows 验收。</td></tr>
             <tr><th scope="row">原生平台测试 / CSV 清理</th><td>56f3af2：Windows 子进程组使用 Ctrl+Break，保留优雅退出断言；tracing 测试先创建自身事件循环，再监测全部无副作用约束；workspace 使用原生 shell，提示断言读取正文，长参数使用短测试 ID。Host 217 项、网关 61 项、tracing 7 项通过，无新增跳过。Context CSV 的关闭/清理顺序修复已推送（3551445）：模拟 Windows 打开文件约束时先复现 2 失败，修复后 SQL 产物/查询 21 项通过；驱动为替身。f539536 消除 CLI/settlement 等待测试对调度精度的假设，不修改生产超时；CLI/settlement/embedding 联合选择集 166 项通过。</td></tr>
-            <tr><th scope="row">SQLite 测试生命周期（待提交）</th><td>4 个 Context 测试文件：Profiling 在删除临时文件前关闭会话与连接池，SQLite 使用 Windows 合法且需 URI 转义的名称并显式关闭连接，embedding 使用文件数据库提供独立事务。30 项通过；独立诊断证实 StaticPool 共享连接的读取回滚会撤销另一事务未提交的更新，独立连接保留提交结果。未修改生产代码或新增跳过，尚待提交批准及原生 Windows 复验。剩余 30 个 POSIX Bash 场景在 Windows 调用了未配置发行版的 WSL，Neo4j 查询连接等待上限也仍失败；不把这两类问题标成已解决。Windows 后续原生启动 smoke 尚未执行到。</td></tr>
+            <tr><th scope="row">SQLite 测试生命周期（87c9545）</th><td>已提交、推送并获 Windows CI 复验。Profiling 删除临时文件前关闭会话与连接池，SQLite 使用平台合法且需 URI 转义的名称并关闭连接，embedding 使用文件数据库提供独立事务。本地 30 项通过；独立诊断复现共享连接回滚干扰其他事务。未修改生产代码或新增跳过。</td></tr>
+            <tr><th scope="row">Neo4j 原生查询（7e8cec2）</th><td>已提交并推送。粗粒度重试时钟复现零重试配置仍等待 9 秒；改为显式事务后停滞握手约 5 秒返回，保留读取路由、EXPLAIN 只读检查与服务端事务超时。定向 85 通过 / 6 跳过，适配层 109 通过；独立 Neo4j 诊断 3 通过，真实事务超时约 10.4 秒。无端到端网络停顿保证；Windows 修复后待复验。</td></tr>
+            <tr><th scope="row">后续修复 / 真实图验收</th><td>本地验证完成，尚未获得修复后的远端 CI 结果。usage recorder 先复现粗粒度时钟下队列未按截止时间清理；循环等待保留首次截止时间和每次调用预算，模型选择集 44 项通过。真实图测试修正 5 项 2/3 维替身与 1024 维 Store 不匹配，显式设置测试分页并初始化搜索索引；生产校验和原有事务断言不变。独立 Neo4j 上整个 CM 目录 594 通过、53 跳过；跳过的外部依赖不属于验收结论，模型使用替身。新增数据库 CI 步骤运行同一 CM 目录并启用图连接，避免这些场景只在本地执行。临时容器已清理，用户数据库未动。</td></tr>
             <tr><th scope="row">网关 / 上传安全</th><td>97 项通过；覆盖真实隔离 Host/SQLite 技能生命周期、配置脱敏、文件读写及符号链接防护。</td></tr>
             <tr><th scope="row">启动 / 生命周期</th><td>启动、workspace、auth、Console 选择集 149 项通过；cron、channel、恢复与 tracing 选择集 88 项通过。</td></tr>
             <tr><th scope="row">真实进程重启</th><td>重启后保留会话标题、文件字节、技能修订/回滚、禁用 MCP 设置和脱敏 channel 配置；正常关闭检查通过。</td></tr>
@@ -134,7 +136,7 @@
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
         <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。导入/恢复/回滚的显式 CLI、原生 Host 读取及保留策略已通过合成数据验收；继续验证真实部署升级，保护用户修改及新依赖，不盲目删除暂存或目录。共享 workspace、未完成聊天/水位、远端部署密钥一致性仍待处理。自定义模型大小补充已支持，移除的目录模型须明确重映射；旧 DAG 状态不得静默丢弃。尚未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI：</strong>run 43660613491 已结束：前端、供应链、demo、数据库、Docker、发行包通过；Python 两平台和 Windows 被旧澄清接口的两个收集错误阻塞，对应 CodeQL 43660613390 通过。四批修复及原生澄清/分享测试迁移已推送；新一轮 43660959513 的前端、供应链、demo、数据库、Docker、发行包通过，CodeQL 43660959443 通过；Ubuntu 测试 5,573 通过、4 失败，macOS 5,572 通过、4 失败及 1 fixture 错误（各 158 跳过、1 xfail），Windows 最终为 4,832 通过、156 失败、25 错误、371 跳过、1 xfail（耗时 1,574.12 秒），尚有本批未覆盖的迁移文件校验、平台文件名等问题，需继续分类定位。Ubuntu/macOS 新增问题为 UV 环境路径、网关测试依赖已构建 UI、Host 测试意外依赖 Docker，以及独立 embedding 解码取消竞态；对应修复已定向验证并推送，等待新 CI 复验；不能据此声称 Windows 的全部失败已修复。Python job 中无图配置的完整服务 smoke 也已独立复现启动失败，但此次远端未执行到该步骤，不将其误列为远端失败原因。单 chat 多 writer 竞争仍 xfail。</li>
+        <li><strong>修复完整 CI：</strong>最近完整 run 43730094186 的非 Windows 项均通过。Windows 剩余 32 项失败，分类见页首；后续原生启动 smoke 尚未执行到。30 项 POSIX 脚本场景依赖 Bash、进程组及平台文件名，不能仅替换 bash.exe 就声称原生兼容，也未新增跳过规避。前一轮会话产物排序失败本轮未复现，仍需处理时钟相同情况下的顺序。Context 多路径收集曾漏载 fixture，从共同 CM 目录运行恢复；新增真实图 CI 使用共同目录。单 chat 多 writer 竞争仍 xfail。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
         <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 分配重复序号的 strict xfail 已再次实证；取消恢复修复不解决此竞争。待 review：保留 internal 批量机制并加入写者所有权/接管协议（推荐），或接受逐事件事务落盘的额外写入开销。已发布序号不能在冲突后直接重编号；提交结果不明仍须明确恢复协议。</li>
       </ol>
