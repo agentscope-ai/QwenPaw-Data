@@ -10,6 +10,42 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
+def _process_alive(pid: int) -> bool:
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    # os.kill(pid, 0) terminates the process on Windows; query a handle instead.
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: no such process
+            return False
+        raise ctypes.WinError(error)
+    try:
+        result = kernel.WaitForSingleObject(handle, 0)
+        if result == 0:  # WAIT_OBJECT_0: terminated
+            return False
+        if result == 0x102:  # WAIT_TIMEOUT: still running
+            return True
+        raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def _url_target(value: str) -> tuple:
     url = urlsplit(value)
     host = (
@@ -80,9 +116,7 @@ def check_manifest(parser, args, payload, fingerprint):
         ):
             parser.exit(1, f"{key} differs from the running service manifest.\n")
     for pid in payload["pids"]:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+        if not _process_alive(pid):
             parser.exit(
                 1, "Service manifest is stale; restart services before setup.\n"
             )
