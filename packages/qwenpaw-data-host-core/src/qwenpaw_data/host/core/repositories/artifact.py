@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from qwenpaw_data.host.core.db.tables import ArtifactRow
+from qwenpaw_data.host.core.db.tables import ArtifactRow, ChatRow
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.time import utcnow
@@ -103,11 +103,16 @@ class ArtifactRepository:
         rows = (
             await self.db.scalars(
                 select(ArtifactRow)
+                .outerjoin(ChatRow, ChatRow.id == ArtifactRow.chat_id)
                 .where(
                     ArtifactRow.session_id == session_id,
                     ArtifactRow.chat_id.is_not(None),
                 )
-                .order_by(ArtifactRow.updated_at.desc())
+                .order_by(
+                    ArtifactRow.updated_at.desc(),
+                    ChatRow.sequence.desc().nulls_last(),
+                    ArtifactRow.path,
+                )
             )
         ).all()
         latest: dict[str, dict[str, Any]] = {}

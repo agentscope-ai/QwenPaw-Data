@@ -127,6 +127,22 @@ async def test_list_for_session_keeps_latest_path() -> None:
     ]
 
 
+async def test_list_for_session_breaks_timestamp_ties_by_chat_sequence(monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.repositories.artifact.utcnow",
+        lambda: datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    session_id, first_chat_id, second_chat_id = await _seed_two_chats()
+    async with get_session_factory()() as db:
+        rows = await ArtifactRepository(db, OWNER).list_for_session(session_id)
+    assert [(row["path"], row["name"], row["chat_id"]) for row in rows] == [
+        ("analysis/dau.csv", "dau-v2.csv", second_chat_id),
+        ("draft.md", "draft.md", first_chat_id),
+    ]
+
+
 async def test_list_segment_artifacts_for_session_merges_paths() -> None:
     session_id, first_chat_id, second_chat_id = await _seed_two_chats()
     async with get_session_factory()() as db:
