@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from types import ModuleType
@@ -181,7 +182,7 @@ def test_smoke_environment_does_not_reuse_caller_state(tmp_path, monkeypatch):
     )
     assert "must-not-be-inherited" not in env.values()
     assert (
-        env["QWENPAW_DATA_DB_URL"] == f"sqlite+aiosqlite:///{tmp_path}/control.sqlite"
+        env["QWENPAW_DATA_DB_URL"] == f"sqlite+aiosqlite:///{tmp_path / 'control.sqlite'}"
     )
     assert env["QWENPAW_DATA_AUTH_MODE"] == "local"
     assert env["GRAPH_BACKEND"] == "neo4j"
@@ -218,3 +219,21 @@ def test_smoke_host_bootstraps_shared_schema_and_stops(tmp_path, monkeypatch):
     address = urlparse(env["QWENPAW_DATA_HOST_URL"])
     with socket.socket() as sock:
         assert sock.connect_ex((address.hostname, address.port)) != 0
+
+
+def test_smoke_windows_cleanup_targets_owned_tree_after_grace_timeout(monkeypatch):
+    from unittest.mock import Mock
+
+    smoke = _load_smoke(monkeypatch)
+    monkeypatch.setattr(smoke, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(smoke.signal, "CTRL_BREAK_EVENT", 1, raising=False)
+    run = Mock()
+    monkeypatch.setattr(smoke.subprocess, "run", run)
+    process = Mock(pid=12345)
+    process.poll.return_value = None
+    process.wait.side_effect = [subprocess.TimeoutExpired("owned", 5), 0]
+    smoke._stop_process(process)
+    process.send_signal.assert_called_once_with(1)
+    run.assert_called_once()
+    assert run.call_args.args[0] == ["taskkill", "/PID", "12345", "/T", "/F"]
+    process.terminate.assert_not_called()

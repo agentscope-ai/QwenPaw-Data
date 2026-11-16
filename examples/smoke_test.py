@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -60,11 +61,23 @@ def _wait_for_health(url: str, process: subprocess.Popen[Any], timeout: float) -
 def _stop_process(process: subprocess.Popen[Any]) -> None:
     if process.poll() is not None:
         return
-    process.terminate()
+    if os.name == "nt":
+        try:
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        except (OSError, ValueError):
+            pass
+    else:
+        process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            process.kill()
         process.wait(timeout=5)
 
 
@@ -148,6 +161,7 @@ def _host_service(env: dict[str, str], root: Path, timeout: float):
             env=env,
             stdout=log,
             stderr=subprocess.STDOUT,
+            **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}),
         )
         try:
             _wait_for_health(env["QWENPAW_DATA_HOST_URL"] + "/health", process, timeout)
@@ -498,6 +512,7 @@ def run_smoke(args: argparse.Namespace) -> None:
                 env=env,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}),
             )
             try:
                 _wait_for_health(
