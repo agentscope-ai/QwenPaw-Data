@@ -1,13 +1,46 @@
 """Current Docker boundary: cleanup cannot be skipped by stop requests."""
 
 import asyncio
+import pathlib
+import subprocess
+import threading
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import Bash, ToolChunk
 
-from qwenpaw_data.host.core.workspace.docker_workspace import ManagedDockerBash
+from qwenpaw_data.host.core.workspace.docker_workspace import ManagedDockerBash, _SUPERVISOR
+
+
+def test_supervisor_publishes_pid_only_after_complete_write(tmp_path, monkeypatch):
+    record = tmp_path / "exec.pid"
+    opened, release = threading.Event(), threading.Event()
+    def delayed(path, text, **kwargs):
+        with path.open("w", encoding=kwargs["encoding"]) as stream:
+            opened.set()
+            assert release.wait(3)
+            stream.write(text)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", delayed)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: SimpleNamespace(pid=42, wait=lambda: 0))
+    monkeypatch.setattr("sys.argv", ["supervisor", str(record), "command"])
+    def run():
+        with pytest.raises(SystemExit) as result:
+            exec(_SUPERVISOR, {})
+        assert result.value.code == 0
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        assert opened.wait(3)
+        assert not record.exists()
+    finally:
+        release.set()
+        thread.join(3)
+    assert not thread.is_alive()
+    assert record.read_text() == "42"
 
 
 @pytest.mark.parametrize("transport_error", [False, True])

@@ -17,9 +17,12 @@ logger = logging.getLogger(__name__)
 # Keep the process-group record until the host acknowledges completion. The
 # shell may exit before descendants finish, so its PID alone is not liveness.
 _SUPERVISOR = """
-import pathlib, subprocess, sys
+import os, pathlib, subprocess, sys
 process = subprocess.Popen(sys.argv[2:], start_new_session=True)
-pathlib.Path(sys.argv[1]).write_text(str(process.pid), encoding='ascii')
+record = pathlib.Path(sys.argv[1])
+pending = record.with_suffix('.pending')
+pending.write_text(str(process.pid), encoding='ascii')
+os.replace(pending, record)
 raise SystemExit(process.wait())
 """.strip()
 
