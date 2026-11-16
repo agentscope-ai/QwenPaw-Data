@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
+from threading import Event
 
 import pytest
 from context_manager.auth import WriteOwner
@@ -188,16 +189,18 @@ async def test_lost_execution_stops_extraction_and_original_can_be_retried(
     monkeypatch.setattr(get_settings().heartbeat, "interval_seconds", 0.02)
     prepare = importer.prepare_plan
     cancelled = asyncio.Event()
+    extraction_started = Event()
 
     async def blocked(*args, **kwargs):
         try:
+            extraction_started.set()
             await asyncio.Event().wait()
         finally:
             cancelled.set()
 
     with monkeypatch.context() as patch:
         patch.setattr(importer, "prepare_plan", blocked)
-        patch.setattr(DocumentRepository, "renew", lambda *_: False)
+        patch.setattr(DocumentRepository, "renew", lambda *_: not extraction_started.is_set())
         with pytest.raises(DocumentLeaseLost):
             await asyncio.wait_for(
                 importer.import_document(upload, authorization(), scope), 5
