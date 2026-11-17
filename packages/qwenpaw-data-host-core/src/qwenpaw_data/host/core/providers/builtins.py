@@ -15,9 +15,17 @@ PROVIDER_DASHSCOPE = BuiltinProvider(
     api_key_prefix="sk",
     models=(
         BuiltinModel(
+            id="qwen4-max", name="Qwen4 Max", context_size=1_000_000,
+            input_types=["text/plain", "image/*", "video/*"],
+        ),
+        BuiltinModel(
             id="qwen3.8-max",
             name="Qwen3.8 Max",
             context_size=1_000_000,
+            input_types=["text/plain", "image/*", "video/*"],
+        ),
+        BuiltinModel(
+            id="qwen3.8-flash", name="Qwen3.8 Flash", context_size=1_000_000,
             input_types=["text/plain", "image/*", "video/*"],
         ),
         BuiltinModel(id="qwen3.7-max", name="Qwen3.7 Max", context_size=1_000_000),
@@ -42,16 +50,32 @@ PROVIDER_DASHSCOPE = BuiltinProvider(
         BuiltinModel(id="qwen-plus", name="Qwen Plus", context_size=1_000_000),
         BuiltinModel(id="qwen-max", name="Qwen Max", context_size=32_768),
         BuiltinModel(
+            id="deepseek-v4.1-flash", name="DeepSeek-V4.1 Flash", context_size=1_000_000,
+            input_types=["text/plain", "image/*"],
+        ),
+        BuiltinModel(
             id="deepseek-v4-pro", name="DeepSeek-V4 Pro", context_size=1_000_000
         ),
         BuiltinModel(
             id="deepseek-v4-flash", name="DeepSeek-V4 Flash", context_size=1_000_000
         ),
         BuiltinModel(
+            id="kimi-k3.1-pro", name="Kimi K3.1 Pro", context_size=1_048_576,
+            input_types=["text/plain", "image/*"],
+        ),
+        BuiltinModel(
+            id="kimi-k3", name="Kimi K3", context_size=1_048_576,
+            input_types=["text/plain", "image/*"],
+        ),
+        BuiltinModel(
             id="kimi-k2.6",
             name="Kimi K2.6",
             context_size=262_144,
             input_types=["text/plain", "image/*", "video/*"],
+        ),
+        BuiltinModel(
+            id="MiniMax/MiniMax-M3.1-Flash", name="MiniMax M3.1 Flash",
+            context_size=1_000_000, input_types=["text/plain", "image/*", "video/*"],
         ),
         BuiltinModel(id="MiniMax-M2.5", name="MiniMax M2.5", context_size=196_608),
         BuiltinModel(id="glm-5.3", name="GLM-5.3", context_size=1_048_576),

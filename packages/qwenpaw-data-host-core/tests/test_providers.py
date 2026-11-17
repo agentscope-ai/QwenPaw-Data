@@ -125,6 +125,23 @@ def test_registry_lookup() -> None:
         provider_registry.require("nope")
 
 
+def test_dashscope_catalog_includes_current_internal_models() -> None:
+    models = provider_registry.require("dashscope")
+    expected = {
+        "qwen4-max": (1_000_000, ["text/plain", "image/*", "video/*"]),
+        "qwen3.8-flash": (1_000_000, ["text/plain", "image/*", "video/*"]),
+        "deepseek-v4.1-flash": (1_000_000, ["text/plain", "image/*"]),
+        "kimi-k3.1-pro": (1_048_576, ["text/plain", "image/*"]),
+        "kimi-k3": (1_048_576, ["text/plain", "image/*"]),
+        "MiniMax/MiniMax-M3.1-Flash": (1_000_000, ["text/plain", "image/*", "video/*"]),
+    }
+    for model_id, (context_size, input_types) in expected.items():
+        model = models.find_model(model_id)
+        assert model is not None
+        assert (model.context_size, model.input_types) == (context_size, input_types)
+    assert models.find_model("qwen3.7-max") is not None
+
+
 def test_preferences_resolve_builtin_defaults() -> None:
     active = (
         UserPreferences(
