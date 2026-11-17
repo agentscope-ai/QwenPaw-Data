@@ -16,6 +16,7 @@ POST /api/auth/exchange    — authorization code → cookie
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -70,6 +71,7 @@ login_fails_by_user: dict[str, list[float]] = defaultdict(list)
 RATE_WINDOW = 900  # 15 minutes
 MAX_IP_FAILS = 20
 MAX_USER_FAILS = 5
+_COOKIE_TOKEN = re.compile(r"[A-Za-z0-9_-]+\.[0-9a-f]{64}")
 
 
 def clear_login_failures(username: str, tenant_id: str | None = None) -> None:
@@ -119,12 +121,17 @@ def _check_rate_limit(ip: str, username: str) -> Optional[JSONResponse]:
     return None
 
 
-def _set_auth_cookies(
-    response: Response, access_token: str, refresh_token: str, cfg: AuthConfig
-) -> None:
+def _cookie_token(token: str) -> str:
+    """Enforce the signed-token wire format before using it in a header."""
+    if not _COOKIE_TOKEN.fullmatch(token):
+        raise ValueError("Invalid signed cookie token")
+    return token
+
+
+def _set_access_cookie(response: Response, token: str, cfg: AuthConfig) -> None:
     response.set_cookie(
         key="qwenpaw_data_access",
-        value=access_token,
+        value=_cookie_token(token),
         httponly=True,
         secure=cfg.cookie_secure,
         samesite="lax",
@@ -132,6 +139,15 @@ def _set_auth_cookies(
         max_age=cfg.access_token_ttl,
         domain=cfg.cookie_domain,
     )
+
+
+def _set_auth_cookies(
+    response: Response, access_token: str, refresh_token: str, cfg: AuthConfig
+) -> None:
+    # Validate both before setting either cookie, avoiding a partial response.
+    _cookie_token(access_token)
+    refresh_token = _cookie_token(refresh_token)
+    _set_access_cookie(response, access_token, cfg)
     response.set_cookie(
         key="qwenpaw_data_refresh",
         value=refresh_token,
@@ -659,16 +675,7 @@ async def auth_switch_workspace(request: Request, body: SwitchWorkspaceRequest):
     resp = JSONResponse(
         content={"active_workspace": {"id": body.workspace_id, "name": ws_name}}
     )
-    resp.set_cookie(
-        key="qwenpaw_data_access",
-        value=access,
-        httponly=True,
-        secure=cfg.cookie_secure,
-        samesite="lax",
-        path="/",
-        max_age=cfg.access_token_ttl,
-        domain=cfg.cookie_domain,
-    )
+    _set_access_cookie(resp, access, cfg)
     return resp
 
 
