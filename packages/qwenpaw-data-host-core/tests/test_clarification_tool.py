@@ -92,10 +92,11 @@ def test_hint_ttl_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
     assert metadata == {"expires_at": "2026-01-01T00:01:00Z"}
 
 
-def test_description_forbids_plain_text_questions() -> None:
+def test_description_distinguishes_choices_from_open_questions() -> None:
     description = AskUserQuestionTool.description
 
-    assert "REQUIRED" in description
+    assert "closed multiple-choice" in description
+    assert "Do not call it when the user must type" in description
     assert "status=timeout" in description
 
 

@@ -21,18 +21,18 @@ _OPTIONS_MIN = "__CLARIFICATION_OPTIONS_MIN_ITEMS__"
 _OPTIONS_MAX = "__CLARIFICATION_OPTIONS_MAX_ITEMS__"
 
 _TOOL_DESCRIPTION = (
-    "Ask the user clarifying multiple-choice questions to gather information, "
-    "resolve ambiguity, understand preferences, confirm plans, or offer "
-    "choices. REQUIRED for any clarifying question to the user: do NOT ask "
-    "these as plain assistant text, numbered lists, or markdown option "
-    "bullets — call this tool instead and wait for the result. "
-    "Do not include an '其他' / 'Other' option in options. "
-    "The tool result has status=answered with answers. Each answer contains "
-    "the original question, selected_options (the option labels selected by "
-    "the user), and custom_text (the user's free-form answer or additional "
-    "explanation; null when absent). selected_options and custom_text may both "
-    "be present. A status=timeout result means the user did not answer before "
-    "the clarification timed out."
+    "Ask one closed multiple-choice question. Every option is a concrete value "
+    "already found by probing, or the plan-confirmation action; selecting it "
+    "is enough to continue. Put those choices here, not in a markdown list. "
+    "Do not call it when the user must type the answer (an ID, name, project, "
+    "connection, or free text), or when no option can unblock the task "
+    "(uninitialized graph space, missing permission, service down). Say that "
+    "in the reply and end the turn. "
+    "No '其他' / 'Other', and no meta option such as '我知道 X', '我不确定', "
+    "or '提供其他方式'. "
+    "Result status=answered: each answer has the question, selected_options, "
+    "and custom_text (an optional supplement, null if absent — not the "
+    "intended answer). status=timeout means the user did not answer in time."
 )
 
 
@@ -42,11 +42,11 @@ class _AskUserQuestionOption(BaseModel):
     label: str = Field(
         min_length=1,
         pattern=r"\S",
-        description="Option label.",
+        description="Concrete value or action, selectable as-is.",
     )
     description: str | None = Field(
         default=None,
-        description="Optional option description.",
+        description="Optional note on this option.",
     )
 
 
@@ -56,11 +56,11 @@ class _AskUserQuestionQuestion(BaseModel):
     question: str = Field(
         min_length=1,
         pattern=r"\S",
-        description="Question body.",
+        description="Must be answerable by selecting an option alone.",
     )
     description: str = Field(
         default="",
-        description="Optional clarification for the question.",
+        description="Optional background.",
     )
     multi_select: bool = Field(
         alias="multiSelect",
@@ -68,9 +68,8 @@ class _AskUserQuestionQuestion(BaseModel):
     )
     options: list[_AskUserQuestionOption] = Field(
         description=(
-            "Concrete, self-contained choices only; selecting one must be "
-            "enough to continue — do not ask the user to type extra facts. "
-            "Do not include '其他' / 'Other'. Prefer "
+            "Self-contained choices from probe results; selecting one is "
+            "enough. Do not include '其他' / 'Other'. Prefer "
             f"{_OPTIONS_MIN}..{_OPTIONS_MAX} items."
         ),
     )

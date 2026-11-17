@@ -120,6 +120,13 @@ def test_ask_user_question_tool_is_external() -> None:
     assert "expires_at" not in json.dumps(tool.input_schema)
 
 
+def test_ask_user_question_description_limits_when_to_call() -> None:
+    description = AskUserQuestionTool().description
+    assert "Do not call it" in description
+    assert "end the turn" in description
+    assert "我知道" in description
+
+
 def test_clarification_answer_request_uses_semantic_answers() -> None:
     from qwenpaw_data.host.core.api.models.chat import AskUserQuestionAnsweredResultSchema
     from qwenpaw_data.host.core.api.models.requests import ClarificationAnswerRequest

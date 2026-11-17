@@ -30,6 +30,9 @@ def test_agent_prompt_absorbs_runtime_policy() -> None:
     assert "执行期规范" not in text
     assert "### 1：" in text
     assert "### 2：" in text
+    assert "封闭选择" in text
+    assert "图空间未初始化" in text
+    assert "唯一提问" not in text
     assert "第2类" in text
     assert "Type 1" not in text
     assert "Type 2" not in text
