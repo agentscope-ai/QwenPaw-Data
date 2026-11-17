@@ -618,6 +618,11 @@ def test_content_lint_warns_on_process_markers() -> None:
     )
 
 
+def test_inline_script_audit_accepts_html_end_tag_whitespace() -> None:
+    page = '<SCRIPT>const url = "https://example.invalid/a";</SCRIPT >'
+    assert builder.audit_external_resources(page) == []
+
+
 def _run_main(monkeypatch, sections: Path, out: Path, *extra: str) -> None:
     monkeypatch.setattr(
         sys,
@@ -674,7 +679,7 @@ def test_main_fails_when_template_pulls_external_css(
     with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, sections, out, "--template", str(template))
     assert exc.value.code == 2
-    assert "cdn.example.com" in capsys.readouterr().out
+    assert "  - <link href>: https://cdn.example.com/t.css" in capsys.readouterr().out.splitlines()
 
     _run_main(
         monkeypatch, sections, out, "--template", str(template), "--allow-external"

@@ -691,7 +691,7 @@ def audit_chart_rendering(html: str) -> Tuple[List[str], int]:
 # 内容只告警——它们是风格问题，不该挡住交付。
 
 _SCRIPT_INLINE_RE = re.compile(
-    r"<script\b(?![^>]*\bsrc\s*=)[^>]*>.*?</script>", re.S | re.I
+    r"<script\b(?![^>]*\bsrc\s*=)[^>]*>.*?</script\s*>", re.S | re.I
 )
 _STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.S | re.I)
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.S)

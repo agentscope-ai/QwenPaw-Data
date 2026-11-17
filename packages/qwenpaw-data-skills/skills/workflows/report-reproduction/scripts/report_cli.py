@@ -1957,6 +1957,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             timeout=self.timeout,
         )
         context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         self.sock = context.wrap_socket(raw_socket, server_hostname=self.host)
 
 

@@ -47,6 +47,19 @@ def _load_cli_module() -> Any:
 
 cli = _load_cli_module()
 
+
+def test_pinned_https_requires_tls12_and_preserves_hostname(monkeypatch):
+    from unittest.mock import Mock
+
+    context = Mock()
+    socket = Mock()
+    monkeypatch.setattr(cli.socket, "create_connection", Mock(return_value=socket))
+    monkeypatch.setattr(cli.ssl, "create_default_context", Mock(return_value=context))
+    connection = cli._PinnedHTTPSConnection("example.com", "93.184.216.34", 443)
+    connection.connect()
+    assert context.minimum_version == cli.ssl.TLSVersion.TLSv1_2
+    context.wrap_socket.assert_called_once_with(socket, server_hostname="example.com")
+
 GOLD_REPORT = """# 2026年8月经营周报
 
 ## 一、总体概览
