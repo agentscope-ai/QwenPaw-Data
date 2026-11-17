@@ -107,7 +107,7 @@ def open_resolved_workspace_file(root: Path, candidate: Path) -> BinaryIO:
         relative = candidate.relative_to(root)
     except ValueError as exc:
         raise OSError("workspace file escaped its root") from exc
-    if not relative.parts:
+    if not relative.parts or ".." in relative.parts:
         raise OSError("workspace file is not a regular file")
     if os.name == "nt":
         return _open_windows(root, candidate)

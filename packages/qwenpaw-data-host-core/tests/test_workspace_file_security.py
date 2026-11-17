@@ -59,6 +59,14 @@ def test_resolved_in_workspace_symlink_can_be_read(tmp_path):
         assert file.read() == b"inside"
 
 
+def test_unresolved_parent_components_are_rejected(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (tmp_path / "outside.txt").write_text("outside")
+    with pytest.raises(OSError):
+        open_resolved_workspace_file(root, root / ".." / "outside.txt")
+
+
 @pytest.mark.parametrize(
     ("range_header", "expected_status", "expected_body"),
     [
