@@ -29,7 +29,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql import expression
 
 from qwenpaw_data_auth.config import runtime_home
-from qwenpaw_data_auth.sql_ddl import HOLOGRES_ROW, ddl_target
+from qwenpaw_data_auth.sql_ddl import HOLOGRES_ROW, ddl_target, is_hologres_host
 
 # ---------------------------------------------------------------------------
 # Schema (SQLAlchemy Core Table metadata)
@@ -554,7 +554,7 @@ def _migrate_columns(conn, sqlite: bool) -> None:  # noqa: ANN001
     """Backfill legacy columns on an already-initialized SQL database."""
     if sqlite:
         raise ValueError("SQLite migrations are handled in the SQLite transaction")
-    if "hologres.aliyuncs.com" in (conn.engine.url.host or "").lower():
+    if is_hologres_host(conn.engine.url.host):
         for table, column, definition in _HOLO_ADDITIVE_COLUMNS:
             existing = {
                 row[0]

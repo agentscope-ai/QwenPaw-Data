@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from qwenpaw_data_auth.database import shared_database_url
+from qwenpaw_data_auth.sql_ddl import is_hologres_host
 from semantic_config.config import get_settings
 
 _engine: AsyncEngine | None = None
@@ -39,8 +40,8 @@ _PG_POOL_RECYCLE_SECONDS = 600
 
 async def lock_schema_initialization(connection) -> None:
     """Serialize PostgreSQL schema inspection and DDL across service processes."""
-    if connection.dialect.name == "postgresql" and "hologres.aliyuncs.com" not in (
-        connection.engine.url.host or ""
+    if connection.dialect.name == "postgresql" and not is_hologres_host(
+        connection.engine.url.host
     ):
         await connection.execute(
             text("SELECT pg_advisory_xact_lock(:key)"),

@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError
+from qwenpaw_data_auth.sql_ddl import is_hologres_host
 
 log = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def _dedupe(conn: Connection, table: str, keys: tuple[str, ...]) -> None:
 def _partial_unique(
     conn: Connection, name: str, table: str, keys: tuple[str, ...]
 ) -> None:
-    if "hologres.aliyuncs.com" in (conn.engine.url.host or ""):
+    if is_hologres_host(conn.engine.url.host):
         return
     if not _has_column(conn, table, "is_deleted"):
         return

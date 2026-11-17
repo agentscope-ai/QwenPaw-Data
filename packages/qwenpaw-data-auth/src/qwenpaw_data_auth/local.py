@@ -4,6 +4,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+from qwenpaw_data_auth.sql_ddl import is_hologres_host
 import secrets
 import stat
 import tempfile
@@ -129,7 +130,7 @@ def bootstrap_local(cfg: AuthConfig | None = None) -> AuthConfig:
         with get_db(cfg.control_plane_dsn) as conn:
             if conn._c.dialect.name == "sqlite":
                 conn.execute("BEGIN IMMEDIATE")
-            elif "hologres.aliyuncs.com" not in (conn._c.engine.url.host or ""):
+            elif not is_hologres_host(conn._c.engine.url.host):
                 conn.execute("SELECT pg_advisory_xact_lock(716234019)")
             tenant = query_one(conn, select(tenants).where(tenants.c.id == "default"))
             if not tenant:

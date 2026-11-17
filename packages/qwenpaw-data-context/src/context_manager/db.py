@@ -14,6 +14,7 @@ from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.sql.selectable import TableClause
+from qwenpaw_data_auth.sql_ddl import is_hologres_host
 
 from .schema.relational import external_tables, metadata
 from .settings import get_settings
@@ -127,7 +128,7 @@ class CMDatabase:
 
     def initialize(self) -> None:
         """Create absent CM tables and report missing columns before serving."""
-        hologres = "hologres.aliyuncs.com" in (self.engine.url.host or "")
+        hologres = is_hologres_host(self.engine.url.host)
         with self._lock:
             if self.engine.dialect.name == "postgresql" and not hologres:
                 with self.engine.begin() as connection:

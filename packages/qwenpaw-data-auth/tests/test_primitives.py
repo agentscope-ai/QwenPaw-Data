@@ -116,6 +116,19 @@ def test_public_schema_and_postgres_ddl():
     assert "orientation" not in ddl
 
 
+@pytest.mark.parametrize("host, expected", [
+    ("instance.hologres.aliyuncs.com", True),
+    ("INSTANCE.HOLOGRES.ALIYUNCS.COM.", True),
+    ("hologres.aliyuncs.com", True),
+    ("hologres.aliyuncs.com.attacker.example", False),
+    ("nothologres.aliyuncs.com", False),
+    (None, False),
+])
+def test_hologres_host_requires_domain_boundary(host, expected):
+    from qwenpaw_data_auth.sql_ddl import is_hologres_host
+    assert is_hologres_host(host) is expected
+
+
 @pytest.mark.parametrize("hologres", [False, True])
 def test_schema_uses_configured_backend_and_serializes_postgres_ddl(monkeypatch, hologres):
     from unittest.mock import MagicMock

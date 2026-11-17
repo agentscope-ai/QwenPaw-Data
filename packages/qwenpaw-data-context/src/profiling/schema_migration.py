@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from qwenpaw_data_auth.sql_ddl import is_hologres_host
 from sqlalchemy import DDL, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError
@@ -98,8 +99,8 @@ def _migrate(conn: Connection) -> None:
 
 async def migrate_legacy_probe_schema(engine: AsyncEngine) -> None:
     """在 create_all 提交后升级；重复调用不覆盖候选值。"""
-    if engine.dialect.name == "postgresql" and "hologres.aliyuncs.com" not in (
-        engine.url.host or ""
+    if engine.dialect.name == "postgresql" and not is_hologres_host(
+        engine.url.host
     ):
         async with engine.begin() as conn:
             await lock_schema_initialization(conn)

@@ -12,10 +12,18 @@ HOLOGRES_ROW = {"holo_orientation": "row"}
 _hologres: ContextVar[bool] = ContextVar("control_plane_ddl_hologres", default=False)
 
 
+def is_hologres_host(host: str | None) -> bool:
+    """Recognize the Hologres DNS domain, not an arbitrary substring."""
+    normalized = (host or "").lower().rstrip(".")
+    return normalized == "hologres.aliyuncs.com" or normalized.endswith(
+        ".hologres.aliyuncs.com"
+    )
+
+
 @contextmanager
 def ddl_target(url: URL) -> Iterator[bool]:
     """Select DDL from the actual engine, isolated across tasks and nested calls."""
-    selected = "hologres.aliyuncs.com" in (url.host or "").lower()
+    selected = is_hologres_host(url.host)
     token = _hologres.set(selected)
     try:
         yield selected
