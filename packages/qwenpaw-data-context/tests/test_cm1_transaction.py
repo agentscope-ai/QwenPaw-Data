@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 from qwenpaw_data_auth.authorization import AuthorizationContext
 from sqlalchemy import create_engine, update
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.engine import URL
 
 import context_manager.transaction.recovery.repository as repository_module
 import context_manager.transaction.recovery.stacked as stacked_module
@@ -225,8 +225,9 @@ def context(user="alice", **changes):
 
 
 @pytest.fixture
-def graph(monkeypatch):
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+def graph(monkeypatch, tmp_path):
+    # Recovery heartbeats and graph work run on separate worker threads.
+    engine = create_engine(URL.create("sqlite", database=str(tmp_path / "recovery.sqlite")))
     metadata.create_all(engine, tables=[workspace_glossaries, recovery_runs])
     settings = Settings(environment={})
     monkeypatch.setattr(repository_module, "get_settings", lambda: settings)
