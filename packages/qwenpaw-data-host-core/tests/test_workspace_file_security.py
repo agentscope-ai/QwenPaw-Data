@@ -67,6 +67,20 @@ def test_unresolved_parent_components_are_rejected(tmp_path):
         open_resolved_workspace_file(root, root / ".." / "outside.txt")
 
 
+def test_symlink_loop_is_a_client_error(tmp_path):
+    from fastapi import HTTPException
+
+    root = tmp_path / "workspace"
+    root.mkdir()
+    try:
+        (root / "loop").symlink_to("loop")
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+    with pytest.raises(HTTPException) as error:
+        resolve_session_file(root, "loop")
+    assert error.value.status_code in (400, 404)
+
+
 @pytest.mark.parametrize(
     ("range_header", "expected_status", "expected_body"),
     [

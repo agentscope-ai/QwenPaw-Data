@@ -344,6 +344,13 @@ def test_workspace_file_access_preview_download_and_path_guard(
         assert traversal.status_code == 400
         assert traversal.json()["code"] == "VALIDATION"
 
+        invalid = client.get(
+            f"/api/sessions/{session_id}/files/access",
+            params={"path": "analysis/bad\x00name", "purpose": "preview"},
+        )
+        assert invalid.status_code == 400
+        assert invalid.json()["code"] == "VALIDATION"
+
         missing = client.get(
             f"/api/sessions/{session_id}/files/access",
             params={"path": "analysis/missing.csv", "purpose": "preview"},

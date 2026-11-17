@@ -72,6 +72,8 @@ _HTML_CSP = (
 def resolve_session_file(artifact_root: Path, relative_path: str) -> Path:
     if not relative_path.strip():
         raise_api("VALIDATION", "path is required", status=400)
+    if "\x00" in relative_path:
+        raise_api("VALIDATION", "path contains an invalid character", status=400)
     requested = Path(relative_path)
     if requested.is_absolute():
         raise_api(
@@ -79,7 +81,12 @@ def resolve_session_file(artifact_root: Path, relative_path: str) -> Path:
         )
 
     artifact_root = artifact_root.resolve()
-    candidate = (artifact_root / requested).resolve()
+    try:
+        candidate = (artifact_root / requested).resolve()
+    except (RuntimeError, ValueError):
+        raise_api("VALIDATION", "path cannot be resolved", status=400)
+    except OSError:
+        raise_api("NOT_FOUND", "workspace file not found", status=404)
     if not candidate.is_relative_to(artifact_root):
         raise_api(
             "VALIDATION", "path escapes the session artifact directory", status=400
