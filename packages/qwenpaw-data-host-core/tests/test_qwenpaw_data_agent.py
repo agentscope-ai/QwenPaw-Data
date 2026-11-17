@@ -190,6 +190,17 @@ def test_qwenpaw_data_agent_injects_shanghai_time() -> None:
     assert agent.injection_config.timezone == "Asia/Shanghai"
 
 
+def test_data_agent_parallel_setting_can_be_disabled(monkeypatch):
+    from qwenpaw_data.host.core.settings import get_settings
+
+    monkeypatch.setenv("QWENPAW_DATA_TOOL_PARALLEL_ENABLED", "false")
+    clear_settings()
+    try:
+        assert get_settings().tools.parallel_enabled is False
+    finally:
+        clear_settings()
+
+
 @pytest.mark.asyncio
 async def test_build_qwenpaw_data_toolkit_registers_workspace_and_local_tools() -> None:
     toolkit = await DataAgentBuilder().build_toolkit(
@@ -210,6 +221,11 @@ async def test_build_qwenpaw_data_toolkit_registers_workspace_and_local_tools() 
     assert "trigger_review_agent" not in tool_names
     assert "mcp__fake-mcp__execute_sql" in tool_names
     assert "reset_tools" not in tool_names
+    spawn = await toolkit.get_tool("spawn_subagent")
+    assert spawn is not None and spawn.is_concurrency_safe is True
+    for name in ("ask_user_question", "PlanCreate", "CronJob"):
+        tool = await toolkit.get_tool(name)
+        assert tool is not None and tool.is_concurrency_safe is False
 
 
 @pytest.mark.parametrize("enabled", ["0", "1"])
@@ -273,6 +289,7 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
     await reset_engine()
     reset_hub()
     monkeypatch.setenv("QWENPAW_DATA_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("QWENPAW_DATA_TOOL_PARALLEL_ENABLED", raising=False)
     clear_settings()
     await init_db()
     session_factory = get_session_factory()
@@ -306,7 +323,13 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
 
     await seed_test_preferences(session_factory)
     model = DelegatingModel() if delegate else FakeTextModel()
-    monkeypatch.setattr(builder_module, "build_model", lambda *_a, **_k: model)
+    seen = {}
+
+    def build_fixture(*_args, **kwargs):
+        seen.update(kwargs)
+        return model
+
+    monkeypatch.setattr(builder_module, "build_model", build_fixture)
 
     # The builtin context-manager MCP is an external service; this test only
     # cares about the Host-side turn.
@@ -338,6 +361,7 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         assert "Name:" not in prompt_text
         assert not (tmp_path / "home" / "sessions").exists()
         assert PLAN_TOOL_NAMES <= model.tool_names
+        assert seen["parallel_tool_calls"] is True
         if delegate:
             assert model.delegated and model.child_calls == 1
 

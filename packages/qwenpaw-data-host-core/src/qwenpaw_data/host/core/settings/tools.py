@@ -10,6 +10,7 @@ class ToolSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="QWENPAW_DATA_TOOL_", extra="ignore")
 
     ui_enabled: bool = True
+    parallel_enabled: bool = True
 
 
 __all__ = ["ToolSettings"]

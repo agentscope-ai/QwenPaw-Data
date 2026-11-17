@@ -40,6 +40,7 @@ from qwenpaw_data.host.core.providers.factory import build_model
 from qwenpaw_data.host.core.repositories.skill_store import SkillStoreRepo
 from qwenpaw_data.host.core.runtime.context import RunContext
 from qwenpaw_data.host.core.runtime.envelope import Envelope
+from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.utils.mcp import bind_mcp_tool_timeout
 
 
@@ -154,6 +155,7 @@ class DataAgentBuilder:
             model=build_model(
                 user_runtime_config.default,
                 usage=run_context.model_usage(ModelUsageSource.DATA_AGENT),
+                parallel_tool_calls=get_settings().tools.parallel_enabled,
             ),
             toolkit=toolkit,
             middlewares=_middlewares(run_context, envelope),

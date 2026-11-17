@@ -28,7 +28,9 @@ def _field_default(cls: type[FormatterBase], name: str) -> list[str]:
 _DEFAULT_INPUT_TYPES = BuiltinModel("foo", "bar", 1).input_types
 
 
-def build_model(model: ActiveModel, *, usage: ModelUsageContext) -> ChatModelBase:
+def build_model(
+    model: ActiveModel, *, usage: ModelUsageContext, parallel_tool_calls: bool = False
+) -> ChatModelBase:
     """Build an AgentScope chat model from an active preference model."""
     if not model.api_key:
         raise ValueError("api_key is required")
@@ -37,7 +39,7 @@ def build_model(model: ActiveModel, *, usage: ModelUsageContext) -> ChatModelBas
     credential_kwargs: dict[str, str] = {"api_key": model.api_key}
     if model.base_url:
         credential_kwargs["base_url"] = model.base_url
-    parameters = _parameters(model)
+    parameters = _parameters(model, parallel_tool_calls=parallel_tool_calls)
     context_size = _context_size(model)
 
     if model.provider_id == "dashscope":
@@ -68,8 +70,8 @@ def build_model(model: ActiveModel, *, usage: ModelUsageContext) -> ChatModelBas
     return attach_generation_span(built, usage)
 
 
-def _parameters(model: ActiveModel) -> dict[str, Any]:
-    values: dict[str, Any] = {"parallel_tool_calls": False}
+def _parameters(model: ActiveModel, *, parallel_tool_calls: bool) -> dict[str, Any]:
+    values: dict[str, Any] = {"parallel_tool_calls": parallel_tool_calls}
     if model.thinking_enabled is not None:
         values["thinking_enable"] = model.thinking_enabled
     return values

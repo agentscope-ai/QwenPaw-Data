@@ -89,3 +89,8 @@ def test_build_model_rejects_unknown_provider() -> None:
 def test_build_model_requires_api_key() -> None:
     with pytest.raises(ValueError, match="api_key is required"):
         build_model(_model(api_key=""), usage=_USAGE)
+
+
+def test_build_model_enables_parallel_tool_calls_when_requested() -> None:
+    assert build_model(_model(), usage=_USAGE).parameters.parallel_tool_calls is False
+    assert build_model(_model(), usage=_USAGE, parallel_tool_calls=True).parameters.parallel_tool_calls is True
