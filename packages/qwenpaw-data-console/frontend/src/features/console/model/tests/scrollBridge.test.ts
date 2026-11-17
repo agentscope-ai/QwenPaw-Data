@@ -37,7 +37,7 @@ test('HTML bridge scrolls a nested report before its first user scroll and ignor
     setTimeout: (callback: () => void) => callback(),
   };
   const html = injectGtScrollBridge('<html><body><main>Report</main></body></html>');
-  const script = html.match(/<script[^>]*>([\s\S]*?)<\/script>/)?.[1];
+  const script = html.match(/<script[^>]*>([\s\S]*?)<\/script\s*>/i)?.[1];
   assert.ok(script);
   vm.runInNewContext(script, { window, document });
   const message = handlers.get('message');

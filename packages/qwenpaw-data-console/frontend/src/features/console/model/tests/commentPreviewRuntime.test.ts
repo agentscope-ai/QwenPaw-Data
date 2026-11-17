@@ -426,7 +426,7 @@ test('serialized iframe bridge validates parent/identity, queues only latest sel
     '<html><head></head><body>\n<p>one</p>\n\n<p>two</p></body></html>',
     'test',
   );
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  const script = html.match(/<script>([\s\S]*?)<\/script\s*>/i)?.[1];
   assert.ok(script);
   vm.runInNewContext(script, { window: f.win, document: f.doc });
   const data = {
