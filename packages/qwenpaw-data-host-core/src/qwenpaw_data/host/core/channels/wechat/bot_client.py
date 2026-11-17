@@ -115,9 +115,7 @@ def aes_ecb_decrypt(data: bytes, key_b64: str) -> bytes:
             key = decoded
 
     if len(key) not in (16, 24, 32):
-        raise ValueError(
-            f"Invalid AES key length: {len(key)} (from key_b64={raw[:20]!r})",
-        )
+        raise ValueError(f"Invalid AES key length: {len(key)}")
     cipher = AES.new(key, AES.MODE_ECB)
     decrypted = cipher.decrypt(data)
     # Remove PKCS7 padding using pycryptodome's validated unpad
