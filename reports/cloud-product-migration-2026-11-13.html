@@ -35,7 +35,7 @@
       <h1 id="overview">主要能力已移植，发布验收尚未完成</h1>
       <p class="warning"><strong>不可视为全量同步完成，也不具备直接合并发布的条件。</strong> 以 internal 服务架构为主线，允许 breaking change；新旧残留、数据迁移和 CI 阻塞仍需收敛。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
-      <p>最近完整 CI（4a0225c）：Ubuntu、macOS、数据库、Docker、发行包、前端和 demo 通过；Windows 因未启动 Neo4j 导致健康检查失败，供应链审计发现受影响的前端依赖。CodeQL 分析任务成功，但 PR 安全检查仍因 14 项告警失败，不能混为一谈。<a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44151346399">CI 证据</a> · <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">当前检查</a>。<code>9d5a556</code> 已推送真实 Windows Neo4j smoke 修复，结果以新运行记录为准；原生 smoke 不等于完整 Auth/Context/Host 生命周期验收。</p>
+      <p>最近完整 CI（9d5a556）：Ubuntu、macOS、数据库、Docker、发行包、前端、demo 和真实 Neo4j Windows smoke 均通过；供应链审计仍因前端依赖失败。CodeQL 分析任务成功，但 PR 安全检查在上一轮仍有 14 项告警，不能混为一谈。<a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44160723073">CI 证据</a> · <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">当前检查</a>。原生 smoke 不等于完整 Auth/Context/Host 生命周期验收。</p>
       <p>截至 2026-11-17 的远端 internal <code>develop</code> 为 <code>e92e55d082fdc01f00ebaf27fb792ddac6901bad</code>，比原审计基线多 18 个提交；其中 MCP 注册、澄清规则、模型目录及 ACS URL 能力已移植，Context 弹窗、筛选、取消恢复与个人图向量同步已实现但待审提交，其余尚需逐项核对。18 是新增提交数，不是剩余缺口数；未更改 internal 仓库。</p>
       <p class="muted">原 internal 审计快照：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
         OSS 分支：<code>sync/cloud-0.4.0</code> · Host 入口清理基线：<code>371f626</code>；Host 收敛、安全修复、真实 demo、Console lint/依赖审计、SQL 提交边界、持久化契约、旧表补列、原生 subagent、流批次取消恢复，以及 JSON 预检/备份、记录/凭据/偏好转换、目标检查、本地密钥配置、SQL/文件导入恢复与回滚、加密计划和显式 CLI 操作流程已提交。用户批准的四批已独立提交并推送：测试装配 62f4189、初始化入口 10bd7eb、GraphCanvas 3b709cd、共享 DDL 813e154。澄清与分享按 internal 收敛，原生契约测试及旧 toolkit 清理已推送（3e5e9fc）。本地全量通过，远端暴露新的环境依赖与取消竞态；三批后续修复已批准并推送：测试隔离 3f6bb43、解码取消 b173423、真实依赖 smoke/报告 773eb94。<br>
@@ -137,7 +137,7 @@
       <ol>
         <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
         <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。导入/恢复/回滚的显式 CLI、原生 Host 读取及保留策略已通过合成数据验收；继续验证真实部署升级，保护用户修改及新依赖，不盲目删除暂存或目录。共享 workspace、未完成聊天/水位、远端部署密钥一致性仍待处理。自定义模型大小补充已支持，移除的目录模型须明确重映射；旧 DAG 状态不得静默丢弃。尚未读取或修改用户历史数据。</li>
-        <li><strong>修复完整 CI 与 Windows 启动：</strong>最近完整 run 的 Windows smoke 已执行但缺少 Neo4j；真实数据库 smoke 修复已推送，待 Windows CI 验证。供应链审计的 picomatch 最新版仍在受影响范围。CodeQL PR 检查仍有 14 项告警，包括产物路径竞态与协议级 ECB；安全修复不能只靠压制告警。现有 PowerShell 入口只启动 DataBridge，不覆盖完整 Auth、Host 与 workspace provisioning；须补齐原生启动并验证进程所有权及清理。</li>
+        <li><strong>修复完整 CI 与 Windows 启动：</strong>Windows 真实数据库 smoke 已在 CI 通过；供应链审计的 picomatch 最新版仍在受影响范围。CodeQL PR 检查上一轮仍有 14 项告警，包括产物路径竞态与协议级 ECB；安全修复不能只靠压制告警。现有 PowerShell 入口只启动 DataBridge，不覆盖完整 Auth、Host 与 workspace provisioning；须补齐原生启动并验证进程所有权及清理。</li>
         <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
         <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 分配重复序号的 strict xfail 已再次实证；取消恢复修复不解决此竞争。待 review：保留 internal 批量机制并加入写者所有权/接管协议（推荐），或接受逐事件事务落盘的额外写入开销。已发布序号不能在冲突后直接重编号；提交结果不明仍须明确恢复协议。</li>
       </ol>
