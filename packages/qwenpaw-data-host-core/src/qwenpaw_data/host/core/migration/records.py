@@ -167,7 +167,9 @@ def convert_record(
     try:
         # JSON strict mode accepts ISO timestamps but never coerces bools or
         # numeric strings into integers. Redact all pydantic input in errors.
-        source = model.model_validate_json(_canonical(document), strict=True)
+        source = model.model_validate_json(
+            _canonical(document), strict=True, extra="forbid"
+        )
     except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
         raise MigrationError(f"Invalid or unsupported legacy {kind} record") from None
     values = source.model_dump()

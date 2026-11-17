@@ -58,7 +58,9 @@ def convert_events(events: Any, *, chat: PreparedRecord) -> tuple[PreparedRecord
 
     for sequence, payload in enumerate(events):
         try:
-            event = _EVENT.validate_json(_canonical(payload), strict=True)
+            event = _EVENT.validate_json(
+                _canonical(payload), strict=True, extra="forbid"
+            )
         except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
             raise MigrationError(
                 "Invalid or unsupported historical event; explicit disposition required"

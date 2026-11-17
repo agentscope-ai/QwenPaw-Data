@@ -122,7 +122,7 @@ def test_list_targets_empty(cron_client: TestClient) -> None:
     assert body["targets"] == []
 
 
-def test_job_write_rejects_session_id(cron_client: TestClient) -> None:
+def test_job_write_ignores_session_id(cron_client: TestClient) -> None:
     created = cron_client.post(
         "/api/cron/jobs",
         json={
@@ -134,7 +134,8 @@ def test_job_write_rejects_session_id(cron_client: TestClient) -> None:
         },
     )
 
-    assert created.status_code == 422, created.text
+    assert created.status_code == 200, created.text
+    assert created.json()["job"]["session_id"] is None
 
 
 def test_job_attachments_upload_list_and_delete(cron_client: TestClient) -> None:

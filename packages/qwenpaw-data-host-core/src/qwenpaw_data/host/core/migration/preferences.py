@@ -107,7 +107,9 @@ def convert_preferences(
             "Explicit target catalog and credential rewriter are required"
         )
     try:
-        source = _Preferences.model_validate_json(_canonical(document), strict=True)
+        source = _Preferences.model_validate_json(
+            _canonical(document), strict=True, extra="forbid"
+        )
         defaults = _Runtime.model_validate(
             {
                 "context_trigger_ratio": target_context_trigger_ratio,

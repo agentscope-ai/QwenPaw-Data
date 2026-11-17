@@ -112,7 +112,12 @@ def test_chat_plan_edit_snapshot_and_clear(tmp_path: Path) -> None:
             json={"plan": legacy, "reason": None},
             headers=headers,
         )
-        assert response.status_code == 422
+        assert response.status_code == 200, response.text
+        ignored = response.json()["plan"]
+        assert set(ignored) == {"tasks"}
+        assert [task["id"] for task in ignored["tasks"]] == [
+            task["id"] for task in plan["tasks"]
+        ]
 
         response = client.post(
             f"{path}/edit",

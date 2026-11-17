@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ApiModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class ErrorBodySchema(ApiModel):

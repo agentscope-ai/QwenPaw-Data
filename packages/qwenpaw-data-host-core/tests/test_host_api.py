@@ -116,7 +116,8 @@ def test_session_chat_events_smoke(
             json={"agent_id": "agent-b"},
             headers=headers,
         )
-        assert r.status_code == 422, r.text
+        assert r.status_code == 200, r.text
+        assert r.json()["session"]["agent_id"] == "agent-a"
 
         r = client.post(
             "/api/sessions",
