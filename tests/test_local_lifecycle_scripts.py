@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -345,6 +346,8 @@ def test_cross_platform_launcher_selects_graph(tmp_path, monkeypatch, backend, e
     monkeypatch.setattr(module, "port_reachable", lambda *args: False)
     neo4j = []
     monkeypatch.setattr(module, "start_neo4j", lambda *args: neo4j.append(True))
+    initialized = []
+    monkeypatch.setattr(module, "initialize_host_schema", lambda root: initialized.append(root))
     monkeypatch.setattr(module, "terminate_process_tree", lambda process: None)
     monkeypatch.setattr(module.signal, "signal", lambda *args: None)
 
@@ -355,6 +358,7 @@ def test_cross_platform_launcher_selects_graph(tmp_path, monkeypatch, backend, e
     monkeypatch.setattr(module, "start_child", lambda *args, **kwargs: ExitedChild())
     assert module.main(["--skip-frontend"]) == 1
     assert bool(neo4j) is expected_neo4j
+    assert initialized == [tmp_path]
 
 
 def test_cross_platform_launcher_rejects_invalid_graph_backend(tmp_path, monkeypatch, capsys):
@@ -368,6 +372,23 @@ def test_cross_platform_launcher_rejects_invalid_graph_backend(tmp_path, monkeyp
     monkeypatch.setattr(module, "ensure_environment", lambda root: tmp_path / ".env")
     assert module.main(["--skip-frontend"]) == 1
     assert "GRAPH_BACKEND" in capsys.readouterr().err
+
+
+def test_local_launcher_initializes_host_tables_idempotently(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("qpd_start_local_schema_test", ROOT / "scripts/start_local.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "venv_executable", lambda *args: Path(sys.executable))
+    db_path = tmp_path / "control.db"
+    monkeypatch.setenv("QWENPAW_DATA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("QWENPAW_DATA_DB_URL", f"sqlite+aiosqlite:///{db_path.as_posix()}")
+    module.initialize_host_schema(ROOT)
+    module.initialize_host_schema(ROOT)
+    with sqlite3.connect(db_path) as db:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert {"user_providers", "sessions", "chats", "chat_events"} <= tables
 
 
 def test_powershell_entrypoints_are_present() -> None:
