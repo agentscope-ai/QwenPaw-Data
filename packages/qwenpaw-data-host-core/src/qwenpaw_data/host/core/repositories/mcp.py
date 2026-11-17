@@ -145,9 +145,13 @@ class McpRepository:
                 if not reuse:
                     if name in live:
                         await _remove_workspace_mcp(workspace, live[name], **scope)
-                    await workspace.add_mcp(client, **scope)
-                    registered = await workspace.list_mcps(**scope)
-                    client = next(item for item in registered if item.name == name)
+                    registered_client = await workspace.add_mcp(client, **scope)
+                    if registered_client is None:
+                        # AgentScope 2.0.8 registers the client but returns None.
+                        registered = await workspace.list_mcps(**scope)
+                        client = next(item for item in registered if item.name == name)
+                    else:
+                        client = registered_client
                 if is_cm_mcp_client(client):
                     await set_cm_mcp_headers(
                         client,

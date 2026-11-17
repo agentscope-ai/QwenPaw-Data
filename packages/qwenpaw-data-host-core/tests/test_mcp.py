@@ -460,9 +460,11 @@ class _FakeWorkspace:
         self.clients = [item for item in self.clients if item.name != name]
 
 
+@pytest.mark.parametrize("returns_client", [False, True])
 async def test_sync_probes_registered_gateway_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    returns_client: bool,
 ) -> None:
     monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_BACKEND", "fc-sandbox")
     monkeypatch.setenv("QWENPAW_DATA_CM_SANDBOX_BASE_URL", "http://sandbox-only.test")
@@ -474,18 +476,28 @@ async def test_sync_probes_registered_gateway_client(
     monkeypatch.setattr(gateway, "exec_request", gateway_request)
 
     class GatewayWorkspace(_FakeWorkspace):
-        async def add_mcp(self, client: MCPClient, **scope) -> None:
+        def __init__(self) -> None:
+            super().__init__()
+            self.list_calls = 0
+
+        async def list_mcps(self, **scope) -> list[MCPClient]:
+            self.list_calls += 1
+            return await super().list_mcps(**scope)
+
+        async def add_mcp(self, client: MCPClient, **scope) -> MCPClient | None:
             proxy = gateway.make_client(
                 client.model_dump(mode="json"),
                 connected=True,
                 **scope,
             )
             await super().add_mcp(proxy, **scope)
+            return proxy if returns_client else None
 
     repo = _repo(tmp_path)
     workspace = GatewayWorkspace()
     scope = {"agent_id": "agent", "session_id": "session"}
     await repo.sync(workspace, request_id="chat_1", mcp_headers={}, **scope)
+    assert workspace.list_calls == (1 if returns_client else 2)
     original = workspace.clients[0]
     assert original.mcp_config.url == "http://sandbox-only.test/mcp/v1/cm"
 
