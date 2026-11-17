@@ -19,6 +19,7 @@ from qwenpaw_data.host.core.api.models.artifact import (
 )
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.api.errors import map_domain_error, raise_api
+from qwenpaw_data.host.core.api.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.integrations.oss import get_oss_store
 from qwenpaw_data.host.core.tracing.records import artifact_chat_id, tracer_record_behavior
 from qwenpaw_data.host.core.paths import UserAgentPaths
@@ -177,7 +178,11 @@ async def get_oss_download_url(
             session_id=session.id,
         )
         file_path = resolve_session_file(paths.artifact_dir, body.path)
-        file_bytes = file_path.read_bytes()
+        try:
+            with open_resolved_workspace_file(paths.artifact_dir, file_path) as file:
+                file_bytes = file.read(settings.oss.max_bytes + 1)
+        except OSError:
+            raise_api("NOT_FOUND", "workspace file not found", status=404)
         if len(file_bytes) > settings.oss.max_bytes:
             raise ValueError(f"file exceeds {settings.oss.max_bytes} bytes")
         relative = file_path.relative_to(paths.artifact_dir.resolve()).as_posix()

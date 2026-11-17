@@ -75,6 +75,43 @@ def _compare(client: TestClient, session_id: str, payload: dict[str, Any]):
     )
 
 
+@pytest.mark.parametrize("endpoint", ["compare", "diff"])
+def test_comparison_rejects_directory_swapped_after_resolution(client, tmp_path, monkeypatch, endpoint):
+    from qwenpaw_data.host.core.api.routers import artifact_compare
+
+    session_id, folder = _new_session(client)
+    reports = folder / "reports"
+    reports.mkdir()
+    (reports / "reference.txt").write_text("inside")
+    (reports / "target.txt").write_text("inside")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "reference.txt").write_text("secret reference")
+    (outside / "target.txt").write_text("secret target")
+    original = artifact_compare.resolve_session_file
+    calls = 0
+
+    def swap_after_resolution(root, path):
+        nonlocal calls
+        checked = original(root, path)
+        calls += 1
+        if calls == 2:
+            reports.rename(folder / "original")
+            try:
+                reports.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                pytest.skip(f"directory symlinks unavailable: {exc}")
+        return checked
+
+    monkeypatch.setattr(artifact_compare, "resolve_session_file", swap_after_resolution)
+    response = client.post(
+        f"/api/sessions/{session_id}/files/{endpoint}",
+        json={"reference_path": "reports/reference.txt", "target_path": "reports/target.txt"},
+    )
+    assert response.status_code == 404
+    assert "secret" not in response.text
+
+
 def test_upload_rejects_linked_directory(client, tmp_path):
     session_id, folder = _new_session(client)
     outside = tmp_path / "outside-uploads"

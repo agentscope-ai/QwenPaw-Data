@@ -25,6 +25,7 @@ from qwenpaw_data.host.core.api.models.artifact_compare import (
     DiffFilesRequest,
 )
 from qwenpaw_data.host.core.api.routers.artifact import resolve_session_file
+from qwenpaw_data.host.core.api.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.settings import get_settings
@@ -36,36 +37,34 @@ router = APIRouter(prefix="/sessions/{session_id}/files", tags=["files"])
 _LOGGER = logging.getLogger("qwenpaw_data.artifact")
 
 
-def _read_compare_text(file_path: Path) -> str:
-    """Read one compared document as utf-8 text, mapping IO errors to HTTP."""
+def _read_raw_text(root: Path, file_path: Path) -> str:
+    """Read the validated file handle, mapping IO errors to HTTP."""
     try:
-        text = file_path.read_text(encoding="utf-8")
+        with open_resolved_workspace_file(root, file_path) as file:
+            return file.read().decode("utf-8")
     except UnicodeDecodeError:
         raise_api("VALIDATION", "compared file is not utf-8 text", status=400)
     except OSError:
         raise_api("NOT_FOUND", "workspace file not found", status=404)
+
+
+def _read_compare_text(root: Path, file_path: Path) -> str:
+    text = _read_raw_text(root, file_path)
     if file_path.suffix.lower() in {".html", ".htm"}:
         return html_to_markdown(text)
     return text
 
 
 def _compare_file_payload(
-    reference: Path, target: Path, tolerance: float
+    root: Path, reference: Path, target: Path, tolerance: float
 ) -> dict[str, object]:
     source_map = None
     if target.suffix.lower() in {".html", ".htm"}:
-        try:
-            target_text, source_map = html_comparison_text(
-                target.read_text(encoding="utf-8")
-            )
-        except UnicodeDecodeError:
-            raise_api("VALIDATION", "compared file is not utf-8 text", status=400)
-        except OSError:
-            raise_api("NOT_FOUND", "workspace file not found", status=404)
+        target_text, source_map = html_comparison_text(_read_raw_text(root, target))
     else:
-        target_text = _read_compare_text(target)
+        target_text = _read_compare_text(root, target)
     result = compare_documents(
-        _read_compare_text(reference), target_text, tolerance=tolerance
+        _read_compare_text(root, reference), target_text, tolerance=tolerance
     )
     payload = result.model_dump(mode="json")
     if source_map is not None:
@@ -118,7 +117,7 @@ async def compare_workspace_files(
     # Parsing large HTML and numeric alignment must not block file reads, auth,
     # or streaming requests on the API event loop.
     payload = await asyncio.to_thread(
-        _compare_file_payload, reference, target, body.tolerance
+        _compare_file_payload, paths.artifact_dir, reference, target, body.tolerance
     )
     payload["target_path"] = body.target_path
     payload["reference_path"] = body.reference_path
@@ -158,8 +157,8 @@ async def diff_workspace_files(
     target = resolve_session_file(paths.artifact_dir, body.target_path)
     reference = resolve_session_file(paths.artifact_dir, body.reference_path)
     result = compare_texts(
-        _read_compare_text(reference),
-        _read_compare_text(target),
+        _read_compare_text(paths.artifact_dir, reference),
+        _read_compare_text(paths.artifact_dir, target),
     )
     payload = result.model_dump(mode="json")
     payload["target_path"] = body.target_path

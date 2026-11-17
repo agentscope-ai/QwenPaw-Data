@@ -158,3 +158,41 @@ def test_share_api_fails_when_oss_not_configured(
         assert response.status_code == 400
         assert response.json()["code"] == "VALIDATION"
         assert "OSS" in response.json()["message"]
+
+
+def test_share_does_not_upload_file_swapped_after_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seed_test_preferences,
+) -> None:
+    from qwenpaw_data.host.core.api.routers import artifact
+
+    client, store = _prepare_share_app(tmp_path, monkeypatch, oss_configured=True)
+    assert store is not None
+    with client:
+        asyncio.run(seed_test_preferences(get_session_factory()))
+        session = client.post("/api/sessions", json={"title": "share"}).json()["session"]
+        paths = UserAgentPaths.from_identity(
+            home=tmp_path / "home",
+            identity=Identity(user_id=TEST_USER_ID, tenant_id=TEST_TENANT_ID, workspace_id=TEST_WORKSPACE_ID),
+            agent_id=session["agent_id"], session_id=session["id"],
+        )
+        directory = paths.artifact_dir / "reports"
+        directory.mkdir(parents=True)
+        (directory / "report.txt").write_text("inside")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "report.txt").write_text("outside")
+        original = artifact.resolve_session_file
+
+        def swap_after_resolution(root, path):
+            checked = original(root, path)
+            directory.rename(paths.artifact_dir / "original")
+            try:
+                directory.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                pytest.skip(f"directory symlinks unavailable: {exc}")
+            return checked
+
+        monkeypatch.setattr(artifact, "resolve_session_file", swap_after_resolution)
+        response = client.post(f"/api/sessions/{session['id']}/files/share", json={"path": "reports/report.txt"})
+        assert response.status_code == 404
+        assert store.put_calls == 0
