@@ -540,8 +540,9 @@ async def test_send_file_html_uploads_oss_link(
     assert data == b"<html>"
     # OSS key scoped by external session id + filename.
     assert oss_path.endswith("/report.html")
-    assert sent and sent[0].startswith("📄 [report.html](")
-    assert "https://example.invalid/" in sent[0]
+    assert sent == [
+        f"📄 [report.html](https://example.invalid/{oss_path}?expires=604800&name=report.html)"
+    ]
 
 
 @pytest.mark.asyncio
