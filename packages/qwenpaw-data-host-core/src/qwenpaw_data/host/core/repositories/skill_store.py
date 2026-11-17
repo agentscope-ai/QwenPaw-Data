@@ -99,8 +99,9 @@ class SkillStoreRepo:
     def list_skills(self) -> list[AgentSkillInfo]:
         if not self.skills_dir.is_dir():
             return []
+        packaged = {item.name: item for item in discover_builtin_skills()}
         return [
-            self._info(path.name)
+            self._info(path.name, packaged)
             for path in sorted(self.skills_dir.iterdir())
             if path.is_dir()
             and not path.name.startswith(".")
@@ -230,9 +231,11 @@ class SkillStoreRepo:
                 return item
         return None
 
-    def _info(self, name: str) -> AgentSkillInfo:
+    def _info(
+        self, name: str, packaged: dict[str, BuiltinSkill] | None = None
+    ) -> AgentSkillInfo:
         dest = self.skills_dir / name
-        builtin = self._builtin(name)
+        builtin = packaged.get(name) if packaged is not None else self._builtin(name)
         installed = builtin is not None and (dest / _BUILTIN_MARKER).is_file()
         description = ""
         try:

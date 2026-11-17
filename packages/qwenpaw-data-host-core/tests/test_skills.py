@@ -72,6 +72,28 @@ def test_discover_builtin_skills_are_flat_by_frontmatter_name() -> None:
     assert by_name["fetch-data"].group == "workflows"
 
 
+def test_listing_uses_one_builtin_snapshot_and_preserves_local_metadata(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    for name in ("alpha", "beta", "gamma"):
+        _write_skill(root / name, name, f"local {name}")
+    (root / "alpha" / ".qwenpaw-data-builtin").write_text("")
+    packaged = (BuiltinSkill(name="alpha", group="atomic", description="packaged", src_dir=tmp_path),)
+    calls = []
+
+    def discover():
+        calls.append(True)
+        return packaged
+
+    monkeypatch.setattr(skill_store_module, "discover_builtin_skills", discover)
+    result = SkillStoreRepo(root).list_skills()
+    assert len(calls) == 1
+    assert [(item.name, item.source, item.description) for item in result] == [
+        ("alpha", "builtin", "local alpha"),
+        ("beta", "custom", "local beta"),
+        ("gamma", "custom", "local gamma"),
+    ]
+
+
 def test_new_agent_copies_only_builtins_not_custom(tmp_path: Path) -> None:
     paths_a = _paths(tmp_path, agent_id="agent-a")
     store_a = SkillStoreRepo(paths_a.skills)
