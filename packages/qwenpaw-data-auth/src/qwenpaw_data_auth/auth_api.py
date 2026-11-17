@@ -16,7 +16,6 @@ POST /api/auth/exchange    — authorization code → cookie
 from __future__ import annotations
 
 import logging
-import re
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -71,7 +70,6 @@ login_fails_by_user: dict[str, list[float]] = defaultdict(list)
 RATE_WINDOW = 900  # 15 minutes
 MAX_IP_FAILS = 20
 MAX_USER_FAILS = 5
-_COOKIE_TOKEN = re.compile(r"[A-Za-z0-9_-]+\.[0-9a-f]{64}")
 
 
 def clear_login_failures(username: str, tenant_id: str | None = None) -> None:
@@ -123,7 +121,14 @@ def _check_rate_limit(ip: str, username: str) -> Optional[JSONResponse]:
 
 def _cookie_token(token: str) -> str:
     """Enforce the signed-token wire format before using it in a header."""
-    if not _COOKIE_TOKEN.fullmatch(token):
+    payload, separator, signature = token.partition(".")
+    if (
+        not separator
+        or not payload
+        or not all(c.isascii() and (c.isalnum() or c in "_-") for c in payload)
+        or len(signature) != 64
+        or not all(c in "0123456789abcdef" for c in signature)
+    ):
         raise ValueError("Invalid signed cookie token")
     return token
 
