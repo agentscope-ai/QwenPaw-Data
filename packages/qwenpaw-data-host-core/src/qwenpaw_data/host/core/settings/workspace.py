@@ -6,7 +6,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, StringConstraints, field_validator
+from pydantic import AliasChoices, Field, StringConstraints, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 WorkspaceBackend = Literal["local", "docker", "fc-sandbox", "acs-sandbox"]
@@ -100,16 +100,26 @@ class FcSandboxSettings(BaseSettings):
 
 
 class AcsSandboxSettings(BaseSettings):
-    """ACS Agent Sandbox over the native E2B protocol; resources are ACS-owned."""
+    """ACS Agent Sandbox via an E2B domain or explicit control/data URLs."""
 
     model_config = SettingsConfigDict(env_prefix="ACS_", extra="ignore")
 
     api_key: NonEmptyStr = Field(repr=False)
-    domain: NonEmptyStr
+    domain: Annotated[str, StringConstraints(strip_whitespace=True)] = ""
+    api_url: Annotated[str, StringConstraints(strip_whitespace=True)] = ""
+    sandbox_url: Annotated[str, StringConstraints(strip_whitespace=True)] = ""
     template: NonEmptyStr  # SandboxSet name
     oss_pv: NonEmptyStr
     credential_provider: NonEmptyStr
     agent_name: NonEmptyStr
+
+    @model_validator(mode="after")
+    def _require_connection(self) -> AcsSandboxSettings:
+        if bool(self.api_url) != bool(self.sandbox_url):
+            raise ValueError("ACS_API_URL and ACS_SANDBOX_URL must be configured together")
+        if not self.api_url and not self.domain:
+            raise ValueError("ACS_DOMAIN or both ACS_API_URL and ACS_SANDBOX_URL are required")
+        return self
 
 
 class WorkspaceSettings(BaseSettings):

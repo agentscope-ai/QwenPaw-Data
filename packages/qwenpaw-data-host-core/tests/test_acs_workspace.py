@@ -28,6 +28,8 @@ ACS_ENV = {
 
 @pytest.fixture
 def workspace(monkeypatch, tmp_path):
+    for key in ("ACS_API_URL", "ACS_SANDBOX_URL"):
+        monkeypatch.delenv(key, raising=False)
     for key, value in {
         **ACS_ENV,
         "QWENPAW_DATA_WORKSPACE_OSS_PREFIX": "test",
@@ -87,8 +89,52 @@ def test_sub_path_is_per_user(workspace):
 def test_requires_acs_config(workspace, monkeypatch, name):
     monkeypatch.delenv(name)
     clear_settings()
-    with pytest.raises(ValidationError, match=name.removeprefix("ACS_").lower()):
+    match = "ACS_DOMAIN" if name == "ACS_DOMAIN" else name.removeprefix("ACS_").lower()
+    with pytest.raises(ValidationError, match=match):
         AcsE2BWorkspace(paths=workspace.paths, workspace_id="invalid")
+
+
+@pytest.mark.parametrize("domain", ["", "sandbox.example.com"])
+@pytest.mark.parametrize("scheme", ["http", "https"])
+async def test_explicit_urls_route_both_sdk_planes(workspace, monkeypatch, domain, scheme):
+    from e2b.connection_config import ConnectionConfig
+
+    api_url = f"{scheme}://10.0.1.10:8080"
+    sandbox_url = f"{scheme}://10.0.1.11:7788"
+    monkeypatch.setenv("ACS_DOMAIN", domain)
+    monkeypatch.setenv("ACS_API_URL", f" {api_url} ")
+    monkeypatch.setenv("ACS_SANDBOX_URL", f" {sandbox_url} ")
+    monkeypatch.setenv("E2B_API_URL", "https://wrong-api.invalid")
+    monkeypatch.setenv("E2B_SANDBOX_URL", "https://wrong-gateway.invalid")
+    clear_settings()
+    configured = AcsE2BWorkspace(paths=workspace.paths, workspace_id="http-workspace")
+    sandbox = SimpleNamespace(sandbox_id="sandbox", is_running=AsyncMock(return_value=True))
+    create = AsyncMock(return_value=sandbox)
+    monkeypatch.setattr("e2b.AsyncSandbox.create", create)
+    await configured._provision_backend()
+    opts = configured._api_opts()
+    assert create.call_args.kwargs["api_url"] == api_url
+    assert create.call_args.kwargs["sandbox_url"] == sandbox_url
+    connection = ConnectionConfig(**opts)
+    assert connection.api_url == api_url
+    assert connection.get_sandbox_url("sandbox", "returned-domain.invalid") == sandbox_url
+    assert "api_url" not in workspace._api_opts()
+
+
+@pytest.mark.parametrize("changes", [
+    {"ACS_DOMAIN": " "},
+    {"ACS_API_URL": "http://10.0.1.10:8080"},
+    {"ACS_SANDBOX_URL": "http://10.0.1.11:7788"},
+])
+def test_incomplete_connection_config_fails_before_creation(workspace, monkeypatch, changes):
+    for key, value in changes.items():
+        monkeypatch.setenv(key, value)
+    clear_settings()
+    create = Mock()
+    monkeypatch.setattr("e2b.AsyncSandbox.create", create)
+    with pytest.raises(ValidationError):
+        AcsE2BWorkspace(paths=workspace.paths, workspace_id="invalid")
+    create.assert_not_called()
 
 
 @pytest.mark.parametrize(

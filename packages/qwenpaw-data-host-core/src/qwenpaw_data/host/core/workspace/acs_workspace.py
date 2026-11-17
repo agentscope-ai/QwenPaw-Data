@@ -1,4 +1,4 @@
-"""ACS Agent Sandbox workspace over the native E2B protocol.
+"""ACS Agent Sandbox workspace via an E2B domain or explicit endpoint URLs.
 
 The sandbox is claimed from a prewarmed SandboxSet; the user's OSS directory is
 mounted at claim time, and ACS's CredentialProvider scopes STS to that subPath.
@@ -34,3 +34,11 @@ class AcsE2BWorkspace(CloudE2BWorkspace):
                 "security.agents.kruise.io/agent-name": acs.agent_name,
             },
         )
+        self.api_url = acs.api_url
+        self.sandbox_url = acs.sandbox_url
+
+    def _api_opts(self) -> dict[str, str]:
+        opts = super()._api_opts()
+        if self.api_url:
+            opts.update(api_url=self.api_url, sandbox_url=self.sandbox_url)
+        return opts
