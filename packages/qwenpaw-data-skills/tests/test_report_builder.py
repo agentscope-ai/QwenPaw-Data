@@ -619,8 +619,9 @@ def test_content_lint_warns_on_process_markers() -> None:
 
 
 def test_inline_script_audit_accepts_html_end_tag_whitespace() -> None:
-    page = '<SCRIPT>const url = "https://example.invalid/a";</SCRIPT >'
-    assert builder.audit_external_resources(page) == []
+    for ending in ("</SCRIPT >", "</SCRIPT\t\n ignored>"):
+        page = '<SCRIPT>const url = "https://example.invalid/a";' + ending
+        assert builder.audit_external_resources(page) == []
 
 
 def _run_main(monkeypatch, sections: Path, out: Path, *extra: str) -> None:
