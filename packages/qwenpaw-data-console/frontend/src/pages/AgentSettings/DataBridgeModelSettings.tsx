@@ -1,9 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   Alert,
   Button,
   Form,
-  Input,
   InputNumber,
   Popconfirm,
   Progress,
@@ -14,6 +13,7 @@ import {
 import type { FormInstance } from 'antd';
 import type { ModelProvider } from '@/features/console/api/types';
 import { useAppI18n } from '@/i18n';
+import { embeddingModelOptions } from './embeddingModels';
 import type {
   ActiveModelFormValues,
   useDataBridgeModelSettings,
@@ -36,12 +36,14 @@ export default function DataBridgeModelSettings({ form, providers, settings, sav
     if (rebuild.job?.status === 'success') void refreshConfig(false);
   }, [rebuild.job?.job_id, rebuild.job?.status, refreshConfig]);
   const providerId = Form.useWatch('cm_provider_id', form);
+  const embeddingModelId = Form.useWatch('embedding_model_id', form);
   const configured = providers.filter((provider) => provider.configured);
   const providerOptions = configured.map((provider) => ({
     value: provider.id,
     label: provider.name,
   }));
   const models = configured.find((provider) => provider.id === providerId)?.models ?? [];
+  const embeddingModels = useMemo(() => embeddingModelOptions(embeddingModelId), [embeddingModelId]);
   const required = [{ required: true, message: t('agent.cm.required') }];
   const progress = rebuild.job?.progress;
   const space = settings.config?.embedding_space;
@@ -109,7 +111,7 @@ export default function DataBridgeModelSettings({ form, providers, settings, sav
             name="embedding_model_id"
             rules={[{ required: true, whitespace: true, message: t('agent.cm.required') }]}
           >
-            <Input />
+            <Select options={embeddingModels} />
           </Form.Item>
           <Form.Item
             label={t('agent.cm.dim')}

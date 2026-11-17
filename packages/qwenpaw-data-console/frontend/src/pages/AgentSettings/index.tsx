@@ -39,6 +39,7 @@ import {
 import { modelConfigApi } from '@/features/console/api/modelConfig';
 import { getHostAuthContext } from '@/services/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { DEFAULT_EMBEDDING_DIM } from './embeddingModels';
 import { getAgentSettingsReturnPath } from '@/shared/navigation/sessionNavigation';
 
 interface ProviderCardProps {
@@ -763,6 +764,8 @@ export default function AgentSettingsPage() {
                             if ('default_provider_id' in changed) {
                               activeForm.setFieldValue('default_model_id', undefined);
                             }
+                            if ('embedding_model_id' in changed)
+                              activeForm.setFieldValue('embedding_dim', DEFAULT_EMBEDDING_DIM);
                           }}
                         >
                           <div className={styles.sessionModelSettings}>

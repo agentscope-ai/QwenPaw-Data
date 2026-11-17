@@ -4,6 +4,7 @@ import { modelConfigApi } from '@/features/console/api/modelConfig';
 import type { ModelConfigResponse, TestResult } from '@/features/console/api/modelConfigTypes';
 import type { ModelProvider } from '@/features/console/api/types';
 import { getHostAuthContext, subscribeHostAuth } from '@/services/auth';
+import { DEFAULT_EMBEDDING_DIM, DEFAULT_EMBEDDING_MODEL } from './embeddingModels';
 
 export interface ActiveModelFormValues {
   default_provider_id: string; // Main agent Provider.
@@ -67,8 +68,8 @@ export function useDataBridgeModelSettings(
             cm_provider_id: value.llm.provider_id ?? undefined,
             cm_model_id: value.llm.model ?? undefined,
             embedding_provider_id: value.embedding.provider_id ?? undefined,
-            embedding_model_id: value.embedding.model,
-            embedding_dim: value.embedding.dim,
+            embedding_model_id: value.embedding.model || DEFAULT_EMBEDDING_MODEL,
+            embedding_dim: value.embedding.dim ?? DEFAULT_EMBEDDING_DIM,
           });
       } catch (cause) {
         if (!current.signal.aborted)
