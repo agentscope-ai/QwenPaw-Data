@@ -86,6 +86,8 @@ def test_smoke_timeout_stops_its_own_chat(setup, monkeypatch):
 @pytest.fixture
 def stack(monkeypatch, tmp_path, request):
     """Real Auth/SQLite; fake only the external provisioner and model/data services."""
+    if os.name == "nt":
+        pytest.skip("POSIX Bash orchestration is exercised on Linux and macOS")
     import uvicorn
     from qwenpaw_data_auth import auth_api
     from qwenpaw_data_auth.database import get_db, query_one
@@ -631,6 +633,7 @@ def test_bash_stops_at_failed_stage_and_removes_cookies(stack, failure, expected
         assert not stack.tasks
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX Bash orchestration runs on Linux and macOS")
 def test_bash_wait_has_timeout_without_replaying_write(tmp_path):
     script = """source "$1"
 cs_phase=test; cs_auth=http://unused; cs_sid=0
@@ -658,6 +661,7 @@ def test_datasource_connection_failure_stops_before_chat(stack):
     assert not list(stack.tmp.glob("qwenpaw-data-chat-setup.*"))
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX Bash orchestration runs on Linux and macOS")
 def test_deployment_requires_explicit_accounts_before_any_api_call(tmp_path):
     result = subprocess.run(
         [

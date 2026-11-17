@@ -22,6 +22,8 @@ def executable(path: Path, text: str) -> None:
 
 @pytest.fixture
 def stack(tmp_path):
+    if os.name == "nt":
+        pytest.skip("POSIX Bash launcher and process groups run on Linux and macOS")
     source = Path(__file__).resolve().parents[1]
     for name in (
         "scripts/start.sh",
@@ -296,6 +298,7 @@ def test_selected_service_detects_child_exit_and_cleans_up(stack):
 @pytest.mark.parametrize(
     "arguments", [["--service"], ["--service", "auth"], ["--service", "host", "extra"]]
 )
+@pytest.mark.skipif(os.name == "nt", reason="POSIX Bash launcher runs on Linux and macOS")
 def test_start_rejects_invalid_selection_before_environment_changes(
     tmp_path, arguments
 ):
