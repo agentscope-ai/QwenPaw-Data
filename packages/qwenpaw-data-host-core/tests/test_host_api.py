@@ -295,6 +295,15 @@ def test_workspace_file_access_preview_download_and_path_guard(
         assert download.status_code == 200
         assert download.headers["content-disposition"].startswith("attachment;")
 
+        partial = client.get(
+            f"/api/sessions/{session_id}/files/access",
+            params={"path": "analysis/result.csv", "purpose": "download"},
+            headers={"Range": "bytes=0-2"},
+        )
+        assert partial.status_code == 206
+        assert partial.content == b"day"
+        assert partial.headers["content-range"].startswith("bytes 0-2/")
+
         report = result_file.with_name("report.html")
         html = "<html><head></head><body>报告<script>echarts.init(dom)</script></body></html>"
         # Preserve original bytes, including BOM, CRLF and legacy encodings.

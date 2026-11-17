@@ -19,6 +19,7 @@ from qwenpaw_data.host.core.api.models.artifact import (
 )
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.api.errors import map_domain_error, raise_api
+from qwenpaw_data.host.core.api.pinned_file_response import PinnedFileResponse
 from qwenpaw_data.host.core.api.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.integrations.oss import get_oss_store
 from qwenpaw_data.host.core.tracing.records import artifact_chat_id, tracer_record_behavior
@@ -126,23 +127,6 @@ async def access_workspace_file(
     )
     media_type, _ = mimetypes.guess_type(file_path.name)
     relative_path = file_path.relative_to(paths.artifact_dir.resolve()).as_posix()
-    log_info(
-        request_id=session.id,
-        step=Step.ARTIFACT_PREVIEW if purpose == "preview" else Step.ARTIFACT_DOWNLOAD,
-        message="Artifact previewed" if purpose == "preview" else "Artifact downloaded",
-        context={
-            "user_id": identity.user_id,
-            "tenant_id": identity.tenant_id,
-            "workspace_id": identity.workspace_id,
-            "session_id": session.id,
-            "owner_user_id": session.identity.user_id,
-            "path": relative_path,
-            "name": file_path.name,
-            "purpose": purpose,
-            "bytes": file_path.stat().st_size,
-            "media_type": media_type or "application/octet-stream",
-        },
-    )
     headers = {}
     if media_type == "text/html":
         headers = {
@@ -151,13 +135,37 @@ async def access_workspace_file(
             "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff",
         }
-    return FileResponse(
-        path=file_path,
-        filename=file_path.name,
-        media_type=media_type or "application/octet-stream",
-        headers=headers,
-        content_disposition_type="inline" if purpose == "preview" else "attachment",
-    )
+    try:
+        file = open_resolved_workspace_file(paths.artifact_dir, file_path)
+    except OSError:
+        raise_api("NOT_FOUND", "workspace file not found", status=404)
+    try:
+        response = PinnedFileResponse(
+            file, path=str(file_path), filename=file_path.name,
+            media_type=media_type or "application/octet-stream", headers=headers,
+            content_disposition_type="inline" if purpose == "preview" else "attachment",
+        )
+        log_info(
+            request_id=session.id,
+            step=Step.ARTIFACT_PREVIEW if purpose == "preview" else Step.ARTIFACT_DOWNLOAD,
+            message="Artifact previewed" if purpose == "preview" else "Artifact downloaded",
+            context={
+                "user_id": identity.user_id,
+                "tenant_id": identity.tenant_id,
+                "workspace_id": identity.workspace_id,
+                "session_id": session.id,
+                "owner_user_id": session.identity.user_id,
+                "path": relative_path,
+                "name": file_path.name,
+                "purpose": purpose,
+                "bytes": response.stat_result.st_size,
+                "media_type": media_type or "application/octet-stream",
+            },
+        )
+        return response
+    except BaseException:
+        file.close()
+        raise
 
 
 @router.post("/files/share")
