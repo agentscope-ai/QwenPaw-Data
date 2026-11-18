@@ -30,6 +30,7 @@ from qwenpaw_data.host.core.workspace import (
 )
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from qwenpaw_data.tracing.export.score import flush_span_scores
 
 _CORS_ORIGINS_ENV = "QWENPAW_DATA_CORS_ALLOW_ORIGINS"
 
@@ -73,6 +74,7 @@ async def lifespan(app: FastAPI):
         cleanup.push_async_callback(cron_manager.shutdown)
         await cron_manager.start()
         cleanup.callback(tracer_shutdown)
+        cleanup.push_async_callback(flush_span_scores)
         tracer_install()
         tracer_score_flusher = TracerScoreFlusher(get_session_factory())
         cleanup.push_async_callback(tracer_score_flusher.shutdown)

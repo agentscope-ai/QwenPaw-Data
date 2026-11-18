@@ -385,45 +385,43 @@ def test_stop_and_real_errors_stay_error() -> None:
     assert "exception" in [event.name for event in failed.events]
 
 
-@pytest.mark.asyncio
-async def test_stamp_tool_state_keeps_terminal_values_only() -> None:
+def test_stamp_tool_state_keeps_terminal_values_only() -> None:
     provider = TracerProvider()
     tracer = provider.get_tracer("test")
     with tracer.start_as_current_span("execute_tool") as span:
-        await stamp_tool_state(SimpleNamespace(state="error"))
+        stamp_tool_state(SimpleNamespace(state="error"))
         assert span.attributes["langfuse.observation.metadata.tool_state"] == "error"
         assert span.attributes["langfuse.observation.level"] == "ERROR"
         assert span.status.status_code == StatusCode.ERROR
         assert span.status.description == "error"
-        await stamp_tool_state(SimpleNamespace(state="running"))
+        stamp_tool_state(SimpleNamespace(state="running"))
         assert span.attributes["langfuse.observation.metadata.tool_state"] == "error"
         assert span.status.status_code == StatusCode.ERROR
     with tracer.start_as_current_span("execute_tool") as span:
-        await stamp_tool_state(SimpleNamespace(state="success"))
+        stamp_tool_state(SimpleNamespace(state="success"))
         assert span.attributes["langfuse.observation.level"] == "DEFAULT"
         assert span.status.status_code == StatusCode.OK
     with tracer.start_as_current_span("execute_tool") as span:
-        await stamp_tool_state(SimpleNamespace(state="denied"))
+        stamp_tool_state(SimpleNamespace(state="denied"))
         assert span.status.status_code == StatusCode.ERROR
         assert span.status.description == "denied"
 
 
-@pytest.mark.asyncio
-async def test_stamp_tool_state_sends_tool_failed_score(
+def test_stamp_tool_state_sends_tool_failed_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from qwenpaw_data.host.core.agent.middleware import tracing as middleware
 
     sent: list[tuple[str, float, str]] = []
 
-    async def fake_send(name: str, value: float) -> None:
+    def fake_send(name: str, value: float) -> None:
         sent.append((state, name, value))
 
     monkeypatch.setattr(middleware, "tracer_send_span_score", fake_send)
     tracer = TracerProvider().get_tracer("test")
     for state in ("success", "error", "interrupted", "denied"):
         with tracer.start_as_current_span("execute_tool"):
-            await stamp_tool_state(SimpleNamespace(state=state))
+            stamp_tool_state(SimpleNamespace(state=state))
     assert sent == [
         ("success", "tool_failed", 0.0),
         ("error", "tool_failed", 1.0),
@@ -573,7 +571,7 @@ def _end_tool_span(state: str | None, *, overwrite_ok: bool):  # -> ReadableSpan
     tracer = provider.get_tracer("test")
     with tracer.start_as_current_span("execute_tool") as span:
         if state is not None:
-            asyncio.run(stamp_tool_state(SimpleNamespace(state=state)))
+            stamp_tool_state(SimpleNamespace(state=state))
         if overwrite_ok:
             # AgentScope closes every clean tool stream with set_status(OK),
             # and the OTEL SDK lets OK overwrite ERROR — never the reverse.

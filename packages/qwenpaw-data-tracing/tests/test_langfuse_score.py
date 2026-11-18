@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,7 @@ from qwenpaw_data.tracing.core.names import Score
 from qwenpaw_data.tracing.core.score import ScoreEvent
 from qwenpaw_data.tracing.export.score import (
     ScoreResult,
+    flush_span_scores,
     score_body,
     tracer_delete_score,
     tracer_send_score,
@@ -123,19 +125,66 @@ async def test_score_event_send_and_retract(monkeypatch: pytest.MonkeyPatch) -> 
     assert posted[0][1]["id"] == "stop:chat-1"
     assert deleted == ["https://lf.example/api/public/scores/stop:chat-1"]
 
-    await tracer_send_span_score(Score.TOOL_FAILED, 1.0)
+    tracer_send_span_score(Score.TOOL_FAILED, 1.0)
     assert len(posted) == 1
-    with TracerProvider().get_tracer("test").start_as_current_span("tool") as span:
-        await tracer_send_span_score(Score.TOOL_FAILED, 1.0)
-    span_id = format(span.get_span_context().span_id, "016x")
-    assert posted[1][1] == {
-        "id": f"tool_failed:{span_id}",
-        "traceId": format(span.get_span_context().trace_id, "032x"),
-        "observationId": span_id,
+    tracer = TracerProvider().get_tracer("test")
+    with tracer.start_as_current_span("tool") as first:
+        tracer_send_span_score(Score.TOOL_FAILED, 1.0)
+        with tracer.start_as_current_span("tool-b") as second:
+            tracer_send_span_score(Score.TOOL_FAILED, 0.0)
+        await flush_span_scores()
+    first_id = format(first.get_span_context().span_id, "016x")
+    second_id = format(second.get_span_context().span_id, "016x")
+    assert len(posted) == 2
+    assert posted[1][0] == "https://lf.example/api/public/ingestion"
+    events = posted[1][1]["batch"]
+    assert [event["type"] for event in events] == ["score-create", "score-create"]
+    assert events[0]["body"]["id"] == f"tool_failed:{first_id}"
+    assert events[1]["body"] == {
+        "id": f"tool_failed:{second_id}",
+        "traceId": format(second.get_span_context().trace_id, "032x"),
+        "observationId": second_id,
         "name": "tool_failed",
-        "value": 1.0,
+        "value": 0.0,
         "dataType": "NUMERIC",
     }
+
+
+@pytest.mark.asyncio
+async def test_span_batch_threshold_timer_and_shutdown(monkeypatch):
+    from qwenpaw_data.tracing.export import score
+
+    posted, started, release = [], asyncio.Event(), asyncio.Event()
+
+    async def send(client, url, auth, bodies):
+        posted.append([body["observationId"] for body in bodies])
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(score, "_score_destination", lambda: ("https://lf.example", ("pk", "sk")))
+    monkeypatch.setattr(score, "post_ingestion_scores", send)
+    monkeypatch.setattr(score, "_BATCH", 2)
+    monkeypatch.setattr(score, "_DELAY", 0.01)
+    tracer = TracerProvider().get_tracer("test")
+    def record():
+        with tracer.start_as_current_span("tool"):
+            tracer_send_span_score(Score.TOOL_FAILED, 1)
+
+    record()
+    record()
+    await asyncio.wait_for(started.wait(), 2)
+    record()  # arrives while the first request is still in flight
+    flush = asyncio.create_task(flush_span_scores())
+    await asyncio.sleep(0)
+    assert not flush.done()
+    release.set()
+    await flush
+    assert [len(batch) for batch in posted] == [2, 1]
+    started.clear()
+    record()
+    await asyncio.wait_for(started.wait(), 2)
+    await flush_span_scores()
+    assert len({span for batch in posted for span in batch}) == 4
 
 
 @pytest.mark.asyncio

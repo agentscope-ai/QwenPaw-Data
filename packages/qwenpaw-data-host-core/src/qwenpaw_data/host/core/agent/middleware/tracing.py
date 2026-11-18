@@ -29,7 +29,7 @@ _TOOL_STATES = frozenset({"success", "error", "interrupted", "denied"})
 _TOOL_FAILED_VALUES = {"success": 0.0, "error": 1.0, "interrupted": 1.0}
 
 
-async def stamp_tool_state(item: object) -> None:
+def stamp_tool_state(item: object) -> None:
     """Write the tool result state while the execute_tool span is still open."""
 
     state = getattr(item, "state", None)
@@ -46,7 +46,7 @@ async def stamp_tool_state(item: object) -> None:
     )
     value = _TOOL_FAILED_VALUES.get(text)
     if value is not None:
-        await tracer_send_span_score(Score.TOOL_FAILED, value)
+        tracer_send_span_score(Score.TOOL_FAILED, value)
 
 
 class TracingMiddleware(MiddlewareBase):
@@ -93,7 +93,7 @@ class TracingMiddleware(MiddlewareBase):
             if self._run_context is not None:
                 await _inject_cm_traceparent(self._run_context, self._cm_injected)
             async for item in next_handler(**kwargs):
-                await stamp_tool_state(item)
+                stamp_tool_state(item)
                 yield item
 
         acting = getattr(self._tracing, "on_acting", None)
