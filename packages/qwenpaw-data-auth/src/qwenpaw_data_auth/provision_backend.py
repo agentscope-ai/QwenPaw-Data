@@ -92,5 +92,7 @@ def queue_workspace_values(backend: str) -> dict[str, Any]:
     return {
         "instance_status": "queued",
         "status": "provisioning",
-        "instance_version": HOLO_BACKEND if backend == HOLO_BACKEND else None,
+        # Pin explicit requests, including Neo4j on a Holo-default worker.
+        # Older unmarked, unregistered rows still follow the worker default.
+        "instance_version": backend,
     }

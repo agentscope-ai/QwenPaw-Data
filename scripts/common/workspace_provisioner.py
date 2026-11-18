@@ -3,8 +3,8 @@
 
 The default worker script is selected by ``GRAPH_BACKEND``:
 ``neo4j`` starts a per-Workspace Docker container; ``holo_age`` provisioning is
-not included in the open-source distribution, so the worker fails with a clear
-error and the Workspace graph must be configured manually.
+not included in the open-source distribution. Operators can pass their own
+``--holo-script`` or configure the Workspace graph manually.
 
 Auth only writes queue state to the control-plane database. The control plane
 may be SQLite or Hologres (PostgreSQL wire protocol); both are reached through
@@ -28,7 +28,7 @@ CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 HOLO_AGE_UNAVAILABLE = (
     "Holo AGE workspace provisioning is not included in the open-source "
-    "distribution; configure the Workspace graph manually"
+    "distribution; supply --holo-script or configure the Workspace graph manually"
 )
 
 
@@ -81,15 +81,15 @@ def graph_backend() -> str:
     return backend
 
 
-def _default_provision_script(script_dir: Path) -> Path:
-    """按 GRAPH_BACKEND 选择默认开通脚本。
-
-    - neo4j（默认）：provision_workspace_neo4j.py（拉起独立容器）
-    - holo_age：开源版不含 Holo AGE 开通脚本，直接报错，需手动配置 Workspace 图
-    """
-    if graph_backend() == "holo_age":
+def _provision_script(
+    backend: str, script_dir: Path, override: Path | None, holo_script: Path | None
+) -> Path:
+    if backend == "holo_age":
+        script = holo_script or override
+        if script is not None:
+            return script
         raise RuntimeError(HOLO_AGE_UNAVAILABLE)
-    return script_dir / "provision_workspace_neo4j.py"
+    return override or script_dir / "provision_workspace_neo4j.py"
 
 
 def claim_next(dsn: str) -> dict[str, str] | None:
@@ -174,19 +174,17 @@ def process_one(
     if not workspace:
         return False
 
-    script = provision_script
-    if (
-        workspace.get("instance_version") or ""
-    ) == "holo_age" and holo_script is not None:
-        script = holo_script
-    elif (
-        provision_script is None
-        and workspace["endpoint_ref"]
-        and workspace["instance_version"] != "holo_age"
-    ):
-        script = Path(__file__).with_name("provision_workspace_neo4j.py")
+    version = workspace["instance_version"]
+    if version == "holo_age":
+        backend = "holo_age"
+    elif version == "neo4j" or workspace["endpoint_ref"]:
+        backend = "neo4j"
+    else:
+        backend = graph_backend()
     try:
-        script = script or _default_provision_script(Path(__file__).parent)
+        script = _provision_script(
+            backend, Path(__file__).parent, provision_script, holo_script
+        )
     except RuntimeError as exc:
         mark_failed(dsn, workspace, str(exc))
         print(
@@ -275,11 +273,14 @@ def main() -> int:
         return 0 if queued or args.initialize_all else 1
 
     backend = graph_backend()
-    if backend == "holo_age" and args.provision_script is None:
-        raise SystemExit(HOLO_AGE_UNAVAILABLE)
+    try:
+        default_script = _provision_script(
+            backend, script_dir, args.provision_script, args.holo_script
+        )
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
     print(
-        f"Workspace provisioner: GRAPH_BACKEND={backend} "
-        f"script={(args.provision_script or _default_provision_script(script_dir)).name}",
+        f"Workspace provisioner: GRAPH_BACKEND={backend} script={default_script.name}",
         flush=True,
     )
 

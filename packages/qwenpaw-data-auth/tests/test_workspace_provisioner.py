@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from qwenpaw_data_auth.database import get_db, init_schema, query_one
+from qwenpaw_data_auth.provision_backend import queue_workspace_values
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -142,13 +144,17 @@ def test_default_provision_script_follows_graph_backend(
     script_dir = REPO_ROOT / "scripts" / "common"
     monkeypatch.setenv("GRAPH_BACKEND", "neo4j")
     assert (
-        workspace_provisioner._default_provision_script(script_dir).name
+        workspace_provisioner._provision_script(
+            workspace_provisioner.graph_backend(), script_dir, None, None
+        ).name
         == "provision_workspace_neo4j.py"
     )
     monkeypatch.setenv("GRAPH_BACKEND", holo_backend)
     # The Holo AGE provisioning script is not part of the open-source tree.
     with pytest.raises(RuntimeError, match="not included"):
-        workspace_provisioner._default_provision_script(script_dir)
+        workspace_provisioner._provision_script(
+            workspace_provisioner.graph_backend(), script_dir, None, None
+        )
     monkeypatch.setenv("GRAPH_BACKEND", "mysql")
     with pytest.raises(ValueError, match="holo_age"):
         workspace_provisioner.graph_backend()
@@ -200,3 +206,54 @@ def test_failed_extra_workspace_does_not_demote_active_tenant(tmp_path: Path):
     assert tenant["status"] == "active"
     assert tenant["onboarding_state"] == "ready"
     assert tenant["onboarding_error"] is None
+
+
+def test_holo_override_runs_from_cli_without_hologres(tmp_path, monkeypatch, capsys):
+    # A real worker invocation and child process over SQLite; no Holo service.
+    dsn = queued_workspace(tmp_path)
+    stub = tmp_path / "external provisioner.py"
+    stub.write_text(
+        "import sys\nprint('external fixture', *sys.argv[1:])\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("GRAPH_BACKEND", "holo_age")
+    argv = ["worker", "--dsn", dsn, "--once"]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit, match="supply --holo-script"):
+        workspace_provisioner.main()
+    monkeypatch.setattr(sys, "argv", [*argv, "--holo-script", str(stub)])
+    assert workspace_provisioner.main() == 0
+    assert "external fixture --workspace-id ws-a" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "requested,default", [("neo4j", "holo_age"), ("holo_age", "neo4j")]
+)
+def test_mixed_queue_never_dispatches_other_backend(
+    tmp_path, monkeypatch, requested, default
+):
+    monkeypatch.setenv("GRAPH_BACKEND", default)
+    dsn = queued_workspace(tmp_path)
+    with get_db(dsn) as conn:
+        conn.execute(
+            "UPDATE workspaces SET instance_version = ? WHERE id = 'ws-a'",
+            (queue_workspace_values(requested)["instance_version"],),
+        )
+        conn.commit()
+    scripts = []
+
+    def run(command, **_kwargs):
+        scripts.append(Path(command[1]).name)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    assert workspace_provisioner.process_one(dsn, None, run)
+    if requested == "neo4j":
+        assert scripts == ["provision_workspace_neo4j.py"]
+    else:
+        assert not scripts
+        with get_db(dsn) as conn:
+            assert (
+                query_one(conn, "SELECT instance_status FROM workspaces")[
+                    "instance_status"
+                ]
+                == "failed"
+            )
