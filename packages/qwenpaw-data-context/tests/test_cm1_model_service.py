@@ -320,7 +320,7 @@ def test_repository_checks_active_tenant_ownership_and_never_crosses_users(share
         shared_models.models.save("llm", {"model": "update"})
 
 
-def test_legacy_fallback_only_exists_without_reference_and_is_retired_atomically(shared_models):
+def test_legacy_key_is_never_used_and_is_retired_on_explicit_binding(shared_models):
     models = shared_models.models
     with shared_models.engine.begin() as conn:
         conn.exec_driver_sql("ALTER TABLE cm_user_model_config ADD COLUMN llm_api_key_enc TEXT")
@@ -331,8 +331,10 @@ def test_legacy_fallback_only_exists_without_reference_and_is_retired_atomically
         models.resolve("llm")
     with shared_models.engine.begin() as conn:
         conn.execute(provider_refs.delete().where(provider_refs.c.channel == "llm"))
-    legacy = models.resolve("llm")
-    assert legacy.provider_id is None and legacy.api_key == "legacy-secret"
+    with pytest.raises(ModelConfigError, match="Host provider_id is required"):
+        models.resolve("llm")
+    with shared_models.engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT llm_api_key_enc FROM cm_user_model_config WHERE user_id = 'user'").scalar_one() is not None
     models.save("llm", {"provider_id": "embed", "model": "adopted"})
     with shared_models.engine.connect() as conn:
         assert conn.exec_driver_sql("SELECT llm_api_key_enc FROM cm_user_model_config WHERE user_id = 'user'").scalar_one() is None

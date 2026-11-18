@@ -22,12 +22,10 @@
 
 Runtime 按认证身份装配 ModelService，Repository 借用共享 CMDatabase 读取 SQL 配置和 Host Provider。
 CM 保存 Provider 引用、模型选择与维度，API Key 从该用户的 Host Provider 解析。
-仅当该通道完全没有 Provider 引用时，读取旧 `cm_user_model_config` 中仍存在的
-加密 Key；新库无需旧 Key 列。两种来源共用地址、解密和 Workspace 向量空间校验，
+没有 Provider 引用时配置视为未完成，不读取 `cm_user_model_config` 上遗留的加密 Key。
 配置状态与实际调用使用同一解析规则，失败原因通过 `errors` 按通道返回。
-已绑定但被删除或失效的 Provider 必须报错，不回退旧 Key。
-旧 Embedding 配置仍要求正整数维度；缺失时明确报错，不替换或推测维度。
-新保存及测连仍要求 Provider；保存时在同一事务清除该通道旧 Key。
+已绑定但被删除或失效的 Provider 必须报错。
+保存及测连要求 Provider；保存时在同一事务清除该通道遗留的旧 Key。
 Host 删除 Provider 保留 CM 引用，CM 删除配置则同时删除配置行和引用；没有单独解绑接口。
 
 - `read()` 返回掩码、可用状态和工作区匹配状态。
@@ -61,7 +59,6 @@ async with models.open() as (llm, embedder):
 `ModelService` 使用绑定的 tenant/workspace/user 和本次解析的 Provider 创建跟踪器。客户端在 SDK 返回响应后、业务结果校验前记录用量；来源上下文由协议和业务入口绑定。
 
 Runtime 装配一份记录器并管理启动和停止，向模型工厂传递 `enqueue` 回调。记录器通过独立的 `ModelUsageRepository` 借用共享 SQL 连接池，以独立事务写入 Host 管理的 `model_usages` 表。入队和持久化允许失败，计量失败不改变模型结果。
-旧 Key 配置的 `provider_id` 为 `null`；在切换到 Provider 前不生成要求 Provider 归属的用量事件。
 
 ## HTTP 配置
 

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal
 
-from sqlalchemy import and_, column, inspect, literal_column, select, table
+from sqlalchemy import and_, column, inspect, select, table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Connection
@@ -117,7 +117,7 @@ class ModelConfigRepository:
         *,
         selection: dict | None = None,
     ) -> dict | None:
-        """Read a Provider, or legacy credentials only when no channel ref exists."""
+        """Read the selected model and its user-owned Host Provider record."""
         prefix = "llm" if channel == "llm" else "embed"
         selected_provider = (
             provider_refs.c.provider_id
@@ -154,7 +154,6 @@ class ModelConfigRepository:
                 row = (
                     conn.execute(
                         select(
-                            provider_refs.c.channel.label("bound_channel"),
                             provider_refs.c.provider_id.label("selected_provider"),
                             model_configs.c[f"{prefix}_model"].label("model"),
                             model_configs.c.embed_dim,
@@ -172,33 +171,12 @@ class ModelConfigRepository:
                     .mappings()
                     .first()
                 )
-                if row is None:
-                    return None
-                result = dict(row)
-                result["legacy"] = selection is None and row["bound_channel"] is None
-                if result["legacy"]:
-                    # Read optional historical columns only for an unbound channel.
-                    # A wildcard tolerates new schemas that never had Key columns.
-                    legacy = (
-                        conn.execute(
-                            select(literal_column("*"))
-                            .select_from(model_configs)
-                            .where(
-                                model_configs.c.tenant_id == self.tenant_id,
-                                model_configs.c.user_id == self.user_id,
-                            )
-                        )
-                        .mappings()
-                        .first()
-                        or {}
-                    )
-                    result.update(
-                        base_url=legacy.get(f"{prefix}_base_url"),
-                        api_key_enc=legacy.get(f"{prefix}_api_key_enc"),
-                    )
-                return result
         except SQLAlchemyError as exc:
-            raise ModelConfigError("model configuration could not be loaded") from exc
+            raise ModelConfigError(
+                "Host model configuration could not be loaded"
+            ) from exc
+
+        return dict(row) if row is not None else None
 
     @contextmanager
     def transaction(self) -> Iterator[Connection]:

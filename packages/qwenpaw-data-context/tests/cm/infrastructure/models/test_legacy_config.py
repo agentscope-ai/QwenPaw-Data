@@ -1,7 +1,6 @@
-"""Keep historical credentials usable without reviving revoked Provider keys."""
+"""Historical key columns stay unused once resolution requires a Host Provider."""
 
 import pytest
-from context_manager.api.native.config.views import ModelConfigResponse
 from context_manager.model import ModelConfigError, ModelConfigRepository, ModelService
 from sqlalchemy import text
 
@@ -36,93 +35,84 @@ def legacy(tmp_path, monkeypatch):
     engine.dispose()
 
 
-@pytest.mark.parametrize("bound", [None, "llm", "embedding"])
-async def test_legacy_status_and_clients_share_channel_resolution(legacy, bound):
+def test_unbound_legacy_keys_are_not_configuration(legacy):
     models, _, _, _ = legacy
-    if bound:
-        models.save(bound, {"provider_id": "chat", "model": "provider-model"})
-    status = ModelConfigResponse.model_validate(models.read())
-    assert status.configured and status.key_status == "ok" and models.ready
-    async with models.open() as clients:
-        for channel, client in zip(("llm", "embedding"), clients):
-            public = getattr(status, channel)
-            assert public.provider_id == ("chat" if channel == bound else None)
-            assert client.options["api_key"] == (
-                "user-1-chat-key" if channel == bound else "old-key"
-            )
-            assert client.options["model"] == public.model
-            assert client.options["base_url"] == public.base_url
-        assert clients[1].options["dimensions"] == 3
+    status = models.read()
+    assert not status["configured"]
+    assert status["missing_fields"] == ["llm.provider_id", "embedding.provider_id"]
+    for channel in ("llm", "embedding"):
+        assert "provider_id" in status["errors"][channel]
+        with pytest.raises(ModelConfigError, match="provider_id"):
+            models.resolve(channel)
+
+
+async def test_bound_channel_uses_provider_key_only(legacy):
+    models, _, _, _ = legacy
+    models.save("llm", {"provider_id": "chat", "model": "provider-model"})
+    models.save("embedding", {"provider_id": "chat", "model": "provider-embed"})
+    status = models.read()
+    assert status["configured"] and status["key_status"] == "ok" and models.ready
+    async with models.open() as (llm, embedder):
+        assert llm.options["api_key"] == "user-1-chat-key"
+        assert embedder.options["api_key"] == "user-1-chat-key"
+        assert llm.options["model"] == "provider-model"
+        assert embedder.options["dimensions"] == 3
 
 
 @pytest.mark.parametrize(
-    "bound,key,error",
+    "key,error",
     [
-        (False, None, "missing"),
-        (False, "broken", "decrypted"),
-        (True, None, "configure this Provider"),
-        (True, "broken", "decrypted"),
+        (None, "configure this Provider"),
+        ("broken", "decrypted"),
     ],
 )
-def test_invalid_credentials_never_fall_back(legacy, bound, key, error):
+def test_invalid_provider_credentials_do_not_use_legacy_keys(legacy, key, error):
     models, engine, providers, _ = legacy
     with engine.begin() as conn:
-        if bound:
-            conn.exec_driver_sql(
-                "INSERT INTO cm_model_provider_refs VALUES ('tenant-1','user-1','llm','chat')"
+        conn.exec_driver_sql(
+            "INSERT INTO cm_model_provider_refs VALUES ('tenant-1','user-1','llm','chat')"
+        )
+        query = (
+            providers.delete()
+            if key is None
+            else providers.update().values(api_key_enc=key)
+        )
+        conn.execute(
+            query.where(
+                providers.c.user_id == "user-1", providers.c.provider_id == "chat"
             )
-            query = (
-                providers.delete()
-                if key is None
-                else providers.update().values(api_key_enc=key)
-            )
-            conn.execute(
-                query.where(
-                    providers.c.user_id == "user-1", providers.c.provider_id == "chat"
-                )
-            )
-        else:
-            conn.execute(
-                text("UPDATE cm_user_model_config SET llm_api_key_enc=:key"),
-                {"key": key},
-            )
+        )
     assert not models.read()["configured"]
     assert error in models.read()["errors"]["llm"]
     with pytest.raises(ModelConfigError, match=error):
         models.resolve_for_use("llm")
 
 
-def test_provider_adoption_and_config_deletion_retire_legacy_keys(legacy):
+def test_provider_adoption_retires_legacy_keys(legacy):
     models, engine, _, _ = legacy
     with pytest.raises(ModelConfigError, match="provider_id"):
         models.save("llm", {"model": "edited-old"})
     models.save("llm", {"provider_id": "chat", "model": "new"})
-    # Even removing the reference externally must not revive a retired key.
     with engine.begin() as conn:
+        stored = conn.execute(
+            text("SELECT llm_api_key_enc FROM cm_user_model_config")
+        ).scalar()
         conn.exec_driver_sql("DELETE FROM cm_model_provider_refs WHERE channel='llm'")
-    with pytest.raises(ModelConfigError, match="missing"):
+    assert stored is None
+    with pytest.raises(ModelConfigError, match="provider_id"):
         models.resolve("llm")
-    assert models.resolve("embedding").api_key == "old-key"
+    with pytest.raises(ModelConfigError, match="provider_id"):
+        models.resolve("embedding")
     models.delete()
     assert not models.read()["configured"]
     with pytest.raises(ModelConfigError, match="model is required"):
         models.resolve("embedding")
 
 
-def test_legacy_embedding_requires_its_saved_dimension(legacy):
-    models, engine, _, _ = legacy
-    with engine.begin() as conn:
-        conn.exec_driver_sql("UPDATE cm_user_model_config SET embed_dim=NULL")
-    assert not models.read()["configured"] and not models.ready
-    with pytest.raises(ModelConfigError, match="dimension is required"):
-        models.resolve_for_use("embedding")
-
-
 @pytest.mark.parametrize("channel", ["llm", "embedding"])
-@pytest.mark.parametrize("bound", [False, True])
 @pytest.mark.parametrize("invalid", ["bad-port", "large-port", "model-spaces"])
-async def test_status_and_real_clients_reject_invalid_options(
-    legacy, channel, bound, invalid
+async def test_status_and_real_clients_reject_invalid_provider_options(
+    legacy, channel, invalid
 ):
     models, engine, providers, _ = legacy
     prefix = "llm" if channel == "llm" else "embed"
@@ -132,30 +122,24 @@ async def test_status_and_real_clients_reject_invalid_options(
         else "https://old.example:65536/v1"
     )
     with engine.begin() as conn:
-        if bound:
-            conn.execute(
-                text(
-                    "INSERT INTO cm_model_provider_refs VALUES ('tenant-1','user-1',:channel,'chat')"
-                ),
-                {"channel": channel},
-            )
+        conn.execute(
+            text(
+                "INSERT INTO cm_model_provider_refs VALUES ('tenant-1','user-1',:channel,'chat')"
+            ),
+            {"channel": channel},
+        )
         if invalid == "model-spaces":
             conn.execute(
                 text(f"UPDATE cm_user_model_config SET {prefix}_model=:model"),
                 {"model": " old-model "},
             )
-        elif bound:
+        else:
             conn.execute(
                 providers.update()
                 .where(
                     providers.c.user_id == "user-1", providers.c.provider_id == "chat"
                 )
                 .values(base_url=endpoint)
-            )
-        else:
-            conn.execute(
-                text(f"UPDATE cm_user_model_config SET {prefix}_base_url=:url"),
-                {"url": endpoint},
             )
     real = ModelService(models.repository)
     status = real.read()

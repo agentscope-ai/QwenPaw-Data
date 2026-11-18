@@ -164,7 +164,7 @@ class ModelService:
         *,
         selection: dict | None = None,
     ) -> ResolvedModel:
-        """Resolve saved credentials; candidate writes always require a Provider."""
+        """Resolve an explicit request binding or the user-selected Host Provider."""
         if channel not in {"llm", "embedding"}:
             raise ValueError("unknown model channel")
         # Request credentials apply only to LLM usage, never candidates or embeddings.
@@ -193,17 +193,13 @@ class ModelService:
             raise ModelConfigError("model is required")
         if model != model.strip():
             raise ModelConfigError("model must be trimmed")
-        legacy = row["legacy"]
-        source = "Legacy CM" if legacy else "Host Provider"
-        if not legacy and (not isinstance(provider_id, str) or not provider_id.strip()):
+        if not isinstance(provider_id, str) or not provider_id.strip():
             raise ModelConfigError("Host provider_id is required")
-        if not legacy and row["provider_id"] is None:
+        if row["provider_id"] is None:
             raise ModelConfigError(
                 "configure this Provider in Host before selecting it"
             )
         dim = selected.get("dim") if channel == "embedding" else None
-        if legacy and channel == "embedding" and dim is None:
-            raise ModelConfigError("legacy embedding dimension is required")
         if dim is not None and (
             isinstance(dim, bool) or not isinstance(dim, int) or dim <= 0
         ):
@@ -215,7 +211,7 @@ class ModelService:
             urlparse(base_url)
             parsed = URL(base_url)
         except (InvalidURL, ValueError):
-            raise ModelConfigError(f"{source} endpoint is invalid") from None
+            raise ModelConfigError("Host Provider endpoint is invalid") from None
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.host
@@ -223,16 +219,16 @@ class ModelService:
             or (parsed.port is not None and not 1 <= parsed.port <= 65535)
         ):
             raise ModelConfigError(
-                f"{source} endpoint must be an absolute HTTP(S) URL without credentials and with a valid port"
+                "Host Provider endpoint must be an absolute HTTP(S) URL without credentials and with a valid port"
             )
         encrypted_key = row["api_key_enc"]
         if not encrypted_key:
-            raise ModelConfigError(f"{source} credential is missing")
+            raise ModelConfigError("Host Provider credential is missing")
         return ResolvedModel(
-            None if legacy else provider_id,
+            provider_id,
             model,
             base_url,
-            self._decrypt(str(encrypted_key), source=source),
+            self._decrypt(str(encrypted_key)),
             dim,
         )
 
@@ -257,7 +253,9 @@ class ModelService:
         for channel, selection in selections.items():
             result[channel] = {**selection, "api_key": ""}
             missing = [
-                f"{channel}.{name}" for name in ("model",) if not selection[name]
+                f"{channel}.{name}"
+                for name in ("model", "provider_id")
+                if not selection[name]
             ]
             result["missing_fields"].extend(missing)
             try:
@@ -387,7 +385,7 @@ class ModelService:
         return result
 
     @staticmethod
-    def _decrypt(value: str, *, source: str = "Host Provider") -> str:
+    def _decrypt(value: str) -> str:
         """Decode shared ENC/Fernet using the installation's persisted master key."""
         try:
             key = base64.urlsafe_b64encode(get_settings().model.master_key())
@@ -402,5 +400,5 @@ class ModelService:
             return result
         except (ValueError, InvalidToken, UnicodeError):
             raise ModelConfigError(
-                f"{source} credential could not be decrypted"
+                "Host Provider credential could not be decrypted"
             ) from None
