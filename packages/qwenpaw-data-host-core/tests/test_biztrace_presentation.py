@@ -59,6 +59,13 @@ def _tool_result(name: str, output: Any, **fields: Any) -> BizEvent:
     )
 
 
+async def test_delegation_cards_name_native_and_legacy_roles() -> None:
+    builder = PresentationBuilder(lang="en")
+    for field, role in (("type", "report"), ("role", "data_fetcher")):
+        card = await builder.build(_tool_use("spawn_subagent", {field: role}))
+        assert card.caption == f'Spawn the "{role}" sub-agent'
+
+
 async def test_reply_cards_keep_raw_text_and_skip_the_model() -> None:
     llm = FakeLLM({"presentation_body": {"body": "这是摘要"}})
     builder = PresentationBuilder(llm=llm)

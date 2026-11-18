@@ -591,7 +591,7 @@ class PresentationBuilder:
         return Presentation(card_type="tool", caption=self.words[tool], body=body)
 
     async def _subagent_card(self, event: BizEvent) -> Presentation:
-        role = first_str(event.input, ("role", "name", "agent_name"))
+        role = first_str(event.input, ("type", "role", "name", "agent_name"))
         payload = compact(event.input)
         body = await self._summarize("spawn_subagent", payload) or truncate(
             payload, DESCRIPTION_CHAR_CAP
