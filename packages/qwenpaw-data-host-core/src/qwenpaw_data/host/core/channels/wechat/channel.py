@@ -18,7 +18,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from pathlib import Path
+from pathlib import PurePath
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from qwenpaw_data.host.core.channels.base import (
@@ -717,44 +717,15 @@ class WeChatChannel(BaseChannel):
     # ---- artifact delivery ----
 
     async def send_image(self, native: NativePayload, path: str) -> None:
-        await self._send_media(native, path, "image")
+        await self.send_file(native, path)
 
     async def send_file(self, native: NativePayload, path: str) -> None:
-        await self._send_media(native, path, "file")
-
-    async def _send_media(self, native: NativePayload, path: str, kind: str) -> None:
-        """Upload file to WeChat server, which will then send it to user."""
-        if not self._client:
-            logger.warning(
-                f"wechat send_media, no client, {kind}, {path}, channel:{native.channel_id}, sender:{native.sender_id}"
-            )
-            return
-        to_user_id, context_token = self._resolve_send_target(native)
-        if not to_user_id or not context_token:
-            logger.warning("wechat _send_media: no to_user_id/context_token")
-            return
-        p = Path(path)
-        if not p.is_file():
-            logger.warning("wechat _send_media: file not found: %s", path)
-            return
-        try:
-            if kind == "image":
-                logger.info(
-                    f"wechat _send_media, {kind}, {path}, channel:{native.channel_id}, sender:{native.sender_id}"
-                )
-                await self._client.send_image(to_user_id, str(p), context_token)
-            else:
-                logger.info(
-                    f"wechat _send_media, {kind}, {path}, channel:{native.channel_id}, sender:{native.sender_id}"
-                )
-                await self._client.send_file(to_user_id, str(p), p.name, context_token)
-        except Exception:
-            logger.exception("wechat _send_media failed kind=%s path=%s", kind, path)
-            await self.send(
-                native,
-                f"⚠️ Failed to send file:{p.name}",
-                f"_send_media, kind:{kind}, path:{path}",
-            )
+        # iLink native uploads require ECB. Keep the artifact in its session.
+        name = " ".join(PurePath(path).name.splitlines())
+        await self.send(
+            native,
+            f"微信不发送原生附件。请打开 QwenPaw Data Console，在对应会话的「会话产物」中查看：{name}",
+        )
 
     async def send_clarification_card(
         self, native: NativePayload, questions: ClarificationQuestionGroup

@@ -12,6 +12,11 @@ This package owns the QwenPaw Data host service and its Python client:
 
 Concrete host packages such as `qwenpaw-data-cli` should depend on this package instead of duplicating host orchestration logic.
 
+When a WeChat conversation produces an image or file, the bot sends its name
+as text. Open that conversation in QwenPaw Data Console and select **Session
+artifacts** (会话产物) to view it. The bot does not upload a copy to WeChat or
+create a public download link.
+
 ## Headless service (optional `[service]` extra)
 
 The engine can run as a headless service that any frontend (PawApp, CLI,
