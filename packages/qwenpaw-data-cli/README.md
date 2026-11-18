@@ -160,6 +160,18 @@ use the matching older release on a backup. Do not rename the old database or
 point the new Host at it: old owner IDs and credentials need an explicit
 conversion. The JSON workflow below is not a SQLite importer.
 
+### Requirements for a future SQLite importer
+
+Only discovery is implemented for the `oss-host-sqlite-v0.3` layout. New layouts
+get their own ID; do not change the meaning of an existing one. Before shipping
+a conversion for any layout, the [OSS adapter decision](../../docs/adr/0001-internal-baseline-and-oss-adapters.md)
+requires this sequence:
+
+1. Stop source and target writers. Verify recoverable backups and retain any externally supplied encryption keys separately.
+2. Dry-run against a copy. Bind the plan to the source, target and layout ID; show the mapping from old owners to users, tenants and workspaces, and report unreadable credentials or unmapped records. Do not print secrets.
+3. Require explicit approval of that plan. Import into the specified target without rewriting the source or running historical cron jobs. Track progress so a restart cannot duplicate records.
+4. Verify through the new Host after restart: read sessions and files as the intended owner, check masked model settings and confirm job state. Demonstrate recovery or rollback on a copy before offering the importer. A target file's existence is not a migration receipt.
+
 ## Legacy JSON migration
 
 `migration inspect`, `backup`, `plan`, `provision-key`, `prepare`, `apply`,

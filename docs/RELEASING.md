@@ -66,6 +66,33 @@ hook rejects missing assets; CI installs the wheels and verifies the packaged
 portal without using frontend source directories. Configure the new
 `pypi-console` environment and its Trusted Publisher before its first release.
 
+## Updating the internal baseline
+
+Use this checklist for an internal → OSS update before the normal release gates above.
+The [adapter decision](adr/0001-internal-baseline-and-oss-adapters.md) defines which
+behavior belongs in each edition.
+
+1. **Pin the comparison.** Record the previous and proposed internal revisions and the OSS starting commit in the review. Inventory changes to public behavior, dependencies and stored data, not just the latest commits. Transfer only code cleared for public release; do not mirror private history.
+2. **Update the shared implementation first.** Keep upstream fixes in the package that owns the behavior. Reapply only the OSS differences needed at its boundaries. If a new interface changes who may act, who owns a record, or how old data is read, stop and review the change rather than masking it in the adapter.
+3. **Verify each boundary in an isolated installation.** Use disposable identities, credentials and databases. Record the observable results:
+   - Open the built UI through the local OSS gateway and, separately, against a multi-user deployment. Check account actions are absent only in local mode; settings, settlement and cron remain reachable. On a writable local Host, save a fixture model credential and check after restart that it is configured and masked.
+   - Confirm a fixture settlement and read it back through DataBridge. Repeat to check deduplication. Test that a remote destination receives no local fallback credential and that denied multi-user delegation remains denied.
+   - Exercise a fresh home, an old SQLite candidate alone, and both databases together. Discovery must identify the old path without writing it; if both default paths refer to the same file, local Host startup must stop before initializing it.
+4. **Record the release evidence.** In the review, identify the upstream revisions, OSS adaptations, intentional exclusions, checks run and any unverified backends. A fixture or component test is not a live-provider or browser result. Run the normal package and CI gates before tagging.
+
+These targeted checks can be run from the repository root; they supplement the
+installed-package and end-to-end checks above:
+
+```sh
+bash scripts/tests/run_pytest.sh \
+  packages/qwenpaw-data-console/tests/test_console_portal.py \
+  packages/qwenpaw-data-host-core/tests/test_settlement_retrieval.py::test_settlement_confirm_uses_only_destination_scoped_credentials \
+  packages/qwenpaw-data-context/tests/cm/metadata/test_http_feedback.py \
+  packages/qwenpaw-data-cli/tests/test_migration.py::test_discover_reports_old_sqlite_even_with_a_new_store \
+  packages/qwenpaw-data-host-core/tests/test_startup_compatibility.py::test_default_database_cannot_alias_legacy_store
+npm --prefix packages/qwenpaw-data-console/frontend test
+```
+
 ## Public-history boundary
 
 An internal development repository may contain private author domains or

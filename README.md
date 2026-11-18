@@ -477,6 +477,7 @@ Operational and release references:
 
 - [Resource governance](./docs/RESOURCE_GOVERNANCE.md)
 - [Compatibility policy](./docs/COMPATIBILITY.md)
+- [Internal baseline and OSS adapter decision](./docs/adr/0001-internal-baseline-and-oss-adapters.md)
 - [Release process and public-history boundary](./docs/RELEASING.md)
 - [Security policy](./SECURITY.md)
 - [Support and version policy](./SUPPORT.md)

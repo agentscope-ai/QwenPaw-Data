@@ -436,6 +436,7 @@ printf %s 'your-long-random-token' | shasum -a 256
 
 - [资源治理](./docs/RESOURCE_GOVERNANCE.md)
 - [兼容性策略](./docs/COMPATIBILITY.md)
+- [架构决策：internal 基线与 OSS 薄适配层](./docs/adr/0001-internal-baseline-and-oss-adapters.md)
 - [发布流程与公开历史边界](./docs/RELEASING.md)
 - [安全策略](./SECURITY.md)
 - [支持渠道与版本策略](./SUPPORT.md)
