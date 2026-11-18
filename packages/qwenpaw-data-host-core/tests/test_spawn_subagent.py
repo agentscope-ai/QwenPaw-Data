@@ -31,6 +31,7 @@ from qwenpaw_data.host.core.agent.spawn_subagent import (
     _build_sub_prompt,
 )
 from qwenpaw_data.host.core.runtime.context import RunContext
+from qwenpaw_data.host.core.agent.subagent_result import SubmitResult
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from .conftest import TEST_IDENTITY
 
@@ -191,6 +192,110 @@ def _make_tool(
     )
 
 
+def _role_dir(tmp_path):
+    paths = UserAgentPaths.from_identity(
+        home=tmp_path,
+        identity=TEST_IDENTITY,
+        agent_id="test-agent",
+        session_id="s1",
+    )
+    directory = paths.workspace / "agents" / paths.agent_id
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+async def test_handoff_is_single_use_and_requires_session_relative_artifact_names():
+    submit = SubmitResult()
+    with pytest.raises(ValueError, match="session-relative"):
+        await submit.call(summary="ok", artifacts=[{"path": "/report.html"}])
+    assert submit.delivery is None
+    await submit.call(summary="ok", artifacts=[{"path": "daily/report.html"}])
+    assert submit.delivery.artifacts[0].path == "daily/report.html"
+    with pytest.raises(ValueError, match="already submitted"):
+        await submit.call(summary="another")
+
+
+def test_workspace_roles_are_per_agent_and_cannot_override_presets(tmp_path):
+    directory = _role_dir(tmp_path)
+    isolated = directory.parent / "other"
+    isolated.mkdir()
+    (isolated / "not-mine.md").write_text("---\ndescription: Other agent\n---\n")
+    (directory / "local.md").write_text(
+        "---\ndescription: Local role\ntools: []\n---\n"
+    )
+    tool = _make_tool(tmp_path)
+    assert set(tool.input_schema["properties"]["type"]["enum"]) == {
+        "general",
+        "report",
+        "data_fetcher",
+        "local",
+    }
+    assert "local: Local role" in tool.description
+    (directory / "duplicate.md").write_text(
+        "---\nname: report\ndescription: Other\n---\n"
+    )
+    with pytest.raises(ValueError, match="duplicate subagent role: report"):
+        _make_tool(tmp_path)
+
+
+@pytest.mark.parametrize("selector", ["tools: Read", "mcp: null", "tool: []"])
+def test_workspace_roles_reject_invalid_selectors(tmp_path, selector):
+    (_role_dir(tmp_path) / "bad.md").write_text(
+        f"---\ndescription: Bad\n{selector}\n---\n"
+    )
+    with pytest.raises(ValueError, match="invalid subagent role"):
+        _make_tool(tmp_path)
+
+
+@pytest.mark.parametrize("role", ["general", "report", "scoped"])
+async def test_role_toolkit_and_missing_handoff(monkeypatch, tmp_path, role):
+    (_role_dir(tmp_path) / "scoped.md").write_text(
+        "---\ndescription: Scoped\ntools: [Read]\nskills: []\nmcp: [context-manager]\n---\n"
+        "Scoped test instructions."
+    )
+    tool = _make_tool(tmp_path)
+    tool._workspace_tools.extend(FakeWorkspaceTool(n) for n in ("Edit", "Glob", "Grep"))
+    monkeypatch.setattr(spawn_module, "_SubAgent", FakeSubAgent)
+    monkeypatch.setattr(FakeSubAgent, "events", [])
+    monkeypatch.setattr(FakeSubAgent, "instances", [])
+    chunks = await _collect(
+        tool, type=role, description="Scoped task", prompt="Summarize"
+    )
+    assert chunks[-1].state == ToolResultState.ERROR
+    assert json.loads(_chunk_text(chunks[-1]))["status"] == "error"
+    kwargs = FakeSubAgent.instances[0].kwargs
+    assert kwargs["state"].permission_context.mode == PermissionMode.ACCEPT_EDITS
+    assert isinstance(
+        kwargs["middlewares"][0], spawn_module._UnattendedToolConfirmation
+    )
+    toolkit = kwargs["toolkit"]
+    names = {s["function"]["name"] for s in await toolkit.get_tool_schemas()}
+    assert {"submit_result", "Read"} <= names
+    assert "spawn_subagent" not in names and "ask_user_question" not in names
+    assert ("download_file" in names) == (role == "general")
+    assert ("mcp__context-manager__execute_sql" in names) == (role != "report")
+    skills = {s.name for group in toolkit.tool_groups for s in group.skills_or_loaders}
+    assert (
+        skills
+        == {
+            "general": {"fetch-data", "bi-report-generation"},
+            "report": {"bi-report-generation"},
+            "scoped": set(),
+        }[role]
+    )
+
+
+async def test_requested_missing_capability_does_not_fall_back(tmp_path):
+    (_role_dir(tmp_path) / "scoped.md").write_text(
+        "---\ndescription: Scoped\nskills: [not-enabled]\n---\nUse the skill."
+    )
+    chunks = await _collect(
+        _make_tool(tmp_path), type="scoped", description="Check", prompt="Check"
+    )
+    assert chunks[-1].state == ToolResultState.ERROR
+    assert "unavailable skills: not-enabled" in _chunk_text(chunks[-1])
+
+
 def test_build_sub_prompt_includes_context_and_environment(tmp_path) -> None:
     prompt = _build_sub_prompt(
         "查询数据",
@@ -347,9 +452,14 @@ async def test_role_injection_allowlists_tools_and_fetch_skill(
     assert isinstance(sql_middleware, SqlArtifactMiddleware)
     assert sql_middleware._run_context.session_id == "s1"
     assert sql_middleware._run_context.paths.agent_id == "test-agent"
-    assert Path(sql_middleware._run_context.paths.agent_artifact_dir(
-        sql_middleware._run_context.workspace
-    )) == tmp_path / "workspace/artifacts/s1"
+    assert (
+        Path(
+            sql_middleware._run_context.paths.agent_artifact_dir(
+                sql_middleware._run_context.workspace
+            )
+        )
+        == tmp_path / "workspace/artifacts/s1"
+    )
     assert kwargs["react_config"].interruption_raise_cancelled_error is True
     assert kwargs["react_config"].max_iters == 19
 
@@ -522,8 +632,9 @@ async def test_timeout(monkeypatch, tmp_path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cause", ["cancel", "tool_timeout", "child_timeout"])
+@pytest.mark.parametrize("native_role", [False, True])
 async def test_interrupted_spawn_drains_child_before_return(
-    monkeypatch, tmp_path, cause
+    monkeypatch, tmp_path, cause, native_role
 ):
     started, stopped = asyncio.Event(), asyncio.Event()
     child_tasks = []
@@ -546,12 +657,18 @@ async def test_interrupted_spawn_drains_child_before_return(
     monkeypatch.setattr(spawn_module, "MAX_CONCURRENT", 1)
     tool = _make_tool(tmp_path)
 
+    invocation = (
+        dict(type="general", description="Read", prompt="query")
+        if native_role
+        else dict(task="query")
+    )
+
     async def call():
         if cause != "tool_timeout":
-            return await _collect(tool, task="query")
+            return await _collect(tool, **invocation)
 
         async def handler(**kwargs):
-            async for chunk in tool(task="query"):
+            async for chunk in tool(**invocation):
                 yield chunk
 
         return [

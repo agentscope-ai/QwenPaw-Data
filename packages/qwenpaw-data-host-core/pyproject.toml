@@ -71,6 +71,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/qwenpaw_data"]
 artifacts = [
+  "src/qwenpaw_data/host/core/agent/subagent_presets/*.md",
   "src/qwenpaw_data/host/core/prompts/*.md",
   "src/qwenpaw_data/host/core/algo/evaluation/prompts/*.md",
   "src/qwenpaw_data/host/core/algo/followup/prompts/*.md",

@@ -144,6 +144,39 @@ filesystems fail instead of falling back to an unsafe exclusive-open operation.
 This fallback does not provide POSIX directory pinning against concurrent directory
 replacement by another process.
 
+### Delegating to a subagent
+
+`spawn_subagent(type, description, prompt)` supports `general` (analysis) and
+`report` (report generation from existing evidence; no MCP). Existing OSS
+`spawn_subagent(task=..., role="data_fetcher")` calls still return a text summary.
+The same Host feature switch, `QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED`, controls both.
+
+Add a Markdown file under the current agent's host-side
+`workspace/agents/<agent_id>/` to register a role on the next toolkit build:
+
+```markdown
+---
+name: evidence-reader
+description: Summarize existing session evidence
+tools: [Read]
+skills: []
+mcp: []
+---
+Read the evidence supplied by the parent. Return the conclusion and its source.
+```
+
+Omitting a selector inherits that category from the parent's workspace;
+an empty list selects none. Explicit names must already be available (including
+enabled skills and session-scoped MCP clients). Duplicate roles and malformed
+specifications are rejected. Profiles cannot add a nested delegation tool,
+grant permissions, or approve a tool on the user's behalf.
+
+New-style children finish with `submit_result(summary, artifacts)`. The parent
+receives one JSON result with `status`, `summary`, and session-relative artifact
+references. A file reference does not itself prove the file exists or grant
+access. A text-only reply is not a successful handoff. Closing or cancelling
+delegation drains the child before releasing its concurrency slot.
+
 ### Storage backends
 
 The current service uses SQL repositories backed by the shared control-plane

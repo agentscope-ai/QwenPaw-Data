@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from copy import deepcopy
@@ -47,6 +48,9 @@ from ..domain.tool_confirmation import ToolConfirmation
 from .middleware.prompt import DatasourcePromptMiddleware
 from .middleware.sql_artifact import SqlArtifactMiddleware
 from .middleware.tool_timeout import ToolTimeoutMiddleware
+from .tools.plan_tools import PLAN_TOOL_NAMES
+from .subagent_roles import load_roles
+from .subagent_result import SubmitResult
 
 logger = logging.getLogger(__name__)
 
@@ -55,20 +59,11 @@ STREAM_POLL_SECONDS = 1.0
 MAX_ITERS = 50
 MAX_CONCURRENT = 4
 MAX_TOTAL_SPAWNS = 20
-SUPPORTED_ROLES = ("data_fetcher",)
-
-DATA_FETCHER_TOOL_NAMES = frozenset(
-    {
-        "Bash",
-        "Read",
-        "Write",
-        "Edit",
-        "Glob",
-        "Grep",
-    }
-)
-ROLE_SKILL_NAMES = {
-    "data_fetcher": frozenset({"fetch-data"}),
+_RESERVED_CHILD_TOOLS = PLAN_TOOL_NAMES | {
+    "spawn_subagent",
+    "submit_result",
+    "ask_user_question",
+    "CronJob",
 }
 
 
@@ -162,6 +157,8 @@ def _build_sub_prompt(
     workspace_dir: PurePath | None = None,
     artifacts_root: PurePath | None = None,
     session_id: str | None = None,
+    role_body: str = "",
+    structured: bool = False,
 ) -> str:
     upstream_section = (
         "\n".join(f"- {nid}: {out}" for nid, out in upstream_outputs.items())
@@ -178,6 +175,7 @@ def _build_sub_prompt(
 
     return (
         "你是一个任务执行器。精确完成指定任务。\n\n"
+        f"{role_body}\n\n"
         f"## 你的任务\n{task}\n\n"
         f"{_build_environment_section(workspace_dir=workspace_dir, artifacts_root=artifacts_root, session_id=session_id)}"
         "## 可用工具\n"
@@ -191,13 +189,17 @@ def _build_sub_prompt(
         "- 直接使用上述可用工具，不要探索或猜测是否存在其他工具。\n"
         "- 任务执行过程中，需要调用工具时，优先在同一条 assistant 消息里"
         "先写 1 句简短进度说明，再附带 tool_use；不要输出长篇分析或计划。\n"
-        "- 只有在任务全部完成后，才输出一次结构化文字总结作为最终回答。\n"
         "- 遇到无法解决的错误时描述问题并停止。\n\n"
         "## 输出要求\n"
-        "任务完成后，你的最终回答必须是结构化摘要，格式：\n"
-        "- **结论**：说明任务结果（做了什么、数据概况、关键发现）\n"
-        "- **产出文件**：列出所有生成的文件路径\n"
-        "- **异常**：如有问题或部分失败，在此说明；无异常则省略\n"
+        + (
+            "完成后必须调用一次 submit_result，提供 summary 和相对当前会话的 artifacts；"
+            "仅回复文字不算交付。"
+            if structured
+            else "任务完成后，你的最终回答必须是结构化摘要，格式：\n"
+            "- **结论**：说明任务结果（做了什么、数据概况、关键发现）\n"
+            "- **产出文件**：列出所有生成的文件路径\n"
+            "- **异常**：如有问题或部分失败，在此说明；无异常则省略\n"
+        )
     )
 
 
@@ -205,23 +207,29 @@ def _tool_name(tool: Any) -> str:
     return str(getattr(tool, "name", "") or "")
 
 
-def _skills_for_role(skills: Iterable[Any], role: str) -> list[Any]:
-    allowed = ROLE_SKILL_NAMES.get(role, frozenset())
-    selected: list[Any] = []
+def _skill_name(skill: Any) -> str:
+    if isinstance(skill, str):
+        return Path(skill).name
+    return _tool_name(skill) or Path(str(getattr(skill, "dir", ""))).name
+
+
+def _skill_inputs(skills: Iterable[Any]) -> list[Any]:
+    selected = []
     for skill in skills:
-        if isinstance(skill, str):
-            name = Path(skill).name
-            skill_dir = skill
-        else:
-            name = str(getattr(skill, "name", "") or "")
-            skill_dir = str(getattr(skill, "dir", "") or "")
-        if name not in allowed and Path(skill_dir).name not in allowed:
-            continue
         if isinstance(skill, (str, Skill, SkillLoaderBase)):
             selected.append(skill)
-        elif skill_dir:
-            selected.append(skill_dir)
+        elif getattr(skill, "dir", None):
+            selected.append(str(skill.dir))
     return selected
+
+
+def _pick(items, names, *, kind, strict, key=_tool_name):
+    if names is None:
+        return list(items)
+    available = {key(item): item for item in items}
+    if strict and (missing := [name for name in names if name not in available]):
+        raise ValueError(f"unavailable {kind}: {', '.join(missing)}")
+    return [available[name] for name in names if name in available]
 
 
 async def _collect_mcp_tool_names(mcps: Sequence[Any]) -> list[str]:
@@ -309,26 +317,6 @@ class SpawnSubagent(ToolBase):
         "Uses the current session's tools, permissions and TaskContext. "
         "Does not create or advance plan tasks."
     )
-    input_schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "task": {
-                "type": "string",
-                "description": "The specific task instruction for the sub-agent.",
-            },
-            "role": {
-                "type": "string",
-                "default": "data_fetcher",
-                "description": "Sub-agent role. Currently supported: data_fetcher.",
-            },
-            "context": {
-                "type": "string",
-                "default": "",
-                "description": "Optional upstream results, constraints, or context.",
-            },
-        },
-        "required": ["task"],
-    }
     is_state_injected: bool = False
     is_concurrency_safe: bool = True
     is_read_only: bool = False
@@ -346,6 +334,41 @@ class SpawnSubagent(ToolBase):
         parent_agent_getter: Callable[[], Any] | None = None,
         cm_mcp_tool_prefixes: Iterable[str] = (),
     ) -> None:
+        super().__init__()
+        self._roles = load_roles(run_context.paths)
+        self.description += (
+            " Use type, description and prompt. Available roles:\n"
+            + "\n".join(
+                f"- {spec.name}: {spec.description}" for spec in self._roles.values()
+            )
+        )
+        self.input_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "type": {"type": "string", "enum": list(self._roles)},
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Short task label",
+                },
+                "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Self-contained task and context",
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Legacy OSS task (instead of type/description/prompt)",
+                },
+                "role": {
+                    "type": "string",
+                    "enum": list(self._roles),
+                    "description": "Legacy OSS role",
+                },
+                "context": {"type": "string", "description": "Legacy OSS context"},
+            },
+        }
         self._ctx = run_context
         self._workspace = run_context.workspace
         self._workspace_tools = list(workspace_tools)
@@ -372,13 +395,37 @@ class SpawnSubagent(ToolBase):
 
     async def __call__(  # type: ignore[override]
         self,
-        task: str,
-        role: str = "data_fetcher",
-        context: str = "",
+        task: str | None = None,
+        role: str | None = None,
+        context: str | None = None,
+        *,
+        type: str | None = None,
+        description: str | None = None,
+        prompt: str | None = None,
     ) -> AsyncGenerator[ToolChunk, None]:
-        if role not in SUPPORTED_ROLES:
+        # Advertise the internal wire contract. Older persisted OSS calls still replay.
+        native = any(v is not None for v in (type, description, prompt))
+        if native:
+            if any(v is not None for v in (task, role, context)) or not all(
+                isinstance(v, str) and v.strip() for v in (type, description, prompt)
+            ):
+                yield _text_chunk(
+                    "expected type, description and prompt",
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
+                return
+            role, task = type, prompt
+        else:
+            role = "data_fetcher" if role is None else role
+        if (
+            not isinstance(task, str)
+            or not task.strip()
+            or not isinstance(role, str)
+            or role not in self._roles
+        ):
             yield _text_chunk(
-                f"不支持的 role: '{role}'。当前支持: {SUPPORTED_ROLES}",
+                f"缺少任务或不支持的 role: '{role}'。当前支持: {tuple(self._roles)}",
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
@@ -396,7 +443,12 @@ class SpawnSubagent(ToolBase):
 
         async with self._semaphore:
             async with aclosing(
-                self._run_subagent(task=task, role=role, context=context),
+                self._run_subagent(
+                    task=task,
+                    role=role,
+                    context=context or "",
+                    structured=native or role != "data_fetcher",
+                ),
             ) as stream:
                 async for chunk in stream:
                     yield chunk
@@ -407,6 +459,7 @@ class SpawnSubagent(ToolBase):
         task: str,
         role: str,
         context: str,
+        structured: bool = False,
     ) -> AsyncGenerator[ToolChunk, None]:
         parent_agent = self._parent_agent()
         if parent_agent is None:
@@ -443,9 +496,40 @@ class SpawnSubagent(ToolBase):
             else {}
         )
         session_id = self._ctx.session_id
-        workspace_tools = self._tools_for_role(role)
-        workspace_mcps = list(self._workspace_mcps)
-        workspace_skills = _skills_for_role(self._workspace_skills, role)
+        spec = self._roles[role]
+        try:
+            workspace_tools = _pick(
+                [
+                    t
+                    for t in self._workspace_tools
+                    if _tool_name(t) not in _RESERVED_CHILD_TOOLS
+                ],
+                spec.tools,
+                kind="tools",
+                strict=structured,
+            )
+            workspace_mcps = _pick(
+                self._workspace_mcps, spec.mcp, kind="MCP servers", strict=structured
+            )
+            workspace_skills = _skill_inputs(
+                _pick(
+                    self._workspace_skills,
+                    spec.skills,
+                    kind="skills",
+                    key=_skill_name,
+                    strict=structured,
+                )
+            )
+        except ValueError as exc:
+            yield _text_chunk(
+                json.dumps({"status": "error", "summary": str(exc), "artifacts": []}),
+                state=ToolResultState.ERROR,
+                is_last=True,
+            )
+            return
+        submit = SubmitResult() if structured else None
+        if submit is not None:
+            workspace_tools.append(submit)
         mcp_tool_names = await _collect_mcp_tool_names(workspace_mcps)
 
         sub_toolkit = Toolkit(
@@ -464,6 +548,8 @@ class SpawnSubagent(ToolBase):
                 self._ctx.paths.agent_artifact_dir(self._workspace)
             ).parent,
             session_id=session_id,
+            role_body=spec.body,
+            structured=structured,
         )
         agent_name = f"subagent-{role}-{node_id or 'free'}-{uuid.uuid4().hex[:4]}"
 
@@ -533,6 +619,7 @@ class SpawnSubagent(ToolBase):
                 agent_name=agent_name,
                 graph_id=graph_id,
                 node_id=node_id,
+                submit=submit,
             ),
         ) as stream:
             async for chunk in stream:
@@ -547,15 +634,6 @@ class SpawnSubagent(ToolBase):
             logger.debug("spawn_subagent: parent agent getter failed", exc_info=True)
             return None
 
-    def _tools_for_role(self, role: str) -> list[Any]:
-        if role != "data_fetcher":
-            return []
-        return [
-            tool
-            for tool in self._workspace_tools
-            if _tool_name(tool) in DATA_FETCHER_TOOL_NAMES
-        ]
-
     async def _stream_subagent(
         self,
         *,
@@ -564,6 +642,7 @@ class SpawnSubagent(ToolBase):
         agent_name: str,
         graph_id: str | None,
         node_id: str | None,
+        submit: SubmitResult | None = None,
     ) -> AsyncGenerator[ToolChunk, None]:
         trace_log: list[dict[str, Any]] = []
         text_parts: list[str] = []
@@ -578,6 +657,7 @@ class SpawnSubagent(ToolBase):
         pending_input: Msg | UserConfirmResultEvent = task_msg
         event_iter: Any = None
         error_chunk: ToolChunk | None = None
+        delivered = False
 
         try:
             while True:
@@ -617,10 +697,22 @@ class SpawnSubagent(ToolBase):
                         tool_inputs=tool_inputs,
                         tool_outputs=tool_outputs,
                     )
-                    if chunk is not None:
+                    # The SDK concatenates streamed text into the parent's tool
+                    # result. Keep native delivery a single JSON document; retain
+                    # progress in the trace and legacy streaming on the OSS path.
+                    if chunk is not None and submit is None:
                         yield chunk
+                    if (
+                        submit is not None
+                        and submit.delivery is not None
+                        and isinstance(event, ToolResultEndEvent)
+                        and event.state == ToolResultState.SUCCESS
+                        and tool_names.get(event.tool_call_id) == submit.name
+                    ):
+                        delivered = True
+                        break
 
-                if confirmation is None:
+                if confirmation is None or delivered:
                     break
                 logger.info(
                     "spawn_subagent: denying unattended permission request",
@@ -656,12 +748,38 @@ class SpawnSubagent(ToolBase):
                 await self._close_event_iter(event_iter)
 
         if error_chunk is not None:
-            yield error_chunk
+            if submit is None:
+                yield error_chunk
+            else:
+                yield _text_chunk(
+                    json.dumps(
+                        {
+                            "status": "error",
+                            "summary": error_chunk.content[0].text,
+                            "artifacts": [],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
             return
 
         summary = "".join(text_parts).strip() or "".join(thinking_parts).strip()
         if not summary:
             summary = "(no output)"
+        state = ToolResultState.SUCCESS
+        if submit is not None:
+            if not delivered or submit.delivery is None:
+                payload = {
+                    "status": "error",
+                    "summary": "No result submitted",
+                    "artifacts": [],
+                }
+                state = ToolResultState.ERROR
+            else:
+                payload = {"status": "completed", **submit.delivery.model_dump()}
+            summary = json.dumps(payload, ensure_ascii=False)
         trace_meta = {
             "type": "subagent_trace",
             "agent_name": agent_name,
@@ -671,6 +789,7 @@ class SpawnSubagent(ToolBase):
         }
         yield _text_chunk(
             summary,
+            state=state,
             is_last=True,
             metadata={
                 "subagent_event": "summary",

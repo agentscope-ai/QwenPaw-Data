@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -8,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from agentscope.agent._config import ReActConfig
 from agentscope.formatter import DashScopeChatFormatter
-from agentscope.message import TextBlock, ToolCallBlock
+from agentscope.message import TextBlock, ToolCallBlock, ToolResultBlock
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -141,8 +142,13 @@ class FakeTextModel(ChatModelBase):
 class DelegatingModel(FakeTextModel):
     """Real AgentScope tool dispatch and nested model calls, no external model."""
 
-    def __init__(self):
+    def __init__(self, role: str, artifact_dir: Path):
         super().__init__()
+        self.role = role
+        self.artifact_dir = artifact_dir
+        self.artifacts = (
+            [{"path": "report.html", "name": "Report"}] if role == "report" else []
+        )
         self.delegated = False
         self.child_calls = 0
 
@@ -155,6 +161,47 @@ class DelegatingModel(FakeTextModel):
             assert PLAN_TOOL_NAMES.isdisjoint(schemas)
             assert "ask_user_question" not in schemas
             assert "ds-console" in str(messages)
+            if self.role != "data_fetcher":
+                assert "submit_result" in schemas
+                if self.role == "workspace_reader":
+                    assert "Read" in schemas and "Write" not in schemas
+                    assert "Read only the supplied evidence." in str(messages)
+                assert not any(name.startswith("mcp__") for name in schemas)
+                if self.role == "report" and self.child_calls == 1:
+                    return ChatResponse(
+                        content=[
+                            ToolCallBlock(
+                                id="write-report",
+                                name="Write",
+                                input=json.dumps(
+                                    {
+                                        "file_path": (
+                                            self.artifact_dir / "report.html"
+                                        ).as_posix(),
+                                        "content": "<h1>Scoped report</h1>",
+                                    }
+                                ),
+                            )
+                        ],
+                        is_last=True,
+                        usage=ChatUsage(input_tokens=1, output_tokens=1, time=0),
+                    )
+                return ChatResponse(
+                    content=[
+                        ToolCallBlock(
+                            id="handoff",
+                            name="submit_result",
+                            input=json.dumps(
+                                {
+                                    "summary": "CHILD_VERIFIED",
+                                    "artifacts": self.artifacts,
+                                }
+                            ),
+                        )
+                    ],
+                    is_last=True,
+                    usage=ChatUsage(input_tokens=1, output_tokens=1, time=0),
+                )
             return ChatResponse(
                 content=[TextBlock(text="CHILD_VERIFIED")],
                 is_last=True,
@@ -167,13 +214,35 @@ class DelegatingModel(FakeTextModel):
                     ToolCallBlock(
                         id="delegate-fixture",
                         name="spawn_subagent",
-                        input='{"task":"Summarize the supplied context without querying data"}',
+                        input=(
+                            '{"task":"Summarize the supplied context without querying data"}'
+                            if self.role == "data_fetcher"
+                            else json.dumps(
+                                {
+                                    "type": self.role,
+                                    "description": "Read evidence",
+                                    "prompt": "Summarize the supplied context.",
+                                }
+                            )
+                        ),
                     )
                 ],
                 is_last=True,
                 usage=ChatUsage(input_tokens=1, output_tokens=1, time=0),
             )
         assert "CHILD_VERIFIED" in str(messages)
+        if self.role != "data_fetcher":
+            receipt = next(
+                block
+                for message in messages
+                for block in message.content
+                if isinstance(block, ToolResultBlock) and block.name == "spawn_subagent"
+            )
+            assert json.loads("".join(b.text for b in receipt.output)) == {
+                "status": "completed",
+                "summary": "CHILD_VERIFIED",
+                "artifacts": self.artifacts,
+            }
         return await super()._call_api(
             model_name, messages, tools, tool_choice, **kwargs
         )
@@ -279,7 +348,9 @@ async def test_build_qwenpaw_data_toolkit_omits_ui_tools_when_disabled(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("delegate", [False, True])
+@pytest.mark.parametrize(
+    "delegate", [None, "data_fetcher", "report", "workspace_reader"]
+)
 async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -322,7 +393,23 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         await db.commit()
 
     await seed_test_preferences(session_factory)
-    model = DelegatingModel() if delegate else FakeTextModel()
+    paths = UserAgentPaths.from_identity(
+        home=tmp_path / "home",
+        identity=TEST_IDENTITY,
+        agent_id="agent-a",
+        session_id=session.id,
+    )
+    if delegate == "workspace_reader":
+        role_dir = paths.workspace / "agents" / paths.agent_id
+        role_dir.mkdir(parents=True, exist_ok=True)
+        (role_dir / "workspace_reader.md").write_text(
+            "---\ndescription: Read evidence\ntools: [Read]\nskills: []\nmcp: []\n---\n"
+            "Read only the supplied evidence.",
+            encoding="utf-8",
+        )
+    model = (
+        DelegatingModel(delegate, paths.artifact_dir) if delegate else FakeTextModel()
+    )
     seen = {}
 
     def build_fixture(*_args, **kwargs):
@@ -354,7 +441,9 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         )
         expected_artifact_dir = expected_workspace / "artifacts" / session.id
         assert expected_artifact_dir.is_dir()
-        prompt_text = "\n".join(message.get_text_content() or "" for message in model.messages)
+        prompt_text = "\n".join(
+            message.get_text_content() or "" for message in model.messages
+        )
         assert expected_artifact_dir.as_posix() in prompt_text.replace("\\", "/")
         assert "local workspace" in prompt_text
         assert "1 [pending] Persisted task" in prompt_text
@@ -363,7 +452,13 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         assert PLAN_TOOL_NAMES <= model.tool_names
         assert seen["parallel_tool_calls"] is True
         if delegate:
-            assert model.delegated and model.child_calls == 1
+            assert model.delegated and model.child_calls == (
+                2 if delegate == "report" else 1
+            )
+        if delegate == "report":
+            assert (
+                expected_artifact_dir / "report.html"
+            ).read_text() == "<h1>Scoped report</h1>"
 
         async with session_factory() as db:
             saved_chat = await ChatRepository(db, TEST_IDENTITY).get(chat.id)
