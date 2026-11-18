@@ -16,7 +16,7 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from sqlalchemy import Column, MetaData, Table, Text, create_engine, event, select
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.engine import URL
 
 from context_manager.db import CMDatabase
 from context_manager.model import EmbeddingSpaceConflict, ModelConfigError, ModelConfigRepository, ModelService
@@ -31,13 +31,14 @@ from context_manager.settings.model import ModelSettings
 
 
 @pytest.fixture
-def shared_models(monkeypatch):
+def shared_models(monkeypatch, tmp_path):
     model = ModelSettings.model_construct(
         preferences_master_secret=secrets.token_hex(32), env="development",
     )
     settings = SimpleNamespace(model=model)
     monkeypatch.setattr(service, "get_settings", lambda: settings)
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    # Concurrent request threads need separate connections to the same database.
+    engine = create_engine(URL.create("sqlite", database=str(tmp_path / "models.db")))
     database = CMDatabase(engine)
     monkeypatch.setattr(repository, "get_database", lambda: database)
     metadata.create_all(engine, tables=[model_configs, provider_refs, workspace_embedding_spaces])
