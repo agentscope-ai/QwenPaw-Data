@@ -14,6 +14,7 @@ from typing import Any
 
 from rr.common import (
     COMPARISON_FILE,
+    DEFAULT_TOLERANCE,
     LEGACY_VALIDATION_FILE,
     MANIFEST_SCHEMA_VERSION,
     ReportCliError,
@@ -149,6 +150,7 @@ class LegacyMixin:
             if isinstance(item, dict)
         ]
         reviewed = bool(raw.get("passed_with_review"))
+        tolerance = raw.get("tolerance")
         payload = {
             "schema_version": 1,
             "target_path": f"sections/{section_id}/baseline/draft.md",
@@ -160,7 +162,7 @@ class LegacyMixin:
             "structure_differences": raw.get("structure_differences") or [],
             "criteria_analysis": raw.get("criteria_analysis") or [],
             "notes": raw.get("notes") or "",
-            "tolerance": float(raw.get("tolerance") or DEFAULT_TOLERANCE),
+            "tolerance": DEFAULT_TOLERANCE if tolerance in (None, "") else float(tolerance),
             "created_at": raw.get("created_at") or utc_now(),
             "review": (
                 {

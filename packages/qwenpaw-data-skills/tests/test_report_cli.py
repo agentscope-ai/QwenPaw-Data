@@ -2341,6 +2341,24 @@ def test_a_legacy_session_is_migrated_on_first_load(
         assert not (section_root / "validation.json").exists()
 
 
+@pytest.mark.parametrize(
+    ("fields", "expected"), [({}, 0.001), ({"tolerance": 0.0}, 0.0)]
+)
+def test_legacy_tolerance_defaults_only_when_unset(workspace: Workspace, run, fields, expected):
+    _build_legacy_session(workspace, schema_version=2)
+    baseline = workspace.product_root / "sections" / LEGACY_SECTION_ID / "baseline"
+    verdict = dict(LEGACY_VALIDATION)
+    verdict.pop("tolerance")
+    verdict.update(fields)
+    original = json.dumps(verdict).encode()
+    (baseline / "validation.json").write_bytes(original)
+
+    code, payload = run("status", chat_id="chat-migrate")
+    assert code == cli.EXIT_OK, payload
+    assert workspace.comparison_of(LEGACY_SECTION_ID)["tolerance"] == expected
+    assert (baseline / "validation.json.bak").read_bytes() == original
+
+
 def test_migration_keeps_the_verdict_and_names_the_reviewer(
     workspace: Workspace, run
 ) -> None:

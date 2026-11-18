@@ -18,8 +18,6 @@ from typing import Any, NoReturn
 
 from pydantic import BaseModel
 
-from pydantic import BaseModel, ConfigDict, Field
-
 # --------------------------------------------------------------------------- #
 # Layout and limits
 # --------------------------------------------------------------------------- #

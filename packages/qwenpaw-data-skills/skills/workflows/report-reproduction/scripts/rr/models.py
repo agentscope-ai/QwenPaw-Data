@@ -6,6 +6,7 @@ Enforces R5 (only this CLI writes these shapes) by rejecting unknown fields.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
