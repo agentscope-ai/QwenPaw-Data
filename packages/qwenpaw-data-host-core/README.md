@@ -181,6 +181,12 @@ references. A file reference does not itself prove the file exists or grant
 access. A text-only reply is not a successful handoff. Closing or cancelling
 delegation drains the child before releasing its concurrency slot.
 
+In protocol v37, child activity shares the chat sequence but carries
+`stream.type = subagent` and the spawning tool's `parent_call_id`. Only a main
+response ends the chat. The Console groups the child under its tool call, and
+raw trace replay retains that association. Child model calls are counted as
+`subagent:<role>` within the same chat and use the parent's business timezone.
+
 ### Storage backends
 
 The current service uses SQL repositories backed by the shared control-plane

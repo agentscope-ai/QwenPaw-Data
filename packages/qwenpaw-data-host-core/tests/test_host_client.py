@@ -35,9 +35,21 @@ async def test_run_requires_terminal_and_stops_interrupted_turn(status):
                 200,
                 headers={"content-type": "text/event-stream"},
                 text=wire(
-                    []
-                    if status == "truncated"
-                    else [{"object": "response", "status": status}]
+                    [
+                        {
+                            "object": "response",
+                            "status": "failed",
+                            "stream": {
+                                "type": "subagent",
+                                "parent_call_id": "delegate",
+                            },
+                        }
+                    ]
+                    + (
+                        []
+                        if status == "truncated"
+                        else [{"object": "response", "status": status}]
+                    )
                 ),
             )
         assert request.url.path == "/api/console/chat/stop"
@@ -48,7 +60,10 @@ async def test_run_requires_terminal_and_stops_interrupted_turn(status):
         "http://host", token="private-test-token", transport=httpx.MockTransport(handle)
     ) as client:
         if status == "completed":
-            assert len([event async for event in client.run("s1", "hello")]) == 1
+            assert [event["status"] async for event in client.run("s1", "hello")] == [
+                "failed",
+                "completed",
+            ]
         else:
             with pytest.raises(HostClientError):
                 _ = [event async for event in client.run("s1", "hello")]

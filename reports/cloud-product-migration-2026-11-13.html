@@ -32,7 +32,7 @@
   <main>
     <section aria-labelledby="overview">
       <p class="label">整体迁移报告 · 更新于 2026-11-18</p>
-      <h1 id="overview">已验证子 Agent 委派契约，整库发布验收仍开放</h1>
+      <h1 id="overview">八项行为差异已修复，整库发布验收仍开放</h1>
       <p class="warning"><strong>签核范围：</strong>以下证据只覆盖列明的公开行为，不代表全部 internal 功能、生产部署或模型质量等价。历史验收记录按各自提交阅读。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
       <p><strong>CI 按提交读取：</strong><a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44365851939">29e2145 的 CI</a> 与 CodeQL 合计 12/12 通过。用户提供的 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks?check_run_id=134549377512">CodeQL 七项告警</a> 和 <a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44228954565/job/134549080106?pr=126">PyPI 审计读取超时</a> 属于旧提交 87d324c，不是新代码的结果。<a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">当前 PR 检查</a>按最新 SHA 单独验收。</p>
@@ -75,6 +75,17 @@
     </section>
     <section aria-labelledby="verification">
       <h2 id="verification">本次签核证据与历史验收记录</h2>
+      <div class="table-wrap"><table aria-label="八项差异的复验结果">
+        <thead><tr><th scope="col">审计项</th><th scope="col">OSS 可复验的行为</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">1–3 · 子 Agent 实时事件、回放、Console</th><td>协议 v37：子流与主流共用序号，通过父工具调用 ID 区分；交错的两个子流可归位到各自卡片。子流失败不终止主聊天，历史 raw trace 保留归属。主 Agent 仍只收到一份结构化交付回执。</td></tr>
+          <tr><th scope="row">4–5 · 用量与业务时间</th><td>真实 Host 调度、确定性模型与 SQLite：同一聊天内 report 两次调用、general 一次、父模型两次，分别记账且总计五次。上海午夜前后，主、子模型读到相同的本地日期和时间。</td></tr>
+          <tr><th scope="row">6 · 已受理轮次重载</th><td>SDK 为直接和排队发送传递消息 ID，客户端与服务端 ID 对齐后不再重复插卡；固定回放得到四张卡而非六张。会话切换时仍由 SDK 首次装载历史。</td></tr>
+          <tr><th scope="row">7 · 独立脚本评分</th><td>无事件循环时先有界排队，公开 shutdown 按原 exporter 排空；用合成收件端核对目的地隔离、上限和重复关闭。非持久化交付保证。</td></tr>
+          <tr><th scope="row">8 · 可选 Holo AGE</th><td>SQLite 队列与真实子进程验证：仅指定 <code>--holo-script</code> 即可调用自备脚本；缺少脚本时明确失败，混合队列不会把 Holo 作业发往 Neo4j。未移植私有开通脚本，未连接真实 Hologres。</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted">上述结论针对 internal <code>develop@e084e0143</code> 的八项已确认差异。未改变 OSS 审批、取消和角色权限边界；真实供应商账单、生产部署及此基线之后的 internal 提交不在签核内。</p>
       <p><strong>子 Agent · e0079cf：</strong>使用生产 ChatRuntime、真实 AgentScope 调度与临时 SQLite，确定性模型驱动 report 调用 Write 生成会话 HTML，父 Agent 收到可解析的 JSON 和相对路径；自定义只读角色不能使用 Write 或 MCP。覆盖缺失回执、预设冲突、跨 agent 配置隔离、超时和取消后回收。Host sdist 重建并安装 wheel，在源码树外加载三个预设。</p>
       <p><strong>跨平台复验：</strong>在 macOS 注入只提供 PowerShell 的父工具箱，report 仍通过 Write 生成 HTML 并回传收据，未授予 PowerShell。角色文件按已验证的路径读取，超过 128 个 Markdown 角色时在打开文件前拒绝。角色、Host 调度与文件读取相关测试共 66 项通过；原生 Windows 结果以当前 PR 检查为准。</p>
       <p><strong>复验：</strong><code>python -m pytest packages/qwenpaw-data-host-core/tests/test_spawn_subagent.py packages/qwenpaw-data-host-core/tests/test_qwenpaw_data_agent.py</code>。扩展到 MCP 超时、审批、澄清、定时任务和并发事件后，本地 124 项通过、6 项可选 E2B 测试跳过、1 项已知并发写事件用例预期失败。签核限于角色发现、能力选择、结构化交付和 OSS 运行保护。未对真实模型质量、内部逐事件追踪及费用归因作等价声明。</p>
