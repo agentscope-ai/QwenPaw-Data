@@ -33,7 +33,7 @@ async def test_builder_react_config_raises_cancelled_error(monkeypatch) -> None:
     builder = builder_module.DataAgentBuilder()
     monkeypatch.setattr(builder, "build_toolkit", AsyncMock(return_value=Toolkit()))
     context = SimpleNamespace(
-        workspace=object(), request_context={}, model_usage=lambda _: None,
+        workspace=object(), request_context={}, model_usage=lambda source, source_step="": None,
         user_runtime_config=SimpleNamespace(
             default=None, context_reserve_ratio=0.1, tool_result_limit=2000,
             react_max_iters=19,

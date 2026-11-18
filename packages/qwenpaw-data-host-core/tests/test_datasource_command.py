@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -613,6 +614,13 @@ async def test_stream_filters_out_reasoning_deltas(tmp_path: Path) -> None:
         channel.on_streaming_start = AsyncMock(return_value={"id": "handle"})  # type: ignore[assignment]
         channel.on_streaming_end = AsyncMock()  # type: ignore[assignment]
 
+        child_events = [
+            _msg_event("child-answer", "message", "in_progress"),
+            _delta_event("child-answer", "not a channel reply"),
+            _response_event("failed"),
+        ]
+        for event in child_events:
+            event.stream = SimpleNamespace(type="subagent", parent_call_id="spawn-1")
         events = [
             _msg_event(
                 "msg_reasoning", "reasoning", "in_progress"
@@ -621,6 +629,7 @@ async def test_stream_filters_out_reasoning_deltas(tmp_path: Path) -> None:
             _delta_event("msg_reasoning", "再想想"),  # reasoning delta — must drop
             _msg_event("msg_answer", "message", "in_progress"),  # answer message_start
             _delta_event("msg_answer", "答案是"),  # answer delta — keep
+            *child_events,  # do not render the child or let its failure close the card
             _delta_event("msg_answer", "42"),  # answer delta — keep
             _response_event("completed"),
         ]
@@ -966,8 +975,6 @@ async def test_stream_completed_does_not_trigger_abort_notice(tmp_path: Path) ->
 
 def _artifact_registered_event(rel_path: str) -> Any:
     """An ``artifact.registered`` stream event carrying an ArtifactSchema."""
-    from types import SimpleNamespace
-
     art = SimpleNamespace(path=rel_path)
     return SimpleNamespace(
         object="artifact.registered",
@@ -986,8 +993,6 @@ def _segment_event(
     ended_at: float | None = None,
 ) -> Any:
     """A ``segment`` stream event carrying a FrontendSegment-like object."""
-    from types import SimpleNamespace
-
     seg = SimpleNamespace(
         title=title,
         input=input or None,
@@ -1001,32 +1006,17 @@ def _segment_event(
 
 def _msg_event(msg_id: str, msg_type: str, status: str) -> Any:
     """A ``message`` stream event (message_start / message_complete)."""
-    e = MagicMock()
-    e.object = "message"
-    e.type = msg_type
-    e.id = msg_id
-    e.status = status
-    return e
+    return SimpleNamespace(object="message", type=msg_type, id=msg_id, status=status)
 
 
 def _delta_event(msg_id: str, text: str) -> Any:
     """A ``content`` text-delta stream event."""
-    e = MagicMock()
-    e.object = "content"
-    e.type = "text"
-    e.delta = True
-    e.msg_id = msg_id
-    e.text = text
-    return e
+    return SimpleNamespace(object="content", type="text", delta=True, msg_id=msg_id, text=text)
 
 
 def _response_event(status: str) -> Any:
     """A terminal ``response`` stream event."""
-    e = MagicMock()
-    e.object = "response"
-    e.status = status
-    e.error = None
-    return e
+    return SimpleNamespace(object="response", status=status, error=None)
 
 
 async def _iter_events(events: list[Any]) -> Any:

@@ -81,7 +81,7 @@
           <tr><th scope="row">1–3 · 子 Agent 实时事件、回放、Console</th><td>协议 v37：子流与主流共用序号，通过父工具调用 ID 区分；交错的两个子流可归位到各自卡片。子流失败不终止主聊天，历史 raw trace 保留归属。主 Agent 仍只收到一份结构化交付回执。</td></tr>
           <tr><th scope="row">4–5 · 用量与业务时间</th><td>真实 Host 调度、确定性模型与 SQLite：同一聊天内 report 两次调用、general 一次、父模型两次，分别记账且总计五次。上海午夜前后，主、子模型读到相同的本地日期和时间。</td></tr>
           <tr><th scope="row">6 · 已受理轮次重载</th><td>SDK 为直接和排队发送传递消息 ID，客户端与服务端 ID 对齐后不再重复插卡；固定回放得到四张卡而非六张。会话切换时仍由 SDK 首次装载历史。</td></tr>
-          <tr><th scope="row">7 · 独立脚本评分</th><td>无事件循环时先有界排队，公开 shutdown 按原 exporter 排空；用合成收件端核对目的地隔离、上限和重复关闭。非持久化交付保证。</td></tr>
+          <tr><th scope="row">7 · 独立脚本评分</th><td>无事件循环时先有界排队，公开 shutdown 按原 exporter 排空。真实回环 HTTP 收件端收到一条带原 trace ID 的评分，第二次 shutdown 不重发；合成慢收件端验证超时。非持久化交付保证。</td></tr>
           <tr><th scope="row">8 · 可选 Holo AGE</th><td>SQLite 队列与真实子进程验证：仅指定 <code>--holo-script</code> 即可调用自备脚本；缺少脚本时明确失败，混合队列不会把 Holo 作业发往 Neo4j。未移植私有开通脚本，未连接真实 Hologres。</td></tr>
         </tbody>
       </table></div>
