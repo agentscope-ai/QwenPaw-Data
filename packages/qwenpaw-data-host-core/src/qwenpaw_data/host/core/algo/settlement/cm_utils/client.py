@@ -7,10 +7,10 @@ import ipaddress
 import json
 import logging
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from qwenpaw_data.host.core.integrations.cm import resolve_cm_base_url
+from qwenpaw_data.host.core.utils.auth import resolve_context_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,16 @@ def _format_cm_error(exc: BaseException) -> str:
     return f"{name}: {detail}" if detail else name
 
 
-def _trust_env_for_url(url: str) -> bool:
-    hostname = (urlparse(url).hostname or "").strip().strip("[]").lower()
-    if hostname == "localhost":
+def _is_loopback_http(url: httpx.URL) -> bool:
+    if url.scheme not in {"http", "https"} or url.userinfo:
         return False
-    try:
-        return not ipaddress.ip_address(hostname).is_loopback
-    except ValueError:
+    hostname = url.host
+    if hostname == "localhost":
         return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
 
 
 def _meta_datasource_id(metadata: Any) -> str | None:
@@ -78,10 +80,13 @@ class SettlementCmClient:
     def base_url(self) -> str:
         return (self._base_url or resolve_cm_base_url()).strip().rstrip("/")
 
-    def _headers(self) -> dict[str, str]:
+    def _headers(self, *, loopback: bool) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
+        # Resolve against the actual destination at send time. A local machine
+        # credential is neither a user delegation nor a token for a remote CM.
+        token = resolve_context_access_token(self.access_token) if loopback else self.access_token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     def _resolve_ds(self, kwargs: dict[str, Any]) -> str | None:
@@ -105,17 +110,18 @@ class SettlementCmClient:
         json_body: dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> Any:
-        url = f"{self.base_url}{path}"
+        url = httpx.URL(f"{self.base_url}{path}")
+        loopback = _is_loopback_http(url)
         async with httpx.AsyncClient(
             timeout=timeout or self.timeout,
-            trust_env=_trust_env_for_url(self.base_url),
+            trust_env=not loopback,
         ) as client:
             response = await client.request(
                 method,
                 url,
                 params=params,
                 json=json_body,
-                headers=self._headers(),
+                headers=self._headers(loopback=loopback),
             )
         if not response.is_success:
             detail = (

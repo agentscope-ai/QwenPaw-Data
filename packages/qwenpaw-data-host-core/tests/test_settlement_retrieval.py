@@ -1441,6 +1441,39 @@ async def test_rest_endpoints_and_removed_search_context(monkeypatch):
     assert request.call_args.kwargs["params"] == {"mode": "test"}
 
 
+@pytest.mark.parametrize(("mode", "origin", "delegation", "expected"), [
+    ("local", "http://127.0.0.1:8765", None, "Bearer fixture-bridge"),
+    ("local", "http://[::1]:8765", None, "Bearer fixture-bridge"),
+    ("local", "https://bridge.example", None, None),
+    ("multi-user", "http://localhost:8765", None, None),
+    ("multi-user", "http://localhost:8765", "fixture-user", "Bearer fixture-user"),
+])
+async def test_settlement_confirm_uses_only_destination_scoped_credentials(
+    monkeypatch, mode, origin, delegation, expected
+):
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_MODE", mode)
+    monkeypatch.setenv("QWENPAW_DATA_CLIENT_API_TOKEN", "fixture-bridge")
+    monkeypatch.setenv("QWENPAW_DATA_API_TOKEN", "fixture-host")
+    requests = []
+
+    def receive(request):
+        requests.append(request)
+        return httpx.Response(200 if expected else 403, json={"status": "accepted"})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: client_type(
+        transport=httpx.MockTransport(receive), **kw
+    ))
+    cm = SettlementCmClient(base_url=origin, access_token=delegation)
+    card = {"datasource_id": "fixture-ds"}
+    record = await cm.call("feedback_card", card, mode="confirm")
+    assert (record["status"] == "ok") == bool(expected)
+    request, = requests
+    assert request.method == "POST" and request.url.path == "/api/v1/semantic/feedback_card"
+    assert request.url.params["mode"] == "confirm" and json.loads(request.content) == card
+    assert request.headers.get("authorization") == expected
+
+
 async def test_http_status_is_preserved_without_credentials(monkeypatch):
     client_type = httpx.AsyncClient
     transport = httpx.MockTransport(

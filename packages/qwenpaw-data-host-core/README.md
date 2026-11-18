@@ -192,6 +192,11 @@ raw trace replay retains that association. Child model calls are counted as
 The current service uses SQL repositories backed by the shared control-plane
 database. SQLite is the default; `QWENPAW_DATA_DB_URL` can select PostgreSQL.
 
+In local mode, settlement feedback to a loopback HTTP(S) DataBridge can use
+the configured local service credential. No personal login is required. A
+remote endpoint does not receive this fallback, and multi-user mode continues
+to require delegated credentials.
+
 **Open compatibility gap:** the legacy JSON stores remain in the source tree,
 but are not connected to the current HTTP runtime. `QWENPAW_DATA_STORE=json`
 now stops startup before database initialization instead of silently using SQL.
