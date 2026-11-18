@@ -16,6 +16,7 @@ from agentscope.workspace import DockerBackend, E2BBackend
 from agentscope.workspace._gateway_client import GatewayClient
 
 from qwenpaw_data.host.core.agent.middleware.tool_timeout import ToolTimeoutMiddleware
+from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.runtime.builder.data_agent import DataAgentBuilder
 from qwenpaw_data.host.core.utils.mcp import bind_mcp_tool_timeout
 
@@ -63,10 +64,11 @@ class _Requests:
 
 
 @pytest.fixture(params=["e2b", "docker"])
-def gateway(request):
+def gateway(request, tmp_path):
     requests = _Requests()
     if request.param == "e2b":
         pytest.importorskip("e2b", reason="E2B backend requires the optional e2b SDK")
+
         # Exercise the real E2BBackend, including its SDK default when omitted.
         async def run(command, *, cwd, timeout=60):
             stdout = await requests.execute(shlex.split(command), timeout)
@@ -104,18 +106,29 @@ def gateway(request):
         connected=True,
     )
     return SimpleNamespace(
-        gateway=gateway, client=client, requests=requests, backend_kind=request.param
+        gateway=gateway,
+        client=client,
+        requests=requests,
+        backend_kind=request.param,
+        paths=UserAgentPaths(
+            home=tmp_path,
+            tenant_id="t",
+            workspace_id="w",
+            user_id="u",
+            agent_id="agent",
+            session_id="session",
+        ),
     )
 
 
-def _context(client, *, seconds=1800, enabled=True):
+def _context(gateway, *, seconds=1800, enabled=True):
     return SimpleNamespace(
         workspace=SimpleNamespace(
-            list_mcps=AsyncMock(return_value=[client]),
+            list_mcps=AsyncMock(return_value=[gateway.client]),
             list_tools=AsyncMock(return_value=[]),
             list_skills=AsyncMock(return_value=[]),
         ),
-        paths=SimpleNamespace(agent_id="agent"),
+        paths=gateway.paths,
         session_id="session",
         disabled_skills=frozenset(),
         request_context={},
@@ -137,7 +150,7 @@ async def test_builder_binds_page_timeout_and_preserves_health(
     gateway, seconds, enabled
 ):
     h = gateway
-    tool = await _tool(_context(h.client, seconds=seconds, enabled=enabled))
+    tool = await _tool(_context(h, seconds=seconds, enabled=enabled))
     assert (await tool(query="最近一周游戏运营情况", domain="game")).state == (
         ToolResultState.SUCCESS
     )
@@ -165,9 +178,9 @@ async def test_builder_binds_page_timeout_and_preserves_health(
 
 async def test_concurrent_runs_and_next_turn_do_not_overwrite_timeouts(gateway):
     h = gateway
-    old_tool = await _tool(_context(h.client, seconds=90))
-    next_tool = await _tool(_context(h.client, seconds=1800))
-    disabled_tool = await _tool(_context(h.client, enabled=False))
+    old_tool = await _tool(_context(h, seconds=90))
+    next_tool = await _tool(_context(h, seconds=1800))
+    disabled_tool = await _tool(_context(h, enabled=False))
     h.requests.calls.clear()
     h.requests.release.clear()
 
@@ -199,7 +212,7 @@ async def test_concurrent_runs_and_next_turn_do_not_overwrite_timeouts(gateway):
 
 async def test_failure_diagnostic_keeps_health_timeout(gateway):
     h = gateway
-    tool = await _tool(_context(h.client, enabled=False))
+    tool = await _tool(_context(h, enabled=False))
     h.requests.calls.clear()
     h.requests.fail_tool = True
 
@@ -212,7 +225,7 @@ async def test_failure_diagnostic_keeps_health_timeout(gateway):
 
 async def test_page_timeout_still_cancels_the_tool_call(gateway):
     h = gateway
-    context = _context(h.client, seconds=0.05)
+    context = _context(h, seconds=0.05)
     tool = await _tool(context)
     h.requests.release.clear()
 
