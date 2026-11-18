@@ -43,7 +43,7 @@ def test_discover_builtin_skills_from_package() -> None:
         item.src_dir.relative_to(skill_root).as_posix() for item in skills
     }
 
-    assert len(skills) == 32
+    assert len(skills) == 31
     assert relative_paths >= {
         "meta/skill-hub-guide",
         "workflows/fetch-data",

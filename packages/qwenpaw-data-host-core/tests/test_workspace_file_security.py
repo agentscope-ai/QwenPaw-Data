@@ -4,7 +4,7 @@ import os
 import pytest
 
 from qwenpaw_data.host.core.api.routers.artifact import resolve_session_file
-from qwenpaw_data.host.core.api.workspace_file import open_resolved_workspace_file
+from qwenpaw_data.host.core.utils.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.api.pinned_file_response import PinnedFileResponse
 
 

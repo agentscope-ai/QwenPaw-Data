@@ -72,8 +72,9 @@ class _CronJobParams(BaseModel):
     attachment_filenames: list[str] | None = Field(
         default=None,
         description=(
-            "从当前对话拷到任务的附件文件名（uploads/{session_id}/ 下的文件名，不含目录）。"
-            "可选，必须是当前 Session 已上传的文件。"
+            "从当前会话拷到任务的文件。可写当前对话附件 uploads/{session_id}/x"
+            "（也可只写文件名），或当前会话产物 artifacts/{session_id}/...。"
+            "路径相对 workspace 根目录。落盘名取最后一段，任务目录里不能已有同名文件。"
         ),
     )
     target_external_key: str | None = Field(
@@ -108,8 +109,10 @@ class CronJobTool(ToolBase):
         "session_policy 默认 reuse（首次触发才建会话）；new_each_run 每次新建。"
         "不填 channel 就是 console；IM（feishu / dingtalk / wecom / wechat）"
         "先 list_targets 再带上 target_external_key。"
-        "attachment_filenames 可选，按文件名拷当前对话附件到任务，每次触发都会带上；"
-        "用户要求带上附件时必填，文件名取自用户消息里的附件路径。"
+        "attachment_filenames 可选，拷当前会话文件到任务，每次触发都会带上。"
+        "用户上传附件写 uploads/{session_id}/文件名，或只写文件名；"
+        "当前会话产物写 artifacts/{session_id}/...，路径相对 workspace 根目录，"
+        "落盘名取最后一段。用户要求带上附件时必填。"
         "action 必填："
         "list 列出全部任务，不用其他参数；"
         "list_targets 列出该 channel 可推送的群/人，必填 channel；"
@@ -259,15 +262,15 @@ class CronJobTool(ToolBase):
         job_id: str,
         params: _CronJobParams,
     ) -> dict[str, Any] | None:
-        names = [
+        entries = [
             item.strip() for item in (params.attachment_filenames or []) if item.strip()
         ]
-        if not names:
+        if not entries:
             return None
         await JobFiles(self._run_context.identity, job_id).copy_from_session(
             db,
             session_id=self._run_context.session_id,
-            filenames=names,
+            entries=entries,
         )
         return await repo.get(job_id)
 

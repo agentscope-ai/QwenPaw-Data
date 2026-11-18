@@ -20,7 +20,7 @@ from qwenpaw_data.host.core.api.models.artifact import (
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.api.errors import map_domain_error, raise_api
 from qwenpaw_data.host.core.api.pinned_file_response import PinnedFileResponse
-from qwenpaw_data.host.core.api.workspace_file import open_resolved_workspace_file
+from qwenpaw_data.host.core.utils.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.integrations.oss import get_oss_store
 from qwenpaw_data.host.core.tracing.records import artifact_chat_id, tracer_record_behavior
 from qwenpaw_data.host.core.paths import UserAgentPaths

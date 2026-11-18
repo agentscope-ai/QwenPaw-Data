@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import shutil
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,8 @@ from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.settings import get_settings
-from qwenpaw_data.host.core.utils.files import write_file_to_dir
+from qwenpaw_data.host.core.utils.files import MAX_SIZE_BYTES, write_file_to_dir
+from qwenpaw_data.host.core.utils.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.utils.safe_name import require_safe_name
 
 
@@ -62,28 +63,51 @@ class JobFiles:
         db: AsyncSession,
         *,
         session_id: str,
-        filenames: list[str],
+        entries: list[str],
     ) -> list[str]:
         from qwenpaw_data.host.core.repositories.attachment import AttachmentRepository
         from qwenpaw_data.host.core.repositories.session import SessionRepository
 
         source = await SessionRepository(db, self._identity).get(session_id)
-        workspace = UserAgentPaths.from_identity(
-            home=get_settings().paths.home,
+        paths = UserAgentPaths.from_identity(
+            home=self._home,
             identity=self._identity,
             agent_id=source.agent_id,
             session_id=source.id,
-        ).workspace
+        )
         repo = AttachmentRepository(db, self._identity)
         names: list[str] = []
-        for filename in filenames:
-            attachment = await repo.find_by_filename(source.id, filename)
-            if attachment is None:
-                raise LookupError(
-                    f"attachment not found in current session: {filename}"
-                )
-            data = attachment.require_file(workspace).read_bytes()
-            names.append(self.add(attachment.filename, data))
+        try:
+            for entry in entries:
+                parts = entry.replace("\\", "/").split("/")
+                if any(p in {"", ".", ".."} or ":" in p or PureWindowsPath(p).is_reserved() for p in parts):
+                    raise ValueError("attachment path escapes the current session")
+                if len(parts) == 1 or (len(parts) == 3 and parts[:2] == ["uploads", source.id]):
+                    name = parts[-1]
+                    attachment = await repo.find_by_filename(source.id, name)
+                    if attachment is None:
+                        raise LookupError(f"attachment not found in current session: {name}")
+                    candidate = attachment.require_file(paths.workspace)
+                    root = paths.uploads_dir
+                elif len(parts) >= 3 and parts[:2] == ["artifacts", source.id]:
+                    root = paths.artifact_dir
+                    candidate = root.joinpath(*parts[2:])
+                    name = parts[-1]
+                else:
+                    raise ValueError("attachment path is outside the current session")
+                if root.resolve() != root:
+                    raise ValueError("attachment path escapes the current session")
+                try:
+                    with open_resolved_workspace_file(root, candidate) as stream:
+                        data = stream.read(MAX_SIZE_BYTES + 1)
+                except OSError:
+                    raise LookupError(f"file unavailable in current session: {name}") from None
+                names.append(self.add(name, data))
+        except BaseException:
+            # Roll back only files exclusively created by this copy, not older attachments.
+            for name in names:
+                self.remove(name)
+            raise
         return names
 
     async def copy_to_session(

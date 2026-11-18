@@ -20,8 +20,10 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -50,14 +52,15 @@ cli = _load_cli_module()
 
 def test_pinned_https_requires_tls12_and_preserves_hostname(monkeypatch):
     from unittest.mock import Mock
+    from rr import parse
 
     context = Mock()
     socket = Mock()
-    monkeypatch.setattr(cli.socket, "create_connection", Mock(return_value=socket))
-    monkeypatch.setattr(cli.ssl, "create_default_context", Mock(return_value=context))
-    connection = cli._PinnedHTTPSConnection("example.com", "93.184.216.34", 443)
+    monkeypatch.setattr(parse.socket, "create_connection", Mock(return_value=socket))
+    monkeypatch.setattr(parse.ssl, "create_default_context", Mock(return_value=context))
+    connection = parse._PinnedHTTPSConnection("example.com", "93.184.216.34", 443)
     connection.connect()
-    assert context.minimum_version == cli.ssl.TLSVersion.TLSv1_2
+    assert context.minimum_version == parse.ssl.TLSVersion.TLSv1_2
     context.wrap_socket.assert_called_once_with(socket, server_hostname="example.com")
 
 GOLD_REPORT = """# 2026年8月经营周报
@@ -333,7 +336,7 @@ def test_a_failure_is_json_on_stdout_and_never_a_traceback(
             str(workspace.artifact_dir),
             "--chat-id",
             "c",
-            "compile-report",
+            "status",
         ],
         capture_output=True,
         text=True,
@@ -368,13 +371,13 @@ def test_loading_the_cli_does_not_import_the_comparison_kernel() -> None:
     ["a/b", "..", "chat id", "chat\x00id", "会话-1"],
 )
 def test_chat_id_outside_the_whitelist_is_rejected(run, chat_id: str) -> None:
-    code, payload = run("compile-report", chat_id=chat_id)
+    code, payload = run("status", chat_id=chat_id)
     assert code == cli.EXIT_ERROR
     assert "--chat-id" in payload["error"]
 
 
 def test_an_overlong_chat_id_is_rejected(run) -> None:
-    code, payload = run("compile-report", chat_id="c" * (cli.CHAT_ID_MAX_LENGTH + 1))
+    code, payload = run("status", chat_id="c" * (cli.CHAT_ID_MAX_LENGTH + 1))
     assert code == cli.EXIT_ERROR
     assert "--chat-id" in payload["error"]
 
@@ -627,27 +630,6 @@ def test_one_chat_runs_exactly_one_target_period(workspace: Workspace, run) -> N
     )
     assert code == cli.EXIT_ERROR
     assert "目标周期" in payload["error"]
-
-
-def test_a_run_chat_may_not_compile_the_baseline(workspace: Workspace, run) -> None:
-    _freeze_baseline(workspace, run)
-    assert (
-        run("prepare-run", "--period", "202609", chat_id="chat-run")[0] == cli.EXIT_OK
-    )
-
-    code, payload = run("compile-report", chat_id="chat-run")
-    assert code == cli.EXIT_ERROR
-    assert "目标周期执行开始之前" in payload["error"]
-
-    code, payload = run("compile-report", "--run-period", "202609", chat_id="chat-run")
-    assert code == cli.EXIT_OK, payload
-
-
-def test_compiling_a_period_requires_a_prepared_run(workspace: Workspace, run) -> None:
-    approve_first_two(workspace, run)
-    code, payload = run("compile-report", "--run-period", "202609", chat_id="chat-x")
-    assert code == cli.EXIT_ERROR
-    assert "prepare-run" in payload["error"]
 
 
 def _freeze_baseline(workspace: Workspace, run) -> list[str]:
@@ -2091,85 +2073,17 @@ def test_check_run_needs_a_prepared_period(workspace: Workspace, run) -> None:
     assert "prepare-run" in payload["error"]
 
 
-# --- compile-report -----------------------------------------------------------
+# --- removed commands ---------------------------------------------------------
 
 
-def test_compile_report_merges_the_baseline_and_indexes_the_offsets(
-    workspace: Workspace, run
-) -> None:
-    approve_first_two(workspace, run)
+def test_removed_commands_fail_in_chinese(workspace: Workspace, run) -> None:
     code, payload = run("compile-report", chat_id="chat-final")
-    assert code == cli.EXIT_OK
-    assert payload["scope"] == "baseline"
-    assert payload["report_path"] == f"{cli.PRODUCT_DIR}/report.md"
-
-    document = (workspace.product_root / "report.md").read_text(encoding="utf-8")
-    assert payload["character_count"] == len(document)
-    assert document.startswith("# 2026年8月经营周报")
-    for entry in payload["sections"]:
-        assert entry["status"] == "approved"
-        chunk = document[entry["offset"] : entry["offset"] + entry["length"]]
-        assert chunk.startswith(f"## {entry['title']}")
-
-
-def test_compile_report_skips_a_section_without_a_draft(
-    workspace: Workspace, run
-) -> None:
-    first, second = parse(workspace, run)
-    run(
-        "update-section",
-        "--section-id",
-        first,
-        "--content",
-        FIRST_DRAFT,
-        chat_id="chat-s1",
-    )
-    code, payload = run("compile-report", chat_id="chat-final")
-    assert code == cli.EXIT_OK
-    assert [entry["section_id"] for entry in payload["sections"]] == [first]
-    assert second not in {entry["section_id"] for entry in payload["sections"]}
-
-
-def test_compile_report_keeps_the_run_document_apart_from_the_baseline(
-    workspace: Workspace, run
-) -> None:
-    sections = _freeze_baseline_with(workspace, run, second_query=False)
-    run("prepare-run", "--period", "202609", chat_id="chat-run")
-    run(
-        "update-section",
-        "--section-id",
-        sections[0],
-        "--run-period",
-        "202609",
-        "--content",
-        "## 一、总体概览\n\n本月实现营业收入 1300.0 万元。\n",
-        chat_id="chat-run",
-    )
-    assert run("compile-report", chat_id="chat-final")[0] == cli.EXIT_OK
-
-    code, payload = run("compile-report", "--run-period", "202609", chat_id="chat-run")
-    assert code == cli.EXIT_OK
-    assert payload["scope"] == "run"
-    assert payload["report_path"] == f"{cli.PRODUCT_DIR}/runs/202609/report.md"
-
-    run_document = (workspace.product_root / "runs" / "202609" / "report.md").read_text(
-        encoding="utf-8"
-    )
-    baseline_document = (workspace.product_root / "report.md").read_text(
-        encoding="utf-8"
-    )
-    assert "1300.0" in run_document
-    assert "1300.0" not in baseline_document
-    assert "1234.5" in baseline_document
-
-
-def test_compile_report_is_stable_when_rerun(workspace: Workspace, run) -> None:
-    approve_first_two(workspace, run)
-    run("compile-report", chat_id="chat-final")
-    first = (workspace.product_root / "report.md").read_bytes()
-    code, payload = run("compile-report", chat_id="chat-final2")
-    assert code == cli.EXIT_OK
-    assert (workspace.product_root / "report.md").read_bytes() == first
+    assert code == cli.EXIT_ERROR
+    assert "已移除" in payload["error"]
+    code, payload = run("schedule-descriptor", chat_id="chat-final")
+    assert code == cli.EXIT_ERROR
+    assert "已移除" in payload["error"]
+    assert set(payload) == {"ok", "error"}
 
 
 # --- schedule-descriptor ------------------------------------------------------
@@ -2197,49 +2111,6 @@ def test_freeze_recipe_writes_schedule_descriptor_inline(
     assert payload["recipe_hash"] == stored["recipe_hash"]
     assert payload["period"] == stored["period"]
     assert payload["schedule_parameters"] == stored["parameters"]
-
-
-def test_schedule_descriptor_freezes_and_maps_the_period_parameters(
-    workspace: Workspace, run
-) -> None:
-    _freeze_baseline_with(workspace, run, second_query=True)
-    code, payload = run("schedule-descriptor", chat_id="chat-final")
-    assert code == cli.EXIT_OK
-    assert payload["descriptor_path"] == (f"{cli.PRODUCT_DIR}/schedule_descriptor.json")
-
-    recipe_bytes = (workspace.product_root / "recipe.json").read_bytes()
-    assert payload["recipe_hash"] == hashlib.sha256(recipe_bytes).hexdigest()
-    assert payload["period"] == {
-        "unit": "month",
-        "offset": -1,
-        "window_size": 1,
-        "label_format": "%Y%m",
-    }
-    assert payload["parameters"] == {
-        "start_date": "${window_start:%Y%m%d}",
-        "end_date": "${period_end:%Y%m%d}",
-        "channel_month": "${period:%Y%m}",
-    }
-    stored = json.loads(
-        (workspace.product_root / "schedule_descriptor.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert stored["report_id"] == payload["report_id"]
-    assert stored["title"] == "2026年8月经营周报"
-
-
-def test_schedule_descriptor_freezes_a_recipe_that_is_not_frozen_yet(
-    workspace: Workspace, run
-) -> None:
-    sections = approve_first_two(workspace, run)
-    workspace.add_query(sections[0], "revenue.sql", REVENUE_SQL)
-    assert not (workspace.product_root / "recipe.json").exists()
-
-    code, payload = run("schedule-descriptor", chat_id="chat-final")
-    assert code == cli.EXIT_OK
-    assert payload["recipe_hash"]
-    assert (workspace.product_root / "recipe.json").is_file()
 
 
 def test_schedule_descriptor_maps_week_slots_by_position(
@@ -2446,7 +2317,7 @@ def test_a_legacy_session_is_migrated_on_first_load(
     workspace: Workspace, run, schema_version: int
 ) -> None:
     _build_legacy_session(workspace, schema_version=schema_version)
-    code, payload = run("compile-report", chat_id="chat-migrate")
+    code, payload = run("status", chat_id="chat-migrate")
     assert code == cli.EXIT_OK, payload
 
     manifest = workspace.manifest()
@@ -2474,7 +2345,7 @@ def test_migration_keeps_the_verdict_and_names_the_reviewer(
     workspace: Workspace, run
 ) -> None:
     _build_legacy_session(workspace, schema_version=2)
-    assert run("compile-report", chat_id="chat-migrate")[0] == cli.EXIT_OK
+    assert run("status", chat_id="chat-migrate")[0] == cli.EXIT_OK
 
     stored = workspace.comparison_of(LEGACY_SECTION_ID)
     assert stored["passed_with_review"] is True
@@ -2506,7 +2377,7 @@ def test_migration_rebases_a_run_that_was_already_prepared(
 ) -> None:
     """A run prepared before the migration must still be usable after it."""
     _build_legacy_session(workspace, schema_version=2)
-    assert run("compile-report", chat_id="chat-migrate")[0] == cli.EXIT_OK
+    assert run("status", chat_id="chat-migrate")[0] == cli.EXIT_OK
 
     revision = workspace.manifest()["revision"]
     assert revision > 7
@@ -2548,7 +2419,7 @@ def test_migration_rebases_a_run_that_was_already_prepared(
 
 def test_migration_happens_once(workspace: Workspace, run) -> None:
     _build_legacy_session(workspace, schema_version=2)
-    run("compile-report", chat_id="chat-migrate")
+    run("status", chat_id="chat-migrate")
     revision = workspace.manifest()["revision"]
     backup = (
         workspace.product_root
@@ -2558,7 +2429,7 @@ def test_migration_happens_once(workspace: Workspace, run) -> None:
         / "validation.json.bak"
     ).read_bytes()
 
-    code, payload = run("compile-report", chat_id="chat-migrate2")
+    code, payload = run("status", chat_id="chat-migrate2")
     assert code == cli.EXIT_OK
     assert workspace.manifest()["revision"] == revision
     assert (
@@ -2582,7 +2453,7 @@ def test_a_corrupt_legacy_verdict_aborts_the_migration(
         / "validation.json"
     ).write_text("{ not json", encoding="utf-8")
 
-    code, payload = run("compile-report", chat_id="chat-migrate")
+    code, payload = run("status", chat_id="chat-migrate")
     assert code == cli.EXIT_ERROR
     assert "迁移中止" in payload["error"]
     # The manifest is left at the version it was found at.
@@ -2601,7 +2472,7 @@ def test_a_legacy_verdict_that_is_not_an_object_aborts_the_migration(
         / "validation.json"
     ).write_text("[1, 2]", encoding="utf-8")
 
-    code, payload = run("compile-report", chat_id="chat-migrate")
+    code, payload = run("status", chat_id="chat-migrate")
     assert code == cli.EXIT_ERROR
     assert "迁移中止" in payload["error"]
     assert workspace.manifest()["schema_version"] == 2
@@ -2612,7 +2483,7 @@ def test_a_corrupt_manifest_is_reported_not_crashed(workspace: Workspace, run) -
     (workspace.product_root / cli.MANIFEST_FILE).write_text(
         "{ broken", encoding="utf-8"
     )
-    code, payload = run("compile-report", chat_id="chat-x")
+    code, payload = run("status", chat_id="chat-x")
     assert code == cli.EXIT_ERROR
     assert cli.MANIFEST_FILE in payload["error"]
 
@@ -2622,7 +2493,7 @@ def test_a_manifest_that_is_not_an_object_is_reported(
 ) -> None:
     workspace.product_root.mkdir(parents=True)
     (workspace.product_root / cli.MANIFEST_FILE).write_text("[]", encoding="utf-8")
-    code, payload = run("compile-report", chat_id="chat-x")
+    code, payload = run("status", chat_id="chat-x")
     assert code == cli.EXIT_ERROR
     assert "JSON 对象" in payload["error"]
 
@@ -2645,3 +2516,899 @@ def test_a_corrupt_turn_file_does_not_break_the_session(
     )
     assert code == cli.EXIT_OK, payload
     assert json.loads(turn.read_text(encoding="utf-8"))["section_id"] == first
+
+
+# --- scheduled reproduction ---------------------------------------------------
+
+
+FORMAT_SPEC = {
+    "source_css": "body { color: #111; }",
+    "source": {"path": "source/original.md", "evidence": {"sample": "1234.5"}},
+    "dom_contract": {"headings": True},
+}
+
+
+def _cron(workspace: Workspace, capsys, *argv: str, chat_id: str = "chat-cron"):
+    try:
+        returned = cli.main(
+            [
+                "--artifact-dir",
+                str(workspace.artifact_dir),
+                "--chat-id",
+                chat_id,
+                *argv,
+            ]
+        )
+        code = cli.EXIT_OK if returned is None else int(returned)
+    except SystemExit as excitation:
+        code = int(excitation.code or 0)
+    captured = capsys.readouterr()
+    return code, json.loads(captured.out)
+
+
+def _prepare_export(workspace: Workspace, run) -> list[str]:
+    sections = _freeze_baseline_with(workspace, run, second_query=True)
+    first, second = sections
+    (workspace.product_root / "sections" / first / "compute").mkdir()
+    (workspace.product_root / "sections" / first / "compute" / "adjust.py").write_text(
+        "def adjust(rows):\n    return rows\n", encoding="utf-8"
+    )
+    code, payload = run("freeze-recipe", chat_id="chat-refreeze")
+    assert code == cli.EXIT_OK, payload
+    recipe = json.loads(
+        (workspace.product_root / "recipe.json").read_text(encoding="utf-8")
+    )
+    assert recipe["computes"][0]["path"].endswith("compute/adjust.py")
+    draft = workspace.product_root / "sections" / first / "baseline" / "draft.md"
+    draft.write_text(
+        FIRST_DRAFT
+        + "\n## 复现差异与数据缺口说明\n\n- 【数仓缺口】缺少退款标记。本期沿用全量，不得自行补数。\n"
+        + "\n## 1.1 补充\n\n1. 列表仍在\n\n统计周期 2026年8月\n",
+        encoding="utf-8",
+    )
+    (workspace.product_root / "sections" / first / "spec.json").write_text(
+        json.dumps(
+            {
+                "metric_definitions": [{"text": "营业收入", "provenance": "重算"}],
+                "required_data": ["orders"],
+                "success_criteria": ["收入已给出"],
+                "markdown_outline": ["总体"],
+                "context": "原文摘录 1234.5",
+                "inferred_questions": ["收入是多少"],
+                "provenance_basis": "旧字段",
+                "run_guards": [
+                    {
+                        "id": "S1.G1",
+                        "rule": "不得用上月分区冒充本月",
+                        "why": "分区错会静默通过",
+                        "provenance": "用户确认",
+                    }
+                ],
+                "datasource": "经营数仓",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (workspace.product_root / "sections" / second / "spec.json").write_text(
+        json.dumps(
+            {
+                "metric_definitions": [
+                    {"text": "渠道收入含税", "provenance": "用户确认"}
+                ],
+                "required_data": ["orders"],
+                "success_criteria": [{"id": "S2.1", "text": "渠道已拆开"}],
+                "markdown_outline": ["渠道"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (workspace.product_root / "format_spec.json").write_text(
+        json.dumps(FORMAT_SPEC, ensure_ascii=False), encoding="utf-8"
+    )
+    return sections
+
+
+def test_export_reference_keeps_only_the_next_run(workspace: Workspace, run) -> None:
+    sections = _prepare_export(workspace, run)
+    out = workspace.artifact_dir / "report-reproduction-export"
+    code, payload = run(
+        "export-reference",
+        "--note",
+        "首版定时参考",
+        "--baseline-period",
+        "202608",
+        chat_id="chat-export",
+    )
+    assert code == cli.EXIT_OK, payload
+    assert payload["command"] == "export-reference"
+    assert payload["result"]["baseline_period"] == "202608"
+    reference = out / "reference"
+    names = sorted(
+        path.relative_to(reference).as_posix()
+        for path in reference.rglob("*")
+        if path.is_file()
+    )
+    assert names == sorted(
+        [
+            "REFERENCE.json",
+            "recipe.json",
+            "format_spec.json",
+            f"sections/{sections[0]}/spec.json",
+            f"sections/{sections[0]}/exemplar.md",
+            f"sections/{sections[0]}/queries/revenue.sql",
+            f"sections/{sections[0]}/compute/adjust.py",
+            f"sections/{sections[1]}/spec.json",
+            f"sections/{sections[1]}/exemplar.md",
+            f"sections/{sections[1]}/queries/channel.sql",
+            f"sections/{sections[1]}/queries/revenue.sql",
+        ]
+    )
+    slim = json.loads(
+        (reference / "sections" / sections[0] / "spec.json").read_text(encoding="utf-8")
+    )
+    assert "context" not in slim and "inferred_questions" not in slim
+    assert "provenance_basis" not in slim
+    assert slim["success_criteria"] == [{"id": "S1.1", "text": "收入已给出"}]
+    assert slim["run_guards"][0]["id"] == "S1.G1"
+    exported_format = json.loads(
+        (reference / "format_spec.json").read_text(encoding="utf-8")
+    )
+    assert exported_format["source_css"]
+    assert "source" not in exported_format
+    recipe = json.loads((reference / "recipe.json").read_text(encoding="utf-8"))
+    assert "status" not in json.dumps(recipe["sections"])
+    assert recipe["datasource"] == "经营数仓"
+    assert recipe["probe_tables"] == ["orders"]
+    assert recipe["schedule"]["period"]["unit"] == "month"
+    exemplar = (reference / "sections" / sections[0] / "exemplar.md").read_text(
+        encoding="utf-8"
+    )
+    for number in ("1234.5", "12.3", "8900"):
+        assert number not in exemplar
+    assert "〔数〕" in exemplar
+    assert "1.1" in exemplar
+    assert "1. 列表仍在" in exemplar
+    assert "2026年8月" in exemplar
+    document = json.loads((reference / "REFERENCE.json").read_text(encoding="utf-8"))
+    assert document["contract_version"] == 1
+    assert document["note"] == "首版定时参考"
+    assert "contract_version" not in document["prompt"]
+    assert "定时执行指令" in document["prompt"]
+    assert (
+        "严格按既有管线执行，不要重新设计口径，不要询问，一路执行到报告产出。直接使用脚本，非必要无需安装依赖。"
+        in document["prompt"]
+    )
+    assert "## 4. 必守规则" in document["prompt"]
+    assert "## 5. 已知缺口" in document["prompt"]
+    assert "1234.5" not in document["prompt"]
+    assert (
+        document["recipe_hash"]
+        == hashlib.sha256((reference / "recipe.json").read_bytes()).hexdigest()
+    )
+    for relative, digest in document["files"].items():
+        assert hashlib.md5((reference / relative).read_bytes()).hexdigest() == digest
+    seed_files = sorted(
+        path.relative_to(out / "seed").as_posix()
+        for path in (out / "seed").rglob("*")
+        if path.is_file()
+    )
+    assert seed_files == sorted(
+        [
+            "STATE.json",
+            f"sections/{sections[0]}/runs/202608/data/revenue.csv",
+            f"sections/{sections[1]}/runs/202608/data/revenue.csv",
+        ]
+    )
+    state = json.loads((out / "seed" / "STATE.json").read_text(encoding="utf-8"))
+    assert state["last_period"] == "202608"
+    assert state["history"] == [{"period": "202608", "status": "delivered"}]
+    prompt = document["prompt"]
+    assert "publish_reference" not in prompt
+    assert f"report-reproduction-cron/reference/{document['recipe_hash']}" in prompt
+    assert "install-reference" in prompt
+    assert "--artifact-dir" in prompt and "--chat-id" in prompt
+    result = payload["result"]
+    assert result["cron_job"] == {
+        "session_policy": "reuse",
+        "attachment_filenames": [result["bundle_path"]],
+        "channel": "console",
+    }
+    bundle = workspace.root / result["bundle_path"]
+    assert bundle.name == f"rr-bundle-{document['recipe_hash'][:12]}.zip"
+    assert bundle.stat().st_size <= 20 * 1024 * 1024
+    with zipfile.ZipFile(bundle) as archive:
+        names = set(archive.namelist())
+    assert "reference/REFERENCE.json" in names
+    assert "reference/recipe.json" in names
+    assert "seed/STATE.json" in names
+    assert "cron_message.md" not in names
+    assert (out / "cron_message.md").read_text(encoding="utf-8") == prompt
+
+
+def test_prompt_omits_empty_rule_and_gap_sections() -> None:
+    from rr.export import render_prompt
+    from rr.models import RunRecipe
+
+    recipe = RunRecipe.model_validate(
+        {
+            "report_id": "r",
+            "title": "空规则报告",
+            "sections": [{"section_id": "s", "title": "总览", "blocked_by": []}],
+            "schedule": {
+                "period": {
+                    "unit": "month",
+                    "offset": -1,
+                    "window_size": 1,
+                    "label_format": "%Y%m",
+                },
+                "parameters": {},
+            },
+            "datasource": "",
+            "probe_tables": [],
+        }
+    )
+    prompt = render_prompt(recipe, {"s": {}}, {"s": "没有缺口块\n"})
+    assert "## 4." not in prompt
+    assert "## 5." not in prompt
+    assert "沿用当前会话数据源" in prompt
+    assert prompt.index("## 3. 章节") < prompt.index("## 6. 最终回复")
+
+
+def test_export_refuses_an_empty_stylesheet(workspace: Workspace, run) -> None:
+    _prepare_export(workspace, run)
+    (workspace.product_root / "format_spec.json").write_text(
+        json.dumps({"source_css": "  "}), encoding="utf-8"
+    )
+    code, payload = run(
+        "export-reference",
+        "--out",
+        str(workspace.artifact_dir / "report-reproduction-export"),
+        "--note",
+        "缺样式",
+        "--baseline-period",
+        "202608",
+        chat_id="chat-export",
+    )
+    assert code == cli.EXIT_ERROR
+    assert "source_css" in payload["error"]
+
+
+def _install_cron(workspace: Workspace, run) -> tuple[Path, Path, list[str]]:
+    """Export a bundle, stage it as a session upload, and install it."""
+    sections = _prepare_export(workspace, run)
+    out = workspace.artifact_dir / "report-reproduction-export"
+    code, payload = run(
+        "export-reference",
+        "--out",
+        str(out),
+        "--note",
+        "首版定时参考",
+        "--baseline-period",
+        "202608",
+        chat_id="chat-export",
+    )
+    assert code == cli.EXIT_OK, payload
+    bundle = workspace.root / payload["bundle_path"]
+    uploads = workspace.root / "uploads" / workspace.artifact_dir.name
+    uploads.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundle, uploads / bundle.name)
+    code, installed = run(
+        "install-reference",
+        "--recipe-hash",
+        payload["recipe_hash"],
+        "--work-dir",
+        "report-reproduction-cron",
+        chat_id="chat-cron",
+    )
+    assert code == cli.EXIT_OK, installed
+    reference = workspace.artifact_dir / installed["reference_dir"]
+    work = workspace.artifact_dir / installed["work_dir"]
+    return reference, work, sections
+
+
+def test_export_reference_rejects_an_oversized_bundle(
+    workspace: Workspace, run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rr import export
+
+    _prepare_export(workspace, run)
+    monkeypatch.setattr(export, "BUNDLE_LIMIT_BYTES", 1)
+    out = workspace.artifact_dir / "report-reproduction-export"
+    code, payload = run(
+        "export-reference",
+        "--out",
+        str(out),
+        "--note",
+        "太大",
+        "--baseline-period",
+        "202608",
+        chat_id="chat-export",
+    )
+    assert code == cli.EXIT_ERROR
+    assert "20MB" in payload["error"]
+    assert list(out.glob("rr-bundle-*.zip")) == []
+
+
+def test_export_reference_refuses_an_output_outside_the_artifact_dir(
+    workspace: Workspace, run
+) -> None:
+    _prepare_export(workspace, run)
+    code, payload = run(
+        "export-reference",
+        "--out",
+        str(workspace.root / "exported"),
+        "--note",
+        "越界",
+        "--baseline-period",
+        "202608",
+        chat_id="chat-export",
+    )
+    assert code == cli.EXIT_ERROR
+    assert "产物目录" in payload["error"]
+
+
+def test_install_reference_selects_the_bundle_by_hash(
+    workspace: Workspace, run
+) -> None:
+    _prepare_export(workspace, run)
+    out = workspace.artifact_dir / "report-reproduction-export"
+    code, payload = run(
+        "export-reference",
+        "--out",
+        str(out),
+        "--note",
+        "首版定时参考",
+        "--baseline-period",
+        "202608",
+        chat_id="chat-export",
+    )
+    assert code == cli.EXIT_OK, payload
+    recipe_hash = payload["recipe_hash"]
+    bundle = workspace.root / payload["bundle_path"]
+    uploads = workspace.root / "uploads" / workspace.artifact_dir.name
+    uploads.mkdir(parents=True)
+    renamed = uploads / "cron-deadbeef-1.zip"
+    shutil.copy2(bundle, renamed)
+    decoy = uploads / "rr-bundle-000000000000.zip"
+    with zipfile.ZipFile(decoy, "w") as archive:
+        archive.writestr(
+            "reference/REFERENCE.json",
+            json.dumps({"recipe_hash": "0" * 64}),
+        )
+    code, installed = run(
+        "install-reference",
+        "--recipe-hash",
+        recipe_hash,
+        "--work-dir",
+        "report-reproduction-cron",
+        chat_id="chat-cron",
+    )
+    assert code == cli.EXIT_OK, installed
+    assert installed["bundle"] == renamed.name
+    assert installed["seeded"] is True
+    assert (workspace.artifact_dir / installed["reference_dir"]).is_dir()
+
+
+def test_install_reference_rejects_zip_slip(workspace: Workspace, run) -> None:
+    bundle = workspace.artifact_dir / "evil.zip"
+    with zipfile.ZipFile(bundle, "w") as archive:
+        archive.writestr(
+            "reference/REFERENCE.json",
+            json.dumps({"recipe_hash": "a" * 64, "contract_version": 1, "files": {}}),
+        )
+        archive.writestr("reference/../../outside.txt", "nope")
+    code, payload = run(
+        "install-reference",
+        "--recipe-hash",
+        "a" * 64,
+        "--work-dir",
+        "report-reproduction-cron",
+        "--bundle",
+        bundle.name,
+        chat_id="chat-cron",
+    )
+    assert code == cli.EXIT_ERROR
+    assert "越界" in payload["error"]
+    assert not (workspace.artifact_dir.parent / "outside.txt").exists()
+    assert not (workspace.root / "outside.txt").exists()
+
+
+def test_install_reference_does_not_overwrite_an_advanced_state(
+    workspace: Workspace, run
+) -> None:
+    reference, work, _sections = _install_cron(workspace, run)
+    state_path = work / "STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["last_period"] = "202609"
+    state["history"].append({"period": "202609", "status": "delivered"})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    recipe_hash = json.loads(
+        (reference / "REFERENCE.json").read_text(encoding="utf-8")
+    )["recipe_hash"]
+    code, installed = run(
+        "install-reference",
+        "--recipe-hash",
+        recipe_hash,
+        "--work-dir",
+        "report-reproduction-cron",
+        chat_id="chat-cron",
+    )
+    assert code == cli.EXIT_OK, installed
+    assert installed["seeded"] is False
+    kept = json.loads(state_path.read_text(encoding="utf-8"))
+    assert kept["last_period"] == "202609"
+    assert kept["history"][-1]["period"] == "202609"
+
+
+def test_relative_cron_paths_resolve_under_the_artifact_dir(
+    workspace: Workspace, run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reference, work, _sections = _install_cron(workspace, run)
+    assert work == workspace.artifact_dir / "report-reproduction-cron"
+    recipe_hash = json.loads(
+        (reference / "REFERENCE.json").read_text(encoding="utf-8")
+    )["recipe_hash"]
+    assert reference == work / "reference" / recipe_hash
+    code, payload = _cron(
+        workspace,
+        capsys,
+        "--reference-dir",
+        f"report-reproduction-cron/reference/{recipe_hash}",
+        "--work-dir",
+        "report-reproduction-cron",
+        "plan-run",
+        "--run-date",
+        "2026-10-15",
+    )
+    assert code == cli.EXIT_OK, payload
+    assert payload["status"] == "OK"
+    assert payload["period"] == "202609"
+
+
+def test_cron_mode_is_read_only_and_runs_a_period(
+    workspace: Workspace, run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reference, work, sections = _install_cron(workspace, run)
+    before = {
+        path.relative_to(reference).as_posix(): hashlib.md5(
+            path.read_bytes()
+        ).hexdigest()
+        for path in reference.rglob("*")
+        if path.is_file()
+    }
+    for path in reference.rglob("*"):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    flags = ["--reference-dir", str(reference), "--work-dir", str(work)]
+    try:
+        code, payload = _cron(workspace, capsys, *flags, "parse", "--file", "x")
+        assert code == cli.EXIT_ERROR
+        assert "定时模式" in payload["error"]
+
+        code, payload = _cron(
+            workspace, capsys, *flags, "plan-run", "--run-date", "2026-10-15"
+        )
+        assert code == cli.EXIT_OK, payload
+        assert payload["status"] == "OK"
+        assert payload["period"] == "202609"
+        assert payload["prev_period"] == "202608"
+        assert payload["bindings"]["start_date"] == "20260901"
+        assert payload["bindings"]["end_date"] == "20260930"
+        assert payload["bindings"]["channel_month"] == "202609"
+
+        code, payload = _cron(
+            workspace, capsys, *flags, "prepare-run", "--period", "202609"
+        )
+        assert code == cli.EXIT_OK, payload
+        rendered = (
+            work
+            / "sections"
+            / sections[0]
+            / "runs"
+            / "202609"
+            / "queries"
+            / "revenue.sql"
+        ).read_text(encoding="utf-8")
+        assert "${" not in rendered
+        assert "20260901" in rendered and "20260930" in rendered
+        channel = (
+            work
+            / "sections"
+            / sections[1]
+            / "runs"
+            / "202609"
+            / "queries"
+            / "channel.sql"
+        ).read_text(encoding="utf-8")
+        assert "{{" not in channel and "202609" in channel
+
+        drafts = (
+            "## 一、总体概览\n\n本月营业收入 1300.0 万元。口径来源：重算。\n",
+            "## 二、分渠道拆解\n\n线上 900 万元。口径来源：用户确认。\n",
+        )
+        for section_id, draft, check in (
+            (sections[0], drafts[0], "S1.1"),
+            (sections[1], drafts[1], "S2.1"),
+        ):
+            (work / "sections" / section_id / "runs" / "202609" / "data").mkdir(
+                parents=True, exist_ok=True
+            )
+            (
+                work / "sections" / section_id / "runs" / "202609" / "data" / "rows.csv"
+            ).write_text("value\n1\n", encoding="utf-8")
+            code, payload = _cron(
+                workspace,
+                capsys,
+                *flags,
+                "update-section",
+                "--section-id",
+                section_id,
+                "--run-period",
+                "202609",
+                "--content",
+                draft,
+            )
+            assert code == cli.EXIT_OK, payload
+            code, payload = _cron(
+                workspace,
+                capsys,
+                *flags,
+                "check-run",
+                "--section-id",
+                section_id,
+                "--period",
+                "202609",
+                "--business-check",
+                json.dumps({"name": check, "passed": True, "details": "已核对"}),
+            )
+            assert code == cli.EXIT_OK, payload
+            names = [item["name"] for item in payload["checks"]]
+            assert "criteria_covered" in names
+            assert "no_mask_left" in names
+            assert "rendered_sql_present" in names
+            assert "口径来源披露" in names
+            assert payload["passed"] is True
+
+        (work / "runs" / "202609" / "report.html").write_text(
+            "<html>ok</html>", encoding="utf-8"
+        )
+        code, payload = _cron(
+            workspace, capsys, *flags, "finish-run", "--period", "202609"
+        )
+        assert code == cli.EXIT_OK, payload
+        assert (workspace.artifact_dir / "report.html").read_text(encoding="utf-8")
+        assert (work / "archive" / "202609" / "report.html").is_file()
+        state = json.loads((work / "STATE.json").read_text(encoding="utf-8"))
+        assert state["last_period"] == "202609"
+        assert state["history"][-1] == {"period": "202609", "status": "delivered"}
+        code, payload = _cron(workspace, capsys, *flags, "status", "--period", "202609")
+        assert payload["mode"] == "cron"
+        assert payload["delivered"] is True
+        assert payload["sections"]
+
+        code, payload = _cron(
+            workspace, capsys, *flags, "plan-run", "--run-date", "2026-11-15"
+        )
+        assert payload["status"] == "OK", payload
+        assert payload["period"] == "202610"
+        assert payload["prev_period"] == "202609"
+        code, again = _cron(
+            workspace, capsys, *flags, "plan-run", "--run-date", "2026-10-15"
+        )
+        assert again["status"] == "STOP"
+        assert again["reason"] == "already_delivered"
+        assert "已交付" in again["message"]
+    finally:
+        for path in reference.rglob("*"):
+            path.chmod(0o755 if path.is_dir() else 0o644)
+    after = {
+        path.relative_to(reference).as_posix(): hashlib.md5(
+            path.read_bytes()
+        ).hexdigest()
+        for path in reference.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+
+
+def test_plan_run_stops_on_a_gap_or_a_future_state(
+    workspace: Workspace, run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reference, work, _sections = _install_cron(workspace, run)
+    flags = ["--reference-dir", str(reference), "--work-dir", str(work)]
+    code, payload = _cron(
+        workspace, capsys, *flags, "plan-run", "--run-date", "2026-11-15"
+    )
+    assert code == cli.EXIT_OK, payload
+    assert payload["status"] == "STOP"
+    assert payload["reason"] == "gap"
+    assert "缺口" in payload["message"]
+
+    state_path = work / "STATE.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["last_period"] = "202612"
+    state["history"] = [{"period": "202612", "status": "delivered"}]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    code, payload = _cron(
+        workspace, capsys, *flags, "plan-run", "--run-date", "2026-10-15"
+    )
+    assert payload["status"] == "STOP"
+    assert payload["reason"] == "state_ahead"
+    assert "晚于" in payload["message"]
+
+
+def test_prepare_run_rejects_a_tampered_reference(
+    workspace: Workspace, run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reference, work, sections = _install_cron(workspace, run)
+    sql = reference / "sections" / sections[0] / "queries" / "revenue.sql"
+    sql.write_text(
+        sql.read_text(encoding="utf-8") + "\n-- tampered\n", encoding="utf-8"
+    )
+    code, payload = _cron(
+        workspace,
+        capsys,
+        "--reference-dir",
+        str(reference),
+        "--work-dir",
+        str(work),
+        "prepare-run",
+        "--period",
+        "202609",
+    )
+    assert code == cli.EXIT_ERROR
+    assert "校验失败" in payload["error"]
+
+
+def test_check_run_rejects_a_missing_criterion_and_a_mask(
+    workspace: Workspace, run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reference, work, sections = _install_cron(workspace, run)
+    flags = ["--reference-dir", str(reference), "--work-dir", str(work)]
+    assert (
+        _cron(workspace, capsys, *flags, "prepare-run", "--period", "202609")[0]
+        == cli.EXIT_OK
+    )
+    (work / "sections" / sections[0] / "runs" / "202609" / "data").mkdir(
+        parents=True, exist_ok=True
+    )
+    (
+        work / "sections" / sections[0] / "runs" / "202609" / "data" / "rows.csv"
+    ).write_text("v\n1\n", encoding="utf-8")
+    code, payload = _cron(
+        workspace,
+        capsys,
+        *flags,
+        "update-section",
+        "--section-id",
+        sections[0],
+        "--run-period",
+        "202609",
+        "--content",
+        "收入 〔数〕 万元，未写口径。\n",
+    )
+    assert code == cli.EXIT_OK, payload
+    code, payload = _cron(
+        workspace,
+        capsys,
+        *flags,
+        "check-run",
+        "--section-id",
+        sections[0],
+        "--period",
+        "202609",
+    )
+    assert code == cli.EXIT_OK
+    by_name = {item["name"]: item for item in payload["checks"]}
+    assert by_name["criteria_covered"]["passed"] is False
+    assert by_name["no_mask_left"]["passed"] is False
+    assert by_name["口径来源披露"]["passed"] is False
+    assert payload["passed"] is False
+
+
+def test_plan_run_renders_week_slots_from_the_earliest(
+    workspace: Workspace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reference = workspace.artifact_dir / "week-ref"
+    work = workspace.artifact_dir / "week-work"
+    reference.mkdir()
+    recipe = {
+        "report_id": "weekly",
+        "title": "周报",
+        "sections": [{"section_id": "s", "title": "总览", "blocked_by": []}],
+        "parameters": [],
+        "queries": [],
+        "computes": [],
+        "schedule": {
+            "period": {
+                "unit": "week",
+                "offset": -1,
+                "window_size": 2,
+                "label_format": "%G-W%V",
+            },
+            "parameters": {
+                "w1_start": "${window_week_start:0:%Y%m%d}",
+                "w1_end": "${window_week_end:0:%Y%m%d}",
+                "w2_start": "${window_week_start:1:%Y%m%d}",
+                "w2_end": "${window_week_end:1:%Y%m%d}",
+            },
+        },
+        "datasource": "",
+        "probe_tables": [],
+    }
+    recipe_path = reference / "recipe.json"
+    recipe_path.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
+    (reference / "format_spec.json").write_text("{}\n", encoding="utf-8")
+    files = {
+        "recipe.json": hashlib.md5(recipe_path.read_bytes()).hexdigest(),
+        "format_spec.json": hashlib.md5(
+            (reference / "format_spec.json").read_bytes()
+        ).hexdigest(),
+    }
+    (reference / "REFERENCE.json").write_text(
+        json.dumps(
+            {
+                "contract_version": 1,
+                "report_id": "weekly",
+                "title": "周报",
+                "note": "周",
+                "recipe_hash": hashlib.sha256(recipe_path.read_bytes()).hexdigest(),
+                "files": files,
+                "prompt": "周报 定时执行指令",
+            }
+        ),
+        encoding="utf-8",
+    )
+    work.mkdir()
+    (work / "STATE.json").write_text(
+        json.dumps(
+            {
+                "report_id": "weekly",
+                "last_period": "2026-W44",
+                "history": [{"period": "2026-W44", "status": "delivered"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    code, payload = _cron(
+        workspace,
+        capsys,
+        "--reference-dir",
+        str(reference),
+        "--work-dir",
+        str(work),
+        "plan-run",
+        "--run-date",
+        "2026-11-12",
+    )
+    assert code == cli.EXIT_OK, payload
+    assert payload["status"] == "OK"
+    assert payload["period"] == "2026-W45"
+    assert payload["bindings"] == {
+        "w1_start": "20261026",
+        "w1_end": "20261101",
+        "w2_start": "20261102",
+        "w2_end": "20261108",
+    }
+
+
+def test_diff_run_reports_a_changed_metric(workspace: Workspace, run) -> None:
+    base = workspace.root / "base-work"
+    candidate = workspace.root / "candidate-work"
+    for root, number in ((base, "100"), (candidate, "120")):
+        draft = root / "sections" / "s1" / "runs" / "202609" / "draft.md"
+        draft.parent.mkdir(parents=True)
+        draft.write_text(f"收入 {number} 万元，环比上升。\n", encoding="utf-8")
+    code, payload = run(
+        "diff-run",
+        "--period",
+        "202609",
+        "--base-work-dir",
+        str(base),
+        "--candidate-work-dir",
+        str(candidate),
+    )
+    assert code == cli.EXIT_OK, payload
+    stored = json.loads((candidate / "diff.json").read_text(encoding="utf-8"))
+    changed = stored["sections"][0]["changed_metrics"]
+    assert changed
+    assert changed[0]["reference"] == "100"
+    assert changed[0]["candidate"] == "120"
+    assert stored["sections"][0]["period_over_period_affected"] is True
+
+
+def test_status_reports_baseline_release_and_cron_delivery(
+    workspace: Workspace, run
+) -> None:
+    sections = approve_first_two(workspace, run)
+    code, payload = run("status", chat_id="chat-audit")
+    assert code == cli.EXIT_OK, payload
+    assert payload["command"] == "status"
+    assert payload["result"]["mode"] == "baseline"
+    first = payload["sections"][0]
+    assert first["section_id"] == sections[0]
+    assert first["status"] == "approved"
+    assert first["evidence_provenance"] == cli.PROVENANCE_RECOMPUTED
+    assert first["released_by_user"] is False
+    assert first["last_chat"] == "chat-s1"
+
+
+def test_session_schemas_stay_compatible_with_the_frontend(
+    workspace: Workspace, run
+) -> None:
+    sections = _freeze_baseline_with(workspace, run, second_query=False)
+    manifest = workspace.manifest()
+    assert {
+        "schema_version",
+        "revision",
+        "report_id",
+        "title",
+        "source_path",
+        "source_period",
+        "target_period",
+        "baseline_frozen_at",
+        "created_at",
+        "updated_at",
+        "sections",
+    } <= set(manifest)
+    section = manifest["sections"][0]["section"]
+    assert {
+        "section_id",
+        "title",
+        "level",
+        "source_path",
+        "draft_path",
+        "spec_path",
+        "comparison_path",
+        "blocked_by",
+    } <= set(section)
+    comparison = workspace.comparison_of(sections[0])
+    assert {
+        "passed",
+        "passed_with_review",
+        "numeric_coverage",
+        "numeric_differences",
+        "structure_differences",
+        "criteria_analysis",
+        "notes",
+        "tolerance",
+        "created_at",
+        "review",
+        "evidence_gate",
+    } <= set(comparison)
+    assert set(comparison["evidence_gate"]) >= {
+        "passed",
+        "provenance",
+        "violations",
+        "checked_at",
+    }
+    run("prepare-run", "--period", "202609", chat_id="chat-run")
+    stored_run = json.loads(
+        (workspace.product_root / "runs" / "202609" / "run_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert {
+        "schema_version",
+        "revision",
+        "report_id",
+        "period",
+        "baseline_revision",
+        "recipe_hash",
+        "created_at",
+        "updated_at",
+        "sections",
+    } <= set(stored_run)
+    descriptor = json.loads(
+        (workspace.product_root / "schedule_descriptor.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert {
+        "report_id",
+        "title",
+        "recipe_hash",
+        "period",
+        "parameters",
+    } <= set(descriptor)

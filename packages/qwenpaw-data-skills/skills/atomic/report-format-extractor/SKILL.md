@@ -192,7 +192,8 @@ CSS 只说明「某个类长什么样」，说明不了「谁套在谁里面、�
    文件（用 `read` 验证一次，不要目测）；
 3. `source_css` 非空，且包含原报告全部 `<style>` 块；其中不含 `@import`、
    `expression(`、`behavior:`、`-moz-binding`，`url(` 只指向 `data:image/` 或
-   `https://`；
+   `https://`。`rr export-reference` 会拒绝空的 `source_css`，并在参考副本里去掉
+   `source.path` 和 `source.evidence`；会话里的这份仍要保留 `source.path`；
 4. `dom_contract` 每项的 `selector` 里的类名**全部**能在 `source_css` 中找到；
    找不到的就是自创类名，必须删掉；
 5. `dom_contract` 里 `count` 为 0 的项必须带 `state: true`；既为 0 又不是状态类的，
@@ -204,5 +205,4 @@ CSS 只说明「某个类长什么样」，说明不了「谁套在谁里面、�
 9. 不含可执行脚本、远程资源或原报告业务数据副本。
 
 完成后加载 `bi-report-generation`。由它读取 `format_spec.json` 和已通过的 Section
-产物，直接生成最终 HTML；不得运行 `report-reproduction` 的 `compile-report` 子命令
-二次渲染。
+产物，直接生成最终 HTML。

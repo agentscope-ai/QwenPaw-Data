@@ -25,7 +25,7 @@ from qwenpaw_data.host.core.api.models.artifact_compare import (
     DiffFilesRequest,
 )
 from qwenpaw_data.host.core.api.routers.artifact import resolve_session_file
-from qwenpaw_data.host.core.api.workspace_file import open_resolved_workspace_file
+from qwenpaw_data.host.core.utils.workspace_file import open_resolved_workspace_file
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.settings import get_settings

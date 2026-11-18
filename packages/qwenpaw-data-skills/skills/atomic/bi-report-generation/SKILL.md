@@ -29,6 +29,7 @@ description: 将 BI 数据分析结果组织成可视化 HTML 报告。当分析
 | --- | --- |
 | 版本与修订历史 | v1→v2 改了什么、「本版新增 / 修正」、较上一版变化、修订记录、更新日志 |
 | 计算与取数过程 | SQL、表名与字段链路、处理步骤、公式推导、脚本 / 文件路径、运行参数、分区探测 |
+| 引用文件 | 数据来源、参考文献、引用清单、来源附件或来源链接 |
 | 校验与自检 | QC / PASS / FAIL、对账结果、逐行复算、md5、外链数、图表渲染验证、「已通过自检」 |
 | 工具与环境 | ECharts 版本与内联方式、离线可用性、渲染保真度、生成方式 |
 | 展示规则说明 | 小数位、负零处理、颜色含义等的长篇解释 |
@@ -70,8 +71,8 @@ description: 将 BI 数据分析结果组织成可视化 HTML 报告。当分析
 - 通用 `layout-spec.md` **只用于 `format_spec.json` 未定义的部分**；两者冲突时一律以
   `format_spec.json` 为准，不得用默认主题（`resources/theme.css`）覆盖原风格；
 - 最终 HTML 只写基线 `report.html` 或新周期 `runs/{period}/report.html`；
-  不得再运行 `report-reproduction` 的 `compile-report` 子命令，也不得拷贝到 Session
-  产物根目录或另存 `report_{period}.html`。
+  交付由 `rr finish-run` 完成，不得自行拷贝到 Session 产物根目录或另存
+  `report_{period}.html`。
 - **必须经 `scripts/report_builder.py` 生成，禁止用一次性脚本 / heredoc 手写
   `report.html`**。手搓 HTML 会绕过样式透传和体量对账，是“外壳像、里面空”的根因；
   report_builder 会在 `</head>` 前盖 `qwenpaw-data-report-builder` 生成章，缺失即未走正道。
@@ -86,6 +87,19 @@ description: 将 BI 数据分析结果组织成可视化 HTML 报告。当分析
   初始化，要么直接内联同一份数据渲染的 `<svg>`/表格。report_builder 会审计所有图表容器：
   空 `div` 既无 `<svg>`/`<canvas>`、又没有任何脚本按 id 初始化，即判图表空转、以退出码 2
   失败——绝不允许在正文里用文字声称已完成 SSR 渲染、已通过自检来代替真实的图表产物。
+
+### 定时运行
+
+如果当前任务是 `report-reproduction` 的定时运行：
+
+- 参考目录是 `report-reproduction-cron/reference/<recipe_hash>/`，里面没有
+  `report_manifest.json`。章节顺序和标题以该目录的 `recipe.json` 为准；
+- `--format-spec` 用 `report-reproduction-cron/reference/<recipe_hash>/format_spec.json`。
+  它有 `source_css`、没有 `source.path`，`report_builder.py` 在 `source_css` 非空时直接使用它；
+- 草稿和数据只读工作目录 `report-reproduction-cron/sections/{id}/runs/{period}/`，
+  禁止回退到基线或其他期次；
+- 输出写到 `report-reproduction-cron/runs/{period}/report.html`。不要把它复制到会话产物根目录，
+  `rr finish-run` 会复制并登记交付。
 
 ## 执行步骤
 
@@ -336,7 +350,7 @@ builder 已自动检查：图表空转、外链、下钻 id、类名缺失、过
 **报告复现模式**：
 
 - [ ] 标题和周期来自当前 Run，而不是基线标题中的旧周期
-- [ ] Section 数量与顺序和 manifest 一致
+- [ ] Section 数量与顺序与 manifest（定时运行时为参考目录的 recipe.json）一致
 - [ ] 页面层级、色板、字体、导航、卡片、表格、图表和交互逐项符合 `format_spec.json`
 - [ ] **`html_fragment` 里每一个 `class` 都能在 `source_css` 中找到**；自创的类名一个也不留
 - [ ] **标签名与 `dom_contract` 一致**：`h2.sec` 没写成 `<div class="sec">`，
@@ -345,8 +359,7 @@ builder 已自动检查：图表空转、外链、下钻 id、类名缺失、过
       做不到出路的已改成静态展开
 - [ ] 长明细表逐行完整，未做 Top N 聚合或删行
 - [ ] 未使用默认模板覆盖原报告已经明确的风格
-- [ ] 最终 HTML 已直接写入标准产物路径，且未再运行 `report-reproduction` 的
-      `compile-report` 子命令
+- [ ] 最终 HTML 已直接写入标准产物路径；交付由 `rr finish-run` 完成，未自行拷贝或另存
 - [ ] **最终 HTML 经 `report_builder.py` 生成**（含 `qwenpaw-data-report-builder` 生成章），
       不是一次性脚本 / heredoc 手写的
 - [ ] **`dom_contract` 体量对账 PASS**，report_builder 退出码为 0

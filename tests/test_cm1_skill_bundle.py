@@ -22,10 +22,11 @@ REQUIRED = (
     "workflows/fetch-data/SKILL.md", "workflows/fetch-data/scripts/generate_nl2sql_prompt.py",
     "atomic/bi-report-generation/SKILL.md", "atomic/bi-report-generation/scripts/report_blocks.py",
     "atomic/bi-report-generation/scripts/report_builder.py", "atomic/bi-report-generation/resources/report.css",
-    "atomic/report-format-extractor/SKILL.md", "atomic/report-schedule-builder/SKILL.md",
-    "workflows/report-reproduction/SKILL.md", "workflows/report-reproduction/references/artifact-contract.md",
-    "workflows/report-reproduction/references/section-lifecycle.md",
+    "atomic/report-format-extractor/SKILL.md",
+    "workflows/report-reproduction/SKILL.md", "workflows/report-reproduction/references/artifacts.md",
+    "workflows/report-reproduction/references/lifecycle.md",
     "workflows/report-reproduction/scripts/report_cli.py",
+    "workflows/report-reproduction/scripts/rr/export.py",
     "workflows/report-reproduction/scripts/gold_parser/section_splitter.py",
 )
 

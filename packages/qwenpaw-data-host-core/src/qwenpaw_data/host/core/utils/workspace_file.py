@@ -1,4 +1,4 @@
-"""Open an already resolved workspace file without following replacement links."""
+"""Pin a workspace file handle before reading its contents."""
 
 from __future__ import annotations
 

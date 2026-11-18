@@ -32,7 +32,7 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
 | L0 路由 | `skills/routing/` | 判定用户意图属于哪种任务类型（查询/分析/建模/报告/非数据），将请求分发至对应处理链路 | `data-intent-router` |
 | L1 规划 | `skills/planning/` | 补充上下文、匹配分析模块和指标，将用户需求转化为结构化的可执行分析计划 | `analysis-plan-builder` |
 | Workflows | `skills/workflows/` | 按分析计划编排原子技能与取数能力，完成从数据获取到结论汇总的完整分析流程 | `fetch-data`（取数）<br>`bi-metric-analysis`（指标观测与异常归因）<br>`bi-retention-analysis`（留存率分析）<br>`bi-conversion-analysis`（转化率分析）<br>`bi-cohort-analysis`（同期群分析）<br>`report-reproduction`（报告复现：复现已有业务报告的数值与样式，并固化为周期任务）<br>`data-science-analysis`（本地数据文件的定量分析）<br>`data-modeling`（表格数据的预测建模） |
-| Atomic | `skills/atomic/` | 执行单一、独立的分析动作（计算、检测、下拆、归因、聚类、报告等） | **指标观测与计算**：`bi-metric-observation`、`bi-retention-rate`、`bi-conversion-rate`<br>**异常检测与阈值**：`bi-anomaly-detection`、`bi-adaptive-threshold`<br>**归因与下钻**：`bi-dimension-drilldown`、`bi-attribution-analysis`、`bi-time-impact-attribution`、`bi-new-dimension-analysis`、`bi-causal-attribution`<br>**统计与画像**：`bi-funnel-analysis`、`bi-comparison-analysis`、`bi-distribution-analysis`、`bi-clustering`、`bi-ltv-analysis`<br>**报告输出**：`bi-report-generation`、`bi-dashboard-generation`、`report-format-extractor`、`report-schedule-builder` |
+| Atomic | `skills/atomic/` | 执行单一、独立的分析动作（计算、检测、下拆、归因、聚类、报告等） | **指标观测与计算**：`bi-metric-observation`、`bi-retention-rate`、`bi-conversion-rate`<br>**异常检测与阈值**：`bi-anomaly-detection`、`bi-adaptive-threshold`<br>**归因与下钻**：`bi-dimension-drilldown`、`bi-attribution-analysis`、`bi-time-impact-attribution`、`bi-new-dimension-analysis`、`bi-causal-attribution`<br>**统计与画像**：`bi-funnel-analysis`、`bi-comparison-analysis`、`bi-distribution-analysis`、`bi-clustering`、`bi-ltv-analysis`<br>**报告输出**：`bi-report-generation`、`bi-dashboard-generation`、`report-format-extractor` |
 | Domains | `skills/domains/` | 特定数据源 / 工具的使用规则，由取数与规划类技能按需加载 | `cm-skills`（CM 工具与图查询）<br>`query-odps`（ODPS 只读 SQL 规范） |
 | Meta | `skills/meta/` | 仓库使用与协作约定，加载其它任何 SKILL 之前必须先读 | `skill-hub-guide`（本文件） |
 
@@ -175,9 +175,10 @@ Data Skill-Hub 是由资深数据分析专家团队设计、经过大量真实�
                                    后续轮次按 Section 推进：
       → fetch-data / query-odps        Section 需要新数据时按口径取数、写 ODPS SQL
       → bi-* 分析 Skill                按 recipe 引用的分析方法计算
-      → report-schedule-builder        基线 Section 全部通过后，冻结 recipe 并产出定时任务描述符
       → report-format-extractor        提取原报告的版式规范 format_spec.json
-      → bi-report-generation           按 format_spec.json 生成最终 report.html
+      → bi-report-generation           按 format_spec.json 生成 report.html
+固化为周期任务时：`rr freeze-recipe`，再 `rr export-reference`，
+然后 `CronJob create`（`session_policy=reuse`，`attachment_filenames` 带上导出的参考包）
 ```
 
 #### 7. 数据查询链路（任务类型 = 1a / 1b）

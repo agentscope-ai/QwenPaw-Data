@@ -304,6 +304,128 @@ async def test_create_copies_current_session_attachment_by_filename(
         files.clear()
 
 
+async def _session_with_artifact(relative: str, data: bytes) -> tuple[Session, Path]:
+    session = Session.create(
+        identity=TEST_IDENTITY,
+        title="source",
+        channel="console",
+        datasource_id="ds_demo",
+    )
+    artifact_dir = UserAgentPaths.from_identity(
+        home=get_settings().paths.home,
+        identity=TEST_IDENTITY,
+        agent_id=session.agent_id,
+        session_id=session.id,
+    ).artifact_dir
+    target = artifact_dir / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    async with get_session_factory()() as db:
+        await SessionRepository(db, TEST_IDENTITY).add(session)
+        await db.commit()
+    return session, artifact_dir
+
+
+@pytest.mark.asyncio
+async def test_create_copies_artifact_by_relative_path(cron_mgr: CronManager) -> None:
+    _ = cron_mgr
+    session, artifact_dir = await _session_with_artifact(
+        "report-reproduction-export/rr-bundle.zip", b"bundle"
+    )
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="带产物",
+        message="读取产物",
+        attachment_filenames=[
+            f"artifacts/{session.id}/report-reproduction-export/rr-bundle.zip"
+        ],
+        **_SCHEDULE,
+    )
+    assert created.state != ToolResultState.ERROR, _text(created)
+    job = json.loads(_text(created))["job"]
+    files = JobFiles(TEST_IDENTITY, job["id"])
+    try:
+        assert job["attachments"] == ["rr-bundle.zip"]
+        assert (files.root / "rr-bundle.zip").read_bytes() == b"bundle"
+    finally:
+        files.clear()
+        target = artifact_dir / "report-reproduction-export" / "rr-bundle.zip"
+        target.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_artifact_path_outside_artifact_dir(
+    cron_mgr: CronManager,
+) -> None:
+    _ = cron_mgr
+    session, artifact_dir = await _session_with_artifact("inside.txt", b"inside")
+    outside = artifact_dir.parent / "secret.txt"
+    outside.write_bytes(b"secret")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="越界",
+        message="不应读到",
+        attachment_filenames=[f"artifacts/{session.id}/../secret.txt"],
+        **_SCHEDULE,
+    )
+    try:
+        assert created.state == ToolResultState.ERROR
+        assert "escapes" in _text(created)
+        listed = json.loads(_text(await tool(action="list")))
+        assert listed["count"] == 0
+    finally:
+        outside.unlink(missing_ok=True)
+        (artifact_dir / "inside.txt").unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_missing_artifact(cron_mgr: CronManager) -> None:
+    _ = cron_mgr
+    session, _artifact_dir = await _session_with_artifact("inside.txt", b"inside")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="缺失",
+        message="找不到",
+        attachment_filenames=[f"artifacts/{session.id}/missing.zip"],
+        **_SCHEDULE,
+    )
+    assert created.state == ToolResultState.ERROR
+    assert "missing.zip" in _text(created)
+    listed = json.loads(_text(await tool(action="list")))
+    assert listed["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_replace_rejects_duplicate_artifact_name(cron_mgr: CronManager) -> None:
+    _ = cron_mgr
+    session, artifact_dir = await _session_with_artifact("export/bundle.zip", b"bundle")
+    (artifact_dir / "other").mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "other" / "bundle.zip").write_bytes(b"other")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="重复名",
+        message="第一次",
+        attachment_filenames=[
+            f"artifacts/{session.id}/export/bundle.zip",
+            f"artifacts/{session.id}/other/bundle.zip",
+        ],
+        **_SCHEDULE,
+    )
+    assert created.state == ToolResultState.ERROR
+    assert "duplicate filename" in _text(created)
+    listed = json.loads(_text(await tool(action="list")))
+    assert listed["count"] == 0
+    for path in (
+        artifact_dir / "export" / "bundle.zip",
+        artifact_dir / "other" / "bundle.zip",
+    ):
+        path.unlink(missing_ok=True)
+
+
 @pytest.mark.asyncio
 async def test_create_fails_when_attachment_is_not_in_current_session(
     cron_mgr: CronManager,
@@ -320,5 +442,69 @@ async def test_create_fails_when_attachment_is_not_in_current_session(
     )
     assert created.state == ToolResultState.ERROR
     assert "missing.txt" in _text(created)
+    listed = json.loads(_text(await tool(action="list")))
+    assert listed["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_copies_upload_given_as_workspace_path(
+    cron_mgr: CronManager,
+) -> None:
+    _ = cron_mgr
+    session = await _session_with_attachment("a.txt", b"hello")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="带路径",
+        message="读取附件",
+        attachment_filenames=[f"uploads/{session.id}/a.txt"],
+        **_SCHEDULE,
+    )
+    assert created.state != ToolResultState.ERROR, _text(created)
+    job = json.loads(_text(created))["job"]
+    files = JobFiles(TEST_IDENTITY, job["id"])
+    try:
+        assert job["attachments"] == ["a.txt"]
+        assert (files.root / "a.txt").read_bytes() == b"hello"
+    finally:
+        files.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_upload_from_another_session(
+    cron_mgr: CronManager,
+) -> None:
+    _ = cron_mgr
+    session = await _session_with_attachment("a.txt", b"hello")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="跨会话",
+        message="不应读到",
+        attachment_filenames=["uploads/other-session/a.txt"],
+        **_SCHEDULE,
+    )
+    assert created.state == ToolResultState.ERROR
+    assert "outside" in _text(created)
+    listed = json.loads(_text(await tool(action="list")))
+    assert listed["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_path_outside_uploads_and_artifacts(
+    cron_mgr: CronManager,
+) -> None:
+    _ = cron_mgr
+    session = await _session_with_attachment("a.txt", b"hello")
+    tool = CronJobTool(_run_context(session_id=session.id))
+    created = await tool(
+        action="create",
+        name="无关路径",
+        message="不应读到",
+        attachment_filenames=["notes/file.txt"],
+        **_SCHEDULE,
+    )
+    assert created.state == ToolResultState.ERROR
+    assert "outside" in _text(created)
     listed = json.loads(_text(await tool(action="list")))
     assert listed["count"] == 0
