@@ -497,14 +497,23 @@ class SpawnSubagent(ToolBase):
         )
         session_id = self._ctx.session_id
         spec = self._roles[role]
+        eligible_tools = [
+            t
+            for t in self._workspace_tools
+            if _tool_name(t) not in _RESERVED_CHILD_TOOLS
+        ]
+        requested_tools = spec.tools
+        # AgentScope's native Windows workspace exposes PowerShell instead of
+        # Bash. The shipped presets can still use their file tools there. Do
+        # not substitute a different shell or relax an authored role's policy.
+        if role in {"report", "data_fetcher"} and requested_tools is not None:
+            available = {_tool_name(t) for t in eligible_tools}
+            if "PowerShell" in available and "Bash" not in available:
+                requested_tools = tuple(n for n in requested_tools if n != "Bash")
         try:
             workspace_tools = _pick(
-                [
-                    t
-                    for t in self._workspace_tools
-                    if _tool_name(t) not in _RESERVED_CHILD_TOOLS
-                ],
-                spec.tools,
+                eligible_tools,
+                requested_tools,
                 kind="tools",
                 strict=structured,
             )

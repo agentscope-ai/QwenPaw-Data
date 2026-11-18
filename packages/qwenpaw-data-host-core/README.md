@@ -171,6 +171,10 @@ enabled skills and session-scoped MCP clients). Duplicate roles and malformed
 specifications are rejected. Profiles cannot add a nested delegation tool,
 grant permissions, or approve a tool on the user's behalf.
 
+In a native Windows workspace that provides PowerShell instead of Bash, the
+shipped `report` and `data_fetcher` presets keep their file tools but get
+neither shell. A workspace role that explicitly requests Bash still requires it.
+
 New-style children finish with `submit_result(summary, artifacts)`. The parent
 receives one JSON result with `status`, `summary`, and session-relative artifact
 references. A file reference does not itself prove the file exists or grant

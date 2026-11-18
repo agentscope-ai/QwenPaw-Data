@@ -296,6 +296,32 @@ async def test_requested_missing_capability_does_not_fall_back(tmp_path):
     assert "unavailable skills: not-enabled" in _chunk_text(chunks[-1])
 
 
+@pytest.mark.parametrize("role", ["report", "data_fetcher", "needs-bash"])
+async def test_powershell_workspace_presets_keep_files_without_granting_shell(
+    tmp_path, monkeypatch, role
+):
+    (_role_dir(tmp_path) / "needs-bash.md").write_text(
+        "---\ndescription: Requires Bash\ntools: [Bash]\n---\nRun Bash."
+    )
+    tool = _make_tool(tmp_path)
+    files = {"Read", "Write", "Edit", "Glob", "Grep"}
+    tool._workspace_tools = [
+        FakeWorkspaceTool(n) for n in [*sorted(files), "PowerShell"]
+    ]
+    monkeypatch.setattr(spawn_module, "_SubAgent", FakeSubAgent)
+    monkeypatch.setattr(FakeSubAgent, "events", [])
+    monkeypatch.setattr(FakeSubAgent, "instances", [])
+    chunks = await _collect(tool, type=role, description="Test", prompt="Check")
+    if role == "needs-bash":
+        assert not FakeSubAgent.instances
+        assert "unavailable tools: Bash" in _chunk_text(chunks[-1])
+    else:
+        toolkit = FakeSubAgent.instances[0].kwargs["toolkit"]
+        names = {s["function"]["name"] for s in await toolkit.get_tool_schemas()}
+        assert files <= names
+        assert names.isdisjoint({"Bash", "PowerShell"})
+
+
 def test_build_sub_prompt_includes_context_and_environment(tmp_path) -> None:
     prompt = _build_sub_prompt(
         "查询数据",
