@@ -11,7 +11,6 @@ from context_manager.settings.graph import GraphSettings
 from context_manager.settings.heartbeat import HeartbeatSettings
 from context_manager.settings.model import ModelSettings
 from context_manager.settings.paths import PathsSettings
-from context_manager.settings import Settings
 from qwenpaw_data_auth.config import local_master_secret as _local_master_secret
 
 
