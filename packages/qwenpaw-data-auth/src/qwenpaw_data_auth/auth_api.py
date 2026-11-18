@@ -644,7 +644,7 @@ async def auth_switch_workspace(request: Request, body: SwitchWorkspaceRequest):
     with get_db(cfg.control_plane_dsn) as conn:
         ws_row = query_one(
             conn,
-            select(workspaces.c.name).where(
+            select(workspaces.c.id, workspaces.c.name).where(
                 and_(
                     workspaces.c.id == body.workspace_id,
                     workspaces.c.tenant_id == ctx.tenant_id,
@@ -656,29 +656,30 @@ async def auth_switch_workspace(request: Request, body: SwitchWorkspaceRequest):
             return JSONResponse(
                 status_code=404, content={"detail": "Workspace not found"}
             )
+        workspace_id = ws_row["id"]
         target_role = _role_for_workspace(
             conn,
             ctx.user_id,
             ctx.tenant_id,
-            body.workspace_id,
+            workspace_id,
         )
         conn.execute(
             update(users)
             .where(users.c.id == ctx.user_id)
-            .values(active_workspace_id=body.workspace_id)
+            .values(active_workspace_id=workspace_id)
         )
         conn.commit()
-        ws_name = ws_row["name"] if ws_row else body.workspace_id
+        ws_name = ws_row["name"]
 
     access = issuer.issue_access(
         ctx.user_id,
         ctx.tenant_id,
-        body.workspace_id,
+        workspace_id,
         target_role,
         cfg.access_token_ttl,
     )
     resp = JSONResponse(
-        content={"active_workspace": {"id": body.workspace_id, "name": ws_name}}
+        content={"active_workspace": {"id": workspace_id, "name": ws_name}}
     )
     _set_access_cookie(resp, access, cfg)
     return resp
@@ -833,9 +834,6 @@ async def auth_refresh(request: Request):
     if payload.get("typ") != "refresh":
         return JSONResponse(status_code=401, content={"detail": "Not a refresh token"})
 
-    user_id = payload["sub"]
-    tenant_id = payload.get("tenant_id", "default")
-
     with get_db(cfg.control_plane_dsn) as conn:
         stored = query_one(
             conn,
@@ -845,7 +843,7 @@ async def auth_refresh(request: Request):
         )
         if (
             not stored
-            or stored["user_id"] != user_id
+            or stored["user_id"] != payload["sub"]
             or stored["consumed_at"] is not None
             or int(stored["expires_at"]) < int(time.time())
         ):
@@ -858,7 +856,11 @@ async def auth_refresh(request: Request):
         user = query_one(
             conn,
             select(users).where(
-                and_(users.c.id == user_id, users.c.status == "active")
+                and_(
+                    users.c.id == stored["user_id"],
+                    users.c.tenant_id == payload.get("tenant_id", "default"),
+                    users.c.status == "active",
+                )
             ),
         )
         if not user:
@@ -869,6 +871,7 @@ async def auth_refresh(request: Request):
             _clear_auth_cookies(resp, cfg)
             return resp
 
+        user_id, tenant_id = user["id"], user["tenant_id"]
         if user.get("token_revoked_before"):
             from datetime import datetime
 
@@ -992,7 +995,7 @@ async def auth_exchange(request: Request, body: ExchangeCodeRequest):
                 authorization_codes.c.code == payload.get("jti", "")
             ),
         )
-        if not code_row:
+        if not code_row or code_row["user_id"] != payload["sub"]:
             return JSONResponse(
                 status_code=400, content={"detail": "Authorization code not found"}
             )
@@ -1034,14 +1037,11 @@ async def auth_exchange(request: Request, body: ExchangeCodeRequest):
             )
         conn.commit()
 
-    user_id = payload["sub"]
-    tenant_id = "default"
-
     with get_db(cfg.control_plane_dsn) as conn:
         user = query_one(
             conn,
             select(users).where(
-                and_(users.c.id == user_id, users.c.status == "active")
+                and_(users.c.id == code_row["user_id"], users.c.status == "active")
             ),
         )
         if not user:
@@ -1054,7 +1054,7 @@ async def auth_exchange(request: Request, body: ExchangeCodeRequest):
                 return JSONResponse(
                     status_code=401, content={"detail": "Authorization code revoked"}
                 )
-        tenant_id = user["tenant_id"]
+        user_id, tenant_id = user["id"], user["tenant_id"]
 
     reader = ControlPlaneReader(cfg.control_plane_dsn)
     ws_ids = reader.get_user_workspace_ids(user_id, tenant_id)

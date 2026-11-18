@@ -627,6 +627,27 @@ def test_authorization_code_is_origin_bound_and_single_use(client):
     assert replay.status_code == 400
 
 
+def test_exchange_rejects_inconsistent_stored_owner_without_consuming_code(client):
+    http, dsn = client
+    bootstrap_and_onboard(http)
+    tenant_login(http, "root")
+    second = http.post("/api/users", json={
+        "username": "second", "password": PASSWORD, "workspace_id": "ws-a",
+    })
+    assert second.status_code == 201
+    redirect = "http://localhost:3000/metrics"
+    issued = http.post("/api/auth/authorize", json={"redirect_uri": redirect})
+    assert issued.status_code == 200
+    with get_db(dsn) as conn:
+        conn.execute("UPDATE authorization_codes SET user_id = ?", (second.json()["user"]["id"],))
+        conn.commit()
+    response = http.post("/api/auth/exchange", json={"code": issued.json()["code"], "redirect_uri": redirect})
+    assert response.status_code == 400
+    assert not response.headers.get_list("set-cookie")
+    with get_db(dsn) as conn:
+        assert query_one(conn, "SELECT used FROM authorization_codes")["used"] == 0
+
+
 @pytest.mark.parametrize(
     "username",
     ["a", "a" * 33, "has space", "has/slash", "has.dot", "张三", ""],
