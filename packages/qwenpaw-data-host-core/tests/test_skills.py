@@ -25,6 +25,8 @@ from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.repositories import SkillStateRepository, SkillStoreRepo
 from qwenpaw_data.host.core.repositories import skill_store as skill_store_module
 from qwenpaw_data.host.core.utils.skill import (
+    BUILTIN_VERSION_FILE,
+    builtin_skills_version,
     discover_builtin_skills,
     read_skill_frontmatter,
 )
@@ -179,6 +181,9 @@ def test_ensure_ready_overwrites_stale_builtin(
         "---\nname: fetch-data\ndescription: locally edited\n---\n# edited\n",
         encoding="utf-8",
     )
+    # Matching pack: no reinstall, even when the installed copy differs.
+    assert store.ensure_ready() == []
+    assert "locally edited" in target.read_text(encoding="utf-8")
     ghost = tmp_path / "ghost-skill"
     _write_skill(ghost, "ghost-builtin")
     packaged = discover_builtin_skills()
@@ -195,10 +200,13 @@ def test_ensure_ready_overwrites_stale_builtin(
             ),
         ),
     )
+    monkeypatch.setattr(skill_store_module, "builtin_skills_version", lambda: "next")
     synced = store.ensure_ready()
     assert "ghost-builtin" in synced
     assert "fetch-data" in synced
     assert target.read_text(encoding="utf-8") == packaged_text
+    assert (paths.skills / BUILTIN_VERSION_FILE).read_text().strip() == "next"
+    assert store.ensure_ready() == []
 
 
 def test_ensure_ready_keeps_custom_and_drops_marked_retired(
@@ -207,6 +215,8 @@ def test_ensure_ready_keeps_custom_and_drops_marked_retired(
     paths = _paths(tmp_path)
     store = SkillStoreRepo(paths.skills)
     store.ensure_ready()
+    # A pre-version OSS workspace has per-skill ownership markers but no stamp.
+    (paths.skills / BUILTIN_VERSION_FILE).unlink()
     custom_src = tmp_path / "custom-src"
     _write_skill(custom_src, "my-custom", description="user copy")
     store.import_skill_dir(custom_src)
@@ -234,6 +244,7 @@ def test_ensure_ready_keeps_custom_and_drops_marked_retired(
         ),
     )
     synced = store.ensure_ready()
+    assert "fetch-data" in synced
     assert "my-custom" not in synced
     dest = paths.skills / "my-custom"
     assert "user copy" in (dest / "SKILL.md").read_text(encoding="utf-8")
@@ -241,6 +252,36 @@ def test_ensure_ready_keeps_custom_and_drops_marked_retired(
     assert store.info("my-custom").source == "custom"
     assert not retired.exists()
     assert (unmarked / "SKILL.md").is_file()
+    assert (paths.skills / BUILTIN_VERSION_FILE).read_text().strip() == builtin_skills_version()
+    assert store.ensure_ready() == []
+
+
+def test_interrupted_pack_copy_leaves_previous_version_retryable(tmp_path, monkeypatch):
+    root = tmp_path / "partition"
+    _write_skill(root / "demo", "demo", "old")
+    (root / "demo" / ".qwenpaw-data-builtin").touch()
+    stamp = root / BUILTIN_VERSION_FILE
+    stamp.write_bytes(b"old\n")
+    source = tmp_path / "pack" / "demo"
+    _write_skill(source, "demo", "new")
+    item = BuiltinSkill(name="demo", src_dir=source, group="atomic", description="new")
+    monkeypatch.setattr(skill_store_module, "discover_builtin_skills", lambda: (item,))
+    monkeypatch.setattr(skill_store_module, "builtin_skills_version", lambda: "new")
+    store = SkillStoreRepo(root)
+
+    def fail_copy(src, dest):
+        dest.mkdir()
+        raise OSError("interrupted copy")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(skill_store_module, "copy_skill_dir", fail_copy)
+        with pytest.raises(OSError, match="interrupted copy"):
+            store.ensure_ready()
+    assert stamp.read_bytes() == b"old\n"
+    assert "old" in (root / "demo" / "SKILL.md").read_text()
+    assert store.ensure_ready() == ["demo"]
+    assert (root / "demo" / "SKILL.md").read_bytes() == (source / "SKILL.md").read_bytes()
+    assert stamp.read_bytes() == b"new\n"
 
 
 def test_reserved_builtin_name_cannot_be_installed(tmp_path: Path) -> None:

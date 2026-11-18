@@ -20,6 +20,7 @@ from qwenpaw_data.host.core.domain.skill import (
 )
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
+BUILTIN_VERSION_FILE = ".qwenpaw-data-builtin-version"
 
 
 def normalize_rel_path(relative_path: str) -> str:
@@ -167,6 +168,18 @@ def _skills_package_root() -> Path | None:
     if installed.is_dir():
         return installed
     return None
+
+
+def builtin_skills_version() -> str:
+    """Content revision of the OSS pack, independent of the Host release."""
+    root = _skills_package_root()
+    if root is None:
+        raise FileNotFoundError("qwenpaw-data-skills package skills directory not found")
+    path = root / BUILTIN_VERSION_FILE
+    version = path.read_text(encoding="utf-8").strip()
+    if not version:
+        raise ValueError(f"empty builtin skill pack version: {path}")
+    return version
 
 
 @lru_cache(maxsize=1)

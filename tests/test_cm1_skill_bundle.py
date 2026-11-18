@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "packages/qwenpaw-data-skills"
 SKILLS = PACKAGE / "skills"
 REQUIRED = (
+    ".qwenpaw-data-builtin-version",
     "routing/data-intent-router/SKILL.md", "planning/analysis-plan-builder/SKILL.md",
     "domains/cm-skills/SKILL.md", "domains/cm-skills/references/mcp-tools.md",
     "domains/cm-skills/references/neo4j.md", "domains/cm-skills/references/holoage.md",

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from qwenpaw_data.host.core.domain.skill import (
     AgentSkillInfo,
@@ -12,6 +13,8 @@ from qwenpaw_data.host.core.domain.skill import (
 )
 from qwenpaw_data.host.core.utils.safe_name import require_safe_name
 from qwenpaw_data.host.core.utils.skill import (
+    BUILTIN_VERSION_FILE,
+    builtin_skills_version,
     copy_skill_dir,
     discover_builtin_skills,
     move_skills_into,
@@ -59,21 +62,37 @@ class SkillStoreRepo:
         self.skills_dir = Path(skills_dir)
 
     def ensure_ready(self) -> list[str]:
-        """Install packaged builtins. Unmarked custom directories are left alone."""
+        """Refresh marked OSS builtins once per pack version; leave custom skills alone."""
         move_skills_into(self.skills_dir)
         self.skills_dir.mkdir(parents=True, exist_ok=True)
+        version = (builtin_skills_version() + "\n").encode("utf-8")
+        stamp = self.skills_dir / BUILTIN_VERSION_FILE
+        if not stamp.is_symlink() and stamp.is_file():
+            with stamp.open("rb") as stream:
+                if stream.read(len(version) + 1) == version:
+                    return []
         packaged = {item.name: item for item in discover_builtin_skills()}
-        self._drop_retired(set(packaged))
         synced: list[str] = []
-        for item in packaged.values():
-            dest = self.skills_dir / item.name
-            if dest.exists() and not (dest / _BUILTIN_MARKER).is_file():
-                continue
-            if dest.exists():
-                shutil.rmtree(dest)
-            copy_skill_dir(item.src_dir, dest)
-            self._mark_builtin(dest)
-            synced.append(item.name)
+        with TemporaryDirectory(dir=self.skills_dir, prefix=".pack-") as tmp:
+            staging = Path(tmp)
+            for item in packaged.values():
+                dest = self.skills_dir / item.name
+                if dest.is_symlink() or (
+                    dest.exists() and not (dest / _BUILTIN_MARKER).is_file()
+                ):
+                    continue
+                # Don't leave a partial, unmarked copy that a retry would take for custom.
+                ready = staging / item.name
+                copy_skill_dir(item.src_dir, ready)
+                self._mark_builtin(ready)
+                if dest.exists():
+                    shutil.rmtree(dest)
+                ready.replace(dest)
+                synced.append(item.name)
+            self._drop_retired(set(packaged))
+            staged_stamp = staging / BUILTIN_VERSION_FILE
+            staged_stamp.write_bytes(version)
+            staged_stamp.replace(stamp)
         return synced
 
     def _drop_retired(self, packaged_names: set[str]) -> None:
