@@ -469,6 +469,7 @@ jobs:
   audit:
     name: Supply-chain gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -497,13 +498,13 @@ jobs:
       - name: Audit Python dependencies
         run: >
           uvx --from pip-audit==2.10.1 pip-audit
-          -r /tmp/requirements.txt --disable-pip
+          -r /tmp/requirements.txt --disable-pip --timeout 60
 
       - name: Audit standalone Context dependencies
         run: >
           uvx --from pip-audit==2.10.1 pip-audit
           -r packages/qwenpaw-data-context/requirements.lock.txt
-          --disable-pip --no-deps
+          --disable-pip --no-deps --timeout 60
 
       - name: Install locked Python dependencies
         run: uv sync --all-packages --all-groups
@@ -511,7 +512,7 @@ jobs:
       - name: Generate Python SBOM
         run: |
           uvx --from pip-audit==2.10.1 pip-audit \
-            -r /tmp/requirements.txt --disable-pip \
+            -r /tmp/requirements.txt --disable-pip --timeout 60 \
             --format cyclonedx-json --output python.cdx.json
           .venv/bin/python scripts/qualify_python_sbom.py \
             --from-environment python.cdx.json
