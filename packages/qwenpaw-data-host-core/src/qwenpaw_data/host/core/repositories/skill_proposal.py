@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import Select, select
@@ -13,6 +14,7 @@ from qwenpaw_data.host.core.db.tables import (
 )
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.utils.ids import create_id
+from qwenpaw_data.host.core.utils.skill import discover_builtin_skills
 from qwenpaw_data.host.core.utils.time import utcnow
 
 
@@ -52,6 +54,16 @@ class SkillProposalRepository:
             SkillProposalRow.workspace_id == self.identity.workspace_id,
         )
 
+    def _list_items(self, rows: Sequence[SkillProposalRow]) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        builtins = {skill.name for skill in discover_builtin_skills()}
+        return [
+            self._to_dict(row)
+            for row in rows
+            if builtins.isdisjoint(row.mentioned_skill_names or ())
+        ]
+
     async def list_by_session(
         self,
         session_id: str,
@@ -65,7 +77,7 @@ class SkillProposalRepository:
         rows = (
             await self.db.scalars(stmt.order_by(SkillProposalRow.created_at.desc()))
         ).all()
-        return [self._to_dict(row) for row in rows]
+        return self._list_items(rows)
 
     async def list(
         self, status: SkillProposalStatus | None = None
@@ -80,7 +92,7 @@ class SkillProposalRepository:
         rows = (
             await self.db.scalars(stmt.order_by(SkillProposalRow.created_at.desc()))
         ).all()
-        return [self._to_dict(row) for row in rows]
+        return self._list_items(rows)
 
     async def get(self, proposal_id: str, *, session_id: str) -> dict[str, Any]:
         return self._to_dict(

@@ -169,6 +169,51 @@ def test_upsert_roundtrip_and_keeps_same_pending_id() -> None:
     asyncio.run(run())
 
 
+def test_lists_hide_builtin_and_mixed_proposals_but_keep_their_detail(skill_app) -> None:
+    app, custom_session, custom_id, _home = skill_app
+
+    async def seed() -> list[tuple[str, str]]:
+        hidden = []
+        async with get_session_factory()() as db:
+            repo = SkillProposalRepository(db, TEST_IDENTITY)
+            for names in (["fetch-data"], ["sql-analyst", "fetch-data"]):
+                session = Session.create(
+                    identity=TEST_IDENTITY, title="historical proposal"
+                )
+                await SessionRepository(db, TEST_IDENTITY).add(session)
+                row = await repo.upsert_pending(
+                    session_id=session.id,
+                    agent_id=session.agent_id,
+                    summary="historical",
+                    mentioned_skill_names=names,
+                    modified_file_count=0,
+                    file_changes=[],
+                )
+                hidden.append((session.id, row["id"]))
+            await db.commit()
+        return hidden
+
+    hidden = asyncio.run(seed())
+    with TestClient(app) as client:
+        for base in ("/api", f"/api/sessions/{custom_session}"):
+            response = client.get(
+                f"{base}/settlement/skill-proposals", params={"status": "pending"}
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["count"] == 1
+            assert [row["id"] for row in response.json()["skill_proposals"]] == [
+                custom_id
+            ]
+        for session_id, proposal_id in hidden:
+            path = f"/api/sessions/{session_id}/settlement/skill-proposals"
+            listed = client.get(path)
+            assert listed.status_code == 200, listed.text
+            assert listed.json() == {"skill_proposals": [], "count": 0}
+            detail = client.get(f"{path}/{proposal_id}")
+            assert detail.status_code == 200, detail.text
+            assert detail.json()["skill_proposal"]["status"] == "pending"
+
+
 def test_list_omits_file_changes_detail_includes_them(skill_app) -> None:
     app, session_id, proposal_id, _home = skill_app
     with TestClient(app) as client:
