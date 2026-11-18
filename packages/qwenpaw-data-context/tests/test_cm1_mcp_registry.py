@@ -11,8 +11,6 @@ from mcp.server.fastmcp.exceptions import ToolError
 from qwenpaw_data_auth.authorization import AuthorizationContext
 
 from context_manager.api.auth import ALL_SCOPES, AuthPrincipal
-from context_manager.mcp import cm_server
-from context_manager.mcp.legacy import LEGACY_TOOL_NAMES
 from context_manager.mcp.server import (
     MCP_PATH, NATIVE_TOOL_NAMES, TOOL_SCOPE_POLICIES, create_mcp_server,
     mount_mcp, resolve_mcp_context,
@@ -20,26 +18,16 @@ from context_manager.mcp.server import (
 
 
 @pytest.mark.asyncio
-async def test_native_and_legacy_inventories_share_one_server():
+async def test_native_inventory_is_the_only_registered_server():
     server = create_mcp_server(FastAPI())
     tools = {tool.name: tool for tool in await server.list_tools()}
-    assert len(tools) == 27
-    assert set(tools) == LEGACY_TOOL_NAMES | NATIVE_TOOL_NAMES
-    assert not LEGACY_TOOL_NAMES & NATIVE_TOOL_NAMES
+    assert set(tools) == NATIVE_TOOL_NAMES
     assert set(TOOL_SCOPE_POLICIES) == set(tools)
     for name in tools:
         assert "metadata" not in tools[name].inputSchema.get("properties", {})
         assert "session_ref" not in tools[name].inputSchema.get("properties", {})
     for name in NATIVE_TOOL_NAMES:
         assert tools[name].annotations.readOnlyHint == (name not in {"execute_create", "execute_modify"})
-
-
-@pytest.mark.asyncio
-async def test_all_20_legacy_input_schemas_match_public_03():
-    baseline = {tool.name: tool.inputSchema for tool in await cm_server.mcp.list_tools()}
-    current = {tool.name: tool.inputSchema for tool in await create_mcp_server(FastAPI()).list_tools()}
-    assert set(baseline) == LEGACY_TOOL_NAMES
-    assert {name: current[name] for name in LEGACY_TOOL_NAMES} == baseline
 
 
 @pytest.mark.asyncio
@@ -84,7 +72,7 @@ def test_sql_write_grant_is_intersected_with_current_workspace_role(tool_name):
         resolve_mcp_context(FastAPI(), _context(), tool_name)
 
 
-@pytest.mark.parametrize("tool_name", ["query_graph", "search_context", "get_metric"])
+@pytest.mark.parametrize("tool_name", ["query_graph", "search_graph_fulltext", "get_graph_schema"])
 def test_capability_alone_never_substitutes_for_rbac_identity(tool_name):
     with pytest.raises(ToolError, match="authenticated HTTP"):
         resolve_mcp_context(FastAPI(), _context(authorization=False), tool_name)
@@ -104,7 +92,7 @@ def test_each_application_has_independent_mcp_registration():
     assert [route.path for route in first.routes].count(MCP_PATH) == 1
 
 
-def test_streamable_transport_lists_both_inventories_and_denies_unbound_calls(tmp_path, monkeypatch):
+def test_streamable_transport_lists_native_inventory_and_denies_unbound_calls(tmp_path, monkeypatch):
     from context_manager.mcp import harness_tool
 
     monkeypatch.setattr(harness_tool, "_MCP_LOG_PATH_STR", str(tmp_path / "mcp-access.log"))
@@ -122,8 +110,8 @@ def test_streamable_transport_lists_both_inventories_and_denies_unbound_calls(tm
             "jsonrpc": "2.0", "id": 1, "method": "tools/list",
         })
         assert response.status_code == 200
-        assert {tool["name"] for tool in response.json()["result"]["tools"]} == LEGACY_TOOL_NAMES | NATIVE_TOOL_NAMES
-        for tool_name, arguments in (("get_graph_schema", {}), ("list_domains", {})):
+        assert {tool["name"] for tool in response.json()["result"]["tools"]} == NATIVE_TOOL_NAMES
+        for tool_name, arguments in (("get_graph_schema", {}), ("execute_read", {"datasource_id": "test", "sql": "SELECT 1"})):
             result = client.post(MCP_PATH, headers=headers, json={
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": tool_name, "arguments": arguments},

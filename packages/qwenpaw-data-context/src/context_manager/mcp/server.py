@@ -1,4 +1,4 @@
-"""Mount one request-authorized MCP server for native and App-compatible tools."""
+"""Mount the request-authorized native Context MCP tools."""
 
 from functools import partial
 
@@ -11,7 +11,6 @@ from ..runtime import ContextRuntime
 from .graph import ResolveContext, register_graph_tools
 from .harness_tool import patch_mcp_tool_manager
 from .http_common import _transport_security
-from .legacy import LEGACY_TOOL_NAMES, register_legacy_tools
 from .sql import register_sql_tools
 
 MCP_PATH = "/mcp/v1/cm"
@@ -24,7 +23,7 @@ _WRITE_TOOLS = frozenset({"execute_create", "execute_modify"})
 # which this module must not import at load time (api imports mcp).
 TOOL_SCOPE_POLICIES = {
     name: frozenset({"write" if name in _WRITE_TOOLS else "query"})
-    for name in LEGACY_TOOL_NAMES | NATIVE_TOOL_NAMES
+    for name in NATIVE_TOOL_NAMES
 }
 
 
@@ -60,7 +59,6 @@ def create_mcp_server(application: FastAPI, *, resolve_context: ResolveContext |
     resolver = resolve_context or partial(resolve_mcp_context, application)
     register_graph_tools(mcp, resolver)
     register_sql_tools(mcp, resolver)
-    register_legacy_tools(mcp, resolver, application)
     return mcp
 
 

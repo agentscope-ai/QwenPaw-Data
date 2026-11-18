@@ -2,6 +2,8 @@
 
 CM 以 `toolkit` 服务名挂载到 `/mcp/v1/cm`，使用无状态 Streamable HTTP。
 初始化、ping 和工具列表可匿名访问；所有工具调用均需认证。
+默认 MCP 仅注册下表中的原生工具；旧版 `execute_sql` 等 MCP 工具不再发布，
+调用方应迁移到 `execute_read`、`execute_create` 或 `execute_modify`。
 
 ## 模块分工
 
