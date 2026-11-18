@@ -302,6 +302,7 @@ async def _weave_worker(
                             )
                             if await _cancel_requested():
                                 status, error_msg = "KILLED", None
+                                recovery_session.set_result(status, error_msg)
                             elif warnings:
                                 status = "DEGRADED"
                                 error_msg = _truncate("; ".join(warnings))

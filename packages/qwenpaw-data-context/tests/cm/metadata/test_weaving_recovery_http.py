@@ -120,8 +120,9 @@ async def test_http_rekey_failure_keeps_sql_and_prior_commits_then_full_retry_su
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("late_remote_cancel", [False, True])
 async def test_http_kill_reverses_committed_batches_before_terminal_status(
-    recovered_editor, monkeypatch
+    recovered_editor, monkeypatch, late_remote_cancel
 ):
     w = recovered_editor
     data = await seed(w)
@@ -141,7 +142,19 @@ async def test_http_kill_reverses_committed_batches_before_terminal_status(
             await release.wait()
         return await embed(texts, **options)
 
-    monkeypatch.setattr(w.caller, "embed", hold_later)
+    if late_remote_cancel:
+        publisher_type = type(w.publisher)
+        import_snapshot = publisher_type.import_snapshot
+
+        async def hold_after_import(self, *args, **kwargs):
+            result = await import_snapshot(self, *args, **kwargs)
+            entered.set()
+            await release.wait()
+            return result
+
+        monkeypatch.setattr(publisher_type, "import_snapshot", hold_after_import)
+    else:
+        monkeypatch.setattr(w.caller, "embed", hold_later)
     task = await w.request(
         "POST",
         "/weave-task/submit",
@@ -153,6 +166,8 @@ async def test_http_kill_reverses_committed_batches_before_terminal_status(
     )
     try:
         await asyncio.wait_for(entered.wait(), 5)
+        if late_remote_cancel:
+            monkeypatch.setattr(weave_task_service, "_LOCAL_WEAVES", {})
         response = await w.request("POST", f"/weave-task/{task['task_id']}/kill")
         assert response["status"] == "RUNNING"
         assert response["cancel_requested"] is True
