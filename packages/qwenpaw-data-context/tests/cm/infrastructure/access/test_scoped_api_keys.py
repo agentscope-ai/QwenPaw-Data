@@ -97,6 +97,22 @@ def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_authorization_denial_does_not_expose_internal_details(tmp_path, monkeypatch):
+    from context_manager.auth import AuthorizationError
+
+    app, runtime, _ = _app(tmp_path)
+    def denied(_context):
+        raise AuthorizationError("sensitive internal diagnostic")
+    monkeypatch.setattr("context_manager.api.authentication.active_target", denied)
+    try:
+        with TestClient(app, **LOOPBACK) as client:
+            response = client.get(PROBE, headers=_bearer(READER))
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Workspace access denied"}
+    finally:
+        runtime.close()
+
+
 @pytest.mark.parametrize("tool,sql", SQL_WRITES)
 def test_read_key_cannot_call_sql_write_tools(tmp_path, tool, sql):
     app, runtime, _ = _app(tmp_path)

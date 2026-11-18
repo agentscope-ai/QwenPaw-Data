@@ -280,10 +280,10 @@ def install_context_authentication(
                 workspace_id=selected_target.workspace_id,
             )
             aligned_principal = project_aligned_principal(authorization)
-        except AuthorizationError as exc:
+        except AuthorizationError:
             return JSONResponse(
                 status_code=403,
-                content={"detail": str(exc)},
+                content={"detail": "Workspace access denied"},
             )
         principal = _request_principal(request, authorization, api_key)
         if api_key is not None:
