@@ -316,7 +316,7 @@ class TestV21ListSignatures:
 
     async def test_metric_caliber_list_filters(self, app):
         params = _query_param_names(app, f"{SC}/metric-formula-lib")
-        assert {"metric_id", "dataset_id"} <= params
+        assert {"metric_id", "dataset_id", "datasource_id", "domain_id"} <= params
 
 
 class TestV21RouteRegistration:
@@ -888,6 +888,36 @@ class TestMetricCaliberRouterV21:
         )
         assert missing_tw.status_code == 400
         assert "time_window" in missing_tw.json()["message"]
+
+    async def test_list_filters_datasource_and_domain_together(self, client):
+        first_ds = await _create_datasource(client, "first")
+        second_ds = await _create_datasource(client, "second")
+        first_domain = await _create_domain(client, "first")
+        second_domain = await _create_domain(client, "second")
+        expected = None
+        for ds, domain in (
+            (first_ds, first_domain),
+            (first_ds, second_domain),
+            (second_ds, first_domain),
+        ):
+            dataset = await _create_dataset(
+                client, ds["datasource_id"], domain["domain_id"],
+                name=f"dataset-{ds['datasource_id']}-{domain['domain_id']}",
+            )
+            metric = await _create_metric(
+                client, domain["domain_id"], name=f"metric-{dataset['dataset_id']}"
+            )
+            caliber = await _create_caliber(client, metric["metric_id"], dataset["dataset_id"])
+            if expected is None:
+                expected = caliber["id"]
+        for prefix in ("metric-formula-lib", "metric-caliber"):
+            response = await client.get(
+                f"{SC}/{prefix}",
+                params={"datasource_id": first_ds["datasource_id"], "domain_id": first_domain["domain_id"]},
+            )
+            assert response.status_code == 200
+            assert response.json()["total"] == 1
+            assert [r["id"] for r in response.json()["records"]] == [expected]
 
     async def test_duplicate_key_rejected_but_different_time_window_ok(self, client):
         dsm, met = await self._parents(client)

@@ -125,11 +125,18 @@ async def get_one(
     return _to_response(row)
 
 
-async def list_page(db, metric_id, dataset_id, page, size, principal: Principal):
+async def list_page(
+    db, metric_id, dataset_id, page, size, principal: Principal, *,
+    datasource_id=None, domain_id=None,
+):
     tid, wid = principal.tenant_id, principal.active_workspace_id
-    total = await repo.count(db, metric_id, dataset_id, tid, wid)
+    total = await repo.count(
+        db, metric_id, dataset_id, tid, wid,
+        datasource_id=datasource_id, domain_id=domain_id,
+    )
     rows = await repo.find_page(
-        db, metric_id, dataset_id, size, offset(page, size), tid, wid
+        db, metric_id, dataset_id, size, offset(page, size), tid, wid,
+        datasource_id=datasource_id, domain_id=domain_id,
     )
     return Page(
         records=[_to_response(r) for r in rows], total=total, page=page, size=size

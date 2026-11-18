@@ -49,12 +49,17 @@ def _build(prefix: str, tags: list[str]) -> APIRouter:
     async def list_caliber(
         metric_id: int | None = Query(default=None),
         dataset_id: int | None = Query(default=None),
+        datasource_id: str | None = Query(default=None),
+        domain_id: int | None = Query(default=None),
         page: int = Query(default=1, ge=1),
         size: int = Query(default=20, ge=1),
         principal: Principal = Depends(current_principal),
         db: AsyncSession = Depends(get_db, scope="function"),
     ):
-        return await service.list_page(db, metric_id, dataset_id, page, size, principal)
+        return await service.list_page(
+            db, metric_id, dataset_id, page, size, principal,
+            datasource_id=datasource_id, domain_id=domain_id,
+        )
 
     @r.delete("/metric/{metric_id}")
     async def delete_calibers_by_metric(

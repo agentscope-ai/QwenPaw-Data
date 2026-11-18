@@ -144,6 +144,7 @@ _register(
     ("GET", "/api/semantic-config/metric-lib"),
     ("GET", "/api/semantic-config/metric-lib/{metric_id}"),
     ("GET", "/api/semantic-config/metric-formula-lib"),
+    ("GET", "/api/semantic-config/metric-caliber"),
     ("GET", "/api/semantic-config/metric-formula-lib/dataset/{dataset_id}"),
     ("GET", "/api/semantic-config/metric-formula-lib/{fid}"),
     ("GET", "/api/semantic-config/weave-task"),

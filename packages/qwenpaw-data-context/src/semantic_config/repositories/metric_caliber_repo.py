@@ -175,7 +175,9 @@ async def exists_key_excluding(
     return res.first() is not None
 
 
-def _conds(metric_id, dataset_id, tenant_id, workspace_id):
+def _conds(
+    metric_id, dataset_id, tenant_id, workspace_id, *, datasource_id=None, domain_id=None
+):
     conds = [
         metric_caliber.c.is_deleted == 0,
         metric_caliber.c.tenant_id == tenant_id,
@@ -185,19 +187,34 @@ def _conds(metric_id, dataset_id, tenant_id, workspace_id):
         conds.append(metric_caliber.c.metric_id == metric_id)
     if dataset_id is not None:
         conds.append(metric_caliber.c.dataset_id == dataset_id)
+    if datasource_id is not None:
+        conds.append(metric_caliber.c.datasource_id == datasource_id)
+    if domain_id is not None:
+        conds.append(metric_caliber.c.domain_id == domain_id)
     return conds
 
 
-async def count(db, metric_id, dataset_id, tenant_id, workspace_id) -> int:
-    conds = _conds(metric_id, dataset_id, tenant_id, workspace_id)
+async def count(
+    db, metric_id, dataset_id, tenant_id, workspace_id, *, datasource_id=None, domain_id=None
+) -> int:
+    conds = _conds(
+        metric_id, dataset_id, tenant_id, workspace_id,
+        datasource_id=datasource_id, domain_id=domain_id,
+    )
     res = await db.execute(
         select(func.count()).select_from(metric_caliber).where(*conds)
     )
     return int(res.scalar_one())
 
 
-async def find_page(db, metric_id, dataset_id, limit, off, tenant_id, workspace_id):
-    conds = _conds(metric_id, dataset_id, tenant_id, workspace_id)
+async def find_page(
+    db, metric_id, dataset_id, limit, off, tenant_id, workspace_id, *,
+    datasource_id=None, domain_id=None,
+):
+    conds = _conds(
+        metric_id, dataset_id, tenant_id, workspace_id,
+        datasource_id=datasource_id, domain_id=domain_id,
+    )
     stmt = (
         _response_select()
         .where(*conds)
