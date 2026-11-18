@@ -15,8 +15,8 @@ for all requests. The token is obtained in one of two ways:
    ``bot_token``, which is then saved into the config.
 
 Module-level helpers (formerly in ``utils.py``): ``make_headers`` (anti-replay
-``X-WECHAT-UIN`` + bearer token) and AES-128-ECB encrypt/decrypt used by the
-iLink CDN media path.
+``X-WECHAT-UIN`` + bearer token) and the encryption used by outbound iLink
+CDN media. Encrypted media downloads are not supported.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _QRCODE_STATUS_TIMEOUT = 60.0
 
 
 # ---------------------------------------------------------------------------
-# Request-header + AES-128-ECB helpers (iLink CDN media encrypt/decrypt path)
+# Request headers and outbound iLink CDN media helpers
 # ---------------------------------------------------------------------------
 
 
@@ -64,64 +64,6 @@ def make_headers(bot_token: str = "") -> Dict[str, str]:
     if bot_token:
         headers["Authorization"] = f"Bearer {bot_token}"
     return headers
-
-
-def aes_ecb_decrypt(data: bytes, key_b64: str) -> bytes:
-    """Decrypt AES-128-ECB encrypted bytes.
-
-    Args:
-        data: Encrypted bytes (from CDN).
-        key_b64: AES key — accepts three formats:
-            - Base64-encoded bytes (standard, e.g. from media.aes_key decoded)
-            - Hex string (32 chars = 16 bytes, e.g. image_item.aeskey field)
-            - Raw 16/24/32-byte string (passed through directly)
-
-    Returns:
-        Decrypted bytes with PKCS7 padding removed.
-
-    Raises:
-        ImportError: If pycryptodome is not installed.
-        ValueError: If key length is invalid.
-    """
-    try:
-        from Crypto.Cipher import AES  # pycryptodome
-    except ImportError as exc:
-        raise ImportError(
-            "pycryptodome is required for WeChat media decryption. "
-            "Install with: pip install pycryptodome",
-        ) from exc
-
-    # Auto-detect key format (mirrors official TypeScript parseAesKey logic)
-    key: bytes
-    raw = key_b64.strip()
-    if len(raw) in (32, 48, 64) and all(c in "0123456789abcdefABCDEF" for c in raw):
-        # Format: raw hex string (e.g. image_item.aeskey — 32 hex chars)
-        key = bytes.fromhex(raw)
-    else:
-        # Format: base64-encoded — base64(16 raw bytes) or base64(32-char hex)
-        try:
-            decoded = base64.b64decode(raw + "==")
-        except Exception:
-            decoded = raw.encode()
-        if len(decoded) == 16:
-            # Format A: base64(raw 16 bytes) — used by images
-            key = decoded
-        elif len(decoded) == 32 and all(
-            c in b"0123456789abcdefABCDEF" for c in decoded
-        ):
-            # Format B: base64(hex string) — used by file/voice/video
-            key = bytes.fromhex(decoded.decode("ascii"))
-        else:
-            key = decoded
-
-    if len(key) not in (16, 24, 32):
-        raise ValueError(f"Invalid AES key length: {len(key)}")
-    cipher = AES.new(key, AES.MODE_ECB)
-    decrypted = cipher.decrypt(data)
-    # Remove PKCS7 padding using pycryptodome's validated unpad
-    from Crypto.Util.Padding import unpad
-
-    return unpad(decrypted, AES.block_size)
 
 
 def aes_ecb_encrypt(data: bytes, key_b64: str) -> bytes:
@@ -410,21 +352,23 @@ class WeChatILinkClient:
         aes_key_b64: str = "",
         encrypt_query_param: str = "",
     ) -> bytes:
-        """Download a CDN media file and optionally decrypt it.
+        """Download unencrypted iLink media over HTTPS.
 
         iLink media files are stored on https://novac2c.cdn.weixin.qq.com/c2c.
         The 'url' field in image_item/file_item is a hex media-ID (not HTTP).
         The actual download URL is built from CDN base + encrypt_query_param.
 
         Args:
-            url: CDN HTTP URL, or hex media-ID (ignored if encrypt_query_param).
-            aes_key_b64: Base64-encoded AES-128 key; if empty, no decryption.
+            url: CDN HTTPS URL, or hex media-ID (ignored if encrypt_query_param).
+            aes_key_b64: If supplied, reject the encrypted attachment before fetching it.
             encrypt_query_param: Query param from media.encrypt_query_param;
                 if provided, use CDN base URL + this param to download.
 
         Returns:
-            Decrypted (or raw) file bytes.
+            Raw file bytes.
         """
+        if aes_key_b64:
+            raise ValueError("Encrypted WeChat media downloads are not supported")
         if self._client is None:
             raise RuntimeError("WeChatILinkClient not started")
 
@@ -433,20 +377,15 @@ class WeChatILinkClient:
             # Note: parameter name is "encrypted_query_param" (with 'd')
             enc = quote(encrypt_query_param, safe="")
             download_url = f"{cdn_base}/download?encrypted_query_param={enc}"
-        elif url.startswith("http"):
-            download_url = url
         else:
-            raise ValueError(
-                "Cannot download media: no valid HTTP URL. "
-                f"url={url[:40]!r}, encrypt_query_param empty.",
-            )
+            target = httpx.URL(url)
+            if target.scheme != "https" or not target.host:
+                raise ValueError("WeChat media downloads require an HTTPS URL")
+            download_url = str(target)
 
         resp = await self._client.get(download_url, timeout=60.0)
         resp.raise_for_status()
-        data = resp.content
-        if aes_key_b64:
-            data = aes_ecb_decrypt(data, aes_key_b64)
-        return data
+        return resp.content
 
     async def getuploadurl(
         self,

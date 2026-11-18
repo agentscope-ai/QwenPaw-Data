@@ -1,18 +1,37 @@
-"""The iLink media format must interoperate without exposing keys in errors."""
+"""iLink media compatibility and download policy."""
 
 import base64
 
+import httpx
 import pytest
 
-from qwenpaw_data.host.core.channels.wechat.bot_client import aes_ecb_decrypt, aes_ecb_encrypt
+from qwenpaw_data.host.core.channels.wechat.bot_client import WeChatILinkClient, aes_ecb_encrypt
 
 
-def test_wechat_media_roundtrip_and_invalid_key_redaction():
+def test_outbound_media_keeps_its_wire_format():
     key = base64.b64encode(b"0123456789abcdef").decode()
-    plaintext = b"synthetic media bytes"
-    assert aes_ecb_decrypt(aes_ecb_encrypt(plaintext, key), key) == plaintext
-    invalid_key = "sensitive-invalid-key"
-    with pytest.raises(ValueError) as error:
-        aes_ecb_decrypt(b"", invalid_key)
-    assert "Invalid AES key length" in str(error.value)
-    assert invalid_key not in str(error.value)
+    assert aes_ecb_encrypt(b"synthetic media bytes", key) == bytes.fromhex(
+        "a622f238e33d2cefcaf92d1d3a0b08faee2ac02f2f04923eb8e5cad8ed8d4d42"
+    )
+
+
+@pytest.mark.asyncio
+async def test_only_keyless_https_media_is_fetched():
+    requests = []
+
+    def handle(request):
+        requests.append(str(request.url))
+        return httpx.Response(200, content=b"image bytes")
+
+    client = WeChatILinkClient()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        client._client = http
+        url = "https://cdn.example/image"
+        for options in ({}, {"encrypt_query_param": "cdn-token"}):
+            with pytest.raises(ValueError, match="^Encrypted WeChat media downloads are not supported$"):
+                await client.download_media(url, aes_key_b64="private-test-key", **options)
+        with pytest.raises(ValueError, match="require an HTTPS URL"):
+            await client.download_media("http://cdn.example/image")
+        assert requests == []
+        assert await client.download_media(url) == b"image bytes"
+        assert requests == [url]
