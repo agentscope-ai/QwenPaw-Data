@@ -109,7 +109,7 @@ def seed_metadata(store, shared, datasource="warehouse", *, embedding_dim=2):
     return nodes
 
 
-def test_full_pull_mirrors_all_metadata_types_without_vectors_or_credentials(
+def test_full_pull_mirrors_all_metadata_types_with_vectors_but_no_credentials(
     sync_graph, tmp_path, database_engine
 ):
     store, shared, alice, bob = sync_graph
@@ -125,8 +125,8 @@ def test_full_pull_mirrors_all_metadata_types_without_vectors_or_credentials(
         assert private[0].properties["owner_id"] == "alice"
         assert private[0].key != original.key
         assert private[0].properties.get("config") is None
-        assert private[0].properties.get("embedding") is None
-        assert private[0].properties.get("embedding_hash") is None
+        assert private[0].properties.get("embedding") == original.properties.get("embedding")
+        assert private[0].properties.get("embedding_hash") == original.properties.get("embedding_hash")
         assert not store.list_nodes(original.spec, scope=bob)
         assert store.get_nodes(original.spec, (original.key,), scope=shared) == (
             original,
@@ -157,13 +157,17 @@ def test_mirror_updates_replace_removed_facts_and_leave_personal_additions(
 ):
     store, shared, alice, _ = sync_graph
     source = create(
-        store, shared, DOMAIN, domain_id="sales", name="Sales", description="Old"
+        store, shared, DOMAIN, domain_id="sales", name="Sales", description="Old",
+        embedding=[1.0, 0.0], embedding_hash="old-vector",
     )
     service = MetadataSyncService(store, database_engine=database_engine)
     service.sync(alice)
     local = create(store, alice, DOMAIN, domain_id="personal", name="My analysis")
     store.patch_nodes(
-        DOMAIN, ((source.key, {"name": "Commerce", "description": None}),), scope=shared
+        DOMAIN,
+        ((source.key, {"name": "Commerce", "description": None,
+                       "embedding": [0.0, 1.0], "embedding_hash": "new-vector"}),),
+        scope=shared,
     )
     assert service.status(alice)["needs_sync"] is True
     assert service.sync(alice)["conflicts"] == []
@@ -173,6 +177,8 @@ def test_mirror_updates_replace_removed_facts_and_leave_personal_additions(
     }
     assert copies["sales"].properties["name"] == "Commerce"
     assert copies["sales"].properties.get("description") is None
+    assert copies["sales"].properties["embedding"] == (0.0, 1.0)
+    assert copies["sales"].properties["embedding_hash"] == "new-vector"
     assert copies["personal"] == local
 
 

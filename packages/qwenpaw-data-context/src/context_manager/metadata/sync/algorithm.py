@@ -34,6 +34,8 @@ _CONTENT_EXCLUDES = frozenset(
     }
 )
 
+_MIRROR_EXCLUDES = _CONTENT_EXCLUDES - {"embedding", "embedding_hash"}
+
 EdgeIdentity = tuple[str, str, str]
 
 
@@ -76,12 +78,12 @@ def content_digest(node: NodeRecord) -> str:
 
 
 def mirror_properties(node: NodeRecord) -> dict[str, object]:
-    """Copy schema facts without authoritative ownership, vectors or provenance."""
+    """Copy schema facts and vectors without authoritative ownership or provenance."""
     return {
         prop.name: node.properties[prop.name]
         for prop in node.spec.properties
         if prop.owner is PropertyOwner.CALLER
-        and (prop.name not in _CONTENT_EXCLUDES or not prop.nullable)
+        and (prop.name not in _MIRROR_EXCLUDES or not prop.nullable)
         and prop.name in node.properties
     }
 

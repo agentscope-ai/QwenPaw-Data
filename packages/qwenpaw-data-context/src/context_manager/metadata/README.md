@@ -65,7 +65,9 @@ Holo schema 路由见 [Store](../store/README.md#holo-age)；status 返回个人
 权威版本不变时不重复询问；权威 digest 变化后拒绝旧决策，冲突节点关联边延后处理。
 
 节点、边和 MGSyncState 在一次 atomic 中提交，无剩余冲突才推进水位；MGSyncState 不承担锁。
-同步不调用模型、不复制向量或凭据，个人 DataSource 仍通过 SQL 配置解析连接。
+同步不调用模型、不复制凭据，个人 DataSource 仍通过 SQL 配置解析连接。
+镜像继承权威节点的 `embedding` 与 `embedding_hash`，个人图向量召回因此与 Workspace 向量空间一致；
+向量不参与冲突判定和 digest，模型切换后的重算仍由 [Embedding](../embedding/README.md) 显式重建覆盖全部 owner。
 个人追加使用 Schema 生成身份、校验属性和完整边三元组，不能任意指定 key。
 
 sync、冲突决策和个人追加借用共享 SQL engine，按 tenant/workspace/user 锁住读取到图提交的完整过程。
