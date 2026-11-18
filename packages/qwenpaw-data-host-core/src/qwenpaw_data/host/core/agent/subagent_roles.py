@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
@@ -15,6 +16,7 @@ from ..utils.workspace_file import open_resolved_workspace_file
 
 _PRESETS = Path(__file__).with_name("subagent_presets")
 _MAX_BYTES = 64 * 1024
+_MAX_WORKSPACE_ROLES = 128
 _FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
 
 
@@ -95,11 +97,22 @@ def load_roles(paths: UserAgentPaths) -> dict[str, SubagentRole]:
         raise ValueError("subagent directory outside its workspace")
     if directory.exists() and not directory.is_dir():
         raise ValueError("invalid subagent directory")
-    for path in sorted(directory.glob("*.md")):
-        if len(roles) >= 131:
-            raise ValueError("too many workspace subagent roles")
+    try:
+        entries = os.scandir(directory)
+    except FileNotFoundError:
+        return roles
+    with entries:
+        filenames = []
+        for entry in entries:
+            if not Path(entry.name).match("*.md"):
+                continue
+            if len(filenames) >= _MAX_WORKSPACE_ROLES:
+                raise ValueError("too many workspace subagent roles")
+            filenames.append(entry.name)
+    for filename in sorted(filenames):
+        path = directory / filename
         if path.resolve() != path:
             raise ValueError("linked subagent role is not supported")
-        with open_resolved_workspace_file(home, path) as stream:
+        with open_resolved_workspace_file(home, path, require_exact_path=True) as stream:
             add(path, stream.read(_MAX_BYTES + 1))
     return roles

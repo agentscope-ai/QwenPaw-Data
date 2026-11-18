@@ -23,6 +23,7 @@ from agentscope.state import AgentState, Task, TaskContext
 from agentscope.tool import Toolkit, ToolResponse
 
 import qwenpaw_data.host.core.agent.spawn_subagent as spawn_module
+from qwenpaw_data.host.core.agent import subagent_roles
 from qwenpaw_data.host.core.agent.middleware.sql_artifact import SqlArtifactMiddleware
 from qwenpaw_data.host.core.agent.middleware.tool_timeout import ToolTimeoutMiddleware
 from qwenpaw_data.host.core.agent.spawn_subagent import (
@@ -245,6 +246,31 @@ def test_workspace_roles_reject_invalid_selectors(tmp_path, selector):
     )
     with pytest.raises(ValueError, match="invalid subagent role"):
         _make_tool(tmp_path)
+
+
+def test_role_discovery_checks_count_before_opening_and_pins_each_read(
+    tmp_path, monkeypatch
+):
+    directory = _role_dir(tmp_path)
+    monkeypatch.setattr(subagent_roles, "_MAX_WORKSPACE_ROLES", 2)
+    reads = []
+    original_open = subagent_roles.open_resolved_workspace_file
+
+    def checked_open(root, path, *, require_exact_path):
+        assert require_exact_path is True
+        reads.append(path.name)
+        return original_open(root, path, require_exact_path=require_exact_path)
+
+    monkeypatch.setattr(subagent_roles, "open_resolved_workspace_file", checked_open)
+    for name in ("b", "a"):
+        (directory / f"{name}.md").write_text("---\ndescription: Reader\n---\n")
+    (directory / "notes.txt").write_text("Not a role.")
+    _make_tool(tmp_path)
+    assert reads == ["a.md", "b.md"]
+    (directory / "c.md").touch()
+    with pytest.raises(ValueError, match="too many workspace subagent roles"):
+        _make_tool(tmp_path)
+    assert reads == ["a.md", "b.md"]
 
 
 @pytest.mark.parametrize("role", ["general", "report", "scoped"])

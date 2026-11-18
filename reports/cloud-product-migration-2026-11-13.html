@@ -76,6 +76,7 @@
     <section aria-labelledby="verification">
       <h2 id="verification">本次签核证据与历史验收记录</h2>
       <p><strong>子 Agent · e0079cf：</strong>使用生产 ChatRuntime、真实 AgentScope 调度与临时 SQLite，确定性模型驱动 report 调用 Write 生成会话 HTML，父 Agent 收到可解析的 JSON 和相对路径；自定义只读角色不能使用 Write 或 MCP。覆盖缺失回执、预设冲突、跨 agent 配置隔离、超时和取消后回收。Host sdist 重建并安装 wheel，在源码树外加载三个预设。</p>
+      <p><strong>跨平台复验：</strong>在 macOS 注入只提供 PowerShell 的父工具箱，report 仍通过 Write 生成 HTML 并回传收据，未授予 PowerShell。角色文件按已验证的路径读取，超过 128 个 Markdown 角色时在打开文件前拒绝。角色、Host 调度与文件读取相关测试共 66 项通过；原生 Windows 结果以当前 PR 检查为准。</p>
       <p><strong>复验：</strong><code>python -m pytest packages/qwenpaw-data-host-core/tests/test_spawn_subagent.py packages/qwenpaw-data-host-core/tests/test_qwenpaw_data_agent.py</code>。扩展到 MCP 超时、审批、澄清、定时任务和并发事件后，本地 124 项通过、6 项可选 E2B 测试跳过、1 项已知并发写事件用例预期失败。签核限于角色发现、能力选择、结构化交付和 OSS 运行保护。未对真实模型质量、内部逐事件追踪及费用归因作等价声明。</p>
       <div class="table-wrap">
         <table>

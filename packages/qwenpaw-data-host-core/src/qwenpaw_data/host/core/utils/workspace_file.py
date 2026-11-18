@@ -34,7 +34,7 @@ def _open_posix(root: Path, relative: Path) -> BinaryIO:
         raise
 
 
-def _open_windows(root: Path, candidate: Path) -> BinaryIO:
+def _open_windows(root: Path, candidate: Path, *, require_exact_path: bool) -> BinaryIO:
     # Open both handles before checking their final targets. Subsequent renames
     # cannot change the opened file, and junctions resolve in the handle paths.
     import ctypes
@@ -92,6 +92,10 @@ def _open_windows(root: Path, candidate: Path) -> BinaryIO:
                 contained = False
             if root_name != expected_root or not contained:
                 raise OSError("workspace file escaped its root")
+            if require_exact_path and file_name != os.path.normcase(
+                os.path.normpath(str(candidate))
+            ):
+                raise OSError("workspace file no longer matches its validated path")
             return os.fdopen(fd, "rb")
         except BaseException:
             os.close(fd)
@@ -100,8 +104,10 @@ def _open_windows(root: Path, candidate: Path) -> BinaryIO:
         kernel.CloseHandle(root_handle)
 
 
-def open_resolved_workspace_file(root: Path, candidate: Path) -> BinaryIO:
-    """Open a resolved candidate and bind subsequent reads to that file handle."""
+def open_resolved_workspace_file(
+    root: Path, candidate: Path, *, require_exact_path: bool = False
+) -> BinaryIO:
+    """Pin a file; exact-path mode also rejects in-root Windows redirection."""
     root = root.resolve()
     try:
         relative = candidate.relative_to(root)
@@ -110,7 +116,7 @@ def open_resolved_workspace_file(root: Path, candidate: Path) -> BinaryIO:
     if not relative.parts or ".." in relative.parts:
         raise OSError("workspace file is not a regular file")
     if os.name == "nt":
-        return _open_windows(root, candidate)
+        return _open_windows(root, candidate, require_exact_path=require_exact_path)
     if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
         raise OSError("secure workspace file access is unavailable")
     return _open_posix(root, relative)
