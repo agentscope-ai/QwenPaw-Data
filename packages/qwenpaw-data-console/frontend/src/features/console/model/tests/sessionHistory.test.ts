@@ -17,6 +17,8 @@ import {
 import { createChatStreamProjection } from '../runtime/projectStream.js';
 import {
   mergeHydratedRuntimeMessages,
+  restoreRuntimeRequest,
+  selectRuntimeMessageSyncMode,
   shouldHydrateRuntimeHistory,
 } from '../runtime/runtimeSessionSync.js';
 
@@ -144,6 +146,52 @@ test('SDK hydration prepends history, refreshes completed cards and retains runn
   assert.deepEqual(
     mergeHydratedRuntimeMessages({ mounted, snapshot, protectedIds: new Set(['current']) }),
     [snapshot[0], snapshot[1], mounted[0], mounted[2]],
+  );
+});
+
+test('history hydration keeps one pair for an accepted turn while streaming', () => {
+  const older = { id: 'request-older', text: 'same question' };
+  const request = { id: 'local-request', text: 'same question' };
+  const response = { id: 'local-response', text: 'partial response' };
+  const snapshotRequest = { ...request, id: 'request-chat' };
+  const snapshotResponse = { id: 'assistant-chat', text: 'older response' };
+  const liveIds = { requestMessageId: request.id, responseMessageId: response.id };
+  const options = {
+    snapshot: [older, snapshotRequest, snapshotResponse],
+    protectedIds: new Set([snapshotRequest.id, snapshotResponse.id]),
+    liveTurns: new Map([['chat', liveIds]]),
+  };
+  const pending = { id: 'next-request', text: 'same question' };
+
+  assert.deepEqual(
+    mergeHydratedRuntimeMessages({ ...options, mounted: [request, response, pending] }),
+    [older, request, response, pending],
+  );
+  assert.deepEqual(mergeHydratedRuntimeMessages({ ...options, mounted: [response] }), [
+    older,
+    request,
+    response,
+  ]);
+  assert.deepEqual(restoreRuntimeRequest([response, pending], snapshotRequest, liveIds), [
+    request,
+    response,
+    pending,
+  ]);
+  assert.deepEqual(restoreRuntimeRequest([snapshotRequest, response], snapshotRequest, liveIds), [
+    snapshotRequest,
+    response,
+  ]);
+});
+
+test('session changes leave initial message hydration to the SDK', () => {
+  assert.equal(
+    selectRuntimeMessageSyncMode({
+      previousSessionId: 'old',
+      nextSessionId: 'new',
+      wasGenerating: false,
+      isGenerating: false,
+    }),
+    'none',
   );
 });
 

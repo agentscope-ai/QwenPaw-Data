@@ -73,6 +73,53 @@ index 7c078d2..cafbda6 100644
    const renderedItemsKey = useMemo(
      () =>
        `${visibleMessages.length}:${visibleMessages[0]?.id || ''}:${
+diff --git a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.tsx b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.tsx
+--- a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.tsx
++++ b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.tsx
+@@ -376,7 +376,13 @@
+               setSessionLoading(submitSessionId, false);
+             }
+           },
+-          submission: options?.submission,
++          submission: {
++            source: options?.queueItemId ? 'queue' : 'direct',
++            queueItemId: options?.queueItemId,
++            ...options?.submission,
++            requestMessageId: requestMessage.id,
++            responseMessageId: responseMessage.id,
++          },
+           queueItemId: options?.queueItemId,
+         });
+         // A route/connection change may end an already accepted stream. The
+diff --git a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.ts b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.ts
+--- a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.ts
++++ b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.ts
+@@ -401,7 +401,12 @@
+         chatSessionId: options.chatSessionId,
+       },
+       signal: abortController.signal,
+-      submission: { source: 'queue', queueItemId: item.id },
++      submission: {
++        source: 'queue',
++        queueItemId: item.id,
++        requestMessageId: requestMessage.id,
++        responseMessageId: responseMessage.id,
++      },
+     });
+     if (response.ok) {
+       requestAccepted = true;
+diff --git a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/submission.ts b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/submission.ts
+--- a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/submission.ts
++++ b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/submission.ts
+@@ -12,6 +12,8 @@
+ export interface ChatSubmissionDescriptor {
+   source: 'direct' | 'queue' | 'host-queue';
+   queueItemId?: string;
++  requestMessageId?: string;
++  responseMessageId?: string;
+   runId?: string;
+   clientRequestId?: string;
+ }
 diff --git a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useInputQueueController.tsx b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useInputQueueController.tsx
 index 5c5ae25..76ba150 100644
 --- a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/Chat/hooks/useInputQueueController.tsx
@@ -90,7 +137,14 @@ diff --git a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/
 index 538112c..c6379c1 100644
 --- a/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.ts
 +++ b/node_modules/@agentscope-ai/chat/components/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.ts
-@@ -402,6 +402,8 @@ export interface IAgentScopeRuntimeWebUISenderMentionsOptions {
+@@ -130,4 +130,6 @@
+    * @descriptionEn Input queue item id, present only for queued requests.
+    */
+   queueItemId?: string;
++  requestMessageId?: string;
++  responseMessageId?: string;
+ }
+@@ -402,6 +404,8 @@ export interface IAgentScopeRuntimeWebUISenderMentionsOptions {
   * @descriptionEn Sender configuration options
   */
  export interface IAgentScopeRuntimeWebUISenderOptions {
@@ -186,6 +240,37 @@ index 8abecdc..7cda9e7 100644
      visibleMessages = _useSimulatedMessageP.visibleMessages,
      noMore = _useSimulatedMessageP.noMore,
      loadMore = _useSimulatedMessageP.loadMore,
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.js
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.js
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useChatController.js
+@@ -366,6 +366,12 @@
+                 return onDisconnected;
+               }(),
+-              submission: options === null || options === void 0 ? void 0 : options.submission,
++              submission: {
++                source: (options === null || options === void 0 ? void 0 : options.queueItemId) ? 'queue' : 'direct',
++                queueItemId: options === null || options === void 0 ? void 0 : options.queueItemId,
++                ...(options === null || options === void 0 ? void 0 : options.submission),
++                requestMessageId: requestMessage.id,
++                responseMessageId: responseMessage.id
++              },
+               queueItemId: options === null || options === void 0 ? void 0 : options.queueItemId
+             });
+           case 61:
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.js
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.js
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/InputQueue/background.js
+@@ -507,7 +507,9 @@
+             signal: abortController.signal,
+             submission: {
+               source: 'queue',
+-              queueItemId: item.id
++              queueItemId: item.id,
++              requestMessageId: requestMessage.id,
++              responseMessageId: responseMessage.id
+             }
+           });
+         case 21:
 diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useInputQueueController.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useInputQueueController.js
 index 6dfa17f..8b820d6 100644
 --- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/hooks/useInputQueueController.js
@@ -203,7 +288,16 @@ diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/ty
 index 873120e..cef886a 100644
 --- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.d.ts
 +++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/types/IChatAnywhere.d.ts
-@@ -359,6 +359,8 @@ export interface IAgentScopeRuntimeWebUISenderMentionsOptions {
+@@ -105,6 +105,8 @@
+      * @descriptionEn Input queue item id, present only for queued requests.
+      */
+     queueItemId?: string;
++    requestMessageId?: string;
++    responseMessageId?: string;
+ }
+ /**
+  * @description 由宿主提供并随单次提交完整透传的请求上下文
+@@ -359,6 +361,8 @@ export interface IAgentScopeRuntimeWebUISenderMentionsOptions {
   * @descriptionEn Sender configuration options
   */
  export interface IAgentScopeRuntimeWebUISenderOptions {

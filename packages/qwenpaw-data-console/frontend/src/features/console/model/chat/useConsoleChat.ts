@@ -165,6 +165,7 @@ export interface ConsoleChatController {
     attachmentIds?: string[],
     artifactComments?: ArtifactComment[],
     admission?: ModelConfigurationAdmission,
+    onAccepted?: (chat: ConsoleChat) => void,
   ) => Promise<Response>;
   reconnectRuntimeRequest: (sessionId: string, signal?: AbortSignal) => Promise<Response>;
   isCurrentChatRunning: () => Promise<boolean>;
@@ -1383,6 +1384,7 @@ export function useConsoleChat(
       attachmentIds: string[] = [],
       artifactComments: ArtifactComment[] = [],
       admission?: ModelConfigurationAdmission,
+      onAccepted?: (chat: ConsoleChat) => void,
     ): Promise<Response> => {
       const assertAccess = captureWriteAccess();
       const datasetNames = [...selectedDatasetNamesRef.current];
@@ -1427,6 +1429,7 @@ export function useConsoleChat(
       }
       assertCurrentRequest();
       clearAcceptedRuntimeInputDraft(session.id, text);
+      onAccepted?.(chat);
       replaceChat(chat);
       setConnectionStatus('connecting');
       setError(null);

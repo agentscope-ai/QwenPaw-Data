@@ -4,11 +4,14 @@ import HistoryLoading from '../HistoryLoading';
 import { useHistoryTopScroll } from '../useHistoryTopScroll';
 import {
   mergeHydratedRuntimeMessages,
+  restoreRuntimeRequest,
   shouldHydrateRuntimeHistory,
+  type RuntimeTurnMessageIds,
 } from '../../model/runtime/runtimeSessionSync';
 import RuntimeDataSelectors from './RuntimeDataSelectors';
 import ResponseFailure from './ResponseFailure';
 import { selectResponseFailure } from '../../model/runtime/responseFailure';
+import { requestCard } from '../../model/runtime/runtimeMessages';
 import AgentScopeRuntimeWebUI, {
   hasInputQueueItems,
 } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI';
@@ -1213,6 +1216,10 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
     );
     const activeRuntimeScopeRef = useRef(runtimeScope);
     activeRuntimeScopeRef.current = runtimeScope;
+    const liveTurnScope = useMemo(
+      () => ({ mountKey: runtimeInputMountKey, turns: new Map<string, RuntimeTurnMessageIds>() }),
+      [runtimeInputMountKey],
+    );
     const isCurrentRuntime = useCallback(
       () => activeRuntimeScopeRef.current === runtimeScope,
       [runtimeScope],
@@ -1660,46 +1667,56 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
 
     useEffect(() => {
       const runtime = runtimeRef.current;
-      if (!runtime || !controller.runtimeSession) return;
+      const session = controller.runtimeSession;
+      if (!runtime || !session) return;
 
       const previousSessionId = syncedRuntimeSessionIdRef.current;
       const wasGenerating = runtimeSessionGeneratingRef.current;
-      const isGenerating = Boolean(controller.runtimeSession.generating);
+      const isGenerating = Boolean(session.generating);
       const syncMode = selectRuntimeMessageSyncMode({
         previousSessionId,
-        nextSessionId: controller.runtimeSession.id,
+        nextSessionId: session.id,
         wasGenerating,
         isGenerating,
-        connectionStatus: controller.connectionStatus,
         hasQueuedInputs: runtimeInputQueueHasItems,
       });
 
-      // AgentScope's createSession flow owns the optimistic request while the
-      // controlled route catches up from the local draft id to the persisted id.
-      // Keep that pair mounted until the first response settles.
       if (syncMode === 'none') {
         runtimeSessionGeneratingRef.current = isGenerating;
-        syncedRuntimeSessionIdRef.current = controller.runtimeSession.id;
+        syncedRuntimeSessionIdRef.current = session.id;
         return;
       }
 
+      if (controlledRuntimeSessionId !== session.id) return;
       const frame = window.requestAnimationFrame(() => {
         if (!isCurrentRuntime() || runtimeRef.current !== runtime) return;
         // Commit sync bookkeeping only after the scheduled replacement runs.
         // Otherwise an effect cleanup can cancel the frame and lose the update.
         runtimeSessionGeneratingRef.current = isGenerating;
-        syncedRuntimeSessionIdRef.current = controller.runtimeSession?.id ?? null;
+        syncedRuntimeSessionIdRef.current = session.id;
         backgroundQueueMessageIdsRef.current.clear();
-        runtime.messages.removeAllMessages();
-        controller.runtimeSession?.messages.forEach((message) => {
-          runtime.messages.updateMessage(message);
+        const settledIds = new Set<string>();
+        liveTurnScope.turns.forEach(({ requestMessageId, responseMessageId }) => {
+          settledIds.add(requestMessageId);
+          settledIds.add(responseMessageId);
         });
+        runtime.messages.setSessionMessages(session.id, (mounted) =>
+          settledIds.size
+            ? mergeHydratedRuntimeMessages({
+                mounted: mounted.filter(({ id }) => !settledIds.has(id)),
+                snapshot: session.messages,
+                protectedIds: new Set(),
+              })
+            : session.messages,
+        );
+        liveTurnScope.turns.clear();
       });
       return () => window.cancelAnimationFrame(frame);
     }, [
-      controller.connectionStatus,
       controller.runtimeSession,
+      controlledRuntimeSessionId,
       isCurrentRuntime,
+      liveTurnScope,
       runtimeInputQueueHasItems,
     ]);
 
@@ -1714,7 +1731,7 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
       const runtime = runtimeRef.current;
       const session = controller.runtimeSession;
       if (!runtime || !session || controlledRuntimeSessionId !== session.id) return;
-      const next = { mountKey: runtimeInputMountKey, version: controller.historyVersion };
+      const next = { mountKey: liveTurnScope.mountKey, version: controller.historyVersion };
       const shouldHydrate = shouldHydrateRuntimeHistory(hydratedVersionRef.current, next);
       hydratedVersionRef.current = next;
       // Mounts and draft-to-persisted transitions belong to the SDK. Only an
@@ -1747,6 +1764,7 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
           mounted,
           snapshot: session.messages,
           protectedIds,
+          liveTurns: liveTurnScope.turns,
         }),
       );
       // The SDK pagination switch prevents local history expansion from racing
@@ -1782,7 +1800,7 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
         clearInteraction();
         window.cancelAnimationFrame(frame);
       };
-    }, [controller.historyVersion, controlledRuntimeSessionId, runtimeInputMountKey]);
+    }, [controller.historyVersion, controlledRuntimeSessionId, liveTurnScope]);
 
     const sessionApi = useMemo<IAgentScopeRuntimeWebUISessionAPI>(
       () => ({
@@ -2189,6 +2207,24 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
                 attachments.map((item) => item.attachment_id),
                 comments.map(toArtifactComment),
                 admission,
+                (chat) => {
+                  // Bind the SDK pair before the accepted Chat can enter history hydration.
+                  const { requestMessageId, responseMessageId } = submission ?? {};
+                  if (
+                    !requestMessageId ||
+                    !responseMessageId ||
+                    !controlledRuntimeSessionId ||
+                    activeRuntimeScopeRef.current.mountKey !== liveTurnScope.mountKey
+                  ) {
+                    return;
+                  }
+                  const ids = { requestMessageId, responseMessageId };
+                  liveTurnScope.turns.set(chat.id, ids);
+                  runtimeRef.current?.messages.setSessionMessages(
+                    controlledRuntimeSessionId,
+                    (mounted) => restoreRuntimeRequest(mounted, requestCard(chat), ids),
+                  );
+                },
               );
               // Creating the first backend Session changes runtimeScope.sessionId
               // while the same input remains mounted. Acceptance still belongs to
@@ -2431,6 +2467,7 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
         composerNotice,
         pendingAttachments,
         liveUploads,
+        liveTurnScope,
         restorePendingSubmission,
       ],
     );
