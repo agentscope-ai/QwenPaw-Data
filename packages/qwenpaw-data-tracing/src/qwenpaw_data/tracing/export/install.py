@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from time import monotonic
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -121,14 +122,20 @@ def tracer_install(config: TracingConfig) -> bool:
 
 
 def tracer_shutdown(timeout_millis: int = 5000) -> None:
-    """Flush queued spans; shut the provider down only if we created it."""
+    """Flush standalone scores and spans; only shut down a provider we own."""
     global _closed
+    from qwenpaw_data.tracing.export.score import flush_standalone_scores
+
+    deadline = monotonic() + max(0, timeout_millis) / 1000
+    flush_standalone_scores(timeout_millis)
     provider = _provider
     if provider is None or _closed:
         return
     _closed = True
     try:
-        provider.force_flush(timeout_millis=timeout_millis)
+        provider.force_flush(
+            timeout_millis=max(0, round((deadline - monotonic()) * 1000))
+        )
     finally:
         if _owns_provider:
             provider.shutdown()

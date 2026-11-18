@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from threading import Lock, Thread
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -33,6 +34,11 @@ class _SpanBatch:
 
 # Tools and shutdown run on the same service loop; do not mix loops or exporters.
 _batches: WeakKeyDictionary = WeakKeyDictionary()
+_Destination = tuple[str, tuple[str, str]]
+# Producers without an event loop cannot schedule a timer. Keep one bounded
+# process-wide backlog, with each score pinned to its original exporter.
+_sync_pending: list[tuple[_Destination, dict]] = []
+_sync_lock = Lock()
 
 
 class ScoreResult(StrEnum):
@@ -60,26 +66,28 @@ def tracer_send_span_score(name: str, value: float) -> None:
     dest = _score_destination()
     if dest is None:
         return
+    span_id = format(ctx.span_id, "016x")
+    body = {
+        "id": f"{name}:{span_id}",
+        "traceId": format(ctx.trace_id, "032x"),
+        "observationId": span_id,
+        "name": name,
+        "value": value,
+        "dataType": "NUMERIC",
+    }
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
+        with _sync_lock:
+            if len(_sync_pending) < _MAX_PENDING:
+                _sync_pending.append((dest, body))
         return
     states = _batches.setdefault(loop, {})
     state = states.setdefault(dest, _SpanBatch())
     if len(state.pending) >= _MAX_PENDING:
         state.dropped += 1
         return
-    span_id = format(ctx.span_id, "016x")
-    state.pending.append(
-        {
-            "id": f"{name}:{span_id}",
-            "traceId": format(ctx.trace_id, "032x"),
-            "observationId": span_id,
-            "name": name,
-            "value": value,
-            "dataType": "NUMERIC",
-        }
-    )
+    state.pending.append(body)
     if state.sender is None:
         if len(state.pending) >= _BATCH:
             _start_sender(state, dest)
@@ -119,8 +127,52 @@ async def _drain(state: _SpanBatch, dest: tuple[str, tuple[str, str]]) -> None:
             state.dropped = 0
 
 
+def _take_sync_batches() -> dict[_Destination, _SpanBatch]:
+    with _sync_lock:
+        pending = _sync_pending[:]
+        _sync_pending.clear()
+    groups: dict[_Destination, _SpanBatch] = {}
+    for dest, body in pending:
+        if dest not in groups:
+            groups[dest] = _SpanBatch()
+        groups[dest].pending.append(body)
+    return groups
+
+
+async def _send_sync_batches(groups: dict[_Destination, _SpanBatch]) -> None:
+    for dest, state in groups.items():
+        await _drain(state, dest)
+
+
+def flush_standalone_scores(timeout_millis: int) -> None:
+    groups = _take_sync_batches()
+    if not groups:
+        return
+    timeout = max(0, timeout_millis) / 1000
+
+    def run() -> None:
+        try:
+            asyncio.run(asyncio.wait_for(_send_sync_batches(groups), timeout))
+        except TimeoutError:
+            logger.warning("standalone span score flush timed out")
+        except Exception:
+            logger.warning("standalone span score flush failed")
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        run()
+    else:
+        # A synchronous shutdown can also be called from an async embedding.
+        # Never run a nested loop or take over that loop's own pending batches.
+        worker = Thread(target=run, name="span-score-flush", daemon=True)
+        worker.start()
+        worker.join(timeout)
+
+
 async def flush_span_scores() -> None:
     """Drain queued and in-flight batches before the owning service loop stops."""
+    await _send_sync_batches(_take_sync_batches())
     states = _batches.get(asyncio.get_running_loop(), {})
     for dest, state in list(states.items()):
         _start_sender(state, dest)

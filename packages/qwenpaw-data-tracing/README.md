@@ -19,6 +19,12 @@ from qwenpaw_data.tracing import Settings, tracer_install
 tracer_install(Settings.from_env().to_config(service_name="qwenpaw-data-context"))
 ```
 
+Synchronous scripts can call `tracer_send_span_score` inside a valid span,
+then `tracer_shutdown()` before exiting. Submission does not wait on HTTP;
+up to 1,000 standalone scores are retained for best-effort delivery to their
+original exporters within the shutdown budget. In async services, await
+`flush_span_scores()` on the producing loop **before** stopping that loop.
+
 Call-site imports:
 
 ```python

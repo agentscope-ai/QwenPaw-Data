@@ -17,6 +17,7 @@ from qwenpaw_data.tracing.export.score import (
     tracer_send_span_score,
 )
 from opentelemetry.sdk.trace import TracerProvider
+from qwenpaw_data.tracing import tracer_shutdown
 
 
 def test_score_event_scenarios() -> None:
@@ -35,6 +36,64 @@ def test_score_event_scenarios() -> None:
     posted = score_body(session, None)
     assert posted["sessionId"] == "ses-1"
     assert "traceId" not in posted
+
+
+@pytest.mark.parametrize("in_loop", [False, True])
+def test_standalone_shutdown_routes_and_drains_scores_once(monkeypatch, in_loop):
+    from qwenpaw_data.tracing.export import install, score
+
+    tracer = TracerProvider().get_tracer("sync-producer")
+    sent = []
+    dest = ("first", ("key-1", "test"))
+    monkeypatch.setattr(score, "_score_destination", lambda: dest)
+    monkeypatch.setattr(score, "_MAX_PENDING", 2)
+    monkeypatch.setattr(install, "_provider", None)
+
+    async def post(client, url, auth, bodies):
+        sent.append((url, auth[0], [b["name"] for b in bodies]))
+
+    monkeypatch.setattr(score, "post_ingestion_scores", post)
+    with tracer.start_as_current_span("standalone"):
+        tracer_send_span_score("first-score", 1)
+        dest = ("second", ("key-2", "test"))
+        tracer_send_span_score("second-score", 2)
+        tracer_send_span_score("over-cap", 3)
+    assert not sent
+    if in_loop:
+
+        async def shutdown():
+            tracer_shutdown()
+
+        asyncio.run(shutdown())
+    else:
+        tracer_shutdown()
+    tracer_shutdown()
+    assert sent == [
+        ("first", "key-1", ["first-score"]),
+        ("second", "key-2", ["second-score"]),
+    ]
+
+
+def test_standalone_shutdown_cancels_a_stalled_export(monkeypatch):
+    from qwenpaw_data.tracing.export import install, score
+
+    stopped = []
+
+    async def stalled(groups):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.append(True)
+
+    monkeypatch.setattr(install, "_provider", None)
+    monkeypatch.setattr(score, "_score_destination", lambda: ("fixture", ("pk", "sk")))
+    monkeypatch.setattr(score, "_send_sync_batches", stalled)
+    tracer = TracerProvider().get_tracer("test-budget")
+    with tracer.start_as_current_span("test"):
+        tracer_send_span_score("budget", 1)
+    tracer_shutdown(timeout_millis=10)
+    tracer_shutdown()
+    assert stopped == [True]
 
 
 @pytest.mark.asyncio
@@ -161,11 +220,14 @@ async def test_span_batch_threshold_timer_and_shutdown(monkeypatch):
         started.set()
         await release.wait()
 
-    monkeypatch.setattr(score, "_score_destination", lambda: ("https://lf.example", ("pk", "sk")))
+    monkeypatch.setattr(
+        score, "_score_destination", lambda: ("https://lf.example", ("pk", "sk"))
+    )
     monkeypatch.setattr(score, "post_ingestion_scores", send)
     monkeypatch.setattr(score, "_BATCH", 2)
     monkeypatch.setattr(score, "_DELAY", 0.01)
     tracer = TracerProvider().get_tracer("test")
+
     def record():
         with tracer.start_as_current_span("tool"):
             tracer_send_span_score(Score.TOOL_FAILED, 1)
