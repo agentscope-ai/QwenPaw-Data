@@ -11,7 +11,7 @@ from .db import DbSettings
 from .embedding import EmbeddingSettings
 from .heartbeat import HeartbeatSettings
 from .execution import ExecutionSettings
-from .graph import GraphSettings
+from .graph import GraphSettings, HoloAgeSettings, Neo4jSettings
 from .knowledge import KnowledgeSettings
 from .metadata import MetadataSettings
 from .model import ModelSettings
@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from qwenpaw_data_auth.config import AuthConfig
 
     from .cron import CronSettings
-    from .runtime import RuntimeSettings
 
 
 class Settings:
@@ -77,10 +76,12 @@ class Settings:
         return self._environment.get(name)
 
     @cached_property
-    def runtime(self) -> RuntimeSettings:
-        from .runtime import RuntimeSettings
+    def neo4j(self) -> Neo4jSettings:
+        return Neo4jSettings()
 
-        return RuntimeSettings()
+    @cached_property
+    def holoage(self) -> HoloAgeSettings:
+        return HoloAgeSettings()
 
     @cached_property
     def auth(self) -> AuthConfig:

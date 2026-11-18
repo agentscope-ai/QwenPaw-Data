@@ -27,7 +27,6 @@ Settings 将部署输入转换成经过校验的配置值，资源所有者负�
 | `metadata.py` | 配置物理元数据缓存有效期和采样 SQL 超时。 |
 | `sql.py` | 配置 SQL 下载结果的保留时间。 |
 | `cron.py` | 配置执行并发、心跳期限及初始时、分、时区；调度对象由 `cron` 构造。 |
-| `runtime.py` | 读取本地固定 Workspace 的图连接环境配置，通过 `settings.runtime` 按需加载。 |
 
 ## 加载与生效
 
@@ -97,13 +96,21 @@ rebuild 在执行开始时固定预算；请求参数只能缩小，不能放大
 KG/UG、个人 MG 同步和直接 patch 保留各自原子提交边界。
 Store 的 `atomic()` 始终由调用方明确界定，批次划分由业务 Service 完成。
 
+## Backend-specific settings
+
+Only settings for an opened graph route are loaded. For a fixed Neo4j route,
+`NEO4J_URI` defaults to `bolt://localhost:7687`, `NEO4J_USER` to `neo4j`;
+`NEO4J_PASSWORD` is required and has no built-in value. `NEO4J_DATABASE`
+is optional. Registered Neo4j routes use their workspace connection, not
+these local credentials. Invalid HoloAge connection values do not block Neo4j.
+
 ## HoloAge connection settings
 
 `GraphSettings` also owns `GRAPH_BACKEND` (`neo4j` by default, or `holoage`) and
 `HOLO_AGE_HOST` (`localhost`), `HOLO_AGE_PORT` (`5432`, range 1–65535),
 `HOLO_AGE_USER` (`postgres`), `HOLO_AGE_PASSWORD` (empty, secret),
 `HOLO_AGE_DATABASE` (`postgres`) and `HOLO_AGE_GRAPH_NAME` (`cm_graph`, reserved
-shared graph name). Values are read when the process Settings snapshot is built;
+shared graph name). Values are read on first access to the snapshot’s HoloAge settings;
 changes require resource reconstruction or service restart. Existing Workspace
 registrations remain authoritative for backend routing and physical graph names.
 The legacy `holo_age` / `holo-age` deployment spellings normalize to `holoage`.

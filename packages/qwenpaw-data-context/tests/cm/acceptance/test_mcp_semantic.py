@@ -85,7 +85,7 @@ def live_cm(tmp_path, request):
     else:
         if not os.environ.get("CM_MCP_HOLOAGE_HOST"):
             pytest.skip("set CM_MCP_HOLOAGE_HOST/PORT/USER/PASSWORD/DATABASE")
-        graph = get_settings().graph
+        graph = get_settings().holoage
         for name, suffix in (
             ("host", "HOST"),
             ("port", "PORT"),

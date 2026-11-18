@@ -178,6 +178,9 @@ def test_production_app_resolves_runtime_from_authenticated_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Graph routes bind lazily while pure semantic routes need no graph instance."""
+    monkeypatch.setenv("GRAPH_BACKEND", "neo4j")
+    monkeypatch.setenv("HOLO_AGE_PORT", "")
+    monkeypatch.setenv("CM_GRAPH_HOLO_POOL_TIMEOUT", "invalid")
     dsn = f"sqlite:///{tmp_path / 'control-plane.db'}"
     _seed_member(dsn)
     monkeypatch.setenv(

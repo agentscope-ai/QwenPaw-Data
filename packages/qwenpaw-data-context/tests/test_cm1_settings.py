@@ -11,7 +11,7 @@ from context_manager.settings.graph import GraphSettings
 from context_manager.settings.heartbeat import HeartbeatSettings
 from context_manager.settings.model import ModelSettings
 from context_manager.settings.paths import PathsSettings
-from context_manager.settings.runtime import RuntimeSettings
+from context_manager.settings import Settings
 from qwenpaw_data_auth.config import local_master_secret as _local_master_secret
 
 
@@ -77,21 +77,26 @@ def test_graph_backend_aliases_and_connection_parameters(monkeypatch):
     monkeypatch.setenv("HOLO_AGE_PASSWORD", "test-only-password")
     settings = GraphSettings()
     assert settings.backend == "holoage"
-    assert settings.connection_params()["password"] == "test-only-password"
-    assert "test-only-password" not in repr(settings)
+    holoage = Settings().holoage
+    assert holoage.connection_params()["password"] == "test-only-password"
+    assert "test-only-password" not in repr(holoage)
 
 
 def test_runtime_has_no_fixed_graph_password(monkeypatch):
     monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
-    assert RuntimeSettings(environment="development").neo4j_password == ""
+    with pytest.raises(ValidationError):
+        _ = Settings().neo4j
 
 
 def test_local_graph_route_cannot_select_another_workspace(monkeypatch):
     monkeypatch.setenv("CM_TENANT_ID", "other-tenant")
     monkeypatch.setenv("CM_WORKSPACE_ID", "other-workspace")
-    assert set(RuntimeSettings().model_dump()) == {
-        "neo4j_uri", "neo4j_user", "neo4j_password", "neo4j_database",
-    }
+    monkeypatch.setenv("NEO4J_PASSWORD", "test-only")
+    monkeypatch.setenv("HOLO_AGE_PORT", "invalid")
+    deployment = Settings()
+    assert set(deployment.neo4j.model_dump()) == {"uri", "user", "password", "database"}
+    with pytest.raises(ValidationError):
+        _ = deployment.holoage
 
 
 def test_scheduler_can_be_disabled_without_a_valid_clock():

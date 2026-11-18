@@ -6,6 +6,7 @@ Registered Workspaces must use workspace_provisioner.py --initialize-workspace.
 import argparse
 from contextlib import closing
 
+from context_manager.api.app import local_connection
 from context_manager.settings import get_settings
 from context_manager.store.neo4j import GraphTarget, Neo4jRuntime
 from context_manager.store.neo4j.physical_schema import (
@@ -17,7 +18,7 @@ from neo4j import GraphDatabase
 def main() -> None:
     argparse.ArgumentParser(description=__doc__).parse_args()
     settings = get_settings()
-    route = settings.runtime
+    route = local_connection()
     if settings.graph.backend == "holoage":
         # Holo AGE is opt-in: import its driver stack only when it is selected.
         from context_manager.store.holoage import HoloDriver, HoloRuntime
@@ -28,17 +29,17 @@ def main() -> None:
         from context_manager.store.holoage.target import HoloTarget
 
         with closing(
-            HoloDriver(connect_timeout=15, **settings.graph.connection_params())
+            HoloDriver(connect_timeout=15, **settings.holoage.connection_params())
         ) as driver:
             runtime = HoloRuntime(
                 driver,
                 HoloTarget(
-                    route.tenant_id, route.workspace_id, settings.graph.graph_name
+                    route.tenant_id, route.workspace_id, route.graph_name
                 ),
             )
             runtime.prepare_schema(
                 lambda execute: ensure_holo_schema(
-                    settings.graph.graph_name,
+                    route.graph_name,
                     build_physical_schema(
                         embed_dim=settings.embedding.dimensions or 1024
                     ),

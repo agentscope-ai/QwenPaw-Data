@@ -124,13 +124,14 @@ def create_workspace_runtime(
             )
 
             target = connection.target
+            holoage = deployment.holoage
             factory = driver_factory or HoloDriver
             driver = factory(
                 connect_timeout=15,
-                max_size=deployment.graph.holo_pool_max_size,
-                timeout=deployment.graph.holo_pool_timeout,
-                max_idle=deployment.graph.holo_pool_max_idle,
-                **deployment.graph.connection_params(),
+                max_size=holoage.holo_pool_max_size,
+                timeout=holoage.holo_pool_timeout,
+                max_idle=holoage.holo_pool_max_idle,
+                **holoage.connection_params(),
             )
             graph_runtime = HoloRuntime(driver, target)
             store = HoloGraphStore(

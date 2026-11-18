@@ -30,7 +30,7 @@ Workspace 的逻辑范围由 Scope 保证，物理数据库资源可以共享。
 | `resolver.py` | 统一 Workspace 解析，查询注册信息或使用显式连接，返回 Pool 中的 Runtime。 |
 | `connection.py` | 定义公共 `GraphConnectionConfig` 及 Neo4j / HoloAge 连接配置；只保存路由与连接参数，不拥有资源。 |
 | `workspace.py` | 组合一个 Workspace 的 Store、SQL、Glossary、LLM 和 application services，并创建、缓存和关闭 `WorkspaceRuntime`。 |
-| `../settings/runtime.py` | 提供本地固定图入口的环境配置。 |
+| `../settings/graph.py` | 提供本地固定图入口的环境配置。 |
 | `startup.py` | 装配 Store 与 WorkspaceRuntime，并组合唯一的 Resolver、Pool 和 ContextRuntime。 |
 
 公共入口、Resolver 和 Pool 依赖 `GraphConnectionConfig`，WorkspaceRuntime 的目标使用
@@ -102,7 +102,7 @@ Pool 按 `(tenant_id, workspace_id)` 共享正在进行的初始化：同进程�
 
 tenant、Workspace、Neo4j URI/user/password/database 来自认证结果及 control-plane 受信引用。`secret_ref` 支持 `file://`、`env://` 或 `env:` JSON 文档；Resolver 通过 `Settings.environment_value()` 读取环境引用。Neo4j 连接凭据在 `Neo4jConnectionConfig` 的 `repr` 中隐藏。
 
-文件根目录与 embedding 维度由 Runtime 装配时从 `settings.paths`、`settings.embedding` 读取，连接对象只携带图连接信息。`settings.runtime` 提供本地固定图入口的配置；`create_context_runtime(connection)` 创建固定 Workspace 入口，不传 connection 时使用共享 SQL 注册信息。
+文件根目录与 embedding 维度由 Runtime 装配时从 `settings.paths`、`settings.embedding` 读取，连接对象只携带图连接信息。按需加载的 `settings.neo4j` / `settings.holoage` 提供本地固定图入口的配置；`create_context_runtime(connection)` 创建固定 Workspace 入口，不传 connection 时使用共享 SQL 注册信息。
 
 ## 服务与授权
 

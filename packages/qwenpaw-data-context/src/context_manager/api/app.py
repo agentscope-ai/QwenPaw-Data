@@ -130,11 +130,11 @@ def local_connection() -> GraphConnectionConfig:
             workspace_id=workspace_id,
             graph_name=provisionable_graph_name(workspace_id),
         )
-    route = settings.runtime
-    if not route.neo4j_password:
-        raise RuntimeError("NEO4J_PASSWORD is required for the local graph")
+    neo4j = settings.neo4j
     return Neo4jConnectionConfig(
-        tenant_id=tenant_id, workspace_id=workspace_id, **route.model_dump()
+        tenant_id=tenant_id, workspace_id=workspace_id,
+        neo4j_uri=neo4j.uri, neo4j_user=neo4j.user,
+        neo4j_password=neo4j.password, neo4j_database=neo4j.database,
     )
 
 

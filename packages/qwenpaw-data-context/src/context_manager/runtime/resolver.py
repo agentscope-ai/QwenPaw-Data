@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from ..db import get_database
@@ -159,8 +160,10 @@ class WorkspaceResolver:
                 graph_name = provisionable_graph_name(
                     workspace_id,
                     graph_name=endpoint.removeprefix(_HOLO_ENDPOINT_SCHEME),
-                    reserved_graph_names=(self._settings.graph.graph_name,),
+                    reserved_graph_names=(self._settings.holoage.graph_name,),
                 )
+            except ValidationError:
+                raise ContextRuntimeUnavailable("invalid HoloAge settings") from None
             except (TypeError, ValueError) as exc:
                 raise ContextRuntimeUnavailable(
                     "workspace graph name is invalid"

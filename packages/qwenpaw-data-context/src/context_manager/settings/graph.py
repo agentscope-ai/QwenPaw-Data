@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class GraphSettings(BaseSettings):
-    """Configure the graph backend and native HoloAge connection."""
+    """Configure the deployment backend and shared graph write budget."""
 
     model_config = SettingsConfigDict(
         env_prefix="CM_GRAPH_",
@@ -21,15 +21,6 @@ class GraphSettings(BaseSettings):
     backend: Literal["neo4j", "holoage"] = Field(
         default="neo4j", validation_alias="GRAPH_BACKEND"
     )
-    host: str = Field(default="localhost", validation_alias="HOLO_AGE_HOST")
-    port: int = Field(default=5432, gt=0, le=65535, validation_alias="HOLO_AGE_PORT")
-    user: str = Field(default="postgres", validation_alias="HOLO_AGE_USER")
-    password: str = Field(default="", repr=False, validation_alias="HOLO_AGE_PASSWORD")
-    database: str = Field(default="postgres", validation_alias="HOLO_AGE_DATABASE")
-    graph_name: str = Field(default="cm_graph", validation_alias="HOLO_AGE_GRAPH_NAME")
-    holo_pool_max_size: int = Field(default=8, ge=1)
-    holo_pool_timeout: float = Field(default=30, gt=0, allow_inf_nan=False)
-    holo_pool_max_idle: float = Field(default=300, gt=0, allow_inf_nan=False)
 
     @field_validator("backend", mode="before")
     @classmethod
@@ -40,6 +31,43 @@ class GraphSettings(BaseSettings):
                 normalized, normalized
             )
         return value
+
+
+class Neo4jSettings(BaseSettings):
+    """Configure the optional local, fixed-Workspace Neo4j connection."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="NEO4J_",
+        extra="ignore",
+        populate_by_name=True,
+        hide_input_in_errors=True,
+    )
+
+    uri: str = Field(default="bolt://localhost:7687", min_length=1)
+    user: str = Field(default="neo4j", min_length=1)
+    password: str = Field(min_length=1, repr=False)
+    database: str | None = None
+
+
+class HoloAgeSettings(BaseSettings):
+    """Load HoloAge connection parameters and per-Workspace pool budgets."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="CM_GRAPH_",
+        extra="ignore",
+        populate_by_name=True,
+        hide_input_in_errors=True,
+    )
+
+    host: str = Field(default="localhost", validation_alias="HOLO_AGE_HOST")
+    port: int = Field(default=5432, gt=0, le=65535, validation_alias="HOLO_AGE_PORT")
+    user: str = Field(default="postgres", validation_alias="HOLO_AGE_USER")
+    password: str = Field(default="", repr=False, validation_alias="HOLO_AGE_PASSWORD")
+    database: str = Field(default="postgres", validation_alias="HOLO_AGE_DATABASE")
+    graph_name: str = Field(default="cm_graph", validation_alias="HOLO_AGE_GRAPH_NAME")
+    holo_pool_max_size: int = Field(default=8, ge=1)
+    holo_pool_timeout: float = Field(default=30, gt=0, allow_inf_nan=False)
+    holo_pool_max_idle: float = Field(default=300, gt=0, allow_inf_nan=False)
 
     def connection_params(self) -> dict[str, str | int]:
         """Return the driver's connection parameters without opening a socket."""
