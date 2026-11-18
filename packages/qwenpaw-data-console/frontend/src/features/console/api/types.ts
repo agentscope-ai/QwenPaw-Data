@@ -385,7 +385,7 @@ export interface SegmentConfidence {
 
 export interface Segment {
   workedForSeconds?: number | null;
-  timingTotals?: { modelSeconds: number; toolSeconds: number };
+  timingTotals?: { modelSeconds: number; toolSeconds: number; otherSeconds: number };
   segment_id: string;
   chat_id: string | null;
   title: string;

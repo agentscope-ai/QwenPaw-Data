@@ -176,11 +176,10 @@ test('incomplete, old, invalid and reversed timestamps do not invent durations',
     assert.equal(timings.models.size, 0);
     assert.equal(timings.tools.size, 0);
   }
-  assert.equal(formatExecutionSeconds(0.001), '<0.1');
-  assert.equal(formatExecutionSeconds(0.23), '0.2');
-  assert.equal(formatExecutionSeconds(2), '2');
-  assert.deepEqual(segmentDurationParts(59.99), { minutes: 1, seconds: '0' });
-  assert.deepEqual(segmentDurationParts(0.03), { minutes: 0, seconds: '<0.1' });
+  assert.equal(formatExecutionSeconds(0.23), '0');
+  assert.equal(formatExecutionSeconds(2.5), '3');
+  assert.deepEqual(segmentDurationParts(59.49), { minutes: 0, seconds: '59' });
+  assert.deepEqual(segmentDurationParts(59.5), { minutes: 1, seconds: '0' });
 });
 
 test('HTTP replay ahead of the SSE cursor stays ordered as live events catch up', () => {
@@ -240,15 +239,15 @@ test('SSE timing advances the cursor without SDK messages; late hydration cannot
   );
 });
 
-test('live and refreshed segments/cards show the same model duration despite unrelated sequence domains', () => {
+test('live and refreshed segments include model wait before the first business event', () => {
   const business: BizEvent = {
     event_id: 'biz-a',
     block_id: 'a',
     seq: 900,
     channel: 'main',
     status: 'done',
-    started_at: epoch,
-    ended_at: epoch + 5,
+    started_at: epoch + 2,
+    ended_at: epoch + 2.9,
     presentation: { card_type: 'text', caption: '模型回复', body: '4' },
   };
   const segment: Segment = {
@@ -276,14 +275,14 @@ test('live and refreshed segments/cards show the same model duration despite unr
   const item = selectChatTimeline(restored).find((item) => item.kind === 'segment');
   assert.ok(item?.kind === 'segment');
   assert.equal(segmentDurationSeconds(item.segment), 0.25);
-  assert.equal(item.segment.workedForSeconds, 5);
-  assert.equal(otherDurationSeconds(item.segment.workedForSeconds!, item.segment.timingTotals), 2);
+  assert.equal(item.segment.workedForSeconds, 3);
+  assert.equal(otherDurationSeconds(item.segment.workedForSeconds!, item.segment.timingTotals), 0);
   assert.equal(durationSeconds(item.events[0].timing!), 3);
-  assert.deepEqual(item.segment.timingTotals, { modelSeconds: 3, toolSeconds: 0 });
+  assert.deepEqual(item.segment.timingTotals, { modelSeconds: 3, toolSeconds: 0, otherSeconds: 0 });
   assert.equal(base.segments[0].workedForSeconds, undefined);
 });
 
-test('segment totals deduplicate calls, sum parallel tools, and exclude other segments', () => {
+test('segment totals count gaps between calls even when parallel calls overlap', () => {
   const records = [
     event('model.call', 1, 0),
     { ...message(2, 1, 'thinking'), type: 'reasoning' },
@@ -293,14 +292,14 @@ test('segment totals deduplicate calls, sum parallel tools, and exclude other se
     event('tool.result.start', 6, 3, { call_id: 'b' }),
     event('tool.result.end', 7, 33, { call_id: 'a' }),
     event('tool.result.end', 8, 38, { call_id: 'b' }),
-    event('model.call', 9, 38),
-    message(10, 39, 'second'),
-    event('model.call.end', 11, 41),
-    event('model.call', 12, 41),
-    message(13, 42, 'outside'),
+    event('model.call', 9, 40),
+    message(10, 41, 'second'),
+    event('model.call.end', 11, 43),
+    event('model.call', 12, 43),
+    message(13, 44, 'outside'),
     event('model.call.end', 14, 50),
   ];
-  const blocks = ['thinking', 'reply', 'a', 'a', 'b', 'b', 'second', 'outside'];
+  const blocks = ['thinking', 'reply', 'a', 'a', 'b', 'second', 'b', 'outside'];
   const biz = blocks.map<BizEvent>((block, index) => ({
     event_id: `biz-${index}`,
     block_id: block,
@@ -333,10 +332,14 @@ test('segment totals deduplicate calls, sum parallel tools, and exclude other se
   };
   const item = selectChatTimeline(projection).find((entry) => entry.kind === 'segment');
   assert.ok(item?.kind === 'segment');
-  assert.deepEqual(item.segment.timingTotals, { modelSeconds: 6, toolSeconds: 65 });
+  assert.deepEqual(item.segment.timingTotals, {
+    modelSeconds: 6,
+    toolSeconds: 65,
+    otherSeconds: 2,
+  });
   assert.equal(segmentDurationSeconds(item.segment), 41);
-  assert.equal(item.segment.workedForSeconds, 41);
-  assert.equal(otherDurationSeconds(item.segment.workedForSeconds!, item.segment.timingTotals), 0);
+  assert.equal(item.segment.workedForSeconds, 43);
+  assert.equal(otherDurationSeconds(item.segment.workedForSeconds!, item.segment.timingTotals), 2);
   assert.equal(item.events.find((entry) => entry.block_id === 'reply')?.timing, undefined);
   assert.equal(segment.timingTotals, undefined);
   const historical = hydrateProjectionTrace(

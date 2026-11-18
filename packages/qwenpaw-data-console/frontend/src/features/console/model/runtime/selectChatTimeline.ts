@@ -240,15 +240,27 @@ export function selectChatTimeline(
       );
       // One model call may own both thinking and reply blocks; tool input/output
       // also share a span. Sum each call once, even when calls overlap in time.
-      const timingTotals = { modelSeconds: 0, toolSeconds: 0 };
-      for (const span of new Set(spans)) {
+      const orderedSpans = [...new Set(spans)].sort((a, b) => a.startedAt - b.startedAt);
+      const firstSpan = orderedSpans[0];
+      if (!firstSpan) {
+        return {
+          ...segment,
+          timingTotals: undefined,
+          workedForSeconds: eventDurationSeconds(covered),
+        };
+      }
+      const timingTotals = { modelSeconds: 0, toolSeconds: 0, otherSeconds: 0 };
+      let latestEnd = firstSpan.startedAt;
+      for (const span of orderedSpans) {
+        timingTotals.otherSeconds += Math.max(0, span.startedAt - latestEnd);
+        latestEnd = Math.max(latestEnd, span.endedAt);
         if (span.kind === 'model') timingTotals.modelSeconds += durationSeconds(span);
         if (span.kind === 'tool') timingTotals.toolSeconds += durationSeconds(span);
       }
       return {
         ...segment,
-        timingTotals: spans.length ? timingTotals : undefined,
-        workedForSeconds: eventDurationSeconds(covered),
+        timingTotals,
+        workedForSeconds: latestEnd - firstSpan.startedAt,
       };
     })(),
     events: presentableBizEvents.filter(

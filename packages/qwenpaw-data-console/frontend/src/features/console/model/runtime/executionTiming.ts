@@ -103,8 +103,7 @@ export function durationSeconds(timing: ExecutionTiming): number {
 }
 
 export function formatExecutionSeconds(seconds: number): string {
-  if (seconds > 0 && seconds < 0.1) return '<0.1';
-  return String(Math.round(seconds * 10) / 10);
+  return String(Math.round(seconds));
 }
 
 export function otherDurationSeconds(
@@ -112,13 +111,13 @@ export function otherDurationSeconds(
   totals: Segment['timingTotals'],
 ): number | null {
   if (workedFor === null || !totals) return null;
-  return Math.max(0, workedFor - totals.modelSeconds - totals.toolSeconds);
+  return totals.otherSeconds;
 }
 
 export function segmentDurationParts(seconds: number) {
-  const rounded = Math.round(seconds * 10) / 10;
+  const rounded = Math.round(seconds);
   return {
     minutes: Math.floor(rounded / 60),
-    seconds: seconds > 0 && seconds < 0.1 ? '<0.1' : formatExecutionSeconds(rounded % 60),
+    seconds: String(rounded % 60),
   };
 }
