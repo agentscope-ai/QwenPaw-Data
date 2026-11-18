@@ -13,6 +13,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Explicit offline legacy migration: inspect, prepare, apply/recover or rollback",
     )
     actions = parser.add_subparsers(dest="migration_action", required=True)
+    discover = actions.add_parser(
+        "discover", help="Locate possible older local SQLite stores without opening them"
+    )
+    discover.add_argument("--source-home", type=Path, help="Defaults to the OSS runtime home")
+    discover.set_defaults(handler=handle_discover)
     inspect = actions.add_parser(
         "inspect",
         help="Read-only source inventory and identity/reference checks",
@@ -184,6 +189,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
                 help="Confirm all target services use the selected home, database and key",
             )
         command.set_defaults(handler=handle_saved_plan)
+
+
+def handle_discover(args: argparse.Namespace) -> int:
+    from qwenpaw_data_auth.config import runtime_home
+    from qwenpaw_data.host.core.upgrades import discover_local_stores
+
+    print(json.dumps(discover_local_stores(args.source_home or runtime_home()), indent=2))
+    return 0
 
 
 def _limits(args):

@@ -145,6 +145,21 @@ task record as JSON to stdout; the exit code is `0` only for `success`.
 Remote agent commands use the models configured in Host preferences. The CLI
 does not forward local model credentials or override the server's model selection.
 
+## Find a pre-upgrade local SQLite store
+
+`qwenpaw-data migration discover` checks the current runtime home, or pass
+`--source-home /absolute/old-home`. It reports known candidate paths (including
+the v0.3 Host default `host/host.db`) alongside the current local default
+`control_plane.db`, even when both exist. It does not open either database,
+search arbitrary directories, inspect rows, or claim that an import has run.
+With an explicit DB URL, the reported default is not necessarily your active DB.
+
+For now, stop the old writers and preserve the **whole old home**, including
+SQLite sidecars, workspace files and encryption keys. To access old records,
+use the matching older release on a backup. Do not rename the old database or
+point the new Host at it: old owner IDs and credentials need an explicit
+conversion. The JSON workflow below is not a SQLite importer.
+
 ## Legacy JSON migration
 
 `migration inspect`, `backup`, `plan`, `provision-key`, `prepare`, `apply`,

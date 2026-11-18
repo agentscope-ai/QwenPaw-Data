@@ -6,6 +6,7 @@ import os
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from qwenpaw_data_auth import AuthConfig, bootstrap_local
+from qwenpaw_data_auth.database import control_plane_dsn
 
 from qwenpaw_data.host.core.api.auth_middleware import (
     auth_middleware,
@@ -24,6 +25,7 @@ from qwenpaw_data.host.core.tracing import (
 from qwenpaw_data.host.core.tracing.scores import TracerScoreFlusher
 from qwenpaw_data.host.core.runtime.recovery import ChatRecovery
 from qwenpaw_data.host.core.stream.hub import reset_hub
+from qwenpaw_data.host.core.upgrades import warn_about_local_stores
 from qwenpaw_data.host.core.workspace import (
     get_workspace_manager,
     stop_workspace_manager,
@@ -48,9 +50,10 @@ async def lifespan(app: FastAPI):
     validate_startup_configuration()
     # Identity schema and the local principal come first: Host tables share
     # the control-plane DB and every request is authorized against it.
-    app.state.auth_config = await asyncio.to_thread(
-        bootstrap_local, AuthConfig.from_env()
-    )
+    config = AuthConfig.from_env()
+    if config.local_mode and not control_plane_dsn():
+        await asyncio.to_thread(warn_about_local_stores, config.home)
+    app.state.auth_config = await asyncio.to_thread(bootstrap_local, config)
     await reset_engine()
     async with AsyncExitStack() as cleanup:
         # Register cleanup before starting each service: initialization can fail

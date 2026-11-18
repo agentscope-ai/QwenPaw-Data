@@ -25,6 +25,24 @@ def legacy_source(tmp_path):
     return home
 
 
+def test_discover_reports_old_sqlite_even_with_a_new_store(tmp_path, capsys):
+    home = tmp_path / "old-home"
+    args = ["migration", "discover", "--source-home", str(home)]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["candidates"] == []
+    assert not home.exists()
+    old = home / "host/host.db"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"fixture - must not be opened as SQLite")
+    target = home / "control_plane.db"
+    target.touch()
+    assert main(args) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["default_database_exists"] and report["default_database"] == str(target)
+    assert report["candidates"] == [{"layout": "oss-host-sqlite-v0.3", "candidate": str(old)}]
+    assert old.read_bytes() == b"fixture - must not be opened as SQLite"
+
+
 def test_cli_inventory_exit_status_and_explicit_mapping(tmp_path, capsys):
     source = legacy_source(tmp_path)
     args = ["migration", "inspect", "--source-home", str(source)]

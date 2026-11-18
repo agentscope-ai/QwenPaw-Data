@@ -192,6 +192,10 @@ raw trace replay retains that association. Child model calls are counted as
 The current service uses SQL repositories backed by the shared control-plane
 database. SQLite is the default; `QWENPAW_DATA_DB_URL` can select PostgreSQL.
 
+The default local Host warns at startup if a historical `host/host.db` exists;
+it does not open or import that file. For explicit DB URLs or multiple homes,
+see [read-only upgrade discovery](../qwenpaw-data-cli/README.md#find-a-pre-upgrade-local-sqlite-store).
+
 In local mode, settlement feedback to a loopback HTTP(S) DataBridge can use
 the configured local service credential. No personal login is required. A
 remote endpoint does not receive this fallback, and multi-user mode continues

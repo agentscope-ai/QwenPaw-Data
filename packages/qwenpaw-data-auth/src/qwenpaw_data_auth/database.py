@@ -332,6 +332,10 @@ def shared_database_url(dsn: str = "") -> str:
     return _resolve_url(dsn.strip())[0]
 
 
+def default_database_path(home: Path) -> Path:
+    return home / "control_plane.db"
+
+
 def _runtime_path(raw: str) -> str:
     """Anchor a relative SQLite path at the runtime home, not the process cwd."""
     path = Path(raw).expanduser()
@@ -350,7 +354,7 @@ def _resolve_url(dsn: str = "") -> tuple[str, Optional[str]]:
     raw = dsn or os.environ.get("QWENPAW_DATA_DB_URL") or ""
     if not raw:
         # Local state lives under QWENPAW_DATA_HOME next to the auth secrets.
-        path = str(runtime_home() / "control_plane.db")
+        path = str(default_database_path(runtime_home()))
         return f"sqlite+pysqlite:///{path}", path
 
     if "://" not in raw:

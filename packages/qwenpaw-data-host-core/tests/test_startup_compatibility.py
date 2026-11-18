@@ -45,6 +45,23 @@ def test_unsupported_storage_stops_before_bootstrap_and_preserves_files(
     assert [p for p in home.rglob("*") if p.is_file()] == [legacy]
 
 
+def test_default_database_cannot_alias_legacy_store(tmp_path, monkeypatch):
+    legacy = tmp_path / "host" / "host.db"
+    legacy.parent.mkdir()
+    legacy.write_bytes(b"keep the original")
+    (tmp_path / "control_plane.db").hardlink_to(legacy)
+    monkeypatch.setenv("QWENPAW_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_MODE", "local")
+    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
+    bootstrap = Mock(side_effect=AssertionError("must not initialize either database"))
+    monkeypatch.setattr(app_module, "bootstrap_local", bootstrap)
+    with pytest.raises(RuntimeError, match="aliases historical candidate"):
+        with TestClient(app_module.create_app()):
+            pytest.fail("Host started against an aliased legacy database")
+    bootstrap.assert_not_called()
+    assert legacy.read_bytes() == b"keep the original"
+
+
 def test_default_execution_backend_is_docker_and_local_requires_opt_in(monkeypatch):
     monkeypatch.delenv("QWENPAW_DATA_WORKSPACE_BACKEND", raising=False)
     assert WorkspaceSettings().backend == "docker"
