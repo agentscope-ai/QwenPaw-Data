@@ -84,6 +84,47 @@ def test_timing_replay_survives_terminal_cleanup() -> None:
     asyncio.run(scenario())
 
 
+def test_trace_keeps_subagent_parent_after_terminal_cleanup() -> None:
+    async def scenario() -> None:
+        from qwenpaw_data.host.core.api.routers.trace import trace
+
+        session_id, chat_id = await _prepare_db()
+        factory = get_session_factory()
+        stream = OutputStream(
+            factory,
+            session_id=session_id,
+            chat_id=chat_id,
+            identity=_IDENTITY,
+            last_sequence_number=-1,
+        )
+        child = stream.subagent_stream("spawn-call")
+        await child.message_complete(
+            msg_id="child-message",
+            sequence=1,
+            type="message",
+            role="assistant",
+            content=[{"object": "content", "type": "text", "text": "child reply"}],
+        )
+        await child.response_completed()
+        await stream.response_completed()
+
+        async with factory() as db:
+            replay = await trace(
+                session_id, chat_id, identity=_IDENTITY, db=db, view="raw"
+            )
+            message = replay["messages"][0]
+            assert message.stream.type == "subagent"
+            assert message.stream.parent_call_id == "spawn-call"
+            assert message.content[0].text == "child reply"
+            assert replay["timing_events"][0]["stream"] == {
+                "type": "subagent",
+                "parent_call_id": "spawn-call",
+            }
+        await reset_engine()
+
+    asyncio.run(scenario())
+
+
 async def _prepare_db() -> tuple[str, str]:
     await reset_engine()
     reset_hub()
@@ -302,5 +343,46 @@ def test_output_stream_persists_events_for_replay(tmp_path: Path) -> None:
             "biz_event",
             "error",
         ]
+
+    asyncio.run(scenario())
+
+
+def test_subagent_stream_flush_does_not_reinsert_main_events() -> None:
+    async def scenario() -> None:
+        session_id, chat_id = await _prepare_db()
+        factory = get_session_factory()
+        main = OutputStream(
+            factory,
+            session_id=session_id,
+            chat_id=chat_id,
+            identity=_IDENTITY,
+            last_sequence_number=-1,
+        )
+        child = main.subagent_stream("call_1")
+        assert child.response_id != main.response_id
+
+        await child.response_created()
+        await main.model_call(model_name="qwen")
+
+        async with factory() as db:
+            events = await ChatEventRepository(db, _IDENTITY).read_after(chat_id, -1)
+        assert [obj.object for obj in events] == ["response", "model.call"]
+        assert [obj.sequence_number for obj in events] == [0, 1]
+        assert events[0].stream.type == "subagent"
+        assert events[1].stream.type == "main"
+        sibling = main.subagent_stream("call_2")
+        await asyncio.gather(child.response_failed(error={"code": "INTERNAL", "message": "child failed"}),
+                             sibling.response_completed())
+        async with factory() as db:
+            repo = ChatEventRepository(db, _IDENTITY)
+            assert not await repo.terminal_delivered(chat_id, 3)
+        await main.response_completed()
+        async with factory() as db:
+            repo = ChatEventRepository(db, _IDENTITY)
+            replay = await repo.read_after(chat_id, 1)
+            assert [e.sequence_number for e in replay] == [2, 3, 4]
+            assert {e.stream.parent_call_id for e in replay[:2]} == {"call_1", "call_2"}
+            assert replay[-1].stream.type == "main" and await repo.terminal_delivered(chat_id, 4)
+        await reset_engine()
 
     asyncio.run(scenario())

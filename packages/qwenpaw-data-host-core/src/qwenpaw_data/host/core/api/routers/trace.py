@@ -32,7 +32,9 @@ async def trace(
         await access_session(db, identity, session_id)
         await chat_repo.get(chat_id, session_id=session_id)
         messages = (
-            await chat_repo.read_messages(chat_id) if view in ("raw", "both") else []
+            await chat_repo.read_messages(chat_id, include_stream=True)
+            if view in ("raw", "both")
+            else []
         )
         mcp_connections = (
             await ChatEventRepository(db, identity).read_mcp_connections(chat_id)
@@ -63,6 +65,6 @@ async def trace(
             for event in mcp_connections
             if event.status == "failed"
         ],
-        "messages": [message_to_schema(m) for m in messages],
+        "messages": [message_to_schema(message) for message in messages],
         "biz_events": [biz_event_to_schema(event) for event in biz_events],
     }

@@ -7,7 +7,7 @@ Runtime 契约。
 | --- |--------------------------------------------------------------------------------------|
 | 适用范围 | 鉴权与用户、Preferences（Provider / ActiveModels / RuntimeSettings）、Skills（Agent skills / 版本历史 / 会话草稿）、CronJob、Session、Chat、Plan、BizEvent、Segment、Trace、Artifact、Steer、Clarification、Feedback、Fork、Review、MCP 连通、我的用量 |
 | 读者 | 前端、Host、Agent                                                                        |
-| `schema_version` | 36                                                                                   |
+| `schema_version` | 37                                                                                   |
 | 全局前缀 | `/api`                                                                               |
 
 ### 变更记录
@@ -16,6 +16,7 @@ Runtime 契约。
 
 | 版本 | 日期         | 改动 |
 |----|------------| --- |
+| 37 | 2026-11-09 | SSE `data` 公共字段增加 `stream`：主流 `{"type":"main"}`，子流 `{"type":"subagent","parent_call_id":"..."}`。整轮终态只看主流 `response.completed`。见 §5.0 / §5.1 |
 | 36 | 2026-11-12 | CronJob：Write 去掉 `session_id`；`session_policy`=`reuse`（默认，首次触发建 Session 并回写只读 `session_id`）/ `new_each_run`。附件走任务目录上传/删除，每次触发的 Chat 都带上任务目录里的全部附件。见 §4.10 / §6 |
 | 35 | 2026-10-28 | RuntimeSettings 增加 `tool_confirmation_level`（`off` / `auto` / `all`，缺省 `auto`）。用户偏好；下一轮 Chat 生效。`auto` 按 Host 名单 `auto_ask_names` 原样匹配工具名。待确认调用的 `plugin_call` Message `metadata` 带 `awaiting_confirmation` / `expires_at` / `reason`。见 §4.3 / §6 RuntimeSettings / Message |
 | 34 | 2026-10-27 | `GET /sessions/{session_id}/artifacts`：全 Session 产物索引，同时返回 Agent 视角 `artifacts` 与业务视角 `segment_artifacts`。见 §4.5 |
@@ -25,7 +26,6 @@ Runtime 契约。
 | 30 | 2026-09-17 | `GET /sessions/{id}/snapshot` 按 `Chat.sequence` 窗口读取：默认最近 15 轮（`limit` `1..100`），`before_sequence` 取更早页，`has_more` 表示还有更早轮次。`session.chat_count` 仍为全 Session 轮次数 |
 | 29 | 2026-09-17 | Chat 运行失败用 `ChatError`（`Chat.error` 与 `response.failed.error` 同形）。`code` 区分模型鉴权 / 额度 / 限流 / 模型不存在 / 上下文超长 / 服务不可用 / 配置缺失 / 内部错误。`message` 为面向用户的说明，`details.cause` 为原始异常 |
 | 28 | 2026-09-16 | SSE 增加 `mcp.connect`：开聊探测每个已启用 MCP 各推一条。`context-manager` 失败后本轮以 `response.failed` 结束 |
-| 27 | 2026-09-15 | stop 回执可为 `running`，终态以 SSE `response.cancelled` 为准。澄清不再返回 `CLARIFICATION_ALREADY_RESOLVED`。运行中重连 `/events` 可续 `content`；终态后回放只剩完整 `message` |
 
 ---
 
@@ -1117,22 +1117,23 @@ Agent 运行过程中的增量仅通过 SSE 推送。唯一入口：`GET /sessio
 
 ### 5.0 生命周期与顺序
 
-本 Chat 仅一条事件流，共用同一 `sequence_number` 序列。
+本 Chat 共用同一 `sequence_number` 序列。每条事件用 `stream` 标明归属：主 Agent 为 `{"type":"main"}`，子 Agent 为 `{"type":"subagent","parent_call_id":"<spawn_subagent 的 plugin_call.source_id>"}`。
 
 `GET .../events` 按序推送该 Chat 的增量（含 `content`）。运行中重连从
 `after_sequence_number` 续上；终态后回放只剩完整 `message`。
 
 **成功路径**
 
-`response`（`status`=`completed`）为流内最后一条业务事件。此前可交错推送：
+`stream.type=main` 且 `status=completed` 的 `response` 为整轮最后一条业务事件。此前可交错推送：
 
 - `response`（`created` → `in_progress`）；
 - `mcp.connect`（每个已启用 MCP 一条；在 `in_progress` 之后、执行过程之前）；
 - `message` / `content` 等执行过程事件；
 - `biz_event`、`segment`、`artifact.registered`、`context.usage`（完成即推，可出现在执行过程中途，也可多段交替出现）；
-- `followup.generated`（若有；须在本轮最终 `completed` 之前）。
+- `followup.generated`（若有；须在主流最终 `completed` 之前）；
+- 子流上的同类事件（含该子流自己的 `response` / `model.call`）。子流 `completed` 只结束该子流。
 
-`response.status`=`completed` 表示：本轮已决定进入本 SSE 的事件均已推送完毕。其后本流不再推送业务事件。
+主流 `response.status=completed` 表示：本轮已决定进入本 SSE 的事件均已推送完毕。其后不再推送业务事件。
 
 **等待用户回复**
 
@@ -1144,7 +1145,7 @@ Agent 运行过程中的增量仅通过 SSE 推送。唯一入口：`GET /sessio
 6. 若 `result.status`=`timeout`：Host 停止后续 ReAct，将当前 Chat 置为 `canceled`；当前 SSE 以 `response`（`status`=`cancelled`）结束；后续需新开 Chat。
 **失败 / 取消**
 
-此前已产生的 `mcp.connect` / `biz_event` / `segment` / `artifact.registered` 尽数推送后，再推送 `response`（`status`=`failed` / `cancelled`）作为流内终态。`status`=`failed` 时 `error` 为 `ChatError`（见 §6）。`context-manager` 探测失败时，先推该条 `mcp.connect`（`status`=`failed`），再推 `response`（`status`=`failed`）。
+此前已产生的 `mcp.connect` / `biz_event` / `segment` / `artifact.registered` 尽数推送后，再推送主流 `response`（`status`=`failed` / `cancelled`）作为整轮终态。`status`=`failed` 时 `error` 为 `ChatError`（见 §6）。`context-manager` 探测失败时，先推该条 `mcp.connect`（`status`=`failed`），再推主流 `response`（`status`=`failed`）。
 
 ### 5.1 线格式
 
@@ -1166,6 +1167,7 @@ Agent 运行过程中的增量仅通过 SSE 推送。唯一入口：`GET /sessio
 | object | str | 对象种类，见 §5.2 |
 | session_id | str | 所属 Session |
 | chat_id | str | 归属轮次；本条序号计入该 Chat |
+| stream | object | `{"type":"main"}`，或 `{"type":"subagent","parent_call_id":"..."}` |
 
 ### 5.2 对象种类
 
@@ -1177,8 +1179,8 @@ Agent 运行过程中的增量仅通过 SSE 推送。唯一入口：`GET /sessio
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | str | 本轮 response 标识 |
-| status | enum | `created` / `in_progress` / `completed` / `failed` / `cancelled`。`completed`：本轮进流事件已全部推送，本条为流内最后一条业务事件 |
+| id | str | 该 `stream` 的 response 标识；子流与主流各有自己的 `id` |
+| status | enum | `created` / `in_progress` / `completed` / `failed` / `cancelled`。`completed`：该 `stream` 进流事件已全部推送。`type=main` 时本条为 Chat 最后一条业务事件 |
 | usage | object \| null | 终态可选；令牌用量 |
 | error | ChatError \| null | `status`=`failed` 时必填；见 §6 ChatError |
 
@@ -1213,12 +1215,12 @@ Agent 运行过程中的增量仅通过 SSE 推送。唯一入口：`GET /sessio
 
 | object | 说明 |
 | --- | --- |
-| `segment` | Segment 完成时推送；须在 `response.completed` 之前 |
-| `biz_event` | BizEvent 状态更新时推送；须在 `response.completed` 之前 |
-| `artifact.registered` | Agent 视角文件登记（产物目录 diff）；须在 `response.completed` 之前 |
-| `followup.generated` | 推荐追问就绪；须在 `response.completed` 之前 |
-| `context.usage` | 当前上下文占用；须在 `response.completed` 之前 |
-| `mcp.connect` | 开聊探测已启用 MCP 的连通结果；须在 `response.completed` 之前 |
+| `segment` | Segment 完成时推送；须在主流 `response.completed` 之前 |
+| `biz_event` | BizEvent 状态更新时推送；须在主流 `response.completed` 之前 |
+| `artifact.registered` | Agent 视角文件登记（产物目录 diff）；须在主流 `response.completed` 之前 |
+| `followup.generated` | 推荐追问就绪；须在主流 `response.completed` 之前 |
+| `context.usage` | 当前上下文占用；须在主流 `response.completed` 之前 |
+| `mcp.connect` | 开聊探测已启用 MCP 的连通结果；须在主流 `response.completed` 之前 |
 
 
 
@@ -1273,7 +1275,7 @@ Agent 运行过程中的增量仅通过 SSE 推送。唯一入口：`GET /sessio
 
 ### 5.4 完整流程示例
 
-场景：用户在已有 Session 发起一轮分析（`POST /console/chat` 已返回 `chat_1`，客户端已订阅 `GET .../events`）。顺序符合 §5.0。下列为该 Chat 上 SSE `data` 的示意序列（字段可裁剪；嵌套实体见 §6）。`session_id=ses_1`，`chat_id=chat_1`。
+场景：用户在已有 Session 发起一轮分析（`POST /console/chat` 已返回 `chat_1`，客户端已订阅 `GET .../events`）。顺序符合 §5.0。下列为该 Chat 上 SSE `data` 的示意序列（字段可裁剪；嵌套实体见 §6）。`session_id=ses_1`，`chat_id=chat_1`。下列主流程省略 `stream`（均为 `{"type":"main"}`）。
 
 每种 `message.type` / 领域 `object` **各出现一次**，且流式路径写全（`in_progress` → `content` → `completed`），不省略中间事件。
 
@@ -1333,6 +1335,16 @@ data: {"sequence_number":25,"object":"message","session_id":"ses_1","chat_id":"c
 data: {"sequence_number":26,"object":"followup.generated","session_id":"ses_1","chat_id":"chat_1","followup":{"chat_id":"chat_1","questions":["拆到一级类目看贡献？","对比去年同期？"]}}
 
 data: {"sequence_number":27,"object":"response","session_id":"ses_1","chat_id":"chat_1","id":"response_1","status":"completed","usage":{"input_tokens":1200,"output_tokens":400}}
+```
+
+子 Agent 事件与主流交错，`stream.parent_call_id` 等于主流程 `spawn_subagent` 的 `plugin_call.source_id`：
+
+```
+data: {"sequence_number":8,"object":"response","session_id":"ses_1","chat_id":"chat_1","id":"response_sub_1","status":"created","stream":{"type":"subagent","parent_call_id":"call_spawn_1"}}
+
+data: {"sequence_number":9,"object":"response","session_id":"ses_1","chat_id":"chat_1","id":"response_sub_1","status":"in_progress","stream":{"type":"subagent","parent_call_id":"call_spawn_1"}}
+
+data: {"sequence_number":18,"object":"response","session_id":"ses_1","chat_id":"chat_1","id":"response_sub_1","status":"completed","stream":{"type":"subagent","parent_call_id":"call_spawn_1"}}
 ```
 
 

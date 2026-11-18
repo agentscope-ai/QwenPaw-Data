@@ -16,9 +16,9 @@ from qwenpaw_data.host.core.api.models.chat import (
 )
 from qwenpaw_data.host.core.api.models.plan import PlanSchema
 from qwenpaw_data.host.core.api.models.preferences import ProviderModelSchema, ProviderSchema
+from qwenpaw_data.host.core.api.models.stream_objects import TraceMessageSchema
 from qwenpaw_data.host.core.api.models.trace import (
     BizEventSchema,
-    MessageSchema,
     SegmentSchema,
 )
 from qwenpaw_data.host.core.domain.chat import Chat
@@ -104,8 +104,8 @@ def feedback_to_schema(data: dict[str, Any]) -> FeedbackSchema:
     return FeedbackSchema.model_validate(data)
 
 
-def message_to_schema(data: dict[str, Any]) -> MessageSchema:
-    return MessageSchema.model_validate(data)
+def message_to_schema(data: dict[str, Any]) -> TraceMessageSchema:
+    return TraceMessageSchema.model_validate(data)
 
 
 def biz_event_to_schema(data: dict[str, Any]) -> BizEventSchema:

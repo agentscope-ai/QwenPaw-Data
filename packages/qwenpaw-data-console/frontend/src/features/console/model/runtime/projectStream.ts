@@ -13,6 +13,7 @@ import { createMcpFailureMessage } from '../chat/mcpFailureMessage.js';
 import { readContextUsage } from './contextUsage.js';
 import { mergeTimingEvents, toTimingEvent } from './executionTiming.js';
 import type { TimingEvent } from '../../api/types.js';
+import { eventStreamKey, isMainStream } from './eventStream.js';
 
 export interface ChatStreamProjection {
   timingEvents?: TimingEvent[];
@@ -23,6 +24,7 @@ export interface ChatStreamProjection {
   lastSequenceNumber: number;
   streamError: { code: string; message: string } | null;
   contextUsage?: ContextUsage | null;
+  subagentResponses?: ReadonlyMap<string, { status: ResponseStatus; error?: string }>;
 }
 
 function upsertByKey<T>(items: T[], next: T, getKey: (item: T) => string): T[] {
@@ -118,13 +120,14 @@ export function createChatStreamProjection(
     (left, right) => left.sequence - right.sequence,
   );
   const planCallMessagesById = new Map<string, TraceMessage>();
-  for (const message of normalizedMessages) {
+  const mainMessages = normalizedMessages.filter(isMainStream);
+  for (const message of mainMessages) {
     if (message.type === 'plugin_call' && message.source_id) {
       planCallMessagesById.set(message.source_id, message);
     }
   }
-  const replayedPlan = normalizedMessages.reduce(
-    (plan, message) => applyPlanToolOutput(plan, normalizedMessages, message, planCallMessagesById),
+  const replayedPlan = mainMessages.reduce(
+    (plan, message) => applyPlanToolOutput(plan, mainMessages, message, planCallMessagesById),
     chat.plan,
   );
   const normalizedChat = {
@@ -180,6 +183,28 @@ export function projectStreamEvent(
     },
   };
 
+  if (
+    event.stream?.type === 'subagent' &&
+    (event.object === 'response' || event.object === 'error')
+  ) {
+    return {
+      ...base,
+      subagentResponses: new Map(state.subagentResponses).set(event.stream.parent_call_id, {
+        status: event.object === 'response' ? event.status : 'failed',
+        error: event.object === 'response' ? event.error?.message : event.message,
+      }),
+    };
+  }
+
+  // All streams share a replay cursor. Child events must advance it without
+  // changing the main response, plan, context meter, summaries or follow-ups.
+  if (
+    !isMainStream(event) &&
+    !['message', 'content', 'artifact.registered', 'mcp.connect'].includes(event.object)
+  ) {
+    return base;
+  }
+
   switch (event.object) {
     case 'mcp.connect': {
       const message = createMcpFailureMessage(event);
@@ -220,8 +245,8 @@ export function projectStreamEvent(
     case 'message': {
       const messages = upsertById(base.messages, event);
       const plan =
-        event.type === 'plugin_call_output'
-          ? applyPlanToolOutput(base.chat.plan, messages, event)
+        isMainStream(event) && event.type === 'plugin_call_output'
+          ? applyPlanToolOutput(base.chat.plan, messages.filter(isMainStream), event)
           : base.chat.plan;
       return {
         ...base,
@@ -233,7 +258,9 @@ export function projectStreamEvent(
       return {
         ...base,
         messages: base.messages.map((message) =>
-          message.id === event.msg_id ? mergeContent(message, event) : message,
+          message.id === event.msg_id && eventStreamKey(message) === eventStreamKey(event)
+            ? mergeContent(message, event)
+            : message,
         ),
       };
     case 'segment':

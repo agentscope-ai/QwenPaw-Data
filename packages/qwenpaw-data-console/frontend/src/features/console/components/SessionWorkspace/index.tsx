@@ -10,6 +10,7 @@ import {
   CloseOutlined,
   CodeOutlined,
   DeleteOutlined,
+  DownOutlined,
   EditOutlined,
   FileTextOutlined,
   LoadingOutlined,
@@ -41,7 +42,7 @@ import {
   notification,
 } from 'antd';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, UIEvent } from 'react';
+import type { ComponentProps, KeyboardEvent, UIEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dataConsoleApi } from '../../api/client';
 import type {
@@ -65,12 +66,15 @@ import {
 import { isCronChannel } from '@/features/console/api/cron';
 import { buildCronJobName, buildCronMessage } from '@/features/cron/model/cronMessage';
 import type { ChatStreamProjection } from '../../model/runtime/projectStream';
+import { eventStreamKey } from '../../model/runtime/eventStream';
 import { serializeTraceContentToMarkdown } from '../../model/artifacts/markdownContent';
 import {
   getPluginCallToolName,
+  groupRawTraceItems,
   isRawTraceItemFailed,
   selectRawTraceItems,
 } from '../../model/runtime/rawTrace';
+import type { RawTraceItem } from '../../model/runtime/rawTrace';
 import { getSettlementCardTitle } from '../../model/settlement/settlementCard';
 import { formatSegmentMarkdown } from '../../model/artifacts/segmentMarkdown';
 import { selectChatTimeline } from '../../model/runtime/selectChatTimeline';
@@ -1203,9 +1207,22 @@ function TracePanel({
   );
   const rawMessages = useMemo(() => chatProjection?.messages ?? [], [chatProjection?.messages]);
   const rawTraceItems = useMemo(() => selectRawTraceItems(rawMessages), [rawMessages]);
-  const rawMessageKeys = useMemo(() => rawTraceItems.map((item) => item.id), [rawTraceItems]);
-  const rawMessageKeySet = useMemo(() => new Set(rawMessageKeys), [rawMessageKeys]);
-  const activeRawTraceKeys = expandedRawTraceKeys.filter((key) => rawMessageKeySet.has(key));
+  const { rootItems: rawTraceRoots, subagentItemsByParent } = useMemo(
+    () => groupRawTraceItems(rawTraceItems),
+    [rawTraceItems],
+  );
+  const rawMessagePositions = useMemo(() => {
+    const streamPositions = new Map<string, number>();
+    const positionsById = new Map<string, number>();
+    for (const item of rawTraceItems) {
+      const streamKey = eventStreamKey(item.input);
+      const position = (streamPositions.get(streamKey) ?? 0) + 1;
+      streamPositions.set(streamKey, position);
+      positionsById.set(item.id, position);
+    }
+    return positionsById;
+  }, [rawTraceItems]);
+  const activeRawTraceKeys = expandedRawTraceKeys.filter((key) => rawMessagePositions.has(key));
   const activeRawTraceKeySet = useMemo(() => new Set(activeRawTraceKeys), [activeRawTraceKeys]);
   const businessTraceKeys = useMemo(
     () => businessTimeline.map((item) => item.id),
@@ -1235,11 +1252,11 @@ function TracePanel({
     [businessTimeline, visibleBusinessTraceCount],
   );
   const visibleRawTraceItems = useMemo(
-    () => rawTraceItems.slice(0, visibleRawTraceCount),
-    [rawTraceItems, visibleRawTraceCount],
+    () => rawTraceRoots.slice(0, visibleRawTraceCount),
+    [rawTraceRoots, visibleRawTraceCount],
   );
   const hasMoreBusinessTraces = visibleBusinessTimeline.length < businessTimeline.length;
-  const hasMoreRawTraces = visibleRawTraceItems.length < rawTraceItems.length;
+  const hasMoreRawTraces = visibleRawTraceItems.length < rawTraceRoots.length;
 
   const handleTraceScroll = (event: UIEvent<HTMLDivElement>) => {
     const { clientHeight, scrollHeight, scrollTop } = event.currentTarget;
@@ -1256,12 +1273,12 @@ function TracePanel({
       return;
     }
 
-    if (view === 'agent' && visibleRawTraceCount < rawTraceItems.length) {
+    if (view === 'agent' && visibleRawTraceCount < rawTraceRoots.length) {
       setVisibleRawTraceState((current) => {
         const currentCount = current.chatId === currentChatId ? current.count : TRACE_BATCH_SIZE;
         return {
           chatId: currentChatId,
-          count: Math.min(currentCount + TRACE_BATCH_SIZE, rawTraceItems.length),
+          count: Math.min(currentCount + TRACE_BATCH_SIZE, rawTraceRoots.length),
         };
       });
     }
@@ -1284,6 +1301,104 @@ function TracePanel({
     }
     setView(nextView);
   };
+
+  const updateRawTraceKeys = (items: RawTraceItem[], keys: string | string[]) => {
+    const itemKeys = new Set(items.map((item) => item.id));
+    setExpandedRawTraceKeys((current) => [
+      ...current.filter((key) => !itemKeys.has(key)),
+      ...(Array.isArray(keys) ? keys : [keys]).map(String),
+    ]);
+  };
+
+  function renderRawTraceItem(
+    item: RawTraceItem,
+  ): NonNullable<ComponentProps<typeof Collapse>['items']>[number] {
+    const message = item.input;
+    const childItems = subagentItemsByParent.get(item.id);
+    const isExpanded = activeRawTraceKeySet.has(item.id);
+    const paired = item.output !== null;
+    const toolName = getPluginCallToolName(message);
+    const traceMeta =
+      toolName ??
+      (paired
+        ? `${message.role || 'system'} → ${item.output?.role || 'tool'}`
+        : message.role || 'system');
+    const body = paired
+      ? [
+          '### Input',
+          serializeTraceContentToMarkdown(message.content) || `_${t('workspace.noContent')}_`,
+          '### Output',
+          serializeTraceContentToMarkdown(item.output?.content ?? []) ||
+            `_${t('workspace.noContent')}_`,
+        ].join('\n\n')
+      : serializeTraceContentToMarkdown(message.content) || `_${t('workspace.noContent')}_`;
+    return {
+      key: item.id,
+      showArrow: false,
+      label: (
+        <div className={styles.rawTraceHeader}>
+          <RawTraceTypeIcon type={message.type} />
+          <span className={styles.traceSequenceText}>{rawMessagePositions.get(item.id)}</span>
+          <span className={styles.rawTraceDetails}>
+            <OverflowTooltip title={message.type}>
+              <span className={styles.rawTraceTitle}>{message.type}</span>
+            </OverflowTooltip>
+            <OverflowTooltip title={traceMeta}>
+              <span className={styles.rawTraceRole}>{traceMeta}</span>
+            </OverflowTooltip>
+            {childItems ? (
+              <DownOutlined
+                aria-hidden="true"
+                className={`${styles.rawTraceChevron} ${styles.collapseChevron} ${isExpanded ? styles.collapseChevronOpen : ''}`}
+              />
+            ) : null}
+          </span>
+          <Tooltip
+            title={
+              message.stream?.type === 'subagent'
+                ? t('workspace.parentCall', { id: message.stream.parent_call_id })
+                : null
+            }
+          >
+            <span className={`${styles.rawTraceRole} ${styles.rawTraceSource}`}>
+              {t(
+                message.stream?.type === 'subagent'
+                  ? 'workspace.subagentSource'
+                  : 'workspace.mainAgentSource',
+              )}
+            </span>
+          </Tooltip>
+          {isRawTraceItemFailed(item) ? (
+            <span className={styles.rawTraceFailureBadge}>{t('workspace.traceFailed')}</span>
+          ) : null}
+        </div>
+      ),
+      children: isExpanded ? (
+        <>
+          {childItems ? (
+            <Collapse
+              className={`${styles.rawTraceCollapse} ${styles.rawTraceChildren}`}
+              bordered={false}
+              destroyOnHidden
+              activeKey={childItems
+                .filter((child) => activeRawTraceKeySet.has(child.id))
+                .map((child) => child.id)}
+              onChange={(keys) => updateRawTraceKeys(childItems, keys)}
+              items={childItems.map(renderRawTraceItem)}
+            />
+          ) : null}
+          <div className={styles.rawTraceBody}>
+            <Markdown
+              className={styles.rawTraceMarkdown}
+              content={body}
+              baseFontSize={12}
+              baseLineHeight={1.6}
+            />
+          </div>
+        </>
+      ) : null,
+    };
+  }
 
   return (
     <div className={`${styles.workspacePanel} ${styles.workspacePanelCompact}`}>
@@ -1410,66 +1525,17 @@ function TracePanel({
               </div>
             ) : null}
           </div>
-        ) : view === 'agent' && rawTraceItems.length ? (
+        ) : view === 'agent' && rawTraceRoots.length ? (
           <div key="agent" className={styles.rawTraceContainer} onScroll={handleTraceScroll}>
             <Collapse
               className={styles.rawTraceCollapse}
               bordered={false}
               destroyOnHidden
-              activeKey={activeRawTraceKeys}
-              onChange={(keys) =>
-                setExpandedRawTraceKeys((Array.isArray(keys) ? keys : [keys]).map(String))
-              }
-              items={visibleRawTraceItems.map((item, index) => {
-                const message = item.input;
-                const paired = item.output !== null;
-                const toolName = getPluginCallToolName(message);
-                const traceMeta =
-                  toolName ??
-                  (paired
-                    ? `${message.role || 'system'} → ${item.output?.role || 'tool'}`
-                    : message.role || 'system');
-                const body = paired
-                  ? [
-                      '### Input',
-                      serializeTraceContentToMarkdown(message.content) ||
-                        `_${t('workspace.noContent')}_`,
-                      '### Output',
-                      serializeTraceContentToMarkdown(item.output?.content ?? []) ||
-                        `_${t('workspace.noContent')}_`,
-                    ].join('\n\n')
-                  : serializeTraceContentToMarkdown(message.content) ||
-                    `_${t('workspace.noContent')}_`;
-                return {
-                  key: item.id,
-                  showArrow: false,
-                  label: (
-                    <div className={styles.rawTraceHeader}>
-                      <RawTraceTypeIcon type={message.type} />
-                      <span className={styles.traceSequenceText}>{index + 1}</span>
-                      <OverflowTooltip title={message.type}>
-                        <span className={styles.rawTraceTitle}>{message.type}</span>
-                      </OverflowTooltip>
-                      <span className={styles.rawTraceRole}>{traceMeta}</span>
-                      {isRawTraceItemFailed(item) ? (
-                        <span className={styles.rawTraceFailureBadge}>
-                          {t('workspace.traceFailed')}
-                        </span>
-                      ) : null}
-                    </div>
-                  ),
-                  children: activeRawTraceKeySet.has(item.id) ? (
-                    <div className={styles.rawTraceBody}>
-                      <Markdown
-                        className={styles.rawTraceMarkdown}
-                        content={body}
-                        baseFontSize={12}
-                        baseLineHeight={1.6}
-                      />
-                    </div>
-                  ) : null,
-                };
-              })}
+              activeKey={visibleRawTraceItems
+                .filter((item) => activeRawTraceKeySet.has(item.id))
+                .map((item) => item.id)}
+              onChange={(keys) => updateRawTraceKeys(visibleRawTraceItems, keys)}
+              items={visibleRawTraceItems.map(renderRawTraceItem)}
             />
             {hasMoreRawTraces ? (
               <div className={styles.traceLoadMore} aria-label={t('common.loading')}>

@@ -1,4 +1,5 @@
 import type { TraceMessage } from '../../api/types';
+import { eventStreamKey } from './eventStream.js';
 
 export interface RawTraceItem {
   id: string;
@@ -61,7 +62,8 @@ export function selectRawTraceItems(messages: TraceMessage[]): RawTraceItem[] {
   const pendingInputIndexes = new Map<string, number>();
 
   messages.forEach((message) => {
-    const callId = pluginCallId(message);
+    const rawCallId = pluginCallId(message);
+    const callId = rawCallId ? JSON.stringify([eventStreamKey(message), rawCallId]) : null;
     if (message.type === 'plugin_call' && callId) {
       const itemIndex = items.length;
       items.push({ id: message.id, input: message, output: null });
@@ -84,4 +86,29 @@ export function selectRawTraceItems(messages: TraceMessage[]): RawTraceItem[] {
   });
 
   return items;
+}
+
+export function groupRawTraceItems(items: RawTraceItem[]) {
+  const parentIdsByCallId = new Map<string, string>();
+  for (const { id, input } of items) {
+    if (input.type !== 'plugin_call' || input.stream?.type === 'subagent') continue;
+    const callId = input.source_id || pluginCallId(input);
+    if (callId && !parentIdsByCallId.has(callId)) parentIdsByCallId.set(callId, id);
+  }
+
+  const rootItems: RawTraceItem[] = [];
+  const subagentItemsByParent = new Map<string, RawTraceItem[]>();
+  for (const item of items) {
+    const stream = item.input.stream;
+    const parentId =
+      stream?.type === 'subagent' ? parentIdsByCallId.get(stream.parent_call_id) : undefined;
+    if (parentId === undefined) {
+      rootItems.push(item);
+    } else {
+      const children = subagentItemsByParent.get(parentId) ?? [];
+      children.push(item);
+      subagentItemsByParent.set(parentId, children);
+    }
+  }
+  return { rootItems, subagentItemsByParent };
 }

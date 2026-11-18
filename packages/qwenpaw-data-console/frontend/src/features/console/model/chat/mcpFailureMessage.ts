@@ -13,6 +13,7 @@ export function createMcpFailureMessage(event: McpConnectEvent): TraceMessage | 
   const id = `mcp-connect:${event.chat_id}:${event.sequence_number}`;
   return {
     id,
+    stream: event.stream,
     object: 'message',
     chat_id: event.chat_id,
     sequence: 1 - 1 / (event.sequence_number + 2),

@@ -3,6 +3,8 @@ import { commentsFromMessageMetadata } from '../artifacts/artifactComments.js';
 import type { ChatStreamProjection } from './projectStream';
 import { durationSeconds, indexExecutionTimings } from './executionTiming.js';
 import { eventDurationSeconds } from './runtimeProjection.js';
+import { isMainStream } from './eventStream.js';
+import { selectSubagentActivities, type SubagentActivity } from './subagentActivity.js';
 
 export type ChatTimelineItem =
   | {
@@ -30,6 +32,12 @@ export type ChatTimelineItem =
       seq: number;
       segment: Segment;
       events: BizEvent[];
+    }
+  | {
+      kind: 'subagent';
+      id: string;
+      seq: number;
+      activity: SubagentActivity;
     };
 
 export type ChatTimelineSection =
@@ -47,10 +55,24 @@ export type ChatTimelineSection =
 
 export interface SelectChatTimelineOptions {
   keepCoveredBizEvents?: boolean;
+  includeSubagents?: boolean;
 }
 
 function isCoveredBySegment(seq: number, segments: Segment[]): boolean {
   return segments.some(({ coverage }) => seq >= coverage.start_seq && seq <= coverage.end_seq);
+}
+
+function parentToolCallId(item: ChatTimelineItem): string | null {
+  if (item.kind === 'biz_event' && item.event.presentation?.card_type === 'tool') {
+    return item.event.block_id;
+  }
+  if (
+    item.kind === 'raw' &&
+    (item.message.type === 'plugin_call' || item.message.type === 'plugin_call_output')
+  ) {
+    return item.message.source_id ?? null;
+  }
+  return null;
 }
 
 function itemPriority(item: ChatTimelineItem): number {
@@ -107,7 +129,13 @@ export function selectChatTimeline(
   options: SelectChatTimelineOptions = {},
 ): ChatTimelineItem[] {
   const timings = indexExecutionTimings(projection.timingEvents ?? []);
-  const steerTraceMessages = projection.messages.filter(
+  const subagents = options.includeSubagents ? selectSubagentActivities(projection) : undefined;
+  const isSubagentParent = (event: BizEvent) =>
+    event.presentation?.card_type === 'tool' &&
+    event.block_id !== null &&
+    subagents?.has(event.block_id);
+  const mainMessages = projection.messages.filter(isMainStream);
+  const steerTraceMessages = mainMessages.filter(
     (message) => message.role === 'user' && message.metadata?.source === 'steer',
   );
   const steerMessages = steerTraceMessages.map<ChatTimelineItem>((message) => ({
@@ -136,7 +164,7 @@ export function selectChatTimeline(
       .map((message) => message.source_id)
       .filter((sourceId): sourceId is string => Boolean(sourceId)),
   );
-  const rawMessages = projection.messages.filter((message) => !steerMessageIds.has(message.id));
+  const rawMessages = mainMessages.filter((message) => !steerMessageIds.has(message.id));
   const rawIdsBySourceId = new Map<string, Set<string>>();
   rawMessages.forEach((message) => {
     if (message.source_id) {
@@ -216,7 +244,12 @@ export function selectChatTimeline(
       left.coverage.end_seq - right.coverage.end_seq,
   );
   const bizEventItems = presentableBizEvents
-    .filter((event) => options.keepCoveredBizEvents || !isCoveredBySegment(event.seq, segments))
+    .filter(
+      (event) =>
+        options.keepCoveredBizEvents ||
+        isSubagentParent(event) ||
+        !isCoveredBySegment(event.seq, segments),
+    )
     .map<ChatTimelineItem>((event) => ({
       kind: 'biz_event',
       id: event.event_id,
@@ -266,28 +299,51 @@ export function selectChatTimeline(
     events: presentableBizEvents.filter(
       (event) =>
         event.presentation?.card_type !== 'user' &&
+        !isSubagentParent(event) &&
         event.seq >= segment.coverage.start_seq &&
         event.seq <= segment.coverage.end_seq,
     ),
   }));
 
-  return [...userMessages, ...rawItems, ...bizEventItems, ...segmentItems].sort(
+  const items = [...userMessages, ...rawItems, ...bizEventItems, ...segmentItems].sort(
     (left, right) =>
       left.seq - right.seq ||
       itemPriority(left) - itemPriority(right) ||
       left.id.localeCompare(right.id),
   );
+  if (!subagents?.size) return items;
+
+  const subagentItem = (activity: SubagentActivity, seq: number): ChatTimelineItem => ({
+    kind: 'subagent',
+    id: `subagent-${activity.parentCallId}`,
+    seq,
+    activity,
+  });
+  const placed = items.flatMap((item) => {
+    const parentId = parentToolCallId(item);
+    const activity = parentId ? subagents.get(parentId) : undefined;
+    if (!activity) return [item];
+    subagents.delete(activity.parentCallId);
+    return [item, subagentItem(activity, item.seq)];
+  });
+  // Retain content when a restored trace has child messages but no parent row.
+  for (const activity of subagents.values()) {
+    if (activity.messages.length)
+      placed.push(subagentItem(activity, activity.messages[0].sequence));
+  }
+  return placed;
 }
 
 export function splitChatTimelineBySteer(timeline: ChatTimelineItem[]): ChatTimelineSection[] {
   const sections: ChatTimelineSection[] = [];
   let responseItems: ChatTimelineItem[] = [];
+  let responseId = 'response-start';
 
   const flushResponse = () => {
     if (!responseItems.length) return;
     sections.push({
       kind: 'response',
-      id: `response-${responseItems[0].id}`,
+      id: responseId,
       items: responseItems,
     });
     responseItems = [];
@@ -303,6 +359,7 @@ export function splitChatTimelineBySteer(timeline: ChatTimelineItem[]): ChatTime
           text: item.text,
           comments: commentsFromMessageMetadata(item.message.metadata),
         });
+        responseId = `response-after-${item.id}`;
       }
       return;
     }

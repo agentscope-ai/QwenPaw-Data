@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from copy import copy
+from dataclasses import dataclass, field
 from typing import Any
 
 from qwenpaw_data.host.core.api.models.stream_objects import (
@@ -27,6 +29,16 @@ from qwenpaw_data.host.core.utils.time import utcnow
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
+@dataclass
+class _ChatWriter:
+    seq: int
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    pending: list[ChatEventRecord] = field(default_factory=list)
+    unpublished: list[StreamObject] = field(default_factory=list)
+    delete_content_pending: bool = False
+    terminal: bool = False
+
+
 class OutputStream:
     """One writer per chat: assign seq, persist the log, publish to the process hub.
 
@@ -50,48 +62,53 @@ class OutputStream:
         self.identity = identity
         self.hub = get_hub()
         self.response_id = create_id("response")
-        self._lock = asyncio.Lock()
-        self._seq = last_sequence_number
-        self._pending: list[ChatEventRecord] = []
-        self._unpublished: list[StreamObject] = []
-        self._delete_content_pending = False
-        self._terminal = False
+        self._writer = _ChatWriter(last_sequence_number)
+        self._stream = {"type": "main"}
+
+    def subagent_stream(self, parent_call_id: str) -> OutputStream:
+        """One child response, sharing the chat's ordered commit and publish queue."""
+        if self._stream["type"] != "main" or not parent_call_id.strip():
+            raise ValueError("expected a main stream and a parent tool call id")
+        child = copy(self)
+        child.response_id = create_id("response")
+        child._stream = {"type": "subagent", "parent_call_id": parent_call_id}
+        return child
 
     @property
     def closed(self) -> bool:
         """Whether this turn's terminal response has been appended."""
-        return self._terminal
+        return self._writer.terminal
 
     async def flush(self, *, delete_content: bool = False) -> None:
-        async with self._lock:
+        async with self._writer.lock:
             await self._flush_locked(delete_content=delete_content)
 
     async def _flush_locked(self, *, delete_content: bool = False) -> None:
-        self._delete_content_pending |= delete_content
-        if self._pending or self._delete_content_pending:
+        self._writer.delete_content_pending |= delete_content
+        if self._writer.pending or self._writer.delete_content_pending:
             # Keep the exact batch and cleanup intent until commit returns.
             # CancelledError is a BaseException: an Exception-only recovery
             # handler used to lose this batch during task cancellation.
             async with self.session_factory() as db:
                 events = ChatEventRepository(db, self.identity)
-                if self._pending:
-                    await events.persist_batch(self._pending)
-                if self._delete_content_pending:
+                if self._writer.pending:
+                    await events.persist_batch(self._writer.pending)
+                if self._writer.delete_content_pending:
                     await events.delete_chat_content(self.chat_id)
                 await db.commit()
                 # Record known commit success before async session cleanup. A
                 # later close/publication failure must not reinsert these rows.
-                self._pending = []
-                self._delete_content_pending = False
+                self._writer.pending = []
+                self._writer.delete_content_pending = False
         await self._publish_pending_locked()
 
     async def _publish_pending_locked(self) -> None:
-        while self._unpublished:
-            await self.hub.publish(self.chat_id, self._unpublished[0])
-            self._unpublished.pop(0)
+        while self._writer.unpublished:
+            await self.hub.publish(self.chat_id, self._writer.unpublished[0])
+            self._writer.unpublished.pop(0)
 
     async def append(self, payload: dict[str, Any]) -> StreamObject:
-        async with self._lock:
+        async with self._writer.lock:
             return await self._append_locked(payload)
 
     async def _append_locked(self, payload: dict[str, Any]) -> StreamObject:
@@ -102,29 +119,30 @@ class OutputStream:
         """
         if "object" not in payload:
             raise ValueError("object is required")
-        if self._terminal:
+        if self._writer.terminal:
             raise RuntimeError(
                 f"chat {self.chat_id} already sent its terminal response; "
                 f"refusing to append {payload['object']!r}"
             )
-        if self._unpublished:
+        if self._writer.unpublished:
             # A previous append did not complete. Resolve that batch/publication
             # before assigning another sequence or publishing newer events.
             await self._flush_locked()
         # Invalid payloads must not consume a sequence number. The caller holds
         # _lock through validation, staging and publication.
-        seq = self._seq + 1
+        seq = self._writer.seq + 1
         now = utcnow()
         data = {
             **payload,
+            "stream": self._stream,
             "sequence_number": seq,
             "session_id": self.session_id,
             "chat_id": self.chat_id,
             "created_at": now,
         }
         obj = parse_stream_object(data)
-        self._unpublished.append(obj)
-        self._pending.append(
+        self._writer.unpublished.append(obj)
+        self._writer.pending.append(
             ChatEventRecord(
                 chat_id=self.chat_id,
                 sequence_number=seq,
@@ -134,14 +152,14 @@ class OutputStream:
                 created_at=now,
             )
         )
-        self._seq = seq
+        self._writer.seq = seq
         terminal = is_terminal_response(obj)
         if terminal:
-            self._terminal = True
+            self._writer.terminal = True
         should_flush = (
             terminal
             or not self._is_delta(obj)
-            or len(self._pending) >= get_settings().stream.delta_flush_size
+            or len(self._writer.pending) >= get_settings().stream.delta_flush_size
         )
         if should_flush:
             await self._flush_locked(delete_content=terminal)
@@ -156,7 +174,7 @@ class OutputStream:
         Callers hold ``_lock`` across their upsert and this check, so the
         terminal response cannot slip in between.
         """
-        if self._terminal:
+        if self._writer.terminal:
             return None
         return await self._append_locked(payload)
 
@@ -288,7 +306,7 @@ class OutputStream:
         )
 
     async def biz_event(self, **fields: Any) -> StreamObject | None:
-        async with self._lock:
+        async with self._writer.lock:
             async with self.session_factory() as db:
                 event = await BizEventRepository(db, self.identity).upsert(
                     chat_id=self.chat_id, **fields
@@ -299,7 +317,7 @@ class OutputStream:
             )
 
     async def segment(self, **fields: Any) -> StreamObject | None:
-        async with self._lock:
+        async with self._writer.lock:
             async with self.session_factory() as db:
                 seg = await SegmentRepository(db, self.identity).upsert(
                     chat_id=self.chat_id, **fields
@@ -311,7 +329,7 @@ class OutputStream:
             return await self._append_if_open({"object": "segment", "segment": seg})
 
     async def artifact_registered(self, **fields: Any) -> StreamObject | None:
-        async with self._lock:
+        async with self._writer.lock:
             async with self.session_factory() as db:
                 art = await ArtifactRepository(db, self.identity).register(
                     session_id=self.session_id, chat_id=self.chat_id, **fields
@@ -327,7 +345,7 @@ class OutputStream:
         A late result (the recommender outran the turn) stays in the repository
         for the next snapshot but never lands behind the terminal response.
         """
-        async with self._lock:
+        async with self._writer.lock:
             async with self.session_factory() as db:
                 followup = await FollowUpRepository(db, self.identity).upsert(
                     chat_id=self.chat_id, questions=questions

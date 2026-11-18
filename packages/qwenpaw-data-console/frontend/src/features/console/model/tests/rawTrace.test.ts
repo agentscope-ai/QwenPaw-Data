@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { MessageContent, TraceMessage } from '../../api/types.js';
-import { isRawTraceItemFailed, selectRawTraceItems } from '../runtime/rawTrace.js';
+import {
+  groupRawTraceItems,
+  isRawTraceItemFailed,
+  selectRawTraceItems,
+} from '../runtime/rawTrace.js';
 
 function content(data: unknown, overrides: Partial<MessageContent> = {}): MessageContent {
   return {
@@ -48,6 +52,55 @@ function output(state: unknown, overrides: Partial<TraceMessage> = {}): TraceMes
     ...overrides,
   });
 }
+
+test('subagent traces stay with their own main plugin call and keep paired outputs', () => {
+  const firstStream = { type: 'subagent', parent_call_id: 'spawn-a' } as const;
+  const secondStream = { type: 'subagent', parent_call_id: 'spawn-b' } as const;
+  const childOutput = output('success', { stream: firstStream });
+  const items = selectRawTraceItems([
+    message({ id: 'child-a', stream: firstStream }),
+    message({ id: 'parent-a', source_id: 'spawn-a', content: [] }),
+    message({
+      id: 'parent-b',
+      stream: { type: 'main' },
+      content: [content({ call_id: 'spawn-b' })],
+    }),
+    message({ id: 'child-b', type: 'reasoning', stream: secondStream }),
+    message({ id: 'reply-a', type: 'message', stream: firstStream }),
+    childOutput,
+  ]);
+  const { rootItems, subagentItemsByParent } = groupRawTraceItems(items);
+
+  assert.deepEqual(
+    rootItems.map(({ id }) => id),
+    ['parent-a', 'parent-b'],
+  );
+  const firstChildren = subagentItemsByParent.get('parent-a');
+  assert.deepEqual(
+    firstChildren?.map(({ id }) => id),
+    ['child-a', 'reply-a'],
+  );
+  assert.equal(firstChildren?.[0].output, childOutput);
+  assert.deepEqual(
+    subagentItemsByParent.get('parent-b')?.map(({ id }) => id),
+    ['child-b'],
+  );
+});
+
+test('subagent traces remain at the top level when the parent tool call is missing', () => {
+  const items = selectRawTraceItems([
+    output('success', { source_id: 'missing' }),
+    message({ id: 'other', source_id: 'missing', type: 'reasoning' }),
+    message({
+      id: 'child',
+      type: 'message',
+      stream: { type: 'subagent', parent_call_id: 'missing' },
+    }),
+  ]);
+  const { rootItems, subagentItemsByParent } = groupRawTraceItems(items);
+  assert.deepEqual(rootItems, items);
+  assert.equal(subagentItemsByParent.size, 0);
+});
 
 test('failed standalone messages are marked regardless of message type', () => {
   for (const type of ['message', 'reasoning', 'plugin_call', 'plugin_call_output']) {

@@ -9,6 +9,7 @@ import {
   type RuntimeTurnMessageIds,
 } from '../../model/runtime/runtimeSessionSync';
 import RuntimeDataSelectors from './RuntimeDataSelectors';
+import RuntimeSubagentCard from './RuntimeSubagentCard';
 import ResponseFailure from './ResponseFailure';
 import { selectResponseFailure } from '../../model/runtime/responseFailure';
 import { requestCard } from '../../model/runtime/runtimeMessages';
@@ -460,10 +461,9 @@ function clearRuntimeInputAfterAccepted(
   attachmentRemoveButtons.forEach((button) => button.click());
 }
 
-type RuntimeDisplayEntry = {
-  kind: 'message';
-  message: IAgentScopeRuntimeMessage;
-};
+type RuntimeDisplayEntry =
+  | { kind: 'message'; message: IAgentScopeRuntimeMessage }
+  | Extract<ChatTimelineItem, { kind: 'subagent' }>;
 
 type RuntimeResponseSection =
   | ChatTimelineSection
@@ -478,6 +478,10 @@ function mergeRuntimeDisplayEntries(entries: RuntimeDisplayEntry[]): RuntimeDisp
   const pendingToolIndexes = new Map<string, number>();
 
   entries.forEach((entry) => {
+    if (entry.kind === 'subagent') {
+      result.push(entry);
+      return;
+    }
     const { message: runtimeMessage } = entry;
     if (runtimeMessage.type === AgentScopeRuntimeMessageType.HEARTBEAT) return;
     // A message-start event can arrive before its first text delta. Do not
@@ -556,6 +560,7 @@ const RuntimeProcessTimeline = memo(function RuntimeProcessTimeline({
         if (item.kind === 'user') {
           return [];
         }
+        if (item.kind === 'subagent') return [item];
         // The initial user request is already rendered by the SDK request card.
         // A user-shaped BizEvent is its business projection and must not duplicate it
         // inside the assistant response timeline.
@@ -577,6 +582,7 @@ const RuntimeProcessTimeline = memo(function RuntimeProcessTimeline({
   if (!displayEntries.length) return null;
   const segmentIndexes = new Map<string, number>();
   displayEntries.forEach((entry) => {
+    if (entry.kind !== 'message') return;
     const projection = selectRuntimeProjectionPayload(entry.message);
     if (projection?.kind === 'segment') {
       segmentIndexes.set(entry.message.id, segmentIndexes.size + 1);
@@ -586,6 +592,9 @@ const RuntimeProcessTimeline = memo(function RuntimeProcessTimeline({
   return (
     <div className={styles.runtimeProcessTimeline} aria-label={t('runtime.process')}>
       {displayEntries.map((entry) => {
+        if (entry.kind === 'subagent') {
+          return <RuntimeSubagentCard activity={entry.activity} key={entry.id} />;
+        }
         const { message: runtimeMessage } = entry;
         const projection = selectRuntimeProjectionPayload(runtimeMessage);
         if (projection?.kind === 'segment') {
@@ -1977,12 +1986,12 @@ const RuntimeConversation = forwardRef<RuntimeConversationHandle, RuntimeConvers
         const previous = cache.get(projection);
         if (previous) return previous;
         const sections: RuntimeResponseSection[] = splitChatTimelineBySteer(
-          selectChatTimeline(projection),
+          selectChatTimeline(projection, { includeSubagents: true }),
         );
         if (!sections.length)
           sections.push({
             kind: 'response',
-            id: projection.responseId ?? `response-${projection.chat.id}`,
+            id: 'response-start',
             items: [],
           });
         cache.set(projection, sections);

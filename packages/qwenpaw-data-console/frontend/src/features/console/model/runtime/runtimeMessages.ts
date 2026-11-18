@@ -118,7 +118,7 @@ export function resolveRequestArtifactComments(
   return [];
 }
 
-function requestCard(chat: ConsoleChat): IAgentScopeRuntimeWebUIMessage {
+export function requestCard(chat: ConsoleChat): IAgentScopeRuntimeWebUIMessage {
   return {
     id: `request-${chat.id}`,
     role: 'user',
@@ -141,7 +141,7 @@ function requestCard(chat: ConsoleChat): IAgentScopeRuntimeWebUIMessage {
 }
 
 export function timelineItemToRuntimeMessage(
-  item: Exclude<ChatTimelineItem, { kind: 'user' }>,
+  item: Exclude<ChatTimelineItem, { kind: 'user' | 'subagent' }>,
   terminal: boolean,
 ): IAgentScopeRuntimeMessage {
   if (item.kind === 'raw') {
@@ -187,8 +187,9 @@ function responseCard(projection: ChatStreamProjection): IAgentScopeRuntimeWebUI
       : getRuntimeStatus(chat);
   const output = selectChatTimeline(projection)
     .filter(
-      (item): item is Exclude<ChatTimelineItem, { kind: 'user' }> =>
+      (item): item is Exclude<ChatTimelineItem, { kind: 'user' | 'subagent' }> =>
         item.kind !== 'user' &&
+        item.kind !== 'subagent' &&
         !(item.kind === 'biz_event' && item.event.presentation?.card_type === 'user'),
     )
     .map((item) => timelineItemToRuntimeMessage(item, terminal));

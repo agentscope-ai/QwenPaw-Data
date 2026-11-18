@@ -44,6 +44,8 @@ from agentscope.tool import ToolBase, ToolChunk, Toolkit
 from ..artifact_paths import model_visible_path
 from ..mcp_cm import inject_datasource_metadata
 from ..runtime.context import RunContext
+from ..runtime.envelope import Envelope
+from .middleware.parent_call_id import parent_call_id
 from ..domain.tool_confirmation import ToolConfirmation
 from .middleware.prompt import DatasourcePromptMiddleware
 from .middleware.sql_artifact import SqlArtifactMiddleware
@@ -370,6 +372,7 @@ class SpawnSubagent(ToolBase):
             },
         }
         self._ctx = run_context
+        self._parent_envelope: Envelope | None = None
         self._workspace = run_context.workspace
         self._workspace_tools = list(workspace_tools)
         self._workspace_mcps = list(workspace_mcps)
@@ -380,8 +383,9 @@ class SpawnSubagent(ToolBase):
         self._count_lock = asyncio.Lock()
         self._spawn_count = 0
 
-    def bind_parent(self, agent: Agent) -> None:
+    def bind_parent(self, agent: Agent, *, envelope: Envelope | None = None) -> None:
         self._parent_agent_getter = lambda: agent
+        self._parent_envelope = envelope
 
     async def check_permissions(
         self,
@@ -653,6 +657,13 @@ class SpawnSubagent(ToolBase):
         node_id: str | None,
         submit: SubmitResult | None = None,
     ) -> AsyncGenerator[ToolChunk, None]:
+        lane = (
+            Envelope(
+                self._parent_envelope.stream.subagent_stream(parent_call_id()),
+                session_factory=self._ctx.session_factory,
+            )
+            if self._parent_envelope is not None else None
+        )
         trace_log: list[dict[str, Any]] = []
         text_parts: list[str] = []
         thinking_parts: list[str] = []
@@ -667,8 +678,11 @@ class SpawnSubagent(ToolBase):
         event_iter: Any = None
         error_chunk: ToolChunk | None = None
         delivered = False
+        interrupted = False
 
         try:
+            if lane is not None:
+                await lane.begin()
             while True:
                 confirmation: RequireUserConfirmEvent | None = None
                 event_iter = sub_agent.reply_stream(inputs=pending_input)
@@ -697,6 +711,8 @@ class SpawnSubagent(ToolBase):
                     if isinstance(event, RequireUserConfirmEvent):
                         confirmation = event
 
+                    if lane is not None:
+                        await lane.translate_event(event)
                     chunk = self._event_to_chunk(
                         event,
                         trace_log=trace_log,
@@ -733,6 +749,9 @@ class SpawnSubagent(ToolBase):
                         for tool_call in confirmation.tool_calls
                     ],
                 )
+        except (asyncio.CancelledError, GeneratorExit):
+            interrupted = True
+            raise
         except asyncio.TimeoutError:
             error_chunk = _text_chunk(
                 f"Sub-agent 超时（{TIMEOUT_SECONDS}s）",
@@ -755,6 +774,16 @@ class SpawnSubagent(ToolBase):
                 await asyncio.gather(event_task, return_exceptions=True)
             if event_iter is not None:
                 await self._close_event_iter(event_iter)
+            if lane is not None:
+                if interrupted:
+                    await lane.cancel()
+                elif error_chunk is not None or (submit is not None and not delivered):
+                    await lane.fail(error={
+                        "code": "INTERNAL",
+                        "message": "Delegation failed" if error_chunk else "No result submitted",
+                    })
+                else:
+                    await lane.complete()
 
         if error_chunk is not None:
             if submit is None:

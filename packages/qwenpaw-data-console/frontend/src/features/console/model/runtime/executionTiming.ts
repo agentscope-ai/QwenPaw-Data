@@ -1,4 +1,5 @@
 import type { ConsoleStreamEvent, ExecutionTiming, Segment, TimingEvent } from '../../api/types.js';
+import { isMainStream } from './eventStream.js';
 
 const timingObjects = new Set([
   'model.call',
@@ -16,6 +17,7 @@ export function toTimingEvent(event: ConsoleStreamEvent): TimingEvent | null {
     chat_id: event.chat_id,
     sequence_number: event.sequence_number,
     created_at: event.created_at,
+    stream: event.stream,
   };
   if (event.object === 'message') {
     return {
@@ -69,6 +71,7 @@ export function indexExecutionTimings(events: readonly TimingEvent[]) {
   const toolStarts = new Map<string, number>();
   let model: ModelSpan | undefined;
   for (const event of events) {
+    if (!isMainStream(event)) continue;
     const at = timestamp(event);
     if (event.object === 'model.call') {
       model = { start: at, end: null, blocks: new Set() };

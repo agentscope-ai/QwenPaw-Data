@@ -108,6 +108,7 @@ class ChatEventRepository:
         )
         fields = {
             "object",
+            "stream",
             "sequence_number",
             "session_id",
             "chat_id",

@@ -17,11 +17,31 @@ from qwenpaw_data.host.core.api.models.trace import (
 )
 
 
+class StreamMainSchema(ApiModel):
+    type: Literal["main"] = "main"
+
+
+class StreamSubagentSchema(ApiModel):
+    type: Literal["subagent"] = "subagent"
+    parent_call_id: str
+
+
+StreamSchema = Annotated[
+    Union[StreamMainSchema, StreamSubagentSchema],
+    Field(discriminator="type"),
+]
+
+
+class TraceMessageSchema(MessageSchema):
+    stream: StreamSchema = Field(default_factory=StreamMainSchema)
+
+
 class StreamBaseSchema(ApiModel):
     sequence_number: int
     session_id: str
     chat_id: str
     created_at: datetime
+    stream: StreamSchema = Field(default_factory=StreamMainSchema)
 
 
 class ResponseEventSchema(StreamBaseSchema):

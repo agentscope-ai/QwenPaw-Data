@@ -454,6 +454,7 @@ export interface MessageContent {
 }
 
 export interface TraceMessage {
+  stream?: EventStream; // Missing on older servers and legacy traces.
   timing?: ExecutionTiming;
   id: string;
   object: 'message';
@@ -492,7 +493,10 @@ export interface ConsoleChat {
   attachments?: AttachmentRef[];
 }
 
+export type EventStream = { type: 'main' } | { type: 'subagent'; parent_call_id: string };
+
 interface StreamBase {
+  stream?: EventStream;
   created_at?: string; // Absent in older stored events/servers.
   sequence_number: number;
   session_id: string;

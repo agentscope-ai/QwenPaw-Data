@@ -19,7 +19,7 @@ from qwenpaw_data.host.core.tracing.records import (
 )
 from qwenpaw_data.host.core.repositories.chat_command import ChatCommandRepository
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
-from qwenpaw_data.host.core.utils.status import chat_status_from_response
+from qwenpaw_data.host.core.utils.status import chat_status_from_response, is_main_stream
 from qwenpaw_data.host.core.utils.time import utcnow
 
 
@@ -83,7 +83,10 @@ class ChatRepository:
             ).all()
             status = None
             for event in events:
-                status = chat_status_from_response((event.payload or {}).get("status"))
+                payload = event.payload or {}
+                if not is_main_stream(payload):
+                    continue
+                status = chat_status_from_response(payload.get("status"))
                 if status is not None:
                     break
             if status is not None:
@@ -279,7 +282,9 @@ class ChatRepository:
         ).first()
         return self._from_row(row) if row is not None else None
 
-    async def read_messages(self, chat_id: str) -> list[dict[str, Any]]:
+    async def read_messages(
+        self, chat_id: str, *, include_stream: bool = False
+    ) -> list[dict[str, Any]]:
         evs = (
             await self.db.scalars(
                 select(ChatEventRow)
@@ -295,5 +300,9 @@ class ChatRepository:
             payload.pop("sequence_number", None)
             payload.pop("session_id", None)
             payload.pop("created_at", None)
+            if not include_stream:
+                if not is_main_stream(payload):
+                    continue
+                payload.pop("stream", None)
             messages.append(payload)
         return messages

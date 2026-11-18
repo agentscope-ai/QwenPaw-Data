@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from .domain.sop import SOP
+from .utils.status import is_main_stream
 
 
 class HostClientError(RuntimeError):
@@ -162,7 +163,7 @@ class HostClient:
             async with aclosing(self.run(session_id, prompt)) as events:
                 async for event in events:
                     if (
-                        event["object"] == "message"
+                        is_main_stream(event) and event["object"] == "message"
                         and event.get("role") == "assistant"
                         and event.get("type") == "message"
                         and event.get("status") == "completed"
@@ -270,7 +271,7 @@ class HostClient:
         try:
             async with aclosing(self.events(session_id, chat_id)) as events:
                 async for event in events:
-                    if event["object"] == "response" and event.get("status") in {
+                    if is_main_stream(event) and event["object"] == "response" and event.get("status") in {
                         "completed",
                         "failed",
                         "cancelled",

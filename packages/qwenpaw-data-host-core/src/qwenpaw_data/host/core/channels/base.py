@@ -39,6 +39,7 @@ from qwenpaw_data.host.core.repositories import (
 from qwenpaw_data.host.core.repositories.chat import ChatRepository
 from qwenpaw_data.host.core.repositories.followup import FollowUpRepository
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
+from qwenpaw_data.host.core.utils.status import is_main_stream
 from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.stream.hub import get_hub
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
@@ -994,6 +995,8 @@ class BaseChannel(abc.ABC):
 
         pending_artifacts: list[tuple[str, bool]] = []
         async for obj in hub.subscribe_live(chat_id):
+            if not is_main_stream(obj):
+                continue
             object_type = getattr(obj, "object", None)
             status = getattr(obj, "status", None)
             if object_type == "artifact.registered":

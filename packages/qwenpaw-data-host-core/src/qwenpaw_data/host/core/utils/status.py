@@ -5,16 +5,24 @@ _RESPONSE_ACTIVE = frozenset({"created", "in_progress"})
 _RESPONSE_TERMINAL = frozenset({"completed", "failed", "cancelled", "canceled"})
 
 
+def is_main_stream(event: object) -> bool:
+    """Pre-v37 events have no discriminator and belong to the main response."""
+    lane = event.get("stream") if isinstance(event, dict) else getattr(event, "stream", None)
+    return lane is None or (
+        lane.get("type") if isinstance(lane, dict) else lane.type
+    ) == "main"
+
+
 def is_active_response(obj: object) -> bool:
     return (
-        getattr(obj, "object", None) == "response"
+        is_main_stream(obj) and getattr(obj, "object", None) == "response"
         and getattr(obj, "status", None) in _RESPONSE_ACTIVE
     )
 
 
 def is_terminal_response(obj: object) -> bool:
     return (
-        getattr(obj, "object", None) == "response"
+        is_main_stream(obj) and getattr(obj, "object", None) == "response"
         and getattr(obj, "status", None) in _RESPONSE_TERMINAL
     )
 

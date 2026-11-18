@@ -7,6 +7,7 @@ import type {
 import type { ConsoleStreamEvent, TraceMessage } from '../../api/types';
 import { isTerminalChatStatus } from './chatStreamLifecycle.js';
 import type { ChatStreamProjection } from './projectStream.js';
+import { isMainStream } from './eventStream.js';
 
 export const runtimeSteerRequestIdPrefix = 'steer-request-';
 const completedStatus = 'completed' as AgentScopeRuntimeRunStatus;
@@ -64,6 +65,7 @@ export function shouldForwardRuntimeStreamEvent(
   event: ConsoleStreamEvent,
   steerMessageIds: Set<string>,
 ): boolean {
+  if (!isMainStream(event)) return false;
   // The host projects MCP failures into timeline tool cards; SDK does not consume this event.
   if (event.object === 'mcp.connect') return false;
   if (event.object === 'model.call') return false;

@@ -473,6 +473,10 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
                 )
                 # Verify durable parent-visible output, not only the fake model's calls.
                 assert "CHILD_VERIFIED" in str([event.model_dump() for event in events])
+                children = [e for e in events if e.stream.type == "subagent"]
+                assert children and all(e.stream.parent_call_id == "delegate-fixture" for e in children)
+                assert children[-1].object == "response" and children[-1].status == "completed"
+                assert events[-1].stream.type == "main" and events[-1].status == "completed"
     finally:
         await stop_workspace_manager()
         reset_hub()

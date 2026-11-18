@@ -77,6 +77,8 @@ async def print_events(
     current_node = None
     async with aclosing(events) as events:
         async for event in events:
+            if (event.get("stream") or {}).get("type", "main") != "main":
+                continue
             node_id = event.get("sop_node_id")
             if node_id is not None and node_id != current_node:
                 current_node = node_id

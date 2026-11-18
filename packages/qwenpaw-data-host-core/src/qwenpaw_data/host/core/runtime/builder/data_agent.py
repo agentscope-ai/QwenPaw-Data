@@ -7,6 +7,7 @@ from agentscope.tool import Toolkit
 
 from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
 from qwenpaw_data.host.core.agent.spawn_subagent import SpawnSubagent
+from qwenpaw_data.host.core.agent.middleware.parent_call_id import BindParentCallIdMiddleware
 from qwenpaw_data.host.core.constants import is_spawn_subagent_enabled
 from qwenpaw_data.host.core.agent.middleware import (
     CompressTriggerMiddleware,
@@ -46,6 +47,7 @@ from qwenpaw_data.host.core.utils.mcp import bind_mcp_tool_timeout
 
 def _middlewares(run_context: RunContext, envelope: Envelope) -> list:
     items = [
+        BindParentCallIdMiddleware(),
         TracingMiddleware(run_context=run_context),
         SteerMiddleware(run_context=run_context),
         CompressTriggerMiddleware(run_context=run_context),
@@ -175,5 +177,5 @@ class DataAgentBuilder:
         for group in toolkit.tool_groups:
             for tool in group.tools:
                 if isinstance(tool, SpawnSubagent):
-                    tool.bind_parent(agent)
+                    tool.bind_parent(agent, envelope=envelope)
         return agent

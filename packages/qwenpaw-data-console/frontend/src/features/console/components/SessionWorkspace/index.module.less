@@ -1115,6 +1115,14 @@
   }
 }
 
+.rawTraceChildren {
+  margin-bottom: 8px;
+}
+
+.rawTraceChevron {
+  flex: none;
+}
+
 .rawTraceHeader {
   position: relative;
   z-index: 0;
@@ -1193,6 +1201,7 @@
 }
 
 .rawTraceRole {
+  display: block;
   position: relative;
   z-index: 1;
   overflow: hidden;
@@ -1203,6 +1212,30 @@
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rawTraceDetails {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  align-items: center;
+  gap: 5px;
+
+  > span {
+    min-width: 0;
+  }
+}
+
+.rawTraceSource {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+  text-align: end;
+
+  + .rawTraceFailureBadge {
+    margin-inline-start: 0;
+  }
 }
 
 .workspaceSelectedTurnTitle {
