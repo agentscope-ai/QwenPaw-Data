@@ -13,15 +13,15 @@ export function useModal<T extends ModalProps>(
   const [modalProps, setModalProps] = useState<
     Partial<Omit<T, 'visible' | 'onCancel'>> | undefined
   >(initProps);
-  const show = useCallback((nextModalProps?: Partial<Omit<T, 'visible' | 'onCancel'>>) => {
-    setModalProps(
-      (prev) =>
-        ({ ...(prev ?? {}), ...(nextModalProps ?? {}) }) as Partial<
-          Omit<T, 'visible' | 'onCancel'>
-        >,
-    );
-    setVisible(true);
-  }, []);
+  const show = useCallback(
+    (nextModalProps?: Partial<Omit<T, 'visible' | 'onCancel'>>) => {
+      setModalProps({ ...(initProps ?? {}), ...(nextModalProps ?? {}) } as Partial<
+        Omit<T, 'visible' | 'onCancel'>
+      >);
+      setVisible(true);
+    },
+    [initProps],
+  );
   const close = useCallback(() => {
     setVisible(false);
   }, []);
