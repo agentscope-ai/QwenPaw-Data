@@ -373,6 +373,7 @@ class SpawnSubagent(ToolBase):
         }
         self._ctx = run_context
         self._parent_envelope: Envelope | None = None
+        self._model_for_role: Callable[[str], Any] | None = None
         self._workspace = run_context.workspace
         self._workspace_tools = list(workspace_tools)
         self._workspace_mcps = list(workspace_mcps)
@@ -383,9 +384,16 @@ class SpawnSubagent(ToolBase):
         self._count_lock = asyncio.Lock()
         self._spawn_count = 0
 
-    def bind_parent(self, agent: Agent, *, envelope: Envelope | None = None) -> None:
+    def bind_parent(
+        self,
+        agent: Agent,
+        *,
+        envelope: Envelope | None = None,
+        model_for_role: Callable[[str], Any] | None = None,
+    ) -> None:
         self._parent_agent_getter = lambda: agent
         self._parent_envelope = envelope
+        self._model_for_role = model_for_role
 
     async def check_permissions(
         self,
@@ -589,13 +597,14 @@ class SpawnSubagent(ToolBase):
             sub_agent = _SubAgent(
                 name=agent_name,
                 system_prompt=sys_prompt,
-                model=model,
+                model=self._model_for_role(role) if self._model_for_role else model,
                 toolkit=sub_toolkit,
                 middlewares=middlewares,
                 state=AgentState(
                     permission_context=parent_permission_context,
                 ),
                 offloader=getattr(parent_agent, "offloader", self._workspace),
+                injection_config=deepcopy(getattr(parent_agent, "injection_config", None)),
                 context_config=deepcopy(
                     getattr(parent_agent, "context_config", ContextConfig())
                 ),

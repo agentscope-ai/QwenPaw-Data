@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from agentscope.agent._config import ContextConfig, ReActConfig
+from agentscope.model import ChatModelBase
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
 from qwenpaw_data.host.core.agent.spawn_subagent import SpawnSubagent
-from qwenpaw_data.host.core.agent.middleware.parent_call_id import BindParentCallIdMiddleware
+from qwenpaw_data.host.core.agent.middleware.parent_call_id import (
+    BindParentCallIdMiddleware,
+)
 from qwenpaw_data.host.core.constants import is_spawn_subagent_enabled
 from qwenpaw_data.host.core.agent.middleware import (
     CompressTriggerMiddleware,
@@ -151,14 +154,18 @@ class DataAgentBuilder:
         workspace = run_context.workspace
         toolkit = await self.build_toolkit(run_context=run_context)
         user_runtime_config = run_context.user_runtime_config
+
+        def model_for_step(step: str) -> ChatModelBase:
+            return build_model(
+                user_runtime_config.default,
+                usage=run_context.model_usage(ModelUsageSource.DATA_AGENT, step),
+                parallel_tool_calls=get_settings().tools.parallel_enabled,
+            )
+
         agent = QwenPawDataAgent(
             name="qwenpaw-data",
             system_prompt="",
-            model=build_model(
-                user_runtime_config.default,
-                usage=run_context.model_usage(ModelUsageSource.DATA_AGENT),
-                parallel_tool_calls=get_settings().tools.parallel_enabled,
-            ),
+            model=model_for_step(""),
             toolkit=toolkit,
             middlewares=_middlewares(run_context, envelope),
             state=state,
@@ -177,5 +184,9 @@ class DataAgentBuilder:
         for group in toolkit.tool_groups:
             for tool in group.tools:
                 if isinstance(tool, SpawnSubagent):
-                    tool.bind_parent(agent, envelope=envelope)
+                    tool.bind_parent(
+                        agent,
+                        envelope=envelope,
+                        model_for_role=lambda role: model_for_step(f"subagent:{role}"),
+                    )
         return agent

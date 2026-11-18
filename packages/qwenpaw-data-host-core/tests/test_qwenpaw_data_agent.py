@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
 from agentscope.agent._config import ReActConfig
 from agentscope.formatter import DashScopeChatFormatter
 from agentscope.message import TextBlock, ToolCallBlock, ToolResultBlock
@@ -15,6 +17,8 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.db.tables import ModelUsageRow
+from qwenpaw_data.host.core.providers.usage import attach_model_usage
 from qwenpaw_data.host.core.agent.tools.plan_tools import PLAN_TOOL_NAMES, PlanCreate
 from qwenpaw_data.host.core.runtime.builder import DataAgentBuilder
 from qwenpaw_data.host.core.db.engine import (
@@ -157,6 +161,7 @@ class DelegatingModel(FakeTextModel):
     ):
         schemas = {schema["function"]["name"] for schema in tools or []}
         if "spawn_subagent" not in schemas:
+            self.messages = list(messages)
             self.child_calls += 1
             assert PLAN_TOOL_NAMES.isdisjoint(schemas)
             assert "ask_user_question" not in schemas
@@ -166,7 +171,8 @@ class DelegatingModel(FakeTextModel):
                 if self.role == "workspace_reader":
                     assert "Read" in schemas and "Write" not in schemas
                     assert "Read only the supplied evidence." in str(messages)
-                assert not any(name.startswith("mcp__") for name in schemas)
+                if self.role != "general":
+                    assert not any(name.startswith("mcp__") for name in schemas)
                 if self.role == "report" and self.child_calls == 1:
                     return ChatResponse(
                         content=[
@@ -209,29 +215,31 @@ class DelegatingModel(FakeTextModel):
             )
         if not self.delegated:
             self.delegated = True
+            roles = ["report", "general"] if self.role == "both" else [self.role]
             return ChatResponse(
                 content=[
                     ToolCallBlock(
-                        id="delegate-fixture",
+                        id=f"delegate-{role}",
                         name="spawn_subagent",
                         input=(
                             '{"task":"Summarize the supplied context without querying data"}'
-                            if self.role == "data_fetcher"
+                            if role == "data_fetcher"
                             else json.dumps(
                                 {
-                                    "type": self.role,
+                                    "type": role,
                                     "description": "Read evidence",
                                     "prompt": "Summarize the supplied context.",
                                 }
                             )
                         ),
                     )
+                    for role in roles
                 ],
                 is_last=True,
                 usage=ChatUsage(input_tokens=1, output_tokens=1, time=0),
             )
         assert "CHILD_VERIFIED" in str(messages)
-        if self.role != "data_fetcher":
+        if self.role not in {"data_fetcher", "both"}:
             receipt = next(
                 block
                 for message in messages
@@ -349,7 +357,7 @@ async def test_build_qwenpaw_data_toolkit_omits_ui_tools_when_disabled(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "delegate", [None, "data_fetcher", "report", "workspace_reader"]
+    "delegate", [None, "data_fetcher", "report", "workspace_reader", "both"]
 )
 async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
     tmp_path: Path,
@@ -411,10 +419,36 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         DelegatingModel(delegate, paths.artifact_dir) if delegate else FakeTextModel()
     )
     seen = {}
+    # Exercise the SDK's actual injected prompt on either side of Shanghai midnight.
+    instant = (
+        datetime(2026, 4, 5, 15, 59, tzinfo=UTC)
+        if delegate == "report"
+        else datetime(2026, 4, 5, 16, 1, tzinfo=UTC)
+    )
+    expected_clock = "2026-04-05T23:59" if delegate == "report" else "2026-04-06T00:01"
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return (
+                instant.astimezone(tz)
+                if tz is not None
+                else instant.replace(tzinfo=None)
+            )
+
+    monkeypatch.setattr("agentscope.agent._agent.datetime", Clock)
+    child_models = []
 
     def build_fixture(*_args, **kwargs):
         seen.update(kwargs)
-        return model
+        step = kwargs["usage"].source_step
+        fixture = model
+        if step:
+            fixture = DelegatingModel(
+                step.removeprefix("subagent:"), paths.artifact_dir
+            )
+            child_models.append(fixture)
+        return attach_model_usage(fixture, kwargs["usage"], provider_id="fixture")
 
     monkeypatch.setattr(builder_module, "build_model", build_fixture)
 
@@ -452,15 +486,35 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
         assert PLAN_TOOL_NAMES <= model.tool_names
         assert seen["parallel_tool_calls"] is True
         if delegate:
-            assert model.delegated and model.child_calls == (
-                2 if delegate == "report" else 1
-            )
+            assert model.delegated
+            for fixture in [model, *child_models]:
+                assert expected_clock in str(fixture.messages)
         if delegate == "report":
             assert (
                 expected_artifact_dir / "report.html"
             ).read_text() == "<h1>Scoped report</h1>"
 
         async with session_factory() as db:
+            usage = list(
+                (
+                    await db.scalars(
+                        select(ModelUsageRow).where(ModelUsageRow.chat_id == chat.id)
+                    )
+                ).all()
+            )
+            expected_steps = ["", ""] if delegate else [""]
+            if delegate == "both":
+                expected_steps.extend(
+                    ["subagent:general", "subagent:report", "subagent:report"]
+                )
+            elif delegate:
+                expected_steps.extend(
+                    [f"subagent:{delegate}"] * (2 if delegate == "report" else 1)
+                )
+            assert sorted(row.source_step for row in usage) == expected_steps
+            assert all(
+                row.session_id == session.id and row.input_tokens == 1 for row in usage
+            )
             saved_chat = await ChatRepository(db, TEST_IDENTITY).get(chat.id)
             assert saved_chat.status == "completed"
             assert saved_chat.plan.tasks[0].id == "1"
@@ -474,9 +528,18 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
                 # Verify durable parent-visible output, not only the fake model's calls.
                 assert "CHILD_VERIFIED" in str([event.model_dump() for event in events])
                 children = [e for e in events if e.stream.type == "subagent"]
-                assert children and all(e.stream.parent_call_id == "delegate-fixture" for e in children)
-                assert children[-1].object == "response" and children[-1].status == "completed"
-                assert events[-1].stream.type == "main" and events[-1].status == "completed"
+                roles = {"report", "general"} if delegate == "both" else {delegate}
+                assert {e.stream.parent_call_id for e in children} == {
+                    f"delegate-{r}" for r in roles
+                }
+                assert (
+                    children[-1].object == "response"
+                    and children[-1].status == "completed"
+                )
+                assert (
+                    events[-1].stream.type == "main"
+                    and events[-1].status == "completed"
+                )
     finally:
         await stop_workspace_manager()
         reset_hub()
