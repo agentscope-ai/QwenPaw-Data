@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -75,25 +76,27 @@ def resolve_session_file(artifact_root: Path, relative_path: str) -> Path:
     if "\x00" in relative_path:
         raise_api("VALIDATION", "path contains an invalid character", status=400)
     requested = Path(relative_path)
-    if requested.is_absolute():
+    if requested.anchor:
         raise_api(
             "VALIDATION", "path must be relative to the session workspace", status=400
         )
 
     artifact_root = artifact_root.resolve()
-    try:
-        candidate = (artifact_root / requested).resolve()
-    except (RuntimeError, ValueError):
-        raise_api("VALIDATION", "path cannot be resolved", status=400)
-    except OSError:
-        raise_api("NOT_FOUND", "workspace file not found", status=404)
-    if not candidate.is_relative_to(artifact_root):
-        raise_api(
-            "VALIDATION", "path escapes the session artifact directory", status=400
-        )
-    if not candidate.is_file():
-        raise_api("NOT_FOUND", "workspace file not found", status=404)
-    return candidate
+    # Check lexical containment before following links, then verify the target.
+    # The caller still pins the file descriptor before reading.
+    normalized = os.path.normpath(os.path.join(artifact_root, requested))
+    if ".." not in requested.parts and normalized.startswith(os.path.join(artifact_root, "")):
+        try:
+            candidate = Path(normalized).resolve()
+        except (RuntimeError, ValueError):
+            raise_api("VALIDATION", "path cannot be resolved", status=400)
+        except OSError:
+            raise_api("NOT_FOUND", "workspace file not found", status=404)
+        if candidate.is_relative_to(artifact_root):
+            if not candidate.is_file():
+                raise_api("NOT_FOUND", "workspace file not found", status=404)
+            return candidate
+    raise_api("VALIDATION", "path escapes the session artifact directory", status=400)
 
 
 @router.get("/files/access", response_class=FileResponse)
