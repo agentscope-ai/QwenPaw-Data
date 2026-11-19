@@ -114,6 +114,13 @@ def test_embedded_context_and_new_host_routes_keep_gateway_boundaries(frontend, 
         for route in ["/api/v1/cron/jobs/j1/attachments", "/api/v1/sessions/s1/chats/c1/ui/answer"]:
             assert client.post(route, headers=headers, json={}).status_code == 200
             assert calls[-1].headers["authorization"] == "Bearer host-secret"
+        events = "/api/v1/console/events"
+        assert client.post(events, headers=headers, json={"kind": "trace"}).status_code == 200
+        assert calls[-1].url.path == events
+        before = len(calls)
+        assert client.get(events, headers=headers).status_code == 405
+        assert client.post(events).status_code == 403
+        assert len(calls) == before
         assert client.get("/api/v1/sessions/s1/chats/c1/ui/answer", headers=headers).status_code == 405
         assert client.get("/api/auth/status", headers=headers).json()["required"] is False
         assert calls[-1].url.path == "/api/v1/sessions"
@@ -204,6 +211,22 @@ def test_usage_and_confirmation_reach_a_real_local_host(tmp_path, frontend):
             app = create_portal(tmp_path, host_url, token, frontend=frontend)
             headers = {"X-QwenPaw-Console": "1"}
             with TestClient(app) as client:
+                # Host-only deployments must be able to persist session defaults
+                # even when every semantic settings request would return 404.
+                assert client.get("/api/system/model-config/", headers=headers).status_code == 404
+                prefs = "/api/v1/preferences"
+                saved = client.put(
+                    prefs + "/providers/dashscope", headers=headers,
+                    json={"api_key": "local-fixture-not-a-credential"},
+                )
+                assert saved.status_code == 200, saved.text
+                model = saved.json()["provider"]["models"][0]["id"]
+                selection = {
+                    "default_provider_id": "dashscope", "default_model_id": model,
+                    "light_provider_id": None, "light_model_id": None,
+                }
+                assert client.put(prefs + "/active-models", headers=headers, json=selection).status_code == 200
+                assert client.get(prefs + "/active-models", headers=headers).json()["active_models"] == selection
                 for route in ("summary", "timeseries", "sessions", "background-tasks"):
                     response = client.get(f"/api/v1/usage/{route}", headers=headers)
                     assert response.status_code == 200, response.text
@@ -602,6 +625,19 @@ def test_official_bridge_routes_auth_upload_and_download(
         )
         assert client.get(url, headers=headers).status_code == 200
         assert requests[-1].url.path == "/api/system/model-config/"
+        console_config = "/api/system/model-config/"
+        assert client.get(console_config).status_code == 403
+        assert client.get(console_config, headers=headers).status_code == 200
+        assert requests[-1].url.path == console_config
+        assert client.get(console_config + "embedding/jobs/latest", headers=headers).status_code == 200
+        assert requests[-1].url.path == console_config + "embedding/jobs/latest"
+        assert client.put(
+            console_config + "embedding",
+            json={"model": "test-embedding", "dim": 1024}, headers=headers,
+        ).status_code == 200
+        assert requests[-1].method == "PUT"
+        assert requests[-1].url.path == console_config + "embedding"
+        assert json.loads(requests[-1].content) == {"model": "test-embedding", "dim": 1024}
         result = client.put(
             "/databridge/api/system/model-config/llm",
             headers={**headers, "Authorization": "Bearer browser-token"},
@@ -654,7 +690,13 @@ def test_official_bridge_routes_auth_upload_and_download(
         assert len(requests) == count
 
 
-def test_bridge_gate_checks_actual_upstream_auth(tmp_path, frontend, bridge_frontend):
+@pytest.mark.parametrize(("status", "message"), [
+    (401, "authentication failed"),
+    (403, "authentication failed"),
+    (404, "editor routes"),
+    (503, "service returned 503"),
+])
+def test_bridge_gate_checks_actual_upstream_auth(tmp_path, frontend, bridge_frontend, status, message):
     app = create_portal(
         tmp_path,
         "http://127.0.0.1:18767",
@@ -663,16 +705,15 @@ def test_bridge_gate_checks_actual_upstream_auth(tmp_path, frontend, bridge_fron
         bridge_url="http://127.0.0.1:18766",
         bridge_frontend=bridge_frontend,
         bridge_transport=httpx.MockTransport(
-            lambda request: httpx.Response(401, json={"detail": "Unauthorized"})
+            lambda request: httpx.Response(status)
         ),
     )
     with TestClient(app) as client:
-        assert (
-            client.get(
-                "/databridge/api/auth/status", headers={"X-QwenPaw-Console": "1"}
-            ).status_code
-            == 502
+        response = client.get(
+            "/databridge/api/auth/status", headers={"X-QwenPaw-Console": "1"}
         )
+        assert response.status_code == 502
+        assert message in response.json()["detail"]
 
 
 def test_bridge_configuration_requires_local_backend_and_built_ui(tmp_path, frontend):

@@ -40,6 +40,7 @@ export const zhMessages = {
   'agent.cm.testLlm': '测试 DataBridge 连接',
   'agent.cm.testEmbedding': '测试 Embedding 连接',
   'agent.cm.saveFailed': '以下配置保存失败，草稿已保留：{{items}}',
+  'agent.cm.loadBeforeSave': '无法读取语义层配置。请重试，加载成功后再保存激活模型。',
   'agent.cm.rebuild': '重建图索引',
   'agent.cm.rebuildConfirm': '确认重建图索引？',
   'agent.cm.rebuildHint': '使用当前已保存的 Embedding 配置重写本工作区向量。保存配置不会自动重建。',
@@ -718,6 +719,7 @@ export const zhMessages = {
   'cron.channel': '渠道',
   'cron.channelExtra': '渠道激活后，启用的任务才能真正运行。',
   'cron.channelDisabled': '渠道没有激活。',
+  'cron.channelLoadFailed': '无法读取外部渠道状态。仍可执行本机 Console 任务。',
   'cron.channelRequired': '请选择渠道',
   'cron.channel.console': '网页',
   'cron.channel.feishu': '飞书',
@@ -1078,6 +1080,8 @@ export const enMessages: Record<MessageKey, string> = {
   'agent.cm.testLlm': 'Test DataBridge connection',
   'agent.cm.testEmbedding': 'Test Embedding connection',
   'agent.cm.saveFailed': 'Some settings failed to save. Drafts were retained: {{items}}',
+  'agent.cm.loadBeforeSave':
+    'Semantic settings could not be loaded. Retry before saving active models.',
   'agent.cm.rebuild': 'Rebuild graph index',
   'agent.cm.rebuildConfirm': 'Rebuild the graph index?',
   'agent.cm.rebuildHint':
@@ -1797,6 +1801,8 @@ export const enMessages: Record<MessageKey, string> = {
   'cron.channel': 'Channel',
   'cron.channelExtra': 'An enabled job only runs when the channel is also enabled.',
   'cron.channelDisabled': 'The channel is disabled.',
+  'cron.channelLoadFailed':
+    'External channel status is unavailable. Local Console tasks can still run.',
   'cron.channelRequired': 'Select a channel',
   'cron.channel.console': 'Web',
   'cron.channel.feishu': 'Feishu',

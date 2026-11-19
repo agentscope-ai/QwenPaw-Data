@@ -194,10 +194,16 @@ def create_app(
                 # The local portal authenticates to DataBridge on the user's behalf.
                 # Verify that credential before allowing the UI to enter.
                 checked = await client.get("/api/v1/cm/datasources", params={"size": 1})
-                if checked.status_code != 200:
+                if checked.status_code in (401, 403):
                     raise HTTPException(
                         502,
                         "DataBridge authentication failed; check the configured service credential",
+                    )
+                if checked.status_code != 200:
+                    raise HTTPException(
+                        502,
+                        f"DataBridge datasource service returned {checked.status_code}; "
+                        "check the DataBridge service and editor routes",
                     )
                 return {"required": False}
             upstream = client.build_request(
@@ -251,6 +257,14 @@ def create_app(
             headers=headers,
             background=BackgroundTask(response.aclose),
         )
+
+    # The Console model settings and chat admission use Context's origin-root
+    # model-config URL. Reuse the authenticated DataBridge proxy for that namespace.
+    @app.api_route(
+        "/api/system/model-config/{suffix:path}", methods=["GET", "PUT", "POST"]
+    )
+    async def console_model_config(suffix: str, request: Request):
+        return await bridge_proxy("system/model-config/" + suffix, request)
 
     @app.get("/databridge")
     async def bridge_redirect():

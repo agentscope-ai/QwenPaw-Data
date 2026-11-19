@@ -20,6 +20,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dataConsoleApi } from '@/features/console/api/client';
 import {
+  activeModelSaveMode,
+  hasSemanticModelSettings,
+  saveActiveModelDraft,
+  type ActiveModelDraft,
+} from '@/features/console/model/chat/activeModelSettings';
+import {
   isToolConfirmationLevel,
   normalizeRuntimeSettings,
   saveRuntimeSettingsDraft,
@@ -31,11 +37,7 @@ import type { ModelProvider, ProviderModel, RuntimeSettings } from '@/features/c
 import { useAppI18n } from '@/i18n';
 import styles from './index.module.less';
 import DataBridgeModelSettings from './DataBridgeModelSettings';
-import {
-  modelConfigPayloads,
-  useDataBridgeModelSettings,
-  type ActiveModelFormValues,
-} from './useDataBridgeModelSettings';
+import { useDataBridgeModelSettings } from './useDataBridgeModelSettings';
 import { modelConfigApi } from '@/features/console/api/modelConfig';
 import { getHostAuthContext } from '@/services/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -66,13 +68,6 @@ function errorMessage(error: unknown): string {
 
 function modelSelection(providerId: string | null, modelId: string | null) {
   return providerId && modelId ? `${providerId}/${modelId}` : undefined;
-}
-
-function parseModelSelection(value?: string): [string | null, string | null] {
-  if (!value) return [null, null];
-  const separator = value.indexOf('/');
-  if (separator < 1) return [null, null];
-  return [value.slice(0, separator), value.slice(separator + 1)];
 }
 
 function ProviderCard({ provider, onChange }: ProviderCardProps) {
@@ -464,20 +459,34 @@ function ProviderModels({ provider, onChange }: ProviderModelsProps) {
   );
 }
 
+type SettingsSection = 'providers' | 'active' | 'runtime';
+type SectionStatus = 'loading' | 'ready' | Error;
+const initialStatus = { providers: 'loading', active: 'loading', runtime: 'loading' } as const;
+
 export default function AgentSettingsPage() {
   const { t } = useAppI18n();
-  const [activeForm] = Form.useForm<ActiveModelFormValues>();
+  const [activeForm] = Form.useForm<ActiveModelDraft>();
   const [runtimeForm] = Form.useForm<RuntimeSettings>();
   const toolTimeoutEnabled = Form.useWatch('tool_timeout_enabled', runtimeForm);
   const [providers, setProviders] = useState<ModelProvider[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [status, setStatus] = useState<Record<SettingsSection, SectionStatus>>(initialStatus);
+  const attempts = useRef({ providers: 0, active: 0, runtime: 0 });
   const [savingModels, setSavingModels] = useState(false);
   const [savingRuntime, setSavingRuntime] = useState(false);
   const [confirmationAvailable, setConfirmationAvailable] = useState(false);
   const runtimeLoadedScope = useRef<{ generation: number; revision: number } | null>(null);
   const runtimeSavingScope = useRef<object | null>(null);
-  const cm = useDataBridgeModelSettings(activeForm, providers);
+  const semanticEnabled = hasSemanticModelSettings(
+    window.QWENPAW_DATA_CONSOLE?.capabilities?.contextConsole,
+  );
+  const cm = useDataBridgeModelSettings(activeForm, providers, semanticEnabled);
+  const saveMode = activeModelSaveMode(semanticEnabled, cm);
+  const canSubmitModels =
+    !savingModels &&
+    cm.auth.ready &&
+    status.providers === 'ready' &&
+    status.active === 'ready' &&
+    saveMode !== 'blocked';
   const navigate = useNavigate();
   const location = useLocation();
   const returnPath = getAgentSettingsReturnPath(location.search);
@@ -485,39 +494,47 @@ export default function AgentSettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [contextSettings, setContextSettings] = useState<RuntimeSettings | null>(null);
 
-  const load = useCallback(async () => {
-    const generation = ++alive.current;
-    const revision = getHostAuthContext().revision;
-    const current = () =>
-      generation === alive.current && revision === getHostAuthContext().revision;
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const [providerResponse, activeResponse, runtimeResponse] = await Promise.all([
-        dataConsoleApi.getModelProviders(),
-        dataConsoleApi.getActiveModels(),
-        dataConsoleApi.getRuntimeSettings(),
-      ]);
-      if (!current()) return;
-      setProviders(providerResponse.providers);
-      const active = activeResponse.active_models;
-      activeForm.setFieldsValue({
-        default_provider_id: active.default_provider_id ?? undefined,
-        default_model_id: active.default_model_id ?? undefined,
-        light_selection: modelSelection(active.light_provider_id, active.light_model_id),
-      });
-      runtimeLoadedScope.current = { generation, revision };
-      setConfirmationAvailable(
-        isToolConfirmationLevel(runtimeResponse.runtime_settings.tool_confirmation_level),
-      );
-      runtimeForm.setFieldsValue(normalizeRuntimeSettings(runtimeResponse.runtime_settings));
-      setContextSettings(runtimeResponse.runtime_settings);
-    } catch (error) {
-      if (current()) setLoadError(errorMessage(error));
-    } finally {
-      if (current()) setLoading(false);
-    }
-  }, [activeForm, runtimeForm]);
+  const load = useCallback(
+    async (section: SettingsSection) => {
+      const generation = alive.current;
+      const revision = getHostAuthContext().revision;
+      const attempt = ++attempts.current[section];
+      const current = () =>
+        generation === alive.current &&
+        revision === getHostAuthContext().revision &&
+        attempt === attempts.current[section];
+      setStatus((old) => ({ ...old, [section]: 'loading' }));
+      try {
+        if (section === 'providers') {
+          const { providers } = await dataConsoleApi.getModelProviders();
+          if (!current()) return;
+          setProviders(providers);
+        } else if (section === 'active') {
+          const { active_models: active } = await dataConsoleApi.getActiveModels();
+          if (!current()) return;
+          activeForm.setFieldsValue({
+            default_provider_id: active.default_provider_id ?? undefined,
+            default_model_id: active.default_model_id ?? undefined,
+            light_selection: modelSelection(active.light_provider_id, active.light_model_id),
+          });
+        } else {
+          runtimeLoadedScope.current = null;
+          const runtimeResponse = await dataConsoleApi.getRuntimeSettings();
+          if (!current()) return;
+          runtimeLoadedScope.current = { generation, revision };
+          setConfirmationAvailable(
+            isToolConfirmationLevel(runtimeResponse.runtime_settings.tool_confirmation_level),
+          );
+          runtimeForm.setFieldsValue(normalizeRuntimeSettings(runtimeResponse.runtime_settings));
+          setContextSettings(runtimeResponse.runtime_settings);
+        }
+        setStatus((old) => ({ ...old, [section]: 'ready' }));
+      } catch (error) {
+        if (current()) setStatus((old) => ({ ...old, [section]: new Error(errorMessage(error)) }));
+      }
+    },
+    [activeForm, runtimeForm],
+  );
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -527,7 +544,14 @@ export default function AgentSettingsPage() {
     runtimeLoadedScope.current = null;
     runtimeSavingScope.current = null;
     setSaveError(null);
-    if (cm.auth.ready) void load();
+    setStatus(initialStatus);
+    setProviders([]);
+    setContextSettings(null);
+    if (cm.auth.ready) {
+      void load('providers');
+      void load('active');
+      void load('runtime');
+    }
     return () => {
       alive.current += 1;
       document.title = previousTitle;
@@ -590,9 +614,8 @@ export default function AgentSettingsPage() {
     );
   }, []);
 
-  const saveActiveModels = async (values: ActiveModelFormValues) => {
-    if (savingModels || cm.loading || cm.error || !cm.auth.ready) return;
-    const [lightProviderId, lightModelId] = parseModelSelection(values.light_selection);
+  const saveActiveModels = async (values: ActiveModelDraft) => {
+    if (!canSubmitModels) return;
     const generation = alive.current;
     const revision = cm.auth.revision;
     const current = () =>
@@ -600,25 +623,22 @@ export default function AgentSettingsPage() {
     setSavingModels(true);
     setSaveError(null);
     try {
-      const payloads = modelConfigPayloads(values, providers);
-      const results = await Promise.allSettled([
-        dataConsoleApi.updateActiveModels({
-          default_provider_id: values.default_provider_id,
-          default_model_id: values.default_model_id,
-          light_provider_id: lightProviderId,
-          light_model_id: lightModelId,
-        }),
-        modelConfigApi.updateLLM(payloads.llm),
-        modelConfigApi.updateEmbedding(payloads.embedding),
-      ]);
+      const failures = await saveActiveModelDraft(saveMode, values, providers, {
+        updateActiveModels: dataConsoleApi.updateActiveModels,
+        updateLLM: modelConfigApi.updateLLM,
+        updateEmbedding: modelConfigApi.updateEmbedding,
+      });
       if (!current()) return;
-      const labels = [t('agent.defaultModel'), 'DataBridge', 'Embedding'];
-      const failures = results.flatMap((result, index) =>
-        result.status === 'rejected' ? [`${labels[index]}: ${errorMessage(result.reason)}`] : [],
-      );
-      if (failures.length) setSaveError(t('agent.cm.saveFailed', { items: failures.join('；') }));
-      else message.success(t('agent.activeModelsSaved'));
-      await cm.load(false);
+      if (failures.length) {
+        const items = failures
+          .map(
+            ({ section, reason }) =>
+              `${section === 'session' ? t('agent.activeModels') : section}: ${errorMessage(reason)}`,
+          )
+          .join('；');
+        setSaveError(t('agent.cm.saveFailed', { items }));
+      } else message.success(t('agent.activeModelsSaved'));
+      if (semanticEnabled) await cm.load(false);
     } catch (error) {
       if (current()) setSaveError(errorMessage(error));
     } finally {
@@ -656,6 +676,26 @@ export default function AgentSettingsPage() {
     }
   };
 
+  const sectionNotice = (section: SettingsSection) => {
+    const state = status[section];
+    if (state === 'ready') return null;
+    return state === 'loading' ? (
+      <Spin aria-label={t('agent.loading')} />
+    ) : (
+      <Alert
+        type="error"
+        showIcon
+        message={t('agent.loadFailed')}
+        description={state.message}
+        action={
+          <Button size="small" disabled={false} onClick={() => void load(section)}>
+            {t('common.retry')}
+          </Button>
+        }
+      />
+    );
+  };
+
   return (
     <div className={styles.content}>
       <ConsoleRouteHeader title={t('agent.title')} />
@@ -666,40 +706,22 @@ export default function AgentSettingsPage() {
             {t('agent.cm.back')}
           </Button>
         ) : null}
-        {loading ? (
-          <div className={styles.loading}>
-            <Spin />
-            <span>{t('agent.loading')}</span>
-          </div>
-        ) : null}
-        {!loading && loadError ? (
-          <Alert
-            showIcon
-            type="error"
-            message={t('agent.loadFailed')}
-            description={loadError}
-            action={
-              <Button size="small" onClick={() => void load()}>
-                {t('common.retry')}
-              </Button>
-            }
-          />
-        ) : null}
-
-        {!loading && !loadError ? (
-          <Tabs
-            className={styles.tabs}
-            defaultActiveKey="models"
-            items={[
-              {
-                key: 'models',
-                label: t('agent.modelConfigTab'),
-                forceRender: true,
-                children: (
-                  <div className={styles.sections}>
-                    <section
-                      className={`${styles.section} ${styles.modelConfigurationSection} qwenpaw-data-card-primary`}
-                    >
+        <Tabs
+          className={styles.tabs}
+          defaultActiveKey="models"
+          items={[
+            {
+              key: 'models',
+              label: t('agent.modelConfigTab'),
+              forceRender: true,
+              children: (
+                <div className={styles.sections}>
+                  <section
+                    className={`${styles.section} ${styles.modelConfigurationSection} qwenpaw-data-card-primary`}
+                  >
+                    {status.providers !== 'ready' ? (
+                      sectionNotice('providers')
+                    ) : (
                       <div className={styles.modelSetupGrid}>
                         <div className={styles.modelSetupColumn}>
                           <div className={styles.sectionHeading}>
@@ -727,7 +749,7 @@ export default function AgentSettingsPage() {
                               aria-label={t('common.refresh')}
                               title={t('common.refresh')}
                               icon={<ReloadOutlined />}
-                              onClick={() => void load()}
+                              onClick={() => void load('providers')}
                             />
                           </div>
                           <div className={styles.modelProviderGrid}>
@@ -741,8 +763,10 @@ export default function AgentSettingsPage() {
                           </div>
                         </div>
                       </div>
-                    </section>
+                    )}
+                  </section>
 
+                  {status.providers === 'ready' && (
                     <section className={`${styles.section} qwenpaw-data-card-primary`}>
                       {!configuredProviders.length ? (
                         <Alert
@@ -761,18 +785,21 @@ export default function AgentSettingsPage() {
                             cm.clearResults();
                             if ('cm_provider_id' in changed)
                               activeForm.setFieldValue('cm_model_id', undefined);
+                            if ('embedding_model_id' in changed)
+                              activeForm.setFieldValue('embedding_dim', DEFAULT_EMBEDDING_DIM);
                             if ('default_provider_id' in changed) {
                               activeForm.setFieldValue('default_model_id', undefined);
                             }
-                            if ('embedding_model_id' in changed)
-                              activeForm.setFieldValue('embedding_dim', DEFAULT_EMBEDDING_DIM);
                           }}
                         >
-                          <div className={styles.sessionModelSettings}>
+                          <div
+                            className={`${styles.sessionModelSettings} ${semanticEnabled ? '' : styles.fullWidth}`}
+                          >
                             <div className={styles.sectionHeading}>
                               <h3>{t('agent.activeModels')}</h3>
                               <p>{t('agent.activeModelsDescription')}</p>
                             </div>
+                            {sectionNotice('active')}
                             <Form.Item
                               label={t('agent.defaultProvider')}
                               name="default_provider_id"
@@ -802,12 +829,14 @@ export default function AgentSettingsPage() {
                               />
                             </Form.Item>
                           </div>
-                          <DataBridgeModelSettings
-                            form={activeForm}
-                            providers={providers}
-                            settings={cm}
-                            saving={savingModels}
-                          />
+                          {semanticEnabled && (
+                            <DataBridgeModelSettings
+                              form={activeForm}
+                              providers={providers}
+                              settings={cm}
+                              saving={savingModels}
+                            />
+                          )}
                           {saveError ? (
                             <Alert
                               className={styles.fullWidth}
@@ -821,7 +850,7 @@ export default function AgentSettingsPage() {
                               type="primary"
                               htmlType="submit"
                               loading={savingModels}
-                              disabled={cm.loading || !!cm.error || !!cm.testing}
+                              disabled={!canSubmitModels}
                             >
                               {t('agent.saveActiveModels')}
                             </Button>
@@ -829,20 +858,24 @@ export default function AgentSettingsPage() {
                         </Form>
                       )}
                     </section>
-                  </div>
-                ),
-              },
-              {
-                key: 'agent',
-                label: t('agent.agentConfigTab'),
-                forceRender: true,
-                children: (
-                  <div className={styles.sections}>
-                    <section className={`${styles.section} qwenpaw-data-card-primary`}>
-                      <div className={styles.sectionHeading}>
-                        <h3>{t('agent.runtimeSettings')}</h3>
-                        <p>{t('agent.runtimeSettingsDescription')}</p>
-                      </div>
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'agent',
+              label: t('agent.agentConfigTab'),
+              forceRender: true,
+              children: (
+                <div className={styles.sections}>
+                  <section className={`${styles.section} qwenpaw-data-card-primary`}>
+                    <div className={styles.sectionHeading}>
+                      <h3>{t('agent.runtimeSettings')}</h3>
+                      <p>{t('agent.runtimeSettingsDescription')}</p>
+                    </div>
+                    {status.runtime !== 'ready' ? (
+                      sectionNotice('runtime')
+                    ) : (
                       <Form
                         form={runtimeForm}
                         layout="vertical"
@@ -915,16 +948,16 @@ export default function AgentSettingsPage() {
                           </Button>
                         </div>
                       </Form>
-                    </section>
-                    {contextSettings ? (
-                      <ContextCompressionSettings initialSettings={contextSettings} />
-                    ) : null}
-                  </div>
-                ),
-              },
-            ]}
-          />
-        ) : null}
+                    )}
+                  </section>
+                  {status.runtime === 'ready' && contextSettings ? (
+                    <ContextCompressionSettings initialSettings={contextSettings} />
+                  ) : null}
+                </div>
+              ),
+            },
+          ]}
+        />
       </main>
     </div>
   );

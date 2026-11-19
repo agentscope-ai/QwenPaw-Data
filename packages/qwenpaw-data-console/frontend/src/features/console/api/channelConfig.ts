@@ -68,7 +68,7 @@ function jsonOptions(method: 'POST' | 'PUT', body: unknown): RequestInit {
 }
 
 export const channelConfigApi = {
-  get: () => request<ChannelConfigResponse>(`${BASE}/`),
+  get: (signal?: AbortSignal) => request<ChannelConfigResponse>(`${BASE}/`, { signal }),
   update: (channel: ChannelKey, payload: ChannelConfigPayload) =>
     request<{ channel: ChannelKey; config: Record<string, unknown> }>(
       `${BASE}/${channel}`,

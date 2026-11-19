@@ -14,6 +14,7 @@ import { channelConfigApi } from '@/features/console/api/channelConfig';
 import { getRuntimeConfig } from '@/services/runtimeConfig';
 import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader/index';
 import { formatCronSchedule } from '@/features/cron/model/cronSchedule';
+import { cronChannelAvailability } from '@/features/cron/model/cronChannelAvailability';
 import { buildCronJobsPath } from '@/shared/navigation/sessionNavigation';
 import ChannelIcon from '@/features/console/components/ChannelIcon';
 import { useConsoleLayout } from '@/layouts/ConsoleLayout/context';
@@ -57,7 +58,8 @@ export default function CronJobsPage() {
   const { consoleController } = useConsoleLayout();
   const { language, t } = useAppI18n();
   const [jobs, setJobs] = useState<CronJob[]>([]);
-  const [channelEnabledStatus, setChannelEnabledStatus] = useState<Map<string, boolean>>(new Map());
+  const [channelEnabledStatus, setChannelEnabledStatus] = useState(() => cronChannelAvailability());
+  const [channelError, setChannelError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -89,20 +91,25 @@ export default function CronJobsPage() {
         },
         signal,
       );
+      if (signal?.aborted) return;
       setJobs(response.jobs);
-      // Local Console deployments can omit IM channel administration entirely.
-      const channelConfigResponse =
-        window.QWENPAW_DATA_CONSOLE && !getRuntimeConfig().capabilities.channels
-          ? {}
-          : await channelConfigApi.get();
       setLoadError(null);
-      const channelEnabled = new Map<string, boolean>();
-      channelEnabled.set('feishu', channelConfigResponse?.feishu?.enabled || false);
-      channelEnabled.set('dingtalk', channelConfigResponse?.dingtalk?.enabled || false);
-      channelEnabled.set('wecom', channelConfigResponse?.wecom?.enabled || false);
-      channelEnabled.set('wechat', channelConfigResponse?.wechat?.enabled || false);
-      channelEnabled.set('console', true);
-      setChannelEnabledStatus(channelEnabled);
+      // Local Console deployments can omit IM channel administration entirely.
+      let channelConfigResponse;
+      try {
+        channelConfigResponse =
+          window.QWENPAW_DATA_CONSOLE && !getRuntimeConfig().capabilities.channels
+            ? {}
+            : await channelConfigApi.get(signal);
+        if (signal?.aborted) return;
+        setChannelError(null);
+      } catch (error) {
+        if (signal?.aborted) return;
+        setChannelEnabledStatus(cronChannelAvailability());
+        setChannelError(errorMessage(error));
+        return;
+      }
+      setChannelEnabledStatus(cronChannelAvailability(channelConfigResponse));
     },
     [keyword, jobStatus, channel],
   );
@@ -317,6 +324,20 @@ export default function CronJobsPage() {
           />
         ) : null}
 
+        {channelError && (
+          <Alert
+            className={styles.loadAlert}
+            showIcon
+            type="warning"
+            message={t('cron.channelLoadFailed')}
+            description={channelError}
+            action={
+              <Button size="small" onClick={() => void refresh()}>
+                {t('common.retry')}
+              </Button>
+            }
+          />
+        )}
         <div className={styles.tableSummary}>{t('common.countItems', { count: jobs.length })}</div>
 
         <section className={styles.tableCard} aria-label={t('cron.list')}>

@@ -14,15 +14,13 @@ import type { FormInstance } from 'antd';
 import type { ModelProvider } from '@/features/console/api/types';
 import { useAppI18n } from '@/i18n';
 import { embeddingModelOptions } from './embeddingModels';
-import type {
-  ActiveModelFormValues,
-  useDataBridgeModelSettings,
-} from './useDataBridgeModelSettings';
+import type { ActiveModelDraft } from '@/features/console/model/chat/activeModelSettings';
+import type { useDataBridgeModelSettings } from './useDataBridgeModelSettings';
 import { useEmbeddingRebuild } from './useEmbeddingRebuild';
 import styles from './index.module.less';
 
 interface Props {
-  form: FormInstance<ActiveModelFormValues>;
+  form: FormInstance<ActiveModelDraft>;
   providers: ModelProvider[];
   settings: ReturnType<typeof useDataBridgeModelSettings>;
   saving: boolean;
@@ -43,7 +41,10 @@ export default function DataBridgeModelSettings({ form, providers, settings, sav
     label: provider.name,
   }));
   const models = configured.find((provider) => provider.id === providerId)?.models ?? [];
-  const embeddingModels = useMemo(() => embeddingModelOptions(embeddingModelId), [embeddingModelId]);
+  const embeddingModels = useMemo(
+    () => embeddingModelOptions(embeddingModelId),
+    [embeddingModelId],
+  );
   const required = [{ required: true, message: t('agent.cm.required') }];
   const progress = rebuild.job?.progress;
   const space = settings.config?.embedding_space;
@@ -58,8 +59,13 @@ export default function DataBridgeModelSettings({ form, providers, settings, sav
         <Alert
           type="error"
           showIcon
-          message={settings.error}
-          action={<Button onClick={() => void settings.load(false)}>{t('common.retry')}</Button>}
+          message={t('agent.cm.loadBeforeSave')}
+          description={settings.error}
+          action={
+            <Button disabled={false} onClick={() => void settings.load(!settings.config)}>
+              {t('common.retry')}
+            </Button>
+          }
         />
       ) : null}
       {settings.config?.configured &&

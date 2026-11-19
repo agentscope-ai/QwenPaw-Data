@@ -3,44 +3,14 @@ import type { FormInstance } from 'antd';
 import { modelConfigApi } from '@/features/console/api/modelConfig';
 import type { ModelConfigResponse, TestResult } from '@/features/console/api/modelConfigTypes';
 import type { ModelProvider } from '@/features/console/api/types';
+import type { ActiveModelDraft } from '@/features/console/model/chat/activeModelSettings';
 import { getHostAuthContext, subscribeHostAuth } from '@/services/auth';
 import { DEFAULT_EMBEDDING_DIM, DEFAULT_EMBEDDING_MODEL } from './embeddingModels';
 
-export interface ActiveModelFormValues {
-  default_provider_id: string; // Main agent Provider.
-  default_model_id: string; // Main agent model.
-  light_selection?: string; // Optional lightweight provider/model selection.
-  cm_provider_id?: string; // Shared Provider for DataBridge.
-  cm_model_id?: string; // Independent DataBridge model.
-  embedding_provider_id?: string; // Shared Provider for embeddings.
-  embedding_model_id?: string; // Embedding model identifier.
-  embedding_dim?: number; // Positive integer vector dimension.
-}
-
-export function modelConfigPayloads(values: ActiveModelFormValues, providers: ModelProvider[]) {
-  const endpoint = (id: string | undefined) => {
-    const provider = providers.find((item) => item.id === id && item.configured);
-    if (!provider) throw new Error('Select a configured Provider');
-    return provider.base_url || provider.catalog_base_url;
-  };
-  return {
-    llm: {
-      provider_id: values.cm_provider_id,
-      model: values.cm_model_id,
-      base_url: endpoint(values.cm_provider_id),
-    },
-    embedding: {
-      provider_id: values.embedding_provider_id,
-      model: values.embedding_model_id,
-      base_url: endpoint(values.embedding_provider_id),
-      dim: values.embedding_dim,
-    },
-  };
-}
-
 export function useDataBridgeModelSettings(
-  form: FormInstance<ActiveModelFormValues>,
+  form: FormInstance<ActiveModelDraft>,
   providers: ModelProvider[],
+  enabled: boolean,
 ) {
   const auth = useSyncExternalStore(subscribeHostAuth, getHostAuthContext);
   const [config, setConfig] = useState<ModelConfigResponse | null>(null);
@@ -54,6 +24,7 @@ export function useDataBridgeModelSettings(
 
   const load = useCallback(
     async (fillForm = true) => {
+      if (!enabled) return;
       controller.current?.abort();
       const current = new AbortController();
       controller.current = current;
@@ -78,7 +49,7 @@ export function useDataBridgeModelSettings(
         if (!current.signal.aborted) setLoading(false);
       }
     },
-    [form],
+    [form, enabled],
   );
 
   useEffect(() => {
@@ -94,14 +65,14 @@ export function useDataBridgeModelSettings(
   }, [auth.ready, auth.revision, load]);
 
   const test = async (channel: 'llm' | 'embedding') => {
-    if (testingRef.current || !auth.ready) return;
+    if (!enabled || testingRef.current || !auth.ready) return;
     testingRef.current = true;
     setTesting(channel);
     const revision = auth.revision;
     const current = new AbortController();
     probe.current = current;
     try {
-      const fields: (keyof ActiveModelFormValues)[] =
+      const fields: (keyof ActiveModelDraft)[] =
         channel === 'llm'
           ? ['cm_provider_id', 'cm_model_id']
           : ['embedding_provider_id', 'embedding_model_id', 'embedding_dim'];

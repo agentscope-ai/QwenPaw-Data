@@ -20,6 +20,7 @@ _CHANNEL = r"system/channel-config/(?:feishu|dingtalk|wecom|wechat)"
 FEATURE_ROUTES = tuple(
     (re.compile(pattern), frozenset(methods.split()))
     for pattern, methods in (
+        ("console/events", "POST"),
         (rf"{_SKILLS}/import", "POST"),
         (rf"{_SKILLS}/{_NAME}/revisions/[0-9]+/revert", "POST"),
         (rf"{_SKILLS}/{_NAME}/revisions(?:/[0-9]+)?", "GET"),
