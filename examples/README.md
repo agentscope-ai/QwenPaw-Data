@@ -133,6 +133,52 @@ LLM and embedding models before graph publication or KG extraction. For a
 SQL-only test, you can skip this graph-building step and
 run the deterministic smoke test instead.
 
+#### Existing SQLite datasource: build the table-and-column graph
+
+Use this path if the sample is **already registered** in a writable, local
+DataBridge and SQL works, but the agent cannot find its tables in the graph.
+It discovers the physical schema; it does not import the semantic workbook,
+extract KG documents, or call a model. Do not rerun the PostgreSQL demo seeder.
+
+1. **Prepare the correct Neo4j database.** For a fixed local instance, run
+   `uv run python scripts/common/initialize_local_graph.py` from the repository
+   root with `GRAPH_BACKEND=neo4j` and the same `NEO4J_URI`, `NEO4J_DATABASE`,
+   `NEO4J_USER`, and `NEO4J_PASSWORD` as the running DataBridge. Supply credentials
+   from your local configuration. Check the Bolt port explicitly: the default
+   is `7687`, which can be a different instance. This command ensures indexes
+   and constraints; it does **not** populate the graph. For a provisioned,
+   registered Workspace, use its [provisioning workflow](../packages/qwenpaw-data-context/src/context_manager/store/README.md#workspace-开通与存量初始化) instead.
+2. **Discover the SQLite schema.** On the DataBridge HTTP origin used by your
+   Portal (not the Bolt port), call
+   `POST /api/semantic-config/datasources/{datasource_id}/explore` with your
+   normal local authentication. When a local API token is configured, send
+   `X-QwenPaw-Data-API-Token` to that loopback origin only. An `accepted`
+   response means queued, not finished. Poll
+   `GET /api/semantic-config/datasources/{datasource_id}/explore-scope` until
+   `last_status` is `ok`; inspect `last_counts` and `last_error` before continuing.
+3. **Make the result visible to chat.** Call `POST /api/v1/mg/userspace/sync`
+   with the same identity. This pulls the workspace's published metadata into
+   the graph the agent reads (the default local identity in no-login mode).
+   Confirm `conflict_count: 0` and `GET /api/v1/mg/userspace/sync-status` →
+   `needs_sync: false`. If conflicts are reported, review them before resolving.
+4. **Verify through the agent's read path.** Use DataBridge MCP
+   `get_graph_schema`, then `query_graph` with the query below. Bind `$ds` to
+   the registered datasource ID, not its display name:
+
+   ```cypher
+   MATCH (s:DataSource)-[r:HAS]->(t:Table)-[e:HAS]->(c:Column)
+   WHERE s.datasource_id = $ds
+   RETURN t.name AS table_name, c.name AS field, c.data_type AS data_type
+   ORDER BY table_name, field
+   ```
+
+   For the bundled SQLite sample, expect seven fields on **`main.dws_gaap_di`**:
+   `ds`, `gaap_val`, `product`, `region`, `user_id`, `user_type`, and
+   `ytd_gaap`. Query by datasource first: filtering on the unqualified table
+   name would hide a successful import. To also publish metrics, dimensions,
+   and their definitions, use the semantic workbook and weave workflow above,
+   bound to the intended datasource.
+
 ### 4. Run the analysis
 
 Find the generated ID for `Demo PG - GAAP use case`:

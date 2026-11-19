@@ -35,6 +35,7 @@
       <h1 id="overview">本轮两项共享行为已移植；密码登录不属于 OSS</h1>
       <p class="warning"><strong>签核范围：</strong>以下证据只覆盖列明的公开行为，不代表全部 internal 功能、生产部署或模型质量等价。历史验收记录按各自提交阅读。</p>
       <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
+      <p><strong>11 月 19 日 Portal 复核：</strong>见<a href="#portal-acceptance">本机可写 Portal 验收</a>。区分共享前端、OSS 网关和本机样例启动方式；不能用单个页面加载成功代替写入验收。</p>
       <p><strong>CI 按提交读取：</strong><a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44365851939">29e2145 的 CI</a> 与 CodeQL 合计 12/12 通过。用户提供的 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks?check_run_id=134549377512">CodeQL 七项告警</a> 和 <a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44228954565/job/134549080106?pr=126">PyPI 审计读取超时</a> 属于旧提交 87d324c，不是新代码的结果。<a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">当前 PR 检查</a>按最新 SHA 单独验收。</p>
       <p><strong>已落地：</strong>定时报告的冻结参考包、Segment 耗时、工具评分批量上报、禁用旧模型凭据回退及按需校验图后端均已提交。Context 的弹窗重置、口径筛选、编织取消、个人图向量同步及原生 MCP 工具切换已进入 53790d0。</p>
       <p><strong>本次增量：</strong>internal <code>e084e0143 → e10eba972</code>，OSS 起点 <code>48eb272</code>。<code>67461905a</code>：个人元数据图同步不再长期占用控制面 SQL 事务；同一归属的写入仍互斥，过期持有者不能释放新持有者的锁。<code>e10eba972</code>：每个工具记录本步成功模型调用与该工具的合计秒数，不借用其他 trace 的耗时。<code>f31388dd0</code> 只调整密码登录写入，未移植：OSS 本机版没有用户账号，会话、沉淀项和定时任务仍归本机身份所有。</p>
@@ -43,6 +44,17 @@
       <p class="muted">原 internal 审计快照：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
         OSS 分支：<code>sync/cloud-0.4.0</code>。下列历史检查点保留验证边界；当前子 Agent 范围与可复验入口见<a href="#delegation">委派签核</a>。<br>
         <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
+    </section>
+    <section aria-labelledby="portal-acceptance">
+      <h2 id="portal-acceptance">本机可写 Portal 验收 · 2026-11-19</h2>
+      <p><strong>OSS 本机 Docker 取数：</strong>内置 DataBridge 的回环 MCP 请求改由 Host 在当前轮次执行，沙箱不再持有该注册或凭据；不改变托管部署的直连方式。真实 Docker 工作区与本机 GAAP DataBridge 已验证图 schema、SELECT 1、475 行数据的统计，以及生成的 CSV 在沙箱内可读。验证未使用付费模型。可复验入口：<code>tests/integration/test_local_docker_cm.py</code>。</p>
+      <ul>
+        <li><strong>共享前端：</strong>沿用 internal 的单一「保存激活模型」按钮。启用 DataBridge 时，一次提交会话、DataBridge 和 Embedding 三项，逐项报告写入失败；语义服务加载失败时须重试，不降级为仅保存会话。只有部署明确声明 <code>contextConsole: false</code> 时才隐藏语义字段、只写 Host。Provider、会话偏好和运行参数分别加载、重试。外部渠道状态不可读时，本机 Console 定时任务仍可执行，外部渠道保持禁用。保存会话偏好不等于已满足数据分析对话的全部模型要求。</li>
+        <li><strong>OSS 网关：</strong>Console 的语义层模型配置请求转给 DataBridge；操作事件只允许 POST 转给 Host。DataBridge 编辑接口缺失和凭据被拒绝给出不同提示。已在明确未部署 DataBridge 的临时 SQLite Host 保存并读回会话默认模型；不把已部署服务的 404 当作未部署。</li>
+        <li><strong>8768 实例：</strong>Host 与 Portal 均使用同一个真实 DataBridge。数据源、业务域、数据集、维度、指标、公式和探查列表返回 200；通过 Portal 新建临时数据源，编辑页与 Host 均能读回，验证后已移除。旧 GAAP 会话的数据源 ID 与表名保持不变。</li>
+        <li><strong>物理图验收：</strong>已在 8768 使用的独立 Neo4j（Bolt 18770）初始化约束与索引，对 SQLite 样例执行物理探查，再同步到本机身份。通过 DataBridge MCP 查到 <code>main.dws_gaap_di</code> 的全部 7 个字段，名称和类型与源库一致；参见<a href="../examples/README.md#existing-sqlite-datasource-build-the-table-and-column-graph">复验步骤</a>。</li>
+        <li><strong>未签核：</strong>沉淀项预检、确认、图记录读回及重复提交已有隔离测试；物理图验收不等于在 8768 实例验证了真实沉淀项写回、语义工作簿织入或付费模型。</li>
+      </ul>
     </section>
     <section aria-labelledby="scope">
       <h2 id="scope">迁移范围与边界</h2>
