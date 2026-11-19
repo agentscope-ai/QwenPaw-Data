@@ -8,6 +8,7 @@ License 2.0:
 | Asset group | Paths | Intended use |
 | --- | --- | --- |
 | Project identity and diagrams | `assets/*.png` | README identity, architecture, and walkthrough illustrations |
+| Standalone UI screenshots | `assets/standalone/*.webp` | Console and DataBridge Graph Center previews using the public GAAP SQLite sample |
 | Frontend identity | `packages/qwenpaw-data-context/frontend/public/*.png` | DataBridge favicon and wordmark |
 | Technical report | `docs/Technical_Report.pdf` | Project architecture and design documentation |
 | Public examples | `examples/demo_kg_doc.docx`, `examples/demo_semantic_config.xlsx` | Synthetic documentation and semantic-configuration examples |

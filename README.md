@@ -12,34 +12,40 @@
 
 **QwenPaw-Data is an agentic data system built for enterprise data analysis.**
 
+Use the [standalone browser Console](#browser-console) to ask questions about your data, follow the analysis, and open the resulting reports. No QwenPaw App installation or user account is required.
+
 Enterprise data analysis is becoming a distinct frontier for autonomous agents. It operates in an open, ambiguous, and continuously evolving environment: business concepts must be grounded to the right entities, analytical procedures must be reproducible despite fuzzy feedback, and long-horizon workflows must execute over real enterprise data while preserving artifacts, provenance, and opportunities for human intervention.
 
 QwenPaw-Data organizes its system design around three core dimensions: **facts**, **methodology**, and **execution**. It consolidates heterogeneous enterprise assets from warehouses, dashboards, business documents, interaction logs, and historical tasks into governed and evolvable analytical context, then turns natural-language requests into end-to-end workflows spanning data understanding, retrieval, analysis, report generation, and decision support.
 
 For a complete system-level overview, see the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
-## Release and QwenPaw App preview
+## Releases and standalone UI preview
 
 The OSS local installation runs without a login or user accounts. Sessions,
 settlement items and scheduled jobs belong to the local identity. Use the
 initialization/start commands below; for shared-stack development, see
 [scripts/README.md](scripts/README.md).
 
+- **QwenPaw-Data 0.4.0 preview:** DataBridge (CM 1.0), reviewable updates to custom skills, and multi-agent collaboration. [Release highlights (Chinese)](./CHANGELOG.md#040-版本亮点).
 - **Available: QwenPaw-Data 0.3.x.** The independently deployable engine provides
   HTTP/replayable-SSE APIs for analysis sessions, execution events, and artifacts.
   See the [0.3.0 release](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
   and [0.3.1 fixes](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.1).
-- **Coming next: QwenPaw Data App 0.3.0.** Bring datasource
-  selection, clarification, traceable analysis, report previews, and follow-up
-  questions into QwenPaw's Data workspace and channel conversations. The update
-  is under review in [QwenPaw #7637](https://github.com/agentscope-ai/QwenPaw/pull/7637);
-  its release date is not yet announced. See the
-  [release preview, setup links, and version details](docs/QWENPAW_APP.md).
+- **Optional: QwenPaw Data App integration.** To use the Console inside QwenPaw's workspace and channels instead of running it standalone, see the [App preview and setup](docs/QWENPAW_APP.md).
 
-[![QwenPaw Data App preview: analysis steps, conclusion, and outputs in the session workspace](assets/qwenpaw-app/session-workspace.png)](docs/QWENPAW_APP.md)
+**Standalone Console.** In this GAAP SQLite session, the agent lists the seven columns of `main.dws_gaap_di`. The same conversation shows the CSV artifact and earlier turns.
 
-*QwenPaw Data App preview with GAAP demo data. Open the release preview for
-report, clarification, trace, and output screenshots.*
+[![GAAP session with a column list, a downloadable CSV, and turn history](assets/standalone/gaap-session.webp)](assets/standalone/gaap-session.webp)
+
+<details>
+<summary>View the same sample in the DataBridge Graph Center</summary>
+
+The metadata graph connects the SQLite data source to its table and the table to its seven columns: nine nodes and eight relationships.
+
+[![DataBridge metadata graph centered on main.dws_gaap_di](assets/standalone/gaap-metadata-graph.webp)](assets/standalone/gaap-metadata-graph.webp)
+
+</details>
 
 ## Core Idea
 
@@ -101,12 +107,11 @@ QwenPaw-Data is designed for serious analytical work that data teams handle day 
 
 ## Access Modes
 
-QwenPaw-Data runs independently through its CLI or headless engine service.
-DataBridge provides the management UI. The QwenPaw App adds a platform workspace
-and channel entry points; its QPD 0.3 integration is currently a preview.
+For interactive analysis, start with the standalone Console. For automation or integration, use the CLI or the Host API.
 
 | Mode | Purpose | Typical Users | Runtime Form |
 | --- | --- | --- | --- |
+| **[Standalone Console](#browser-console)** | Ask questions, inspect the steps, and open session reports and files | Analysts | Local browser UI backed by Host; can also serve the DataBridge management UI. |
 | **DataBridge UI** | Manage graph memory, semantic config, and related DataBridge assets | Analysts and platform operators | Local management UI backed by the DataBridge API. |
 | **CLI** | Platform integration and local administration | Developers and platform teams | Datasource management, semantic configuration, and diagnostics via `qwenpaw-data-cli`; agent execution lives in Host and Console. |
 | **Headless Engine** | Integrate analysis into a host or frontend | Application developers | [HTTP + replayable SSE service](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra). |
@@ -134,15 +139,14 @@ assets/                    # branding and documentation assets
 
 ### Browser Console
 
-`qwenpaw-data-console` provides a reusable local chat portal and the DataBridge
-management UI, with prebuilt assets in its Python wheel. Domain applications
-supply branding and questions through `ConsoleConfig`; Host, skills and data
-registration stay independent. See [Console setup and development](packages/qwenpaw-data-console/README.md).
+With [Host](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra) running at `127.0.0.1:8766` and DataBridge at `127.0.0.1:8765`, set `QWENPAW_DATA_API_TOKEN` in the Console terminal to the Host's service token, then run:
 
-Console can be released independently from the engine packages. Its wheel
-includes both UIs, so end users do not need Node.js. From a source checkout, run
-`python scripts/build_console.py` before building its wheel or starting an
-editable install.
+```sh
+pip install qwenpaw-data-console
+qwenpaw-data-console --host-url http://127.0.0.1:8766 --bridge-url http://127.0.0.1:8765
+```
+
+Open [the Console](http://127.0.0.1:8767/console) for analysis or [DataBridge](http://127.0.0.1:8767/databridge/) to manage datasources and semantic configuration. The wheel includes both UIs; it does not require Node.js or start the backend services. Omit `--bridge-url` for the Host-only portal. For a source checkout, build the UIs once with `python scripts/build_console.py`. See [Console setup](packages/qwenpaw-data-console/README.md) for separate DataBridge credentials and branding.
 
 ### Installing from PyPI
 
@@ -151,7 +155,6 @@ The Python packages are published on PyPI:
 ```bash
 pip install qwenpaw-data-cli        # `qwenpaw-data` command + host runtime
 pip install qwenpaw-data-context    # DataBridge backend as a library
-pip install qwenpaw-data-console    # Chat and DataBridge UIs + local API gateway
 ```
 
 `pip install qwenpaw-data-cli` suits platform integrations that already run a
@@ -260,6 +263,8 @@ See [the native Windows walkthrough](docs/WINDOWS.md) for the persistent user
 
 ### 4. Start local services in terminal A
 
+If you plan to use the Console, set the same `QWENPAW_DATA_API_TOKEN` for DataBridge, Host, and the Console **before** starting them. This is a service credential, not a browser login.
+
 ```bash
 # macOS / Linux
 python3 scripts/start_local.py
@@ -269,7 +274,13 @@ python3 scripts/start_local.py
 .\scripts\start_local.ps1
 ```
 
-This command starts local Neo4j, the DataBridge API, and the management UI, and remains attached to the terminal. It fails safely if DataBridge UI port `3000` or API port `8765` is already occupied; it does not terminate unrelated listeners.
+This command starts local Neo4j, the DataBridge API, and the DataBridge management UI, not the chat Host or standalone Console. For chat, activate the repository's Python environment in a separate terminal and start Host:
+
+```sh
+python -m uvicorn --factory qwenpaw_data.host.core.api.app:create_app --host 127.0.0.1 --port 8766 --workers 1
+```
+
+Leave the backends running and [start the Console](#browser-console) in another terminal with the same token.
 
 Default URLs:
 
@@ -331,7 +342,7 @@ required.
 
 ### 8. Run a real data task
 
-Open the [local Console](packages/qwenpaw-data-console/README.md), configure a
+Start the [browser Console](#browser-console), configure a
 model, and select `Demo PG - GAAP use case`. Submit:
 
 > Analyze the average GAAP value of valid users for product X during March 2026;
