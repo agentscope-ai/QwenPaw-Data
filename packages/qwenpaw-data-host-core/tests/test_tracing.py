@@ -72,6 +72,60 @@ def test_normalize_question_collapses_whitespace() -> None:
     assert normalize_question("  本月  销售额\n是多少  ") == "本月 销售额 是多少"
 
 
+@pytest.mark.asyncio
+async def test_model_tool_score_is_pinned_to_its_step_and_ended_tool(monkeypatch):
+    from qwenpaw_data.tracing.export import score
+
+    payloads = []
+
+    async def post(_client, _url, _auth, batch):
+        payloads.extend(batch)
+
+    monkeypatch.setattr(score, "_score_destination", lambda: ("fixture", ("pk", "sk")))
+    monkeypatch.setattr(score, "post_ingestion_scores", post)
+    provider = TracerProvider()
+    provider.add_span_processor(_HostSpanProcessor())
+    tracer = provider.get_tracer("step-score")
+    second = 1_000_000_000
+
+    def start(operation):
+        return tracer.start_span(
+            operation, attributes={"gen_ai.operation.name": operation}
+        )
+
+    def chat(seconds, status):
+        model = start("chat")
+        model.set_status(status)
+        model.end(end_time=model.start_time + seconds * second)
+
+    with tracer.start_as_current_span("reply") as reply:
+        start("execute_tool").end()  # No completed chat yet.
+        chat(2, StatusCode.OK)
+        first, slow = start("execute_tool"), start("execute_tool")
+        first.end(end_time=first.start_time + 3 * second)
+        chat(7, StatusCode.OK)
+        slow.end(end_time=slow.start_time + second)
+        next_tool = start("execute_tool")
+        next_tool.end(end_time=next_tool.start_time + second)
+        chat(4, StatusCode.ERROR)
+        start("execute_tool").end()
+        chat(9, StatusCode.OK)
+    with tracer.start_as_current_span("unrelated trace"):
+        start("execute_tool").end()
+    await score.flush_span_scores()
+    assert [
+        (p["name"], p["value"], p["traceId"], p["observationId"]) for p in payloads
+    ] == [
+        (
+            "model_tool_seconds",
+            seconds,
+            f"{reply.context.trace_id:032x}",
+            f"{tool.context.span_id:016x}",
+        )
+        for seconds, tool in [(5, first), (3, slow), (8, next_tool)]
+    ]
+
+
 def test_create_id_chat_is_prefix_plus_trace_id() -> None:
     chat_id = create_id("chat")
     trace_id = trace_id_from_chat_id(chat_id)

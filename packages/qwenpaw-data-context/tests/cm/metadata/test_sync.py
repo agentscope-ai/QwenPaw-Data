@@ -1,8 +1,14 @@
 """Exercise userspace pulls through the Metadata business service."""
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
 import pytest
+from sqlalchemy import update
 from context_manager.auth import WriteOwner
 from context_manager.metadata import MetadataSyncConflict, MetadataSyncService
+from context_manager.metadata.sync.claim import MgSyncClaims
+from context_manager.schema.relational import mg_sync_claims
 from context_manager.schema import (
     COLUMN,
     DATA_SOURCE,
@@ -107,6 +113,63 @@ def seed_metadata(store, shared, datasource="warehouse", *, embedding_dim=2):
     ]
     store.create_edges(HAS_METRIC, ((nodes[1].key, nodes[5].key, {}),), scope=scope)
     return nodes
+
+
+def test_sync_releases_sql_connection_but_serializes_same_owner(
+    sync_graph, database_engine, monkeypatch
+):
+    store, shared, alice, bob = sync_graph
+    create(store, shared, DOMAIN, domain_id="sales", name="Sales")
+    service = MetadataSyncService(store, database_engine=database_engine)
+    contender = MetadataSyncService(store, database_engine=database_engine)
+    entered, resume = Event(), Event()
+    execute = service._execute_plan
+
+    def pause(plan, scope):
+        entered.set()
+        assert resume.wait(10)
+        return execute(plan, scope)
+
+    monkeypatch.setattr(service, "_execute_plan", pause)
+    monkeypatch.setattr("context_manager.metadata.sync.service.CLAIM_WAIT_SECONDS", 0)
+    with ThreadPoolExecutor(1) as executor:
+        pull = executor.submit(service.sync, alice)
+        try:
+            assert entered.wait(5)
+            with pytest.raises(BlockingIOError, match="busy"):
+                contender.sync(alice)
+            # Bob's sync writes to the very same SQLite file while Alice is paused.
+            assert contender.sync(bob)["conflicts"] == []
+        finally:
+            resume.set()
+        assert pull.result(timeout=5)["conflicts"] == []
+    assert not service.status(alice)["needs_sync"]
+    assert not service.status(bob)["needs_sync"]
+
+
+def test_stale_sync_cannot_write_or_release_its_successor(
+    sync_graph, database_engine, monkeypatch
+):
+    store, shared, alice, _ = sync_graph
+    create(store, shared, DOMAIN, domain_id="sales", name="Sales")
+    service = MetadataSyncService(store, database_engine=database_engine)
+    claims = MgSyncClaims(database_engine)
+    ids = (alice.tenant_id, alice.workspace_id, alice.user_id)
+    prepare = service._prepare_plan
+
+    def take_over(scope):
+        plan = prepare(scope)
+        with database_engine.begin() as conn:
+            conn.execute(update(mg_sync_claims).values(heartbeat_at=0))
+        assert claims.claim(*ids) == 2
+        return plan
+
+    monkeypatch.setattr(service, "_prepare_plan", take_over)
+    with pytest.raises(BlockingIOError, match="busy"):
+        service.sync(alice)
+    assert service.status(alice)["needs_sync"]
+    assert claims.claim(*ids) is None
+    assert claims.renew(*ids, 2)
 
 
 def test_full_pull_mirrors_all_metadata_types_with_vectors_but_no_credentials(

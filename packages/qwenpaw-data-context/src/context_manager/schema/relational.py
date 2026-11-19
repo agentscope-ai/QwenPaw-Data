@@ -284,6 +284,17 @@ user_ingest_claims = Table(
     Column("run_epoch", Integer, nullable=False, server_default=text("0")),
     info={"holo_orientation": "row"},
 )
+mg_sync_claims = Table(
+    "cm_mg_sync_claim",
+    metadata,
+    Column("tenant_id", Text, primary_key=True),
+    Column("workspace_id", Text, primary_key=True),
+    Column("user_id", Text, primary_key=True),
+    Column("heartbeat_at", Float),
+    Column("executor_pod", Text),
+    Column("run_epoch", Integer, nullable=False, server_default=text("0")),
+    info={"holo_orientation": "row"},
+)
 
 update_checkpoints = Table(
     "cm_update_checkpoints",

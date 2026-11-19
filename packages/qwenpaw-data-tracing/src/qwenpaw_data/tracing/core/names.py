@@ -44,6 +44,7 @@ class Score(StrEnum):
     SETTLEMENT_CARD = "settlement_card"
     SKILL_PROPOSAL = "skill_proposal"
     TOOL_FAILED = "tool_failed"
+    MODEL_TOOL_SECONDS = "model_tool_seconds"
 
 
 class Tag(StrEnum):

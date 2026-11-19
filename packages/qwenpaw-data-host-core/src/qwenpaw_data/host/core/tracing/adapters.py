@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext
@@ -28,6 +29,8 @@ from qwenpaw_data.tracing import (
 from qwenpaw_data.tracing import (
     tracer_shutdown as _shutdown,
 )
+from qwenpaw_data.tracing.core.names import Score
+from qwenpaw_data.tracing.export.score import tracer_send_span_score
 from qwenpaw_data.tracing.runtime.common.propagation import (
     apply_trace_labels,
     attach_remote_parent,
@@ -45,11 +48,26 @@ from qwenpaw_data.tracing.runtime.host.chat_id import (
 )
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import ReadableSpan, Span
+from opentelemetry.trace import StatusCode
 
 if TYPE_CHECKING:
     from qwenpaw_data.host.core.runtime.context import RunContext
 
 logger = logging.getLogger(__name__)
+
+_NS = 1_000_000_000
+
+
+def _is_chat(span: Span | ReadableSpan) -> bool:
+    return (span.attributes or {}).get("gen_ai.operation.name") == "chat"
+
+
+def _is_tool(span: Span | ReadableSpan) -> bool:
+    return (span.attributes or {}).get("gen_ai.operation.name") == "execute_tool"
+
+
+def _span_seconds(span: ReadableSpan) -> float:
+    return (span.end_time - span.start_time) / _NS
 
 
 # --- settings wiring -------------------------------------------------------- #
@@ -86,15 +104,42 @@ def tracer_reset() -> None:
 
 
 class _HostSpanProcessor(BaggageAttributeProcessor):
-    """Host extras: reply trace labels, skill names, clarification cleanup."""
+    """Host labels, clarification cleanup and per-tool step latency."""
+
+    def __init__(self) -> None:
+        self._model_step: ContextVar[tuple[int, float] | None] = ContextVar(
+            "qwenpaw_data_model_step", default=None
+        )
+        self._tool_model_seconds: dict[tuple[int, int], float] = {}
 
     def on_start_extra(self, span: Span, parent_context: Context | None = None) -> None:
         apply_trace_labels(span)
         stamp_skill_name(span)
+        if _is_chat(span):
+            self._model_step.set(None)
+        elif _is_tool(span):
+            step = self._model_step.get()
+            ctx = span.get_span_context()
+            if step is not None and step[0] == ctx.trace_id:
+                self._tool_model_seconds[ctx.trace_id, ctx.span_id] = step[1]
 
     def on_end_extra(self, span: ReadableSpan) -> None:
         clear_clarification_pause(span)
         restore_tool_error_status(span)
+        if _is_chat(span):
+            if span.status.status_code == StatusCode.OK:
+                self._model_step.set((span.context.trace_id, _span_seconds(span)))
+        elif _is_tool(span):
+            ctx = span.context
+            model_seconds = self._tool_model_seconds.pop(
+                (ctx.trace_id, ctx.span_id), None
+            )
+            if model_seconds is not None:
+                tracer_send_span_score(
+                    Score.MODEL_TOOL_SECONDS,
+                    model_seconds + _span_seconds(span),
+                    span,
+                )
 
 
 # --- session / chat identity ------------------------------------------------ #

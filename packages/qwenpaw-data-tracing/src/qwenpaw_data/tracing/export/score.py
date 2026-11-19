@@ -16,6 +16,7 @@ from qwenpaw_data.tracing.core.score import ScoreEvent
 from qwenpaw_data.tracing.export.install import scores_endpoint
 from qwenpaw_data.tracing.export.settings import Settings
 from opentelemetry import trace
+from opentelemetry.sdk.trace import ReadableSpan
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,17 @@ async def tracer_send_score_event(
     return await _send(score_body(event, trace_id))
 
 
-def tracer_send_span_score(name: str, value: float) -> None:
-    """NUMERIC score on the open current span, queued and POSTed in batches.
+def tracer_send_span_score(
+    name: str, value: float, span: ReadableSpan | trace.Span | None = None
+) -> None:
+    """Queue a numeric score on an explicit (possibly ended) or current span.
 
-    No-op without a valid current span or tracing. Does not wait on HTTP.
+    A processor's on_end callback need not run with the tool as current span.
     """
-    ctx = trace.get_current_span().get_span_context()
-    if not ctx.is_valid:
+    if span is None:
+        span = trace.get_current_span()
+    ctx = span.context if isinstance(span, ReadableSpan) else span.get_span_context()
+    if ctx is None or not ctx.is_valid:
         return
     dest = _score_destination()
     if dest is None:

@@ -70,9 +70,10 @@ Holo schema 路由见 [Store](../store/README.md#holo-age)；status 返回个人
 向量不参与冲突判定和 digest，模型切换后的重算仍由 [Embedding](../embedding/README.md) 显式重建覆盖全部 owner。
 个人追加使用 Schema 生成身份、校验属性和完整边三元组，不能任意指定 key。
 
-sync、冲突决策和个人追加借用共享 SQL engine，按 tenant/workspace/user 锁住读取到图提交的完整过程。
-PostgreSQL 使用事务 advisory lock，SQLite 使用写锁；多进程须连接同一协调库，最长等待 60 秒。
-这是协调 SQL 库的能力要求，不代表 Holo 图后端提供同一锁机制。
+sync、冲突决策和个人追加共用 `cm_mg_sync_claim` 的一行心跳。认领、刷新和释放各自提交；
+读图和写图期间不持有控制面事务。同一租户、工作区、用户互相等待最多 60 秒，不同用户不排队。
+进程退出后心跳过期即可整次重做。多进程须连接同一控制面库；升级时先排空旧版同步，再启动新版，两版的锁不互通。
+提交前会再次确认仍持有认领；控制面与图后端不是同一事务，已经开始的图提交不能靠失去认领来撤销。
 
 ## Settlement feedback
 

@@ -20,9 +20,10 @@ For a complete system-level overview, see the [Technical Report](https://arxiv.o
 
 ## Release and QwenPaw App preview
 
-Development checkout: the coordinated Auth/Context/Host stack and optional
-multi-user chat setup are documented in [scripts/README.md](scripts/README.md).
-The default OSS local initialization/start commands below remain supported.
+The OSS local installation runs without a login or user accounts. Sessions,
+settlement items and scheduled jobs belong to the local identity. Use the
+initialization/start commands below; for shared-stack development, see
+[scripts/README.md](scripts/README.md).
 
 - **Available: QwenPaw-Data 0.3.x.** The independently deployable engine provides
   HTTP/replayable-SSE APIs for analysis sessions, execution events, and artifacts.

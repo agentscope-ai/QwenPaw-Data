@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Iterator, Mapping
+import logging
+import time
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import groupby
 
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import OperationalError
 
 from ...auth import AccessMode, ScopeBinding
-from ...heartbeat import lock_scope_sync
 from ...schema import (
     COLUMN,
     DATA_SOURCE,
@@ -32,6 +30,7 @@ from ...schema import (
     NodeSpec,
     PropertyOwner,
 )
+from ...settings import get_settings
 from ...store import (
     EdgeDraft,
     EdgeRecord,
@@ -54,6 +53,9 @@ from .algorithm import (
     logical_key,
     mirror_properties,
 )
+from .claim import CLAIM_RETRY_SECONDS, CLAIM_WAIT_SECONDS, ClaimRefresher, MgSyncClaims
+
+logger = logging.getLogger(__name__)
 
 METADATA_NODES = (
     DATA_SOURCE,
@@ -92,41 +94,66 @@ class MetadataSyncService:
 
     def __init__(self, store: GraphStore, *, database_engine: Engine) -> None:
         self._store = store
-        self._database_engine = database_engine
+        self._claims = MgSyncClaims(database_engine)
 
     @contextmanager
-    def _serialize(self, scope: ScopeBinding) -> Iterator[None]:
-        """Hold the shared SQL lock across reading, planning and graph commit."""
+    def _exclusive(self, scope: ScopeBinding) -> Iterator[Callable[[], None]]:
+        """Claim one user, then yield a fence that must pass before any graph write.
+
+        The claim commits before this method reads or writes the graph. Release
+        never replaces the graph commit's result, and a failed claim does not release.
+        """
         self._require_personal_scope(scope, AccessMode.WRITE)
-        key = "metadata-sync:" + json.dumps(
-            [scope.tenant_id, scope.workspace_id, scope.user_id], separators=(",", ":")
+        epoch = self._claim_epoch(scope)
+        refresher = ClaimRefresher(
+            lambda: self._claims.renew(
+                scope.tenant_id, scope.workspace_id, scope.user_id, epoch
+            ),
+            interval=get_settings().heartbeat.interval_seconds,
         )
+        started = False
         try:
-            with self._database_engine.connect() as connection:
-                sqlite = connection.dialect.name == "sqlite"
-                previous_timeout = None
-                try:
-                    with connection.begin():
-                        if sqlite:
-                            previous_timeout = connection.exec_driver_sql(
-                                "PRAGMA busy_timeout"
-                            ).scalar_one()
-                            connection.exec_driver_sql("PRAGMA busy_timeout = 60000")
-                        else:
-                            connection.execute(text("SET LOCAL lock_timeout = '60s'"))
-                        lock_scope_sync(connection, key)
-                        yield
-                finally:
-                    if previous_timeout is not None:
-                        connection.exec_driver_sql(
-                            f"PRAGMA busy_timeout = {previous_timeout}"
-                        )
-        except OperationalError as exc:
-            if getattr(exc.orig, "sqlstate", None) == "55P03" or getattr(
-                exc.orig, "sqlite_errorcode", None
-            ) in {5, 6}:
-                raise BlockingIOError("Metadata synchronization is busy") from exc
-            raise
+            refresher.start()
+            started = True
+
+            def fence() -> None:
+                # The graph commit has not started. Losing the epoch here is retryable.
+                if not self._claims.renew(
+                    scope.tenant_id, scope.workspace_id, scope.user_id, epoch
+                ):
+                    raise BlockingIOError("Metadata synchronization is busy")
+
+            yield fence
+            if refresher.lost:
+                logger.warning(
+                    "MG sync claim epoch %s was lost after the graph commit started "
+                    "tenant=%s workspace=%s user=%s",
+                    epoch,
+                    scope.tenant_id,
+                    scope.workspace_id,
+                    scope.user_id,
+                )
+        finally:
+            # Stop before release so a last refresh cannot revive a cleared heartbeat.
+            if started:
+                refresher.stop()
+            self._claims.release(
+                scope.tenant_id, scope.workspace_id, scope.user_id, epoch
+            )
+
+    def _claim_epoch(self, scope: ScopeBinding) -> int:
+        """Retry a committed claim until the wait expires. Never releases on failure."""
+        deadline = time.monotonic() + CLAIM_WAIT_SECONDS
+        while True:
+            epoch = self._claims.claim(
+                scope.tenant_id, scope.workspace_id, scope.user_id
+            )
+            if epoch is not None:
+                return epoch
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BlockingIOError("Metadata synchronization is busy")
+            time.sleep(min(CLAIM_RETRY_SECONDS, remaining))
 
     def status(self, scope: ScopeBinding) -> dict[str, object]:
         self._require_personal_scope(scope, AccessMode.READ)
@@ -446,8 +473,9 @@ class MetadataSyncService:
         self._store.atomic(execute)
 
     def sync(self, scope: ScopeBinding) -> dict[str, object]:
-        with self._serialize(scope):
+        with self._exclusive(scope) as fence:
             plan = self._prepare_plan(scope)
+            fence()
             self._execute_plan(plan, scope)
         # Frontend counts describe the diff, not internal detach/recreate operations.
         return {
@@ -467,7 +495,7 @@ class MetadataSyncService:
         resolutions: list[Mapping[str, str]],
         scope: ScopeBinding,
     ) -> dict[str, object]:
-        with self._serialize(scope):
+        with self._exclusive(scope) as fence:
             source = self._snapshot(self._store.access.metadata_source_scope(scope))
             if source.digest() != global_digest:
                 raise MetadataSyncConflict(
@@ -552,8 +580,10 @@ class MetadataSyncService:
                     self._read_incident_edges(diff, scope),
                 ),
             )
+            fence()
             self._execute_plan(plan, scope)
-            return {"resolved": resolved, "synced": not plan.diff.conflicts}
+            result = {"resolved": resolved, "synced": not plan.diff.conflicts}
+        return result
 
     def append_node(
         self,
@@ -564,7 +594,7 @@ class MetadataSyncService:
         key: str | None = None,
     ) -> str:
         """Append one schema-valid personal node; never overwrite an existing identity."""
-        with self._serialize(scope):
+        with self._exclusive(scope) as fence:
             spec = self._store.schema.node(label)
             if spec not in METADATA_NODES:
                 raise ValueError("label must be a Metadata node")
@@ -603,12 +633,14 @@ class MetadataSyncService:
                 is not None
             ):
                 raise MetadataSyncConflict("Node already exists in your userspace")
+            fence()
             result = execute_transaction_plan(
                 self._store,
                 TransactionPlan((StoreOperation.project_nodes((draft,)),)),
                 node_scope,
             )
-            return result.node_keys[draft.ref]
+            key_written = result.node_keys[draft.ref]
+        return key_written
 
     def append_edge(
         self,
@@ -619,7 +651,7 @@ class MetadataSyncService:
         scope: ScopeBinding,
     ) -> EdgeRecord:
         """Append an edge between two existing personal MG nodes, without upsert."""
-        with self._serialize(scope):
+        with self._exclusive(scope) as fence:
             endpoints = {}
             for spec in METADATA_NODES:
                 for node in self._store.get_nodes(
@@ -662,6 +694,7 @@ class MetadataSyncService:
                 scope,
                 datasource_id=datasource,
             )
+            fence()
             result = execute_transaction_plan(
                 self._store,
                 TransactionPlan(
@@ -678,7 +711,8 @@ class MetadataSyncService:
                 ),
                 edge_scope,
             )
-            return result.operation_results[0][0]
+            record = result.operation_results[0][0]
+        return record
 
     def _snapshot(self, scope: ScopeBinding) -> MetadataSnapshot:
         nodes = tuple(

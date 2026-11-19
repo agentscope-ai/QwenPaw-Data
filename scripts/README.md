@@ -19,7 +19,8 @@ Ports are configurable through `AUTH_PORT`, `CONTEXT_PORT`,
 `CONTEXT_FRONTEND_PORT`, `QWENPAW_PORT` and `HOST_FRONTEND_PORT`.
 All browser-facing development services bind to loopback by default.
 
-For explicit multi-user account/model initialization, set
+Only developers exercising the shared baseline's account integration need this
+next step; it is not an OSS setup step or release requirement. For that stack, set
 `QWENPAW_DATA_AUTH_MODE=multi-user` and run `bash scripts/setup_chat.sh`.
 See [Chat setup](chat_setup/README.md). Startup alone does not create accounts,
 configure models or run a paid model request. Setup does run a real chat probe.

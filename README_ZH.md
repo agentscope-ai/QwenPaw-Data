@@ -20,8 +20,8 @@ QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织�
 
 ## 版本与 QwenPaw App 预告
 
-开发版本的 Auth / Context / Host 联合启动及可选多用户聊天初始化见
-[脚本说明](scripts/README.md)。下文的 OSS 默认本地初始化与启动命令继续支持。
+OSS 本机版不设用户账号，无需登录。会话、沉淀项和定时任务仍归本机身份所有。
+本机初始化和启动见下文；共享服务栈的开发流程另见[脚本说明](scripts/README.md)。
 
 - **已发布：QwenPaw-Data 0.3.x。** 独立部署的 Engine 提供分析会话、执行事件及产物的
   HTTP / 可重放 SSE 接口。详见

@@ -2,6 +2,7 @@
 
 import pytest
 from context_manager.db import close_database
+from context_manager.schema.relational import mg_sync_claims
 from context_manager.settings import clear_settings
 from sqlalchemy import create_engine
 
@@ -26,5 +27,6 @@ def isolated_settings(tmp_path, monkeypatch):
 @pytest.fixture
 def database_engine(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'coordination.db'}")
+    mg_sync_claims.create(engine)
     yield engine
     engine.dispose()
