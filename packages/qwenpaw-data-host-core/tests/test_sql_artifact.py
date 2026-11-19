@@ -70,6 +70,30 @@ async def test_materialize_writes_csv_and_rewrites_to_file_path(
     assert captured[0].headers["authorization"] == "Bearer tok-user"
 
 
+@pytest.mark.parametrize("origin,expected", [
+    ("http://127.0.0.1:18769", "Bearer local-cm-token"),
+    ("https://remote.example", None),
+])
+async def test_local_csv_credential_is_bound_to_configured_loopback(
+    tmp_path, monkeypatch, origin, expected
+):
+    monkeypatch.setenv("QWENPAW_DATA_AUTH_MODE", "local")
+    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", origin)
+    monkeypatch.setenv("QWENPAW_DATA_CLIENT_API_TOKEN", "local-cm-token")
+    clear_settings()
+    captured = []
+    try:
+        await materialize_execute_sql_result(
+            _sql_result(download_url="https://other.example/api/v1/cm/downloads/sample.csv"),
+            artifact_dir=tmp_path, access_token=None,
+            transport=httpx.MockTransport(_handler(captured)),
+        )
+        assert str(captured[0].url) == f"{origin}/api/v1/cm/downloads/sample.csv"
+        assert captured[0].headers.get("authorization") == expected
+    finally:
+        clear_settings()
+
+
 @pytest.mark.asyncio
 async def test_materialize_skips_when_no_download_url(tmp_path: Path) -> None:
     original = _sql_result(download_url=None)

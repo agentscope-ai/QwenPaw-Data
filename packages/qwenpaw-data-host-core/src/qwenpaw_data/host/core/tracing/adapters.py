@@ -272,10 +272,7 @@ async def _inject_cm_traceparent(
         return
     baggage_value = carrier.get("baggage")
     try:
-        clients = await run_context.workspace.list_mcps(
-            agent_id=run_context.paths.agent_id,
-            session_id=run_context.session_id,
-        )
+        clients = await run_context.list_mcps()
     except Exception:
         logger.debug("mcp list failed while injecting traceparent", exc_info=True)
         return

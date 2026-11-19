@@ -12,6 +12,8 @@ from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext, ModelUs
 from qwenpaw_data.host.core.paths import UserAgentPaths
 
 if TYPE_CHECKING:
+    from agentscope.mcp import MCPClient
+
     from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
 
 
@@ -28,6 +30,15 @@ class RunContext:
     session_factory: async_sessionmaker[AsyncSession]
     disabled_skills: frozenset[str] = frozenset()
     request_context: dict[str, Any] = field(default_factory=dict)
+    host_cm: MCPClient | None = field(default=None, repr=False)
+
+    async def list_mcps(self) -> list[MCPClient]:
+        clients = await self.workspace.list_mcps(
+            agent_id=self.paths.agent_id, session_id=self.session_id
+        )
+        if self.host_cm is None:
+            return clients
+        return [c for c in clients if c.name != self.host_cm.name] + [self.host_cm]
 
     def __post_init__(self) -> None:
         if not self.session_id.strip():

@@ -17,6 +17,12 @@ _BUILTIN_MCP_PATH = Path(__file__).resolve().parent.parent / "data" / "builtin_m
 
 def bind_mcp_tool_timeout(client: MCPClient, timeout: float | None) -> MCPClient:
     """Bind the MCP timeout (None disables it), preserving the original health check."""
+    from qwenpaw_data.host.core.integrations.cm.local_mcp import LocalCMClient
+
+    if isinstance(client, LocalCMClient):
+        # This instance belongs to one turn; tracing updates the same client.
+        client.execution_timeout = timeout
+        return client
     if not isinstance(client, GatewayMCPClient):
         return client
     assert client._gateway is not None

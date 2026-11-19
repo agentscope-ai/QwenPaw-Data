@@ -19,6 +19,7 @@ from qwenpaw_data.host.core.domain.exception import IterationLimitExceeded
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
 from qwenpaw_data.host.core.integrations.cm import fetch_datasource_type
+from qwenpaw_data.host.core.integrations.cm.local_mcp import LocalCMClient
 from qwenpaw_data.host.core.tracing.records import tracer_send_status, tracer_send_stop
 from qwenpaw_data.host.core.paths import UserAgentPaths
 from qwenpaw_data.host.core.settings import get_settings
@@ -241,7 +242,7 @@ class ChatRuntime:
                     access_token,
                     datasource_id=datasource_id,
                 )
-                await self._setup_mcp(
+                host_cm = await self._setup_mcp(
                     workspace,
                     paths=paths,
                     session_id=session.id,
@@ -262,6 +263,7 @@ class ChatRuntime:
                     identity=identity,
                     session_factory=self.session_factory,
                     disabled_skills=disabled_skills,
+                    host_cm=host_cm,
                     request_context={
                         "datasource_id": datasource_id,
                         "datasource_type": datasource_type,
@@ -324,8 +326,8 @@ class ChatRuntime:
         datasource_id: str | None,
         dataset_names: list[str] | None,
         context_model_header: str | None = None,
-    ) -> None:
-        await McpRepository(paths.mcp_manifest).sync(
+    ) -> LocalCMClient | None:
+        return await McpRepository(paths.mcp_manifest).sync(
             workspace,
             agent_id=paths.agent_id,
             session_id=session_id,

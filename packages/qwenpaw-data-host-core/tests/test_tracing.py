@@ -1262,11 +1262,11 @@ def _cm_client(name: str | None = None) -> SimpleNamespace:
 
 
 def _ctx_with_mcps(clients: list) -> SimpleNamespace:
-    async def list_mcps(*, agent_id: str, session_id: str) -> list:
+    async def list_mcps() -> list:
         return clients
 
     return SimpleNamespace(
-        workspace=SimpleNamespace(list_mcps=list_mcps),
+        list_mcps=list_mcps,
         paths=SimpleNamespace(agent_id="a1"),
         session_id="ses_1",
     )
@@ -1312,9 +1312,7 @@ async def test_inject_cm_traceparent_drops_removed_clients() -> None:
     with otel_tracer.start_as_current_span("root"):
         await _inject_cm_traceparent(ctx, cache)
         assert id(cm) in cache
-        ctx.workspace = SimpleNamespace(
-            list_mcps=_ctx_with_mcps([]).workspace.list_mcps
-        )
+        ctx.list_mcps = _ctx_with_mcps([]).list_mcps
         await _inject_cm_traceparent(ctx, cache)
     assert cache == {}
 

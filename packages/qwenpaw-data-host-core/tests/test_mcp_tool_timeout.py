@@ -123,8 +123,8 @@ def gateway(request, tmp_path):
 
 def _context(gateway, *, seconds=1800, enabled=True):
     return SimpleNamespace(
+        list_mcps=AsyncMock(return_value=[gateway.client]),
         workspace=SimpleNamespace(
-            list_mcps=AsyncMock(return_value=[gateway.client]),
             list_tools=AsyncMock(return_value=[]),
             list_skills=AsyncMock(return_value=[]),
         ),

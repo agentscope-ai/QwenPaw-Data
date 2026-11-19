@@ -3,12 +3,24 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 
 import httpx
 
 from qwenpaw_data.host.core.api.auth_middleware import auth_enabled
 from qwenpaw_data.host.core.domain.identity import Identity
+
+
+def is_loopback_http_url(url: httpx.URL) -> bool:
+    if url.scheme not in {"http", "https"} or url.userinfo:
+        return False
+    if url.host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(url.host).is_loopback
+    except ValueError:
+        return False
 
 
 def resolve_context_access_token(access_token: str | None) -> str | None:

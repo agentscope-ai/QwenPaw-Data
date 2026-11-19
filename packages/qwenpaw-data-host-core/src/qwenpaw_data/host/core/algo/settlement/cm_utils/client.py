@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import logging
 from typing import Any
 
 import httpx
 from qwenpaw_data.host.core.integrations.cm import resolve_cm_base_url
-from qwenpaw_data.host.core.utils.auth import resolve_context_access_token
+from qwenpaw_data.host.core.utils.auth import is_loopback_http_url, resolve_context_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +23,6 @@ def _format_cm_error(exc: BaseException) -> str:
     detail = str(exc).strip()
     name = type(exc).__name__
     return f"{name}: {detail}" if detail else name
-
-
-def _is_loopback_http(url: httpx.URL) -> bool:
-    if url.scheme not in {"http", "https"} or url.userinfo:
-        return False
-    hostname = url.host
-    if hostname == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def _meta_datasource_id(metadata: Any) -> str | None:
@@ -111,7 +98,7 @@ class SettlementCmClient:
         timeout: float | None = None,
     ) -> Any:
         url = httpx.URL(f"{self.base_url}{path}")
-        loopback = _is_loopback_http(url)
+        loopback = is_loopback_http_url(url)
         async with httpx.AsyncClient(
             timeout=timeout or self.timeout,
             trust_env=not loopback,

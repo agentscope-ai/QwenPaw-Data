@@ -17,6 +17,7 @@ from qwenpaw_data.host.core.domain.mcp import (
     McpConnectFailed,
     McpNotFoundError,
 )
+from qwenpaw_data.host.core.integrations.cm.local_mcp import LocalCMClient, use_host_cm
 from qwenpaw_data.host.core.integrations.cm.mcp import (
     apply_cm_settings_url,
     is_cm_mcp_client,
@@ -116,13 +117,19 @@ class McpRepository:
         datasource_id: str | None = None,
         dataset_names: list[str] | None = None,
         context_model_header: str | None = None,
-    ) -> None:
+    ) -> LocalCMClient | None:
         scope = {"agent_id": agent_id, "session_id": session_id}
-        wanted = {
-            mcp.name: project_workspace_mcp_client(mcp.to_client())
-            for mcp in self.list()
-            if mcp.enabled
-        }
+        hosted_cm = None
+        wanted = {}
+        local_cm = use_host_cm(workspace)
+        for mcp in self.list():
+            if not mcp.enabled:
+                continue
+            spec = mcp.to_client()
+            if local_cm and is_cm_mcp_client(spec):
+                hosted_cm = LocalCMClient.from_inventory(spec)
+            else:
+                wanted[mcp.name] = project_workspace_mcp_client(spec)
         # Configured headers reach runs that never pass a gateway entry (cron,
         # IM, run_now) and would otherwise register without them; the request
         # overlay wins wherever both name the same header.
@@ -136,13 +143,17 @@ class McpRepository:
             client.mcp_config.headers = dict(headers)
 
         live = {client.name: client for client in await workspace.list_mcps(**scope)}
+        # Deregister a previous Docker CM (including its runtime headers)
+        # before probing the new per-turn Host client.
         for name in set(live) - set(wanted):
-            await _remove_workspace_mcp(workspace, live[name], **scope)
+            await _remove_workspace_mcp(workspace, live.pop(name), **scope)
+        if hosted_cm is not None:
+            wanted[hosted_cm.name] = hosted_cm
         for name, spec in wanted.items():
             reuse = name in live and _same_client(live[name], spec)
             client = live[name] if reuse else spec
             try:
-                if not reuse:
+                if not reuse and spec is not hosted_cm:
                     if name in live:
                         await _remove_workspace_mcp(workspace, live[name], **scope)
                     registered_client = await workspace.add_mcp(client, **scope)
@@ -180,6 +191,7 @@ class McpRepository:
                     stream=stream,
                     tool_count=len(tools),
                 )
+        return hosted_cm
 
     async def list_tools(
         self,

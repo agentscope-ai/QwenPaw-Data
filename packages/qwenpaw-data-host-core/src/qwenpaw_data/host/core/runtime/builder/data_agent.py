@@ -114,9 +114,7 @@ class DataAgentBuilder:
             raise ValueError("UI tool name collision")
         mcps = [
             bind_mcp_tool_timeout(client, tool_timeout)
-            for client in await workspace.list_mcps(
-                agent_id=agent_id, session_id=run_context.session_id
-            )
+            for client in await run_context.list_mcps()
         ]
         enabled_skills = [skill for skill in skills if skill.name not in disabled]
         delegation_tools = []

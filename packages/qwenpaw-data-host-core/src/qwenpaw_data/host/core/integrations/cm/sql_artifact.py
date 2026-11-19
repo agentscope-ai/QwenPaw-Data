@@ -16,6 +16,7 @@ from qwenpaw_data.host.core.integrations.cm.client import (
     resolve_cm_base_url,
 )
 from qwenpaw_data.host.core.settings.cm import CmSettings
+from qwenpaw_data.host.core.utils.auth import is_loopback_http_url, resolve_context_access_token
 from qwenpaw_data.host.core.utils.workspace import model_visible_path
 
 _DOWNLOAD_PATH_RE = re.compile(r"/api/v1/cm/downloads/([A-Za-z0-9_-]+)\.csv$")
@@ -94,6 +95,8 @@ async def materialize_execute_sql_result(
     relative = PurePosixPath("data", "raw", f"{download_id}.csv")
     dest = _safe_artifact_destination(Path(artifact_dir), relative)
     url = f"{resolve_cm_base_url()}/api/v1/cm/downloads/{download_id}.csv"
+    if is_loopback_http_url(httpx.URL(url)):
+        token = resolve_context_access_token(token) or ""
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     async with httpx.AsyncClient(
         timeout=60.0,
@@ -104,7 +107,7 @@ async def materialize_execute_sql_result(
             response = await client.get(url, headers=headers)
         except httpx.HTTPError as exc:
             raise SqlArtifactError(f"execute_sql CSV fetch failed: {exc}") from exc
-    if response.status_code >= 400:
+    if not response.is_success:
         raise SqlArtifactError(
             f"execute_sql CSV fetch returned HTTP {response.status_code}"
         )
