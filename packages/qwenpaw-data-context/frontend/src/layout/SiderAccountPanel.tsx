@@ -142,16 +142,19 @@ export default function SiderAccountPanel() {
     colorMode === 'light' ? t('common.switchToDarkMode') : t('common.switchToLightMode');
 
   const displayUsername = authEnabled ? displayName || username : t('common.appTitle');
-  const displayWorkspace = activeWorkspace.name || tAuth(`role.${role}`);
+  const displayWorkspace = authEnabled
+    ? activeWorkspace.name || tAuth(`role.${role}`)
+    : t('common.localWorkspace');
 
   return (
     <QwenPawDataSiderAccountCard
+      hideUsername={!authEnabled}
       username={displayUsername}
       workspaceName={displayWorkspace}
       usernameIcon={<UserOutlined />}
       workspaceIcon={<HomeOutlined />}
       usernameAriaLabel={`${tAuth('avatar.userCenter')}: ${displayUsername}`}
-      workspaceAriaLabel={`${tAuth('workspaceSwitcher.switch')}: ${displayWorkspace}`}
+      workspaceAriaLabel={authEnabled ? `${tAuth('workspaceSwitcher.switch')}: ${displayWorkspace}` : displayWorkspace}
       renderUsernameTrigger={
         authEnabled
           ? (trigger) => (

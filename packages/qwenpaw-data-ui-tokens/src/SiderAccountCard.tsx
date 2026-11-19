@@ -6,6 +6,7 @@ export type QwenPawDataSiderAccountAction = {
 };
 
 export interface QwenPawDataSiderAccountCardProps {
+  hideUsername?: boolean;
   username: string;
   workspaceName: string;
   usernameIcon: ReactNode;
@@ -24,6 +25,7 @@ export interface QwenPawDataSiderAccountCardProps {
  * this component owns the shared structure, interaction targets and geometry.
  */
 export function QwenPawDataSiderAccountCard({
+  hideUsername = false,
   username,
   workspaceName,
   usernameIcon,
@@ -47,10 +49,11 @@ export function QwenPawDataSiderAccountCard({
       <strong>{username}</strong>
     </button>
   );
+  const WorkspaceRow = renderWorkspaceTrigger ? 'button' : 'div';
   const workspaceTrigger = (
-    <button
+    <WorkspaceRow
       className="qwenpaw-data-sider-account-card__identity-row qwenpaw-data-sider-account-card__workspace-row"
-      type="button"
+      type={renderWorkspaceTrigger ? 'button' : undefined}
       aria-label={workspaceAriaLabel}
       title={workspaceName}
     >
@@ -58,17 +61,17 @@ export function QwenPawDataSiderAccountCard({
         {workspaceIcon}
       </span>
       <span>{workspaceName}</span>
-    </button>
+    </WorkspaceRow>
   );
 
   return (
     <section
       className="qwenpaw-data-sider-account-card"
       data-qwenpaw-data-sider-account-card
-      aria-label={usernameAriaLabel}
+      aria-label={hideUsername ? workspaceAriaLabel : usernameAriaLabel}
     >
       <div className="qwenpaw-data-sider-account-card__identity">
-        {renderUsernameTrigger?.(usernameTrigger) ?? usernameTrigger}
+        {!hideUsername && (renderUsernameTrigger?.(usernameTrigger) ?? usernameTrigger)}
         {renderWorkspaceTrigger?.(workspaceTrigger) ?? workspaceTrigger}
       </div>
       <div

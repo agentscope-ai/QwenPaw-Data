@@ -137,6 +137,7 @@ export const zhMessages = {
   'nav.switchWorkspace': '切换工作空间',
   'nav.switchWorkspaceFailed': '切换工作空间失败：{{message}}',
   'nav.enterpriseDataSpace': '企业数据空间',
+  'nav.localWorkspace': '本地工作区',
 
   'settlementCenter.title': '沉淀项中心',
   'settlementCenter.description':
@@ -1180,6 +1181,7 @@ export const enMessages: Record<MessageKey, string> = {
   'nav.switchWorkspace': 'Switch workspace',
   'nav.switchWorkspaceFailed': 'Failed to switch workspace: {{message}}',
   'nav.enterpriseDataSpace': 'Enterprise Data Space',
+  'nav.localWorkspace': 'Local workspace',
 
   'settlementCenter.title': 'Settlement Center',
   'settlementCenter.description':

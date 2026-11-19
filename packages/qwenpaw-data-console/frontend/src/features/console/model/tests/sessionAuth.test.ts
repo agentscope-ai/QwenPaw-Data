@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   bootstrapHostAuth,
+  fetchWithAuthRetry,
   getHostAuthContext,
   getHostCurrentUser,
   subscribeHostAuth,
@@ -18,6 +19,21 @@ async function withMockedFetch(mock: typeof fetch, run: () => Promise<void>) {
     globalThis.fetch = originalFetch;
   }
 }
+
+test('a local service 401 is surfaced without a browser login or refresh', async () => {
+  const calls: string[] = [];
+  await withMockedFetch(async (input) => {
+    calls.push(String(input));
+    return String(input).endsWith('/auth/status')
+      ? Response.json({ enabled: false })
+      : new Response(null, { status: 401 });
+  }, async () => {
+    await bootstrapHostAuth();
+    assert.equal(getHostAuthContext().loginEnabled, false);
+    assert.equal((await fetchWithAuthRetry('/api/v1/sessions')).status, 401);
+    assert.deepEqual(calls, ['/api/v1/auth/status', '/api/v1/sessions']);
+  });
+});
 
 test('workspace switching and logout invalidate permission observers before the HTTP request finishes', async () => {
   const revisions: number[] = [];
@@ -72,6 +88,7 @@ test('a failed switch reconfirms identity instead of restoring cached ownership'
     async () => {
       await assert.rejects(switchHostWorkspace('denied-workspace'), /denied/);
       assert.equal(getHostCurrentUser()?.active_workspace_id, 'confirmed');
+      assert.equal(getHostAuthContext().loginEnabled, true);
       assert.equal(getHostAuthContext().ready, true);
     },
   );

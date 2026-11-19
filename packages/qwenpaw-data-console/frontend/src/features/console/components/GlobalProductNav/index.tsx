@@ -21,11 +21,13 @@ import { Button, Dropdown, Input, Tooltip } from '@agentscope-ai/design';
 import { QwenPawDataSiderAccountCard, useQwenPawDataColorMode } from '@qwenpaw-data/ui-tokens';
 import type { MenuProps } from 'antd';
 import { message } from 'antd';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
+  getHostAuthContext,
   getHostCurrentUser,
   logoutHostSession,
   redirectToLogin,
+  subscribeHostAuth,
   switchHostWorkspace,
 } from '@/services/auth';
 import { useNavigate } from 'react-router-dom';
@@ -98,13 +100,16 @@ export default function GlobalProductNav({
   const { language, t, toggleLanguage } = useAppI18n();
   const { colorMode, toggleColorMode } = useQwenPawDataColorMode();
   const currentUser = getHostCurrentUser();
+  const auth = useSyncExternalStore(subscribeHostAuth, getHostAuthContext, getHostAuthContext);
+  const accountActions = auth.ready && auth.loginEnabled === true;
   const workspaces = currentUser?.workspaces ?? [];
   const activeWorkspaceId = currentUser?.active_workspace_id ?? '';
   const username = currentUser?.display_name || currentUser?.username || t('nav.currentUser');
-  const activeWorkspaceName =
-    currentUser?.active_workspace_name ||
-    workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.name ||
-    t('nav.enterpriseDataSpace');
+  const activeWorkspaceName = accountActions
+    ? currentUser?.active_workspace_name ||
+      workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.name ||
+      t('nav.enterpriseDataSpace')
+    : t('nav.localWorkspace');
   const normalizedSearch = searchText.trim().toLocaleLowerCase();
   const currentSessionId = settlementCenterActive ? null : (currentSession?.id ?? null);
   const visibleSessions = sessions;
@@ -374,27 +379,32 @@ export default function GlobalProductNav({
 
       <div className={styles.navFooter}>
         <QwenPawDataSiderAccountCard
+          hideUsername={!accountActions}
           username={username}
           workspaceName={activeWorkspaceName}
           usernameIcon={<UserOutlined />}
           workspaceIcon={<HomeOutlined />}
           usernameAriaLabel={`${t('nav.currentUser')}: ${username}`}
           workspaceAriaLabel={`${t('nav.currentWorkspace')}: ${activeWorkspaceName}`}
-          renderUsernameTrigger={(trigger) => (
-            <Dropdown
-              getPopupContainer={getAccountCardPopupContainer}
-              overlayClassName="qwenpaw-data-sider-account-dropdown"
-              menu={{ items: userMenuItems }}
-              mouseEnterDelay={0.08}
-              mouseLeaveDelay={0.16}
-              placement="topRight"
-              trigger={['hover', 'click']}
-            >
-              {trigger}
-            </Dropdown>
-          )}
+          renderUsernameTrigger={
+            accountActions
+              ? (trigger) => (
+                  <Dropdown
+                    getPopupContainer={getAccountCardPopupContainer}
+                    overlayClassName="qwenpaw-data-sider-account-dropdown"
+                    menu={{ items: userMenuItems }}
+                    mouseEnterDelay={0.08}
+                    mouseLeaveDelay={0.16}
+                    placement="topRight"
+                    trigger={['hover', 'click']}
+                  >
+                    {trigger}
+                  </Dropdown>
+                )
+              : undefined
+          }
           renderWorkspaceTrigger={
-            workspaces.length
+            accountActions && workspaces.length
               ? (trigger) => (
                   <Dropdown
                     getPopupContainer={getAccountCardPopupContainer}

@@ -44,7 +44,7 @@ export function portalHeaders(input: RequestInfo | URL, initial?: HeadersInit): 
   return headers;
 }
 
-let authContext = { revision: 0, ready: false };
+let authContext = { revision: 0, ready: false, loginEnabled: null as boolean | null };
 const authListeners = new Set<() => void>();
 
 export function getHostAuthContext() {
@@ -58,8 +58,12 @@ export function subscribeHostAuth(listener: () => void) {
   };
 }
 
-function publishAuthContext(ready: boolean, invalidate = false) {
-  authContext = { revision: authContext.revision + Number(invalidate), ready };
+function publishAuthContext(
+  ready: boolean,
+  invalidate = false,
+  loginEnabled = authContext.loginEnabled,
+) {
+  authContext = { revision: authContext.revision + Number(invalidate), ready, loginEnabled };
   authListeners.forEach((listener) => listener());
   return authContext.revision;
 }
@@ -99,7 +103,11 @@ export function adoptUnifiedIdentity(state: import('@qwenpaw-data/cm').ContextAu
     state.sessionPlane === 'tenant' &&
     (!state.authEnabled || next),
   );
-  if (changed || ready !== authContext.ready) publishAuthContext(ready, changed || !ready);
+  const loginEnabled = ready && state ? state.authEnabled : null;
+  const identityChanged = changed || loginEnabled !== authContext.loginEnabled;
+  if (identityChanged || ready !== authContext.ready) {
+    publishAuthContext(ready, identityChanged || !ready, loginEnabled);
+  }
 }
 
 async function performRefresh(): Promise<boolean> {
@@ -144,7 +152,8 @@ export async function fetchWithAuthRetry(
     credentials: 'include',
   };
   let response = await fetch(input, fetchOptions);
-  if (response.status !== 401) return response;
+  // A rejected machine credential in local mode is not an expired browser session.
+  if (response.status !== 401 || authContext.loginEnabled === false) return response;
 
   if (await refreshAuthSession()) {
     response = await fetch(input, fetchOptions);
@@ -158,7 +167,7 @@ export async function fetchWithAuthRetry(
 
 export async function bootstrapHostAuth(): Promise<boolean> {
   currentUser = null;
-  const revision = publishAuthContext(false, true);
+  const revision = publishAuthContext(false, true, null);
   const statusUrl = getApiUrl('/auth/status');
   const statusResponse = await fetch(statusUrl, {
     credentials: 'include',
@@ -174,7 +183,7 @@ export async function bootstrapHostAuth(): Promise<boolean> {
   ssoLoginPath = status.sso_enabled ? status.sso_login_path : null;
   if (revision !== authContext.revision) return false;
   if (!status.enabled) {
-    publishAuthContext(true);
+    publishAuthContext(true, false, false);
     return true;
   }
 
@@ -186,7 +195,7 @@ export async function bootstrapHostAuth(): Promise<boolean> {
   const user = (await meResponse.json()) as HostCurrentUser;
   if (revision !== authContext.revision) return false;
   currentUser = user;
-  publishAuthContext(true);
+  publishAuthContext(true, false, true);
   return true;
 }
 

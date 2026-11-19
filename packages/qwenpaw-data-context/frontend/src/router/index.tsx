@@ -115,7 +115,8 @@ function RoleGuard({ roles, children }: { roles: Role[]; children: React.ReactNo
   const role = useAuthStore((s) => s.role);
   const activeWorkspaceRole = useAuthStore((s) => s.activeWorkspaceRole);
   const effectiveRole: Role = role === 'platform_admin' ? role : activeWorkspaceRole;
-  if (authEnabled && !roles.includes(effectiveRole)) {
+  if (!authEnabled) return <Navigate replace to={ROUTES.DATA_SOURCE} />;
+  if (!roles.includes(effectiveRole)) {
     return (
       <React.Suspense fallback={null}>
         <NoPermissionPage />

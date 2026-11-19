@@ -32,7 +32,6 @@
   background: transparent;
   border: 0;
   border-radius: 16px;
-  cursor: pointer;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 8px;
   transition:
@@ -40,7 +39,11 @@
     background var(--qwenpaw-data-motion-fast) ease;
 }
 
-.qwenpaw-data-sider-account-card__identity-row:hover,
+button.qwenpaw-data-sider-account-card__identity-row {
+  cursor: pointer;
+}
+
+button.qwenpaw-data-sider-account-card__identity-row:hover,
 .qwenpaw-data-sider-account-card__identity-row:focus-visible,
 .qwenpaw-data-sider-account-card__identity-row[aria-expanded='true'] {
   color: var(--qwenpaw-data-color-primary-active);
@@ -156,7 +159,7 @@
   color: var(--qwenpaw-data-color-text-secondary);
 }
 
-:root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__identity-row:hover,
+:root[data-qwenpaw-data-theme='dark'] button.qwenpaw-data-sider-account-card__identity-row:hover,
 :root[data-qwenpaw-data-theme='dark'] .qwenpaw-data-sider-account-card__identity-row:focus-visible,
 :root[data-qwenpaw-data-theme='dark']
   .qwenpaw-data-sider-account-card__identity-row[aria-expanded='true'] {

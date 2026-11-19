@@ -1,6 +1,7 @@
 {
   "common": {
     "appTitle": "Data Bridge",
+    "localWorkspace": "Local workspace",
     "save": "Save",
     "reset": "Reset",
     "cancel": "Cancel",
