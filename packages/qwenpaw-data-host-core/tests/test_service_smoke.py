@@ -94,7 +94,7 @@ async def service_client(agent, monkeypatch):
     monkeypatch.setattr(DataAgentBuilder, "build", build)
     monkeypatch.setattr(
         "qwenpaw_data.host.core.runtime.chat_runtime.McpRepository.sync",
-        AsyncMock(return_value=[]),
+        AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
         "qwenpaw_data.host.core.runtime.chat_runtime.fetch_datasource_type",

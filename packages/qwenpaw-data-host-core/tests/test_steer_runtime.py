@@ -192,7 +192,7 @@ async def _prepare_blocked_runtime(
     )
     monkeypatch.setattr(
         "qwenpaw_data.host.core.runtime.chat_runtime.McpRepository.sync",
-        AsyncMock(return_value=[]),
+        AsyncMock(return_value=None),
     )
     model = BlockingThenTextModel()
     monkeypatch.setattr(builder_module, "build_model", lambda *_a, **_k: model)

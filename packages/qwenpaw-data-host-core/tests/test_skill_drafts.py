@@ -67,7 +67,7 @@ def client(
     clear_settings()
     # The builtin context-manager MCP is an external service; these tests only
     # care about the Host-side skill-draft flow.
-    monkeypatch.setattr(McpRepository, "sync", AsyncMock())
+    monkeypatch.setattr(McpRepository, "sync", AsyncMock(return_value=None))
     app = create_app()
     with TestClient(app) as test_client:
         asyncio.run(seed_test_preferences(get_session_factory()))

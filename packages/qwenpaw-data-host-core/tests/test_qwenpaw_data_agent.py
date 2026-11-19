@@ -454,7 +454,7 @@ async def test_chat_runtime_uses_qwenpaw_data_agent_with_plan_tools(
 
     # The builtin context-manager MCP is an external service; this test only
     # cares about the Host-side turn.
-    monkeypatch.setattr(McpRepository, "sync", AsyncMock())
+    monkeypatch.setattr(McpRepository, "sync", AsyncMock(return_value=None))
     from qwenpaw_data.host.core.workspace import (
         get_workspace_manager,
         stop_workspace_manager,

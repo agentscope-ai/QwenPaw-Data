@@ -42,7 +42,7 @@ def _stub_cm_mcp_sync(monkeypatch: pytest.MonkeyPatch) -> None:
     Chat turns now fail fast when the CM MCP cannot be reached, so unit tests
     that only care about the Host-side turn must stub the network probe.
     """
-    monkeypatch.setattr(McpRepository, "sync", AsyncMock())
+    monkeypatch.setattr(McpRepository, "sync", AsyncMock(return_value=None))
 
 
 class FakeTextModel(ChatModelBase):

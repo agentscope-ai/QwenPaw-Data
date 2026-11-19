@@ -185,7 +185,7 @@ async def test_active_chat_plan_edit_hot_replaces_without_interrupt(
 
     monkeypatch.setattr(
         "qwenpaw_data.host.core.runtime.chat_runtime.McpRepository.sync",
-        AsyncMock(return_value=[]),
+        AsyncMock(return_value=None),
     )
     runtime = ChatRuntime(session_factory, chat.id)
     run_task = asyncio.create_task(runtime.run(identity=TEST_IDENTITY))

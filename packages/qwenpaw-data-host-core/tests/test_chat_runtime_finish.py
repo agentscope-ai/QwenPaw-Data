@@ -314,7 +314,7 @@ async def workspace_chat(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "qwenpaw_data.host.core.runtime.chat_runtime.McpRepository.sync",
-        AsyncMock(return_value=[]),
+        AsyncMock(return_value=None),
     )
     executor = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
     monkeypatch.setattr(
