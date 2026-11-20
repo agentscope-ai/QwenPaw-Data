@@ -1,126 +1,243 @@
-from __future__ import annotations
+"""指标字典仓储（表 ``metric_dict``，SPEC 00 §5.6）。
 
-import aiosqlite
-
-from semantic_config.db import now_iso
-
-_RESPONSE_SELECT = """
-    SELECT m.id, m.datasource_id, m.domain_id,
-           s.datasource_name, b.domain_name,
-           m.metric_name, m.description, m.unit,
-           m.is_polaris, m.show_distribution, m.is_visible, m.synonyms, m.tags
-    FROM metric_lib m
-    LEFT JOIN datasource s ON s.datasource_id = m.datasource_id AND s.is_deleted = 0
-    LEFT JOIN biz_domain b ON b.id = m.domain_id AND b.is_deleted = 0
+与维度字典对称：指标定义在业务域上、不再挂数据源，唯一性
+``(tenant, ws, domain_id, metric_name)``。列表的 ``datasource_id`` 是经
+``domain.datasource_scope`` 收敛的派生过滤（SPEC 00 §15.3），非字典自身的列。
 """
 
+from __future__ import annotations
 
-def _b(v):
-    return None if v is None else (1 if v else 0)
+from sqlalchemy import and_, func, select
+from sqlalchemy import insert as sa_insert
+from sqlalchemy import update as sa_update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-
-async def insert(db: aiosqlite.Connection, m) -> int:
-    ts = now_iso()
-    sql = """
-        INSERT INTO metric_lib
-            (datasource_id, domain_id, metric_name, description, unit,
-             is_polaris, show_distribution, is_visible, synonyms, tags, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-    """
-    async with db.execute(sql, (
-        m.datasource_id, m.domain_id, m.metric_name, m.description, m.unit,
-        _b(m.is_polaris), _b(m.show_distribution), _b(m.is_visible), m.synonyms, m.tags, ts, ts,
-    )) as cur:
-        row = await cur.fetchone()
-    return int(row["id"])
+from semantic_config.db import now_iso
+from semantic_config.services.domain_scope import domain_ids_for_datasource
+from semantic_config.tables import domain, metric_caliber, metric_dict
 
 
-async def update(db: aiosqlite.Connection, metric_id: int, m) -> int:
-    sql = """
-        UPDATE metric_lib SET
-            metric_name = COALESCE(?, metric_name), description = COALESCE(?, description),
-            unit = COALESCE(?, unit), is_polaris = COALESCE(?, is_polaris),
-            show_distribution = COALESCE(?, show_distribution),
-            is_visible = COALESCE(?, is_visible), synonyms = COALESCE(?, synonyms),
-            tags = COALESCE(?, tags), updated_at = ?
-        WHERE id = ? AND is_deleted = 0
-    """
-    cur = await db.execute(sql, (
-        m.metric_name, m.description, m.unit, _b(m.is_polaris), _b(m.show_distribution),
-        _b(m.is_visible), m.synonyms, m.tags, now_iso(), metric_id,
-    ))
-    return cur.rowcount
-
-
-async def find_by_id(db: aiosqlite.Connection, metric_id: int) -> aiosqlite.Row | None:
-    async with db.execute("SELECT * FROM metric_lib WHERE id = ? AND is_deleted = 0", (metric_id,)) as cur:
-        return await cur.fetchone()
-
-
-async def find_response_by_id(db: aiosqlite.Connection, metric_id: int) -> aiosqlite.Row | None:
-    async with db.execute(_RESPONSE_SELECT + " WHERE m.is_deleted = 0 AND m.id = ?", (metric_id,)) as cur:
-        return await cur.fetchone()
-
-
-async def exists_name_in_domain(db: aiosqlite.Connection, domain_id: int | None, name: str) -> bool:
-    async with db.execute(
-        "SELECT COUNT(1) AS c FROM metric_lib WHERE domain_id IS ? AND metric_name = ? AND is_deleted = 0",
-        (domain_id, name),
-    ) as cur:
-        row = await cur.fetchone()
-    return row["c"] > 0
-
-
-async def exists_name_in_domain_excluding(db, domain_id, name, metric_id) -> bool:
-    async with db.execute(
-        "SELECT COUNT(1) AS c FROM metric_lib "
-        "WHERE domain_id IS ? AND metric_name = ? AND id <> ? AND is_deleted = 0",
-        (domain_id, name, metric_id),
-    ) as cur:
-        row = await cur.fetchone()
-    return row["c"] > 0
-
-
-def _build_where(datasource_id, domain_id, metric_name, params: list) -> str:
-    where = ["m.is_deleted = 0"]
-    if datasource_id is not None:
-        where.append("m.datasource_id = ?"); params.append(datasource_id)
-    if domain_id is not None:
-        where.append("m.domain_id = ?"); params.append(domain_id)
-    if metric_name:
-        where.append("m.metric_name LIKE ?"); params.append(f"%{metric_name}%")
-    return " AND ".join(where)
-
-
-async def count(db, datasource_id, domain_id, metric_name) -> int:
-    params: list = []
-    where = _build_where(datasource_id, domain_id, metric_name, params)
-    async with db.execute(f"SELECT COUNT(1) AS c FROM metric_lib m WHERE {where}", params) as cur:
-        row = await cur.fetchone()
-    return int(row["c"])
-
-
-async def find_page(db, datasource_id, domain_id, metric_name, limit, off):
-    params: list = []
-    where = _build_where(datasource_id, domain_id, metric_name, params)
-    sql = _RESPONSE_SELECT + f" WHERE {where} ORDER BY m.id DESC LIMIT ? OFFSET ?"
-    params.extend([limit, off])
-    async with db.execute(sql, params) as cur:
-        return await cur.fetchall()
-
-
-async def soft_delete(db: aiosqlite.Connection, metric_id: int) -> int:
-    cur = await db.execute(
-        "UPDATE metric_lib SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0",
-        (now_iso(), metric_id),
+def _response_select():
+    return select(
+        metric_dict.c.id.label("metric_id"),
+        metric_dict.c.domain_id,
+        domain.c.domain_name,
+        metric_dict.c.metric_name,
+        metric_dict.c.description,
+        metric_dict.c.synonyms,
+        metric_dict.c.priority,
+    ).select_from(
+        metric_dict.outerjoin(
+            domain,
+            and_(
+                domain.c.id == metric_dict.c.domain_id,
+                domain.c.tenant_id == metric_dict.c.tenant_id,
+                domain.c.workspace_id == metric_dict.c.workspace_id,
+                domain.c.is_deleted == 0,
+            ),
+        )
     )
-    return cur.rowcount
 
 
-async def count_formulas(db: aiosqlite.Connection, metric_id: int) -> int:
-    async with db.execute(
-        "SELECT COUNT(1) AS c FROM metric_formula_lib WHERE metric_id = ? AND is_deleted = 0", (metric_id,)
-    ) as cur:
-        row = await cur.fetchone()
-    return int(row["c"])
+async def insert(
+    db: AsyncSession, m, *, tenant_id: str, workspace_id: str, created_by: str
+) -> int:
+    ts = now_iso()
+    values = dict(
+        domain_id=m.domain_id,
+        metric_name=m.metric_name,
+        description=m.description,
+        synonyms=m.synonyms,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        created_by=created_by,
+        updated_by=created_by,
+        created_at=ts,
+        updated_at=ts,
+    )
+    if m.priority is not None:
+        values["priority"] = m.priority
+    res = await db.execute(sa_insert(metric_dict).values(**values))
+    return int(res.inserted_primary_key[0])
+
+
+async def update(
+    db: AsyncSession,
+    metric_id: int,
+    m,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    updated_by: str,
+) -> int:
+    values = dict(
+        metric_name=m.metric_name,
+        description=m.description,
+        synonyms=m.synonyms,
+        updated_by=updated_by,
+        updated_at=now_iso(),
+    )
+    if m.priority is not None:
+        values["priority"] = m.priority
+    res = await db.execute(
+        sa_update(metric_dict)
+        .where(
+            metric_dict.c.id == metric_id,
+            metric_dict.c.tenant_id == tenant_id,
+            metric_dict.c.workspace_id == workspace_id,
+            metric_dict.c.is_deleted == 0,
+        )
+        .values(**values)
+    )
+    return res.rowcount
+
+
+async def find_by_id(
+    db: AsyncSession, metric_id: int, tenant_id: str, workspace_id: str
+):
+    res = await db.execute(
+        select(metric_dict).where(
+            metric_dict.c.id == metric_id,
+            metric_dict.c.tenant_id == tenant_id,
+            metric_dict.c.workspace_id == workspace_id,
+            metric_dict.c.is_deleted == 0,
+        )
+    )
+    return res.mappings().first()
+
+
+async def find_response_by_id(
+    db: AsyncSession, metric_id: int, tenant_id: str, workspace_id: str
+):
+    stmt = _response_select().where(
+        metric_dict.c.is_deleted == 0,
+        metric_dict.c.id == metric_id,
+        metric_dict.c.tenant_id == tenant_id,
+        metric_dict.c.workspace_id == workspace_id,
+    )
+    res = await db.execute(stmt)
+    return res.mappings().first()
+
+
+async def exists_by_name_in_domain(
+    db: AsyncSession,
+    domain_id: int,
+    metric_name: str,
+    tenant_id: str,
+    workspace_id: str,
+) -> bool:
+    res = await db.execute(
+        select(metric_dict.c.id).where(
+            metric_dict.c.domain_id == domain_id,
+            metric_dict.c.metric_name == metric_name,
+            metric_dict.c.tenant_id == tenant_id,
+            metric_dict.c.workspace_id == workspace_id,
+            metric_dict.c.is_deleted == 0,
+        )
+    )
+    return res.first() is not None
+
+
+async def exists_by_name_in_domain_excluding(
+    db: AsyncSession,
+    domain_id: int,
+    metric_name: str,
+    metric_id: int,
+    tenant_id: str,
+    workspace_id: str,
+) -> bool:
+    res = await db.execute(
+        select(metric_dict.c.id).where(
+            metric_dict.c.domain_id == domain_id,
+            metric_dict.c.metric_name == metric_name,
+            metric_dict.c.id != metric_id,
+            metric_dict.c.tenant_id == tenant_id,
+            metric_dict.c.workspace_id == workspace_id,
+            metric_dict.c.is_deleted == 0,
+        )
+    )
+    return res.first() is not None
+
+
+def _conds(datasource_id, domain_id, metric_name, tenant_id, workspace_id):
+    conds = [
+        metric_dict.c.is_deleted == 0,
+        metric_dict.c.tenant_id == tenant_id,
+        metric_dict.c.workspace_id == workspace_id,
+    ]
+    if datasource_id is not None:
+        # 派生过滤：收敛到"至少有一个数据集落在该数据源上"的业务域（§15.3）。
+        conds.append(
+            metric_dict.c.domain_id.in_(
+                domain_ids_for_datasource(datasource_id, tenant_id, workspace_id)
+            )
+        )
+    if domain_id is not None:
+        conds.append(metric_dict.c.domain_id == domain_id)
+    if metric_name:
+        conds.append(metric_dict.c.metric_name.like(f"%{metric_name}%"))
+    return conds
+
+
+async def count(
+    db, domain_id, metric_name, tenant_id, workspace_id, datasource_id=None
+) -> int:
+    conds = _conds(datasource_id, domain_id, metric_name, tenant_id, workspace_id)
+    res = await db.execute(select(func.count()).select_from(metric_dict).where(*conds))
+    return int(res.scalar_one())
+
+
+async def find_page(
+    db, domain_id, metric_name, limit, off, tenant_id, workspace_id, datasource_id=None
+):
+    conds = _conds(datasource_id, domain_id, metric_name, tenant_id, workspace_id)
+    stmt = (
+        _response_select()
+        .where(*conds)
+        .order_by(metric_dict.c.id.desc())
+        .limit(limit)
+        .offset(off)
+    )
+    res = await db.execute(stmt)
+    return res.mappings().all()
+
+
+async def soft_delete(
+    db: AsyncSession,
+    metric_id: int,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    updated_by: str,
+) -> int:
+    res = await db.execute(
+        sa_update(metric_dict)
+        .where(
+            metric_dict.c.id == metric_id,
+            metric_dict.c.tenant_id == tenant_id,
+            metric_dict.c.workspace_id == workspace_id,
+            metric_dict.c.is_deleted == 0,
+        )
+        .values(is_deleted=1, updated_by=updated_by, updated_at=now_iso())
+    )
+    return res.rowcount
+
+
+async def count_calibers(
+    db: AsyncSession, metric_id: int, tenant_id: str, workspace_id: str
+) -> int:
+    res = await db.execute(
+        select(func.count())
+        .select_from(metric_caliber)
+        .where(
+            metric_caliber.c.metric_id == metric_id,
+            metric_caliber.c.tenant_id == tenant_id,
+            metric_caliber.c.workspace_id == workspace_id,
+            metric_caliber.c.is_deleted == 0,
+        )
+    )
+    return int(res.scalar_one())
+
+
+exists_name_in_domain = exists_by_name_in_domain
+exists_name_in_domain_excluding = exists_by_name_in_domain_excluding

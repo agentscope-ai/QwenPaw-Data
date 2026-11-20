@@ -1,9 +1,38 @@
-/* QwenPaw-Data brand tokens used by Ant Design and local CSS modules. */
+@import '@qwenpaw-data/ui-tokens/tokens.css';
+@import '@qwenpaw-data/ui-tokens/components.css';
+
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 100 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/google-sans-flex-latin-variable.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Shared with DataConsole so Context pages use one visual language. */
 :root {
-  --colorPrimary: #0D76FD;
-  --color-primary: #0D76FD;
-  --ant-color-primary: #0D76FD;
-  --colorPrimaryBg: #ECF4FF;
+  --colorPrimary: var(--qwenpaw-data-color-primary);
+  --color-primary: var(--qwenpaw-data-color-primary);
+  --ant-color-primary: var(--qwenpaw-data-color-primary);
+  --colorPrimaryBg: var(--qwenpaw-data-color-primary-bg);
+  --context-color-primary: var(--qwenpaw-data-color-primary);
+  --context-color-primary-bg: var(--qwenpaw-data-color-primary-bg);
+  --context-color-navigation: var(--qwenpaw-data-color-navigation);
+  --context-color-layout: var(--qwenpaw-data-color-layout);
+  --context-color-container: var(--qwenpaw-data-color-container);
+  --context-color-text: var(--qwenpaw-data-color-text);
+  --context-color-text-secondary: var(--qwenpaw-data-color-text-secondary);
+  --context-color-text-tertiary: var(--qwenpaw-data-color-text-tertiary);
+  --context-color-border: var(--qwenpaw-data-color-border);
+  --context-color-border-secondary: var(--qwenpaw-data-color-border-secondary);
+  --context-radius: var(--qwenpaw-data-radius);
+  --context-radius-lg: var(--qwenpaw-data-radius-lg);
+  --context-surface-shadow: var(--qwenpaw-data-surface-shadow);
+  --context-ambient-background: var(--qwenpaw-data-ambient-background);
 }
 
 * {
@@ -13,24 +42,21 @@
 html,
 body,
 #root {
-  min-height: 100%;
+  width: 100%;
+  min-width: var(--qwenpaw-data-layout-min-width);
+  min-height: 100dvh;
 }
 
 body {
   margin: 0;
-  background: #f5f7fa;
-  color: rgba(0, 0, 0, 0.88);
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    "Noto Sans",
-    sans-serif,
-    "Apple Color Emoji",
-    "Segoe UI Emoji";
+  background: var(--context-ambient-background);
+  background-attachment: fixed;
+  color: var(--context-color-text);
+  font-family: var(--qwenpaw-data-font-family);
+  font-size: var(--qwenpaw-data-font-size);
+  line-height: var(--qwenpaw-data-line-height);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -38,10 +64,273 @@ a {
   text-decoration: none;
 }
 
+.ant-card,
+.ant-pro-card {
+  background: transparent;
+  border: 1px solid var(--context-color-border) !important;
+  border-radius: var(--qwenpaw-data-radius-card-primary) !important;
+  box-shadow: none;
+}
+
+.ant-pro-card .ant-pro-card-body {
+  padding: 20px;
+}
+
+.ant-pro-query-filter.ant-pro-card {
+  background: transparent;
+}
+
+.ant-pro-table {
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.ant-pro-table > .ant-pro-card {
+  overflow: hidden;
+  background: transparent;
+}
+
+.ant-pro-table > .ant-pro-card:not(.ant-pro-table-search) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.ant-pro-table > .ant-pro-card:not(.ant-pro-table-search):hover {
+  box-shadow: none !important;
+}
+
+.ant-pro-table > .ant-pro-table-search {
+  margin-block-end: 16px;
+  overflow: visible;
+  background: transparent;
+}
+
+.ant-pro-table > .ant-pro-table-search.ant-pro-card {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.ant-pro-table > .ant-pro-table-search .ant-pro-card-body {
+  padding: 0 !important;
+}
+
+.ant-pro-table > .ant-pro-table-search .ant-pro-query-filter {
+  padding-block: 0 !important;
+  padding-inline: 20px !important;
+}
+
+.context-adaptive-table-viewport {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.context-adaptive-table-viewport > .context-adaptive-table {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.context-adaptive-table .ant-pro-table-extra.context-adaptive-table {
+  display: block;
+  width: auto;
+  min-height: 0;
+  flex: none;
+  overflow: visible;
+}
+
+.context-adaptive-table .ant-table-body {
+  min-height: var(--context-adaptive-table-body-height);
+}
+
+.context-table-toolbar-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 16px;
+}
+
+.context-table-summary {
+  flex: 0 0 auto;
+  color: var(--context-color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-table-toolbar-extra {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.ant-pro-table-list-toolbar {
+  min-height: 56px;
+  padding-inline: 0 !important;
+}
+
+.ant-pro-table-list-toolbar-title {
+  color: var(--context-color-text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  color: var(--context-color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom-color: var(--context-color-border-secondary);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: #f7faff !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: var(--qwenpaw-data-color-fill-tertiary) !important;
+}
+
+.ant-btn {
+  font-weight: 500;
+}
+
+.ant-btn-primary {
+  box-shadow: none;
+}
+
+/* Keep text badges visually centered regardless of locale/font metrics. */
+.ant-tag,
+.ant-badge-status-text {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ant-tag {
+  justify-content: center;
+  padding-block: 2px;
+  padding-inline: 8px;
+  line-height: 16px;
+}
+
+input.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-select-selector,
+.ant-picker {
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
+}
+
+textarea.ant-input {
+  border-radius: var(--qwenpaw-data-radius-textarea) !important;
+}
+
+.ant-drawer .ant-drawer-header,
+.ant-modal .ant-modal-header {
+  border-bottom: 0;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-modal-title,
+:root[data-qwenpaw-data-theme='dark'] .ant-drawer-title {
+  color: var(--qwenpaw-data-color-text) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-modal-body,
+:root[data-qwenpaw-data-theme='dark'] .ant-modal-confirm-content {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-segmented .ant-segmented-item-selected,
+:root[data-qwenpaw-data-theme='dark'] .ant-segmented .ant-segmented-thumb {
+  background: var(--qwenpaw-data-color-loading-surface) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-table-wrapper .ant-table-thead > tr > th,
+:root[data-qwenpaw-data-theme='dark'] table > thead > tr > th {
+  color: var(--qwenpaw-data-color-text) !important;
+  background: var(--qwenpaw-data-color-fill-secondary) !important;
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-table-wrapper .ant-table-tbody > tr > td,
+:root[data-qwenpaw-data-theme='dark'] .ant-table-wrapper .ant-table-tbody > tr > td strong,
+:root[data-qwenpaw-data-theme='dark'] .ant-table-wrapper .ant-table-tbody > tr > td a {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-alert {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-alert .ant-alert-message {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:root[data-qwenpaw-data-theme='dark'] .ant-alert .ant-alert-description {
+  color: var(--qwenpaw-data-color-text-secondary);
+}
+
+.ant-drawer .ant-drawer-footer {
+  border-top: 0;
+}
+
+.context-page-stack {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.context-page-surface {
+  overflow: hidden;
+  background: transparent;
+  border: 1px solid var(--context-color-border) !important;
+  border-radius: var(--qwenpaw-data-radius-card-primary) !important;
+  box-shadow: none;
+  transition: box-shadow var(--qwenpaw-data-motion-fast) ease;
+}
+
+.context-page-surface:hover {
+  box-shadow: var(--qwenpaw-data-card-hover-shadow);
+}
+
+.context-page-notice {
+  margin: 0 !important;
+  border-radius: var(--context-radius) !important;
+}
+
 .ant-pro-query-filter-actions .ant-btn {
   min-width: 72px;
+  border-radius: var(--qwenpaw-data-radius-pill) !important;
 }
 
 .ant-pro-query-filter-actions .ant-btn > span {
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .ant-pro-card .ant-pro-card-body {
+    padding: 16px;
+  }
+
+  .ant-pro-table > .ant-pro-table-search .ant-pro-query-filter {
+    padding-inline: 20px !important;
+  }
 }

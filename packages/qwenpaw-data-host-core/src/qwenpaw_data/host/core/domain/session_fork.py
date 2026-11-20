@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Pure fork bookkeeping: id remapping and payload rewriting."""
-
 from __future__ import annotations
 
 from typing import Any
 
-from qwenpaw_data.host.core.domain.attachment import (
-    Attachment,
-    uploads_relative_path,
-)
+from agentscope.state import TaskContext
+
+from qwenpaw_data.host.core.domain.attachment import Attachment, uploads_relative_path
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.session import Session
 from qwenpaw_data.host.core.utils.ids import create_id
@@ -16,11 +13,7 @@ from qwenpaw_data.host.core.utils.ids import create_id
 
 class SessionFork:
     def __init__(
-        self,
-        source: Session,
-        at_chat: Chat,
-        *,
-        has_active_chat: bool,
+        self, source: Session, at_chat: Chat, *, has_active_chat: bool
     ) -> None:
         self.source = source
         self.at_chat = at_chat
@@ -54,7 +47,7 @@ class SessionFork:
             sequence=chat.sequence,
             user_input=self.rewrite(chat.user_input),
             datasource_id=chat.datasource_id,
-            dataset_names=list(chat.dataset_names),
+            dataset_names=chat.dataset_names,
             kind=chat.kind,
             status=chat.status,
             last_sequence_number=chat.last_sequence_number,
@@ -62,11 +55,15 @@ class SessionFork:
             completed_at=chat.completed_at,
             active_duration_ms=chat.active_duration_ms,
             error=self.rewrite(chat.error),
-            plan=self.rewrite(chat.plan),
+            plan=TaskContext.model_validate(
+                self.rewrite(chat.plan.model_dump(mode="json"))
+            ),
             created_at=chat.created_at,
             updated_at=chat.updated_at,
             artifact_comments=self.rewrite(chat.artifact_comments),
             attachments=self.rewrite(chat.attachments),
+            agent_state=self.rewrite(chat.agent_state),
+            enable_clarification=chat.enable_clarification,
         )
 
     def copy_attachment(self, attachment: Attachment) -> Attachment:
@@ -78,3 +75,12 @@ class SessionFork:
             storage_path=uploads_relative_path(self.target.id, attachment.filename),
             created_at=attachment.created_at,
         )
+
+    def copy_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **artifact,
+            "id": self.mapped(artifact["id"]),
+            "session_id": self.target.id,
+            "chat_id": self.mapped(artifact["chat_id"]),
+            "path": self.rewrite(artifact["path"]),
+        }

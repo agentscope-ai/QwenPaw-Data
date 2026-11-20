@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
-import { Card } from "antd";
-import { Spin } from "@/design";
-import styles from "../index.module.less";
+import type { ReactNode } from 'react';
+import { Card } from 'antd';
+import { Spin } from '@/design';
+import styles from '../index.module.less';
 
 interface ModelConfigFormCardProps {
   title: ReactNode;

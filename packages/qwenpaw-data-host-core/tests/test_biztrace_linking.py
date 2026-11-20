@@ -118,15 +118,21 @@ def test_terms_in_inline_code_or_bold_are_linked() -> None:
         {
             "日活": VocabEntry(entity_type="metric", domain_id=None, entity_id="m1"),
             "成交额": VocabEntry(entity_type="metric", domain_id=None, entity_id="m2"),
-            "订单表": VocabEntry(entity_type="dataset", domain_id=None, entity_id="ds9"),
+            "订单表": VocabEntry(
+                entity_type="dataset", domain_id=None, entity_id="ds9"
+            ),
         }
     )
 
     assert linker.link("`日活` 下降").startswith("[日活](http://cm.test/metric-lib?")
     assert "`" not in linker.link("`日活`")
-    assert linker.link("关注 **成交额**").startswith("关注 [成交额](http://cm.test/metric-lib?")
+    assert linker.link("关注 **成交额**").startswith(
+        "关注 [成交额](http://cm.test/metric-lib?"
+    )
     assert "**" not in linker.link("**成交额**")
-    assert linker.link("写入 __订单表__").startswith("写入 [订单表](http://cm.test/data-set?")
+    assert linker.link("写入 __订单表__").startswith(
+        "写入 [订单表](http://cm.test/data-set?"
+    )
     # Marked and plain mentions are both linked.
     assert linker.link("`日活` 与 日活").count("](") == 2
 
@@ -323,20 +329,23 @@ def test_same_origin_base_url_builds_relative_href() -> None:
 
 def test_resolve_link_base_url_prefers_context_frontend(monkeypatch) -> None:
     from qwenpaw_data.host.core.algo.biztrace.settings import (
-        DEFAULT_CM_FRONTEND_URL,
         BizTraceSettings,
         resolve_link_base_url,
     )
+    from qwenpaw_data.host.core.settings import CmSettings, clear_settings
 
     settings = BizTraceSettings(biz_link_base_url=None)
-    monkeypatch.setenv("QWENPAW_DATA_CM_FRONTEND_URL", "https://context.example/")
+    monkeypatch.setenv("VITE_CONTEXT_FRONTEND_URL", "https://context.example/")
+    clear_settings()
     assert resolve_link_base_url(settings) == "https://context.example"
 
-    monkeypatch.setenv("QWENPAW_DATA_CM_FRONTEND_URL", "/")
+    monkeypatch.setenv("VITE_CONTEXT_FRONTEND_URL", "/")
+    clear_settings()
     assert resolve_link_base_url(settings) == ""
 
-    monkeypatch.delenv("QWENPAW_DATA_CM_FRONTEND_URL", raising=False)
-    assert resolve_link_base_url(settings) == DEFAULT_CM_FRONTEND_URL
+    monkeypatch.delenv("VITE_CONTEXT_FRONTEND_URL", raising=False)
+    clear_settings()
+    assert resolve_link_base_url(settings) == CmSettings.DEFAULT_CM_FRONTEND_URL
     assert resolve_link_base_url(settings) == "http://localhost:3000"
 
     override = BizTraceSettings(biz_link_base_url="https://override.example/")
@@ -351,11 +360,11 @@ async def test_build_linker_scopes_cache_by_datasource_and_refreshes_token(
 
     await linking_module.shutdown_vocabularies()
     monkeypatch.setattr(
-        linking_module, "resolve_link_base_url", lambda _settings: "http://frontend.test"
+        linking_module,
+        "resolve_link_base_url",
+        lambda _settings: "http://frontend.test",
     )
-    monkeypatch.setattr(
-        linking_module, "resolve_cm_base_url", lambda: BASE_URL
-    )
+    monkeypatch.setattr(linking_module, "resolve_cm_base_url", lambda: BASE_URL)
     settings = BizTraceSettings(biz_link_enabled=True, biz_link_ttl=300.0)
 
     first = linking_module.build_linker(

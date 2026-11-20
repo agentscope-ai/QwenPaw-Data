@@ -43,7 +43,9 @@ print(f"Data range: {times.min()} to {times.max()}")
 
 result = np.interp(query_time, times, values)
 idx = np.searchsorted(times, query_time)
-print(f"Bracketing: ({times[idx-1]}, {values[idx-1]}), ({times[idx]}, {values[idx]})")
+print(
+    f"Bracketing: ({times[idx - 1]}, {values[idx - 1]}), ({times[idx]}, {values[idx]})"
+)
 ```
 
 ---
@@ -65,7 +67,7 @@ assert target_gene not in background_genes
 # Decompose complex queries: filter population → apply exclusions → extract features → cross-reference
 is_tumor = df["tissue"].str.lower() == "tumor"
 is_primary = df["stage"].str.lower() == "primary"
-filtered = df[is_tumor & is_primary]   # boolean masks, not chained indexing
+filtered = df[is_tumor & is_primary]  # boolean masks, not chained indexing
 ```
 
 - If an entity's location is unknown, **brute-force string-search across cells** before assuming the schema (see `data-ingestion-and-cleaning.md` § Entity Search).
@@ -91,13 +93,20 @@ filtered = df[is_tumor & is_primary]   # boolean masks, not chained indexing
 ```python
 import re
 
+
 def normalize_entity_key(name):
     if pd.isna(name):
         return None
     name = str(name)
-    name = re.sub(r"\b(MSA|County|Parish|Borough|Metropolitan Statistical Area)\b",
-                  "", name, flags=re.IGNORECASE)
-    name = name.replace("–", "-").replace("—", "-").replace("‐", "-")  # unicode dashes → ASCII
+    name = re.sub(
+        r"\b(MSA|County|Parish|Borough|Metropolitan Statistical Area)\b",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    )
+    name = (
+        name.replace("–", "-").replace("—", "-").replace("‐", "-")
+    )  # unicode dashes → ASCII
     return re.sub(r"\s+", " ", name).strip().lower()
 ```
 

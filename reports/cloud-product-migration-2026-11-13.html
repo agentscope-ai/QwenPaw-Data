@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloud → OSS 整体迁移报告 · QwenPaw-Data</title>
+  <style>
+    :root { color-scheme: light; --primary:#1677ff; --nav:#001529; --text:#1f1f1f; --muted:#595959; --bg:#f5f7fa; --border:#d9d9d9; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--text); background:var(--bg); font:16px/1.65 system-ui,sans-serif; }
+    header { padding:20px max(20px,calc((100vw - 1040px)/2)); color:white; background:var(--nav); }
+    main { max-width:1080px; margin:auto; padding:28px 20px 48px; }
+    section { margin-bottom:20px; padding:24px; border:1px solid var(--border); border-radius:12px; background:white; min-width:0; }
+    h1 { margin:8px 0 16px; font-size:clamp(26px,4vw,36px); line-height:1.3; }
+    h2 { margin:0 0 14px; font-size:22px; }
+    p { margin:10px 0; } li { margin:8px 0; }
+    a { color:#0958d9; text-underline-offset:3px; }
+    a:focus-visible { outline:3px solid #91caff; outline-offset:3px; }
+    code { font:13px/1.6 ui-monospace,monospace; overflow-wrap:anywhere; }
+    .label, .muted, footer { color:var(--muted); font-size:14px; }
+    .warning { padding:12px 16px; border-left:4px solid #faad14; background:#fffbe6; }
+    .table-wrap { max-width:100%; overflow:auto; }
+    table { width:100%; border-collapse:collapse; text-align:left; font-size:14px; }
+    th, td { padding:12px; vertical-align:top; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
+    th { background:var(--bg); } th:first-child { width:24%; }
+    @media (max-width:600px) { main { padding:16px 12px; } section { padding:16px; } th,td { padding:8px; } }
+    @media print { body { background:white; } section { break-inside:avoid; } }
+  </style>
+</head>
+<body>
+  <header>QwenPaw-Data / Cloud → OSS</header>
+  <main>
+    <section aria-labelledby="overview">
+      <p class="label">整体迁移报告 · 更新于 2026-11-19</p>
+      <h1 id="overview">本轮两项共享行为已移植；密码登录不属于 OSS</h1>
+      <p class="warning"><strong>签核范围：</strong>以下证据只覆盖列明的公开行为，不代表全部 internal 功能、生产部署或模型质量等价。历史验收记录按各自提交阅读。</p>
+      <p>评估方向：Cloud/internal → 开源版；覆盖整体产品，不以最近九个提交作为完成标准。</p>
+      <p><strong>11 月 19 日 Portal 复核：</strong>见<a href="#portal-acceptance">本机可写 Portal 验收</a>。区分共享前端、OSS 网关和本机样例启动方式；不能用单个页面加载成功代替写入验收。</p>
+      <p><strong>CI 按提交读取：</strong><a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44365851939">29e2145 的 CI</a> 与 CodeQL 合计 12/12 通过。用户提供的 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks?check_run_id=134549377512">CodeQL 七项告警</a> 和 <a href="https://github.com/agentscope-ai/QwenPaw-Data/actions/runs/44228954565/job/134549080106?pr=126">PyPI 审计读取超时</a> 属于旧提交 87d324c，不是新代码的结果。<a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">当前 PR 检查</a>按最新 SHA 单独验收。</p>
+      <p><strong>已落地：</strong>定时报告的冻结参考包、Segment 耗时、工具评分批量上报、禁用旧模型凭据回退及按需校验图后端均已提交。Context 的弹窗重置、口径筛选、编织取消、个人图向量同步及原生 MCP 工具切换已进入 53790d0。</p>
+      <p><strong>本次增量：</strong>internal <code>e084e0143 → e10eba972</code>，OSS 起点 <code>48eb272</code>。<code>67461905a</code>：个人元数据图同步不再长期占用控制面 SQL 事务；同一归属的写入仍互斥，过期持有者不能释放新持有者的锁。<code>e10eba972</code>：每个工具记录本步成功模型调用与该工具的合计秒数，不借用其他 trace 的耗时。<code>f31388dd0</code> 只调整密码登录写入，未移植：OSS 本机版没有用户账号，会话、沉淀项和定时任务仍归本机身份所有。</p>
+      <p><strong>验证边界：</strong>文件 SQLite 双连接验证了并发写入、过期接管和提交前拒绝旧持有者；重复启动保留既有数据。真实 OpenTelemetry span 经本机 HTTP 接收端收到一条 5 秒的工具评分（模型 2 秒 + 工具 3 秒），归属于结束的工具。覆盖 CM、Host tracing、Tracing 包及本机兼容边界的测试 747 项通过、84 项跳过。本轮未做线上 Langfuse、PostgreSQL/Hologres 或生产图后端验收；以上不是对全库发布的签核。</p>
+      <p><strong>沿用的决定：</strong>公开技能按包版本刷新，保留 OSS 自定义技能与三个兼容指南；提案列表隐藏涉及内置技能的记录，不删除历史。Guard 用户身份查询、NAS 产物增量同步到对象存储、AONE 内部 CI 优化均不移植。WeChat 按已批准的安全方案发送 Console 产物提示，不恢复原生加密附件上传。</p>
+      <p class="muted">原 internal 审计快照：<code>8edd1f86684ce844821af69f59f9dd355804d8ae</code><br>
+        OSS 分支：<code>sync/cloud-0.4.0</code>。下列历史检查点保留验证边界；当前子 Agent 范围与可复验入口见<a href="#delegation">委派签核</a>。<br>
+        <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126">Draft PR #126</a> · 严格顺序 execute（e0dd165）、七包独立打包修复（93b4b46）保留；经用户确认，撤除 9b154b7 引入的进程内 DAG 兼容执行层，不恢复旧 Host 嵌入入口。</p>
+    </section>
+    <section aria-labelledby="portal-acceptance">
+      <h2 id="portal-acceptance">本机可写 Portal 验收 · 2026-11-19</h2>
+      <p><strong>OSS 本机 Docker 取数：</strong>内置 DataBridge 的回环 MCP 请求改由 Host 在当前轮次执行，沙箱不再持有该注册或凭据；不改变托管部署的直连方式。真实 Docker 工作区与本机 GAAP DataBridge 已验证图 schema、SELECT 1、475 行数据的统计，以及生成的 CSV 在沙箱内可读。验证未使用付费模型。可复验入口：<code>tests/integration/test_local_docker_cm.py</code>。</p>
+      <ul>
+        <li><strong>共享前端：</strong>沿用 internal 的单一「保存激活模型」按钮。启用 DataBridge 时，一次提交会话、DataBridge 和 Embedding 三项，逐项报告写入失败；语义服务加载失败时须重试，不降级为仅保存会话。只有部署明确声明 <code>contextConsole: false</code> 时才隐藏语义字段、只写 Host。Provider、会话偏好和运行参数分别加载、重试。外部渠道状态不可读时，本机 Console 定时任务仍可执行，外部渠道保持禁用。保存会话偏好不等于已满足数据分析对话的全部模型要求。</li>
+        <li><strong>OSS 网关：</strong>Console 的语义层模型配置请求转给 DataBridge；操作事件只允许 POST 转给 Host。DataBridge 编辑接口缺失和凭据被拒绝给出不同提示。已在明确未部署 DataBridge 的临时 SQLite Host 保存并读回会话默认模型；不把已部署服务的 404 当作未部署。</li>
+        <li><strong>8768 实例：</strong>Host 与 Portal 均使用同一个真实 DataBridge。数据源、业务域、数据集、维度、指标、公式和探查列表返回 200；通过 Portal 新建临时数据源，编辑页与 Host 均能读回，验证后已移除。旧 GAAP 会话的数据源 ID 与表名保持不变。</li>
+        <li><strong>物理图验收：</strong>已在 8768 使用的独立 Neo4j（Bolt 18770）初始化约束与索引，对 SQLite 样例执行物理探查，再同步到本机身份。通过 DataBridge MCP 查到 <code>main.dws_gaap_di</code> 的全部 7 个字段，名称和类型与源库一致；参见<a href="../examples/README.md#existing-sqlite-datasource-build-the-table-and-column-graph">复验步骤</a>。</li>
+        <li><strong>未签核：</strong>沉淀项预检、确认、图记录读回及重复提交已有隔离测试；物理图验收不等于在 8768 实例验证了真实沉淀项写回、语义工作簿织入或付费模型。</li>
+      </ul>
+    </section>
+    <section aria-labelledby="scope">
+      <h2 id="scope">迁移范围与边界</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">范围</th><th scope="col">当前结果与限制</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">CLI / Host</th><td>当前会话、任务、文件、计划、cron、复盘及追问能力已纳入；CLI / Python 集成走 Host API。旧进程内 API 不再恢复；JSON 导入、恢复与回滚已做合成数据验收，特殊旧状态和真实部署升级仍未完成。</td></tr>
+            <tr><th scope="row">Context / DataBridge</th><td>语义管理、检索、SQL、profiling、知识与用户记忆已纳入；原生 SQL 与语义编辑/织入已通过服务验收。Context MCP 只发布原生工具；旧 execute_sql 调用方需迁移到相应原生工具。</td></tr>
+            <tr><th scope="row">Console / Skills</th><td>已修复识别出的技能修订、MCP/channel 设置、settlement/proposal/draft 和文件网关路由；保留显式方法、同源及凭据隔离约束。</td></tr>
+            <tr><th scope="row">Auth / Tracing</th><td>OSS 本机免登录，保留本机数据归属、授权和 tracing/usage；内部账号系统与部署凭据不移植。历史 Auth/Host/Context HTTP 验证覆盖共享服务的跨用户/租户拒绝、工作区切换、凭据脱敏及权限撤销，不代表 OSS 提供账号界面。</td></tr>
+            <tr><th scope="row">可选基础设施</th><td>Hologres 为可选后端，无连接的部署无需启用；Docker 为 Host 默认执行后端，本地无沙箱执行须显式选择。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="replay">
+      <h2 id="replay">功能级 replay 目标与验收</h2>
+      <p>以 internal 架构为主线；不冲突的 OSS 能力接回所属层，冲突项先说明影响与替代方案，由用户 review 后可为 internal 让路，不要求保留旧 API。安全防护、数据保护、可选基础设施和开源打包仍是要求。不向 internal 仓库写入；完成标准是入口可用、行为与数据可验证，而不是文件存在。</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">能力 / OSS 契约</th><th scope="col">集成边界</th><th scope="col">状态 / 验收</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Docker 执行安全</th><td>Host workspace → 标准 list_tools，供 data/review builder 共同使用</td><td>本地已接回；真实 Docker 超时、取消、忽略 SIGTERM 的子进程清理通过；清理不确定时关闭 workspace。不是对恶意逃逸进程组的隔离证明。</td></tr>
+          <tr><th scope="row">CLI / Python 客户端</th><td>HostClient → 当前鉴权 API；客户端确定性调度，服务端管理工具、模型与作用域</td><td>run/chat、prompt-only plan 与逐节点 execute 保留。execute 只在前置节点成功终态后放行后继，失败/断流/取消停止；非持久化 DAG，无自动恢复或副作用回滚。节点内部仍是 agentic 执行，不证明业务结果正确。旧进程内 API 不作为移植完成标准。</td></tr>
+          <tr><th scope="row">统一服务端 Agent</th><td>共享 AgentScope Agent → TaskContext / command-driven executor；不再叠加 DAGExecution</td><td>用户已批准撤除兼容扩展。73b6dfc 已移除独立 DAG 模式、回调和隐式续跑；超时统一读取 RunContext。CLI SOP 文档模型及其 ID 工厂保留。旧 Host 创建入口及 grouped toolkit 已删除；原生 builder 负责组装工具，不支持旧进程内嵌入。</td></tr>
+          <tr><th scope="row" id="delegation">子任务委派</th><td>Host 的 general / report 预设与 workspace/agents/&lt;agent_id&gt;/*.md；保留 OSS data_fetcher。</td><td>内部调用格式 type、description、prompt 可用；子 Agent 必须用 submit_result 交付一条 JSON 回执。角色仅从父 workspace 选择工具、已启用技能与当前会话 MCP。原生 Windows 仅提供 PowerShell 时，report 与 data_fetcher 保留文件工具，不授予替代 shell；自定义角色显式要求 Bash 仍报错。父审批策略、取消清理、超时和次数上限保留。</td></tr>
+          <tr><th scope="row">旧 JSON 数据</th><td>inspect / backup / plan / provision-key → prepare → apply / recover → check-rollback / rollback</td><td>POSIX SQLite/PostgreSQL 显式 CLI 流程已接通并经合成数据验收。prepare 保存私有加密计划及目标标识，不写业务行；后续命令只使用原计划，校验 run ID、停机确认和目标绑定。导入前核对当前进程环境密钥或目标本地密钥，另需确认所有部署服务配置一致；不声称验证远端环境。只读 plan 仍标记 import_ready=false。导入中断恢复、回滚及真实 Host 文件读取已验证；不修补用户修改，回滚保留备份、暂存、日志和全部目录。未知数据、运行中聊天、旧 DAG/agent state、水位和共享 workspace 仍须明确处置；cron 停用须同意。Windows ACL、远端部署和外部后端仍待验收，无自动暂存清理。</td></tr>
+          <tr><th scope="row">Context / Skills / Console</th><td>当前服务入口、租户作用域、MCP 与显式网关</td><td>部分验证；已测技能修订和配置重启持久化，仍需语义/检索/profiling、真实模型及跨服务权限链路验收。</td></tr>
+          <tr><th scope="row">部署 / 可观测性</th><td>OSS 默认 SQLite + Neo4j；内部身份与 Hologres 等保持可选 adapter</td><td>OpenTelemetry 修复已推送；七包 sdist 重建 wheel、临时环境干净安装及安装态 Host/CLI 链路通过。独立包使用与根目录一致的 LICENSE/NOTICE，消除仓库外层路径依赖。完整 CI、旧数据升级、真实模型/graph/channel 仍待验收。</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+    <section aria-labelledby="verification">
+      <h2 id="verification">本次签核证据与历史验收记录</h2>
+      <div class="table-wrap"><table aria-label="八项差异的复验结果">
+        <thead><tr><th scope="col">审计项</th><th scope="col">OSS 可复验的行为</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">1–3 · 子 Agent 实时事件、回放、Console</th><td>协议 v37：子流与主流共用序号，通过父工具调用 ID 区分；交错的两个子流可归位到各自卡片。子流失败不终止主聊天，历史 raw trace 保留归属。主 Agent 仍只收到一份结构化交付回执。</td></tr>
+          <tr><th scope="row">4–5 · 用量与业务时间</th><td>真实 Host 调度、确定性模型与 SQLite：同一聊天内 report 两次调用、general 一次、父模型两次，分别记账且总计五次。上海午夜前后，主、子模型读到相同的本地日期和时间。</td></tr>
+          <tr><th scope="row">6 · 已受理轮次重载</th><td>SDK 为直接和排队发送传递消息 ID，客户端与服务端 ID 对齐后不再重复插卡；固定回放得到四张卡而非六张。会话切换时仍由 SDK 首次装载历史。</td></tr>
+          <tr><th scope="row">7 · 独立脚本评分</th><td>无事件循环时先有界排队，公开 shutdown 按原 exporter 排空。真实回环 HTTP 收件端收到一条带原 trace ID 的评分，第二次 shutdown 不重发；合成慢收件端验证超时。非持久化交付保证。</td></tr>
+          <tr><th scope="row">8 · 可选 Holo AGE</th><td>SQLite 队列与真实子进程验证：仅指定 <code>--holo-script</code> 即可调用自备脚本；缺少脚本时明确失败，混合队列不会把 Holo 作业发往 Neo4j。未移植私有开通脚本，未连接真实 Hologres。</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted">上述结论针对 internal <code>develop@e084e0143</code> 的八项已确认差异。未改变 OSS 审批、取消和角色权限边界；真实供应商账单、生产部署及此基线之后的 internal 提交不在签核内。</p>
+      <p><strong>子 Agent · e0079cf：</strong>使用生产 ChatRuntime、真实 AgentScope 调度与临时 SQLite，确定性模型驱动 report 调用 Write 生成会话 HTML，父 Agent 收到可解析的 JSON 和相对路径；自定义只读角色不能使用 Write 或 MCP。覆盖缺失回执、预设冲突、跨 agent 配置隔离、超时和取消后回收。Host sdist 重建并安装 wheel，在源码树外加载三个预设。</p>
+      <p><strong>跨平台复验：</strong>在 macOS 注入只提供 PowerShell 的父工具箱，report 仍通过 Write 生成 HTML 并回传收据，未授予 PowerShell。角色文件按已验证的路径读取，超过 128 个 Markdown 角色时在打开文件前拒绝。角色、Host 调度与文件读取相关测试共 66 项通过；原生 Windows 结果以当前 PR 检查为准。</p>
+      <p><strong>复验：</strong><code>python -m pytest packages/qwenpaw-data-host-core/tests/test_spawn_subagent.py packages/qwenpaw-data-host-core/tests/test_qwenpaw_data_agent.py</code>。扩展到 MCP 超时、审批、澄清、定时任务和并发事件后，本地 124 项通过、6 项可选 E2B 测试跳过、1 项已知并发写事件用例预期失败。签核限于角色发现、能力选择、结构化交付和 OSS 运行保护。未对真实模型质量、内部逐事件追踪及费用归因作等价声明。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">验证范围</th><th scope="col">结果</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Windows 文件与产物兼容</th><td>d0e1d9d：迁移跨 stat/fstat 使用相同语义的时间字段，保留句柄变更时间、链接数与路径身份复核；迁移回归 570 项通过，临时诊断从 2 失败变为 3 通过。依据 <a href="https://github.com/python/cpython/issues/157671">CPython 时间字段差异</a>并核对 3.12 实现。1ad1031：无 dir_fd 时使用完整临时文件和不覆盖硬链接发布上传，API 备用分支 16 项、发布失败/碰撞诊断 3 项通过；要求硬链接文件系统，未证明并发目录替换隔离。23fd3bf：报告相对路径统一为正斜线，报告/比较选择集 191 项通过。32bfa79：5 个供应商资源在 autocrlf=true 的真实隔离检出后仍匹配原哈希。以上不替代原生 Windows 验收。</td></tr>
+            <tr><th scope="row">原生平台测试 / CSV 清理</th><td>56f3af2：Windows 子进程组使用 Ctrl+Break，保留优雅退出断言；tracing 测试先创建自身事件循环，再监测全部无副作用约束；workspace 使用原生 shell，提示断言读取正文，长参数使用短测试 ID。Host 217 项、网关 61 项、tracing 7 项通过，无新增跳过。Context CSV 的关闭/清理顺序修复已推送（3551445）：模拟 Windows 打开文件约束时先复现 2 失败，修复后 SQL 产物/查询 21 项通过；驱动为替身。f539536 消除 CLI/settlement 等待测试对调度精度的假设，不修改生产超时；CLI/settlement/embedding 联合选择集 166 项通过。</td></tr>
+            <tr><th scope="row">SQLite 测试生命周期（87c9545）</th><td>已提交、推送并获 Windows CI 复验。Profiling 删除临时文件前关闭会话与连接池，SQLite 使用平台合法且需 URI 转义的名称并关闭连接，embedding 使用文件数据库提供独立事务。本地 30 项通过；独立诊断复现共享连接回滚干扰其他事务。未修改生产代码或新增跳过。</td></tr>
+            <tr><th scope="row">Neo4j 原生查询（7e8cec2）</th><td>已提交、推送并获 Windows CI 复验。粗粒度重试时钟复现零重试配置仍等待 9 秒；改为显式事务后停滞握手约 5 秒返回，保留读取路由、EXPLAIN 只读检查与服务端事务超时。定向 85 通过 / 6 跳过，适配层 109 通过；独立 Neo4j 诊断 3 通过，真实事务超时约 10.4 秒。无端到端网络停顿保证。</td></tr>
+            <tr><th scope="row">后续修复 / 真实图验收</th><td>usage recorder 粗粒度时钟修复（85a8fa0）及新增真实图 CI 已获远端复验。独立 Neo4j 上整个 CM 目录 594 通过、53 跳过；模型使用替身，跳过的外部依赖不属于验收结论。Docker 清理记录竞态修复 35e30b9、产物同时间戳排序 7b0c2b7、知识租约测试时序 ef978ce，以及 demo Windows 进程清理与路径 a8c5515 均已推送并通过对应 CI。服务清单 Windows 进程存活检查 dff24a0 避免使用可能终止进程的信号；不证明完整 Windows 产品启动。</td></tr>
+            <tr><th scope="row">网关 / 上传安全</th><td>97 项通过；覆盖真实隔离 Host/SQLite 技能生命周期、配置脱敏、文件读写及符号链接防护。</td></tr>
+            <tr><th scope="row">启动 / 生命周期</th><td>启动、workspace、auth、Console 选择集 149 项通过；cron、channel、恢复与 tracing 选择集 88 项通过。</td></tr>
+            <tr><th scope="row">真实进程重启</th><td>重启后保留会话标题、文件字节、技能修订/回滚、禁用 MCP 设置和脱敏 channel 配置；正常关闭检查通过。</td></tr>
+            <tr><th scope="row">前端 / 打包</th><td>前端 254 项通过、1 项跳过；两个 UI 构建与 Console wheel 检查通过。Wheel 网关检查使用 stub Host，不等于全包安装验收。</td></tr>
+            <tr><th scope="row">后续 CI 修复</th><td>命令载荷与工厂方法分离后 51 项检查通过；CI 静态规则、锁文件及依赖导出检查通过。PostgreSQL 驱动仅加入开发依赖。</td></tr>
+            <tr><th scope="row">本地功能 replay</th><td>Docker 专项 16 项、CLI/SOP/SSE 选择集 144 项通过；修复 SSE 终止事件发布竞态与提示符 Ctrl+C。真实 Host/SQLite/Docker/CLI 验证三轮持久化、错误 token 拒绝、Ctrl+C 后 canceled；plan 产出有效 YAML，未创建 Chat 或执行 workspace。模型是本地协议 fixture，非真实分析效果验收。</td></tr>
+            <tr><th scope="row">依赖安全修复</th><td>OpenTelemetry 1.45.2 已于 3ed8712 推送；回归包含于此前 124 项选择集，工作区与独立 Context Python 依赖审计通过。Console 后续修复见下方；某次依赖审计通过不等于无安全风险或完整发布验收。</td></tr>
+            <tr><th scope="row">严格执行 / 独立安装</th><td>CLI/SOP/打包选择集 215 项通过。七包 14 个 wheel/sdist 产物、版本/静态资源校验及全新环境 176 个依赖一致性检查通过；脱离源码 PYTHONPATH 的安装态 Host/SQLite/Docker/CLI 完成 plan、逆序 SOP 的依赖调度、run/chat 持久化、鉴权拒绝和取消。Hologres pool 未安装。模型仍为本地协议 fixture。</td></tr>
+            <tr><th scope="row">服务架构收敛 / CI 装配</th><td>锁文件对齐后，服务端计划状态、审批/取消、轨迹、模型选择、SQL 配置持久化、计划编辑命令、HostClient/CLI SOP、Profiling 与图查询边界的扩大合并选择集 594 项通过、1 项 Windows 专属检查在 macOS 跳过。真实 Host/SQLite/Docker/CLI 此前已通过 plan、严格 SOP 顺序、三轮持久化、鉴权拒绝与 Ctrl+C 取消；模型为本地替身。开发组补齐可选 SDK，普通发行包仍不强制 Hologres；测试辅助模块不再依赖收集顺序。未跳过旧测试来伪造通过，本地全量收集错误从 20 → 13 → 9 → 7 → 5；全量 CI 仍未通过。</td></tr>
+            <tr><th scope="row">当前服务替代旧 Host 测试</th><td>配置 API → SQL → builder、workspace 租户/用户/agent 作用域、session 产物路径、MCP 凭据与会话隔离已接到当前实现。HTTP/SQL/SSE 冒烟 9 项通过（包含于上述 594 项）：原生/兼容路由、游标续传、并发冲突、取消、失败、重启恢复、终态写入竞态；JSON 模式验证启动拒绝而非假称兼容。Agent/Context 使用替身，Docker 工厂初始化模拟；不等于真实模型、网络流式时延或外部后端验收。</td></tr>
+            <tr><th scope="row">附件安全 / SQL 反馈</th><td>附件与反馈旧测试迁至当前 SQL / HTTP；55 项检查包含于上述 594 项。新增回归先复现后修复附件删除路径越界、Console 上传目录符号链接越界写入；跨身份/会话引用拒绝、反馈替换不丢历史通过。独立临时 Host + SQLite 的真实 HTTP 验证正常上传/删除/重传、错误 token 401、越界操作 400、外部文件及拒删记录保留；进程已关闭，无模型/Context 调用。路径校验不构成并发恶意文件系统替换的完全隔离证明。</td></tr>
+            <tr><th scope="row">Cron / Followup 服务边界</th><td>d9394eb：cron 36 项与 followup 29 项检查包含于上述 594 项。任务操作、可信身份隔离、SQL 运行请求与重复领取保护通过；追问正常发送在终态前、迟到结果只持久化、不追加终态后的 SSE、同 session 历史去重输入和禁用开关通过。使用 SQLite 与替身模型，不代表真实推送渠道或 LLM 效果。</td></tr>
+            <tr><th scope="row">Settlement SQL 编排</th><td>dd6d3dd：6 个 settlement 选择集共 173 项通过。旧 JSON manager 场景迁至真实 SQL，覆盖提交后跨连接读取、历史窗口、去重、拒绝历史、异步反馈入库及跨用户/租户/工作区拒绝读取。模型和 Context 检索为替身；不声称真实推荐质量。</td></tr>
+            <tr><th scope="row">真实跨服务 demo</th><td>ddc1aaa：独立 Host → Context → 原生 MCP execute_read → PostgreSQL → CLI 验证预期聚合值及 SQL 会话完成；另一条链路验证数据源管理、显式绑定 Excel、部分更新、批量删除、Neo4j FULL 织入和引用保护。直接查询 Neo4j 确认指标节点落库。模型与 1024 维 embedding 为本地协议 fixture；真实数据库、API 和进程，无外部模型调用。使用新建临时容器及私有 SQLite，结束后仅清理这些资源，原有容器未改动。</td></tr>
+            <tr><th scope="row">示例 / CLI 回归</th><td>示例、CLI 与 settlement manager 合并选择集 134 项通过；Ruff CI 规则及 diff 检查通过。Excel 保留 8 张表及全部数据行，只修改 7 个导入字段名；注册脚本改为先创建/复用数据源，再按返回 ID 导入。全量测试收集仍有 4 个错误，不能视为全量测试通过。</td></tr>
+            <tr><th scope="row">Console lint 恢复</th><td>044a466：21 个 lint 错误归零，保留 3 个现有 hooks warnings；254 项测试通过、1 项跳过，Console 生产构建与 73 个 Context 嵌入模块绑定检查通过。测试桩改用明确 DOM/AST/消息类型，未关闭规则或删除测试；不是浏览器视觉验收，构建仍有大 chunk 等警告。</td></tr>
+            <tr><th scope="row">HTTP / SQL 提交边界</th><td>d9fb06c：先复现 session/配置在响应发出时尚未提交，以及提交失败仍返回 200；84 处路由数据库依赖改为响应前提交，FastAPI 最低版本升至支持该 scope 的 0.121，锁定版本未变。107 项 Host/API 检查通过，覆盖原生/兼容入口的响应发送边界、回滚及全部路由 scope 检查。真实 PostgreSQL / Neo4j 双 demo 复验通过；SSE 与后台任务保留独立会话。CI 的一次 404 与此竞态相符，但未取得该次失败的服务端完整现场，不断言它是唯一原因。</td></tr>
+            <tr><th scope="row">SQL 持久化契约</th><td>42e2e19：旧双 store 套件迁至 SQL repositories 与单 writer OutputStream，保留跨连接读回、隔离、分页、加密、cron 和复盘状态检查。先复现非法事件消耗序号，再修复验证顺序；扩大选择集 188 项通过、1 项既有多 writer 竞态 xfail。全量收集 5,119 项，剩 3 个收集错误；JSON 转换器仍未实现。</td></tr>
+            <tr><th scope="row">Fork / SQL 旧表升级</th><td>741094c：fork、快照、文件访问迁至当前 API/SQL，验证附件、事件、业务快照与 agent state 的复制及源数据保留。先复现缺少数据库默认值导致旧表补列失败，再加入空数组默认值；SQLite 回归与独立 PostgreSQL 16 真实升级均保留已有行，重复启动通过，临时容器已清理。定向选择集 46 项通过，2 项本地签名分享检查未纳入且仍保留失败；没有把定向通过视为整个 fork/share 或 subagent 套件通过。</td></tr>
+            <tr><th scope="row">原生 subagent 验收</th><td>79237a4：91 项定向检查通过，6 项可选 E2B SDK 检查跳过。覆盖生产注册/开关、禁用技能继承、计划不变性、多活动任务不猜测节点、审批拒绝、超时/取消、流式增量和真实 ChatRuntime SQL 落库。另以独立 CLI/Host/Context 进程完成父 Agent → 子 Agent → 原生 MCP execute_read → PostgreSQL → 父 Agent 回执，校验 GAAP 聚合值及完成态快照；临时数据库容器已清理。模型为本地协议 fixture，非真实模型质量或 E2B/FC/ACS 后端验收。</td></tr>
+            <tr><th scope="row">JSON 迁移组件</th><td>a329fbd → 485acf2：扩大联合选择集 490 项通过，含真实 PostgreSQL 只读事务检查。转换后的 SQL snapshot/replay、原生模型配置解析及真实 Host HTTP 重启复验通过。独立 CLI 在合成 SQLite 与专用 PostgreSQL 16 中验证重复预检、15 表主键冲突、停用身份拒绝、真实写入被拒与行快照不变；SQLite 文件字节不变。偏好用户即使没有生成行也校验权限；缺表、缺列、错误主键与 SQLite 日志残留均阻止检查，不修复数据库。源目录作为 CLI 运行目录仍不写日志、隐式数据库或密钥。专用容器已清理；未连接用户数据库。仅已知历史日志和已识别空锁归档到备份，未知/非空锁仍阻塞。不是完整导入、Hologres、浏览器或真实模型验收，Windows 原生备份 ACL 仍待验证。</td></tr>
+            <tr><th scope="row">本地密钥配置</th><td>bbfa7fd：扩大联合选择集 517 项通过。独立 CLI 在合成 SQLite 与专用 PostgreSQL 16 中完成密钥发布、重复验证、错误密钥及其他用户错误凭据拒绝，SQL 行保持不变；每个后端均用两次新启动的原生 Host 解密进程验证文件可用。测试覆盖中断前不发布半个密钥、中断后保留完整密钥、并发发布不覆盖、权限/链接拒绝和有界流式扫描。只配置 POSIX 本地 0600 文件，不写 SQL、不配置环境密钥；生产仍须环境注入。专用容器已清理，未访问用户数据；不是完整导入或 Windows 验收。</td></tr>
+            <tr><th scope="row">SQL 事务导入组件</th><td>9a6819c：扩大联合选择集 537 项通过。真实 SQLite/PostgreSQL 16 子进程在提交前强退后无迁移行；提交后丢失应用响应仍可读到持久凭据并精确重放。先复现 SQLite 残留日志阻塞，再加入显式数据库引擎恢复，拒绝日志链接且不手工删日志。覆盖中途写入/文件钩子失败、提交回执丢失、目标权限变化、行被修改/删除拒绝重放、旧库加表及 1,001 行分批写入。SQL 组件导入后，真实 Host 两次 HTTP 启停验证历史/偏好与权限，最后提交摘要仍匹配。只测合成数据，专用容器已清理；文件钩子为空，未复制 artifact，不是完整文件/SQL 导入验收。</td></tr>
+            <tr><th scope="row">加密恢复计划 / 目标绑定</th><td>8743905：扩大联合选择集 560 项通过。私有认证加密计划完整保留转换后的密文、时间戳、作用域与文件清单；拒绝篡改、未知字段、错误密钥、目录替换与不同数据库，原路径同 inode 的数据库替换由持久标记拦截。独立 SQLite/PostgreSQL 16 新进程在源/备份暂时离线时加载原计划，验证提交前强退、提交后丢失响应及精确重试；计划文件字节不变，容器已清理。备份仍须保留；数据库克隆/还原可复制标记，需人工 review。异常硬链接（含发布中断残留）安全拒绝，不自动删除。尚无文件协调器或 CLI apply，不是完整迁移验收。</td></tr>
+            <tr><th scope="row">独占锁 / 可恢复文件暂存</th><td>321f56d：扩大联合选择集 585 项通过。POSIX 进程锁保持固定 inode，拒绝并发、替换和不安全锁文件；只从已验证备份复制，暂存文件保持 0600，不恢复源文件权限。认证回执绑定计划及文件 inode，复用前检查哈希。独立 SQLite/PostgreSQL 16 新进程在复制中途强退后保留半成品、完成两份文件暂存并重复读回相同回执；业务 SQL 与最终 workspace 均未改变，专用容器已清理。默认最多保留八个中断尝试，超限或初始根绑定中断须人工检查；不自动删除。锁不停止 Host 写入，也不跨机器/目录协调；最终发布与 SQL/file 恢复仍未实现。</td></tr>
+            <tr><th scope="row">文件发布 / SQL 联合中断恢复</th><td>1d8781e：扩大联合选择集 603 项通过。认证发布意图先落盘，再原子创建不覆盖硬链接；已有文件即使字节相同也不收编。保留暂存 inode，拒绝内容修改、替换、额外链接及目录重定向；目录只观察、不宣称可删除。同时补上暂存阶段权限检查结果的拒绝逻辑。独立 SQLite/PostgreSQL 16 新进程验证首个链接后强退、全部文件发布后但 SQL 提交前强退、提交后丢失响应，以及精确重试；15 表和两份最终文件均核验，专用容器已清理。无 CLI apply、原生 Host 文件读取或导入后回滚验收；不得删除暂存链接和独立备份。</td></tr>
+            <tr><th scope="row">统一协调器 / 原生 Host 使用</th><td>9fa5be2：扩大联合选择集 622 项通过。SQLite/PostgreSQL 新进程通过同一 saved-plan 入口恢复复制、首个链接、全部文件/提交前、提交后四阶段强退；15 表/两份文件和重复凭据一致。真实本地 Host 两次启停验证产物预览、下载及兼容下载路由的正确字节、越界/错误 token 拒绝、历史和偏好；原生 repository 验证附件读取/跨用户拒绝、本地密钥解密。使用后 SQL/file 摘要仍匹配。修复平台父路径别名误拒绝及锁包装误报操作 I/O 异常。专用容器已清理，未访问用户数据/外部模型；不代表 CLI、回滚、远端密钥或 Windows 验收。</td></tr>
+            <tr><th scope="row">回滚依赖预检</th><td>21a2294：加入渠道选择集后 685 项检查通过。只读核验原始计划、备份、导入行摘要和发布证据，再扫描新增会话/聊天/附件/模型依赖及保守 JSON 候选；未知表、额外字段、触发器、导入表新增外键和预算超限须 review。独立 SQLite/PostgreSQL 验证干净导入检查、新增原生/JSON 引用阻断，以及 SQL 行/文件不变；无实际删除，容器已清理。测试先复现渠道 send_meta 默认值返回 dict 类型的插入错误，再修正为空对象。外部依赖和嵌入文本/代码的任意引用未证明；检查通过不授权删除，删除事务内仍须再次检查。</td></tr>
+            <tr><th scope="row">SQL 事务回滚组件</th><td>e05dbd0：扩大选择集 703 项通过。事务内再次检查依赖，仅分批删除未变化的导入主键，并原子提交永久回滚凭据；原导入凭据保留，同一 run 禁止正向重放。重试核验主键仍空缺、未出现新引用，不盲目授权文件清理。独立 SQLite/PostgreSQL 新进程验证提交前强退恢复全部 15 表导入行、提交后响应丢失仍可恢复回滚凭据，以及精确重试/正向拒绝；Auth、备份和文件字节/inode 均保留，专用容器已清理。只删除隔离合成行，未访问用户数据库。生产回滚意图日志、文件撤销及 CLI 仍未完成。</td></tr>
+            <tr><th scope="row">SQL / 文件回滚协调</th><td>743eb99：扩大选择集 728 项通过。提交前持久化加密回滚意图；SQL 结果不明时保留全部文件。确认永久回执、无新依赖和原始发布证据后，只撤销未变化的自有硬链接，逐文件重验摘要并持久化完成记录；待完成意图也阻止正向发布。独立 SQLite/PostgreSQL 16 在意图、SQL 提交、每个 unlink 和完成记录后强退进程，均可按同一计划恢复。最终 15 表导入行和两条发布路径已撤销；Auth、无关文件、原始暂存 inode/字节、备份及全部目录保留。只使用隔离合成数据，专用容器已清理。所有应用 writer 必须停机；未证明外部依赖、Windows 或 CLI 验收，无自动暂存/目录清理。</td></tr>
+            <tr><th scope="row">公开 CLI / wheel 验收</th><td>02a3137：扩大选择集 757 项通过。新增 prepare/apply/recover/check-rollback/rollback，要求显式目标、停机确认和匹配的 run ID；协调器再次核对确认 ID，拒绝确认后切换计划。导入核验 Host 环境密钥优先级或已配置本地密钥，不自动生成；回滚仍使用原始计划密钥。实际 CLI 及新构建的 Host/CLI wheel 在隔离安装目录中分别通过 SQLite/PostgreSQL 15 表、两文件的完整流程与重复执行，原始加密计划、Auth、备份、密钥和暂存保留；拒绝重新生成已有计划及回滚后正向重放。wheel 测试复用现有依赖，不冒充全新依赖环境验收。合成数据专用容器已清理；README 改为操作流程与明确保留策略，未自动清理用户数据。</td></tr>
+            <tr><th scope="row">流批次取消 / 发布恢复</th><td>649d6a6：先复现取消丢失待写批次及终态清理重试遗漏的 4 项失败，再修复提交前保留批次/清理意图、已知提交后仅重试发布，避免重复插入。新增 8 项恢复检查；定向 23 通过、竞争用例仍 xfail。独立 SQLite/PostgreSQL 验证写入前后、终态清理、发布和会话关闭阶段的任务取消，SQL 原子性、原序号重试及 live 发布通过；专用容器已清理。保留 internal 的 32 条 delta 批量机制，未修改 internal。此项是进程内取消恢复，不证明进程崩溃、提交结果不明或多 writer 正确性。Host/CLI 扩面 2,536 通过、28 跳过、1 xfail；仅剩既有 2 个分享失败及 2 个澄清收集错误。</td></tr>
+            <tr><th scope="row">初始化入口（10bd7eb）</th><td>Windows CI 确认漏装本地 Auth/Tracing；Bash 还漏 Console。工作区修复补齐七包，并使独立 Context 从当前 uv.lock 导出依赖，解决隔离安装发现的 6 项版本/缺包冲突。39 项检查通过、4 项平台跳过；隔离副本的 Python/Bash 安装、CLI/MCP 配置、依赖一致性与 Context API 导入通过；全新 Context 未装 Hologres pool，已有 adapter 不被删除。已提交并推送；Windows CI 初始化通过，但后续完整测试仍失败。测试误以为 UV 恒为短命令名的隔离修正已推送（3f6bb43）；生产初始化无需回退。</td></tr>
+            <tr><th scope="row">Context 图 UI lint（3b709cd）</th><td>GraphCanvas 单文件以 G6 数据/事件类型替换 12 处显式 any，不改变布局、样式、提示及点击逻辑，不放宽 lint 规则。前端 lint 从 12 错误降为 0（28 个既有 warning 保留）；TypeScript 和 24 项现有测试通过；console-mode 生产构建、embedded 构建及 73 模块绑定检查通过。修改前后 TypeScript 编译产物经仅格式归一化后逐字节一致；无压缩或标识符混淆，无新增永久测试。已提交并推送；远端 43660613491 的前端 lint/build 已通过。未做浏览器交互/真实图后端验收。</td></tr>
+            <tr><th scope="row">Console 依赖审计 / SDK 兼容</th><td>91bb2e9：npm 审计从 27 项（9 high、1 critical）降为 0，不降级 Chat SDK，不放宽审计门槛；升级 DOMPurify、KaTeX、Prism、URI 解码器及锁文件内可兼容依赖，minimatch 仅覆盖 typescript-eslint。query-string 补丁适配新版解码器的 ESM 默认导出；去掉补丁时新增检查 2 失败，恢复后 3 通过。隔离副本 npm ci 成功应用两份补丁；Node 22.22 和本机 Node 24 上均 254 通过、1 既有跳过；lint 0 错误/3 既有 warning、类型检查、Console 生产构建及 SBOM 生成通过。构建复用已验证的 Context embedded 产物；浏览器工具导航失败，未完成 HTML 净化/Markdown/图表交互验收。<a href="https://github.com/advisories/GHSA-238p-pmpm-9mq7">KaTeX 上游修复依据</a>；不代表所有漏洞类别或真实后端已验收。</td></tr>
+            <tr><th scope="row">跨服务权限 / 用户配置</th><td>临时 SQLite 上启动三个独立 HTTP 进程，13 项检查通过，DDL 修复后复验仍通过。覆盖登录、缺失/非法凭据、同工作区跨用户与跨租户会话拒绝、伪造身份头拒绝、Host Provider 到 Context 的用户级配置解析及密钥脱敏、工作区切换和配置删除隔离。撤销成员关系后 Auth 不再授予工作区，Host/Context 拒绝旧令牌业务访问；停用用户或租户在三服务生效，不需重启。仅合成身份与凭据，无真实模型调用或图后端操作；进程已正常关闭。</td></tr>
+            <tr><th scope="row">共享 DDL 后端选择（813e154）</th><td>先复现 Auth 与 Semantic Config 重复注册全局编译器引起的 2 项失败；统一注册并按实际连接作用域选择行存参数。Auth/权限合并选择集 295 通过，Context 239 通过、15 跳过；独立 PostgreSQL 验证 39 张表重复初始化、提交读写和四进程并发启动，环境中相反的 Hologres DSN 不再干扰。两种导入顺序、嵌套/异常/异步任务隔离均验证；临时数据库容器已清理。仅验证 Hologres DDL 编译，未连接真实 Hologres；六文件修复已提交并推送。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted">以上是不同提交的定向验证，选择集有重叠，不累加为总覆盖量；不代表全套 CI、浏览器交互或真实外部后端通过。</p>
+      <p>旧嵌入入口清理（371f626）：删除无生产调用的旧 core/registry/model 三个模块及 CLI 创建工厂，净减 421 行；原生 runtime、provider、权限/沙箱和迁移代码保留。CLI/HostClient/SOP/模型绑定/工作区选择集 202 通过、1 跳过；最终入口与包边界复验 16 通过。新建 Host/CLI wheel 安装到临时目录，检查实际导入来自 wheel；阻止 Context 导入后，原生 HostClient 创建会话及 SQLite 重启读取通过。依赖复用现有虚拟环境，不宣称全新依赖安装或真实模型调用；旧文件可从 Git 历史恢复，未修改用户数据。</p>
+      <p class="muted">最新工作区全量运行（3e5e9fc）：5,578 通过、157 跳过、1 已知 strict xfail，0 失败、0 收集错误，另有 2 subtests 通过；共 5,736 项，耗时 577.22 秒。上一轮 6 个失败和 2 个收集错误均已消除：4 项为测试装配修正，其余按用户批准迁移澄清/分享契约。未新增跳过来规避失败；单 chat 多 writer 竞争仍未修复。跳过项、外部后端及浏览器不由本次 Python 全量通过覆盖。</p>
+      <p>测试装配修复（62f4189，已推送）：路由安全及鉴权检查改用无运行时的 API 外壳，完整策略检查仍挂载 Semantic Config/Profiling；lag monitor 从生命周期所有者导入，SQL 超时测试替换实际驱动工厂。原有断言保留，扩大选择集 76 项通过，其中包含上述 4 项新修复；修复后的全量结果见上。另经真实 TCP HTTP 验证原生 graph/SQL/feedback 路由在三个执行池分别饱和时返回 503，事件循环仍响应，释放后准入恢复；使用固定测试身份，服务启动生命周期关闭，无图/SQL后端或模型连接，监听和 Runtime 已关闭。定向验证不能代替远端完整 CI。</p>
+      <p>Auth 测试装配（3915d34）：三个辅助函数迁出歧义的 conftest 导入，AST 与原函数一致，不改生产逻辑或断言；反向收集 68 项通过。扩大跨包选择集曾出现 2 项 CM 数据库清理失败，setup 输出确认当时未应用自动 fixture；从 CM 共同目录收集同类检查后，541 通过、17 跳过、594 未选中。未通过修改生产数据库或弱化断言规避失败；细粒度混合路径收集差异仍待定位。该选择集包含已推送的 DDL 修复，全量 CI 尚未通过。</p>
+      <p>原生澄清 / 分享契约（3e5e9fc）：定向 50 项通过；删除无生产调用的 grouped toolkit（325 行），不恢复第二套运行时。真实 TCP Host 接收并提交命令后退出，独立进程可消费澄清和 steering；重启后终态拒绝、本地预览鉴权及无对象存储的分享拒绝通过。仅临时 SQLite 与合成数据，进程已关闭；上传/签名调用以替身验证，未连接真实对象存储或模型。现有数量硬限制、同步已答复冲突和本地签名分享断言按用户批准迁移，不标为跳过。</p>
+      <p>新 CI 差异修复（3f6bb43 / b173423 / 773eb94，已推送）：四个测试文件明确 UV 参数、注入 UI fixture，并为不测试沙箱的 Host 生命周期选择 local；模拟 UV 绝对路径时 30 项通过。独立 embedding 解码复用 drain，取消时保留用量上下文和 client 生命周期；修复前临时强制阻塞检查 2 失败、原生执行池路径 2 通过，修复后 4 项均通过；模型/执行池回归 111 项通过。完整 Context smoke 移至已有 Neo4j 的数据库 job，由 Auth/Host 初始化自有 SQL 表；YAML、shell 语法及原样脚本在真实临时 Neo4j + SQLite 上通过，复用本地依赖，未冒充新的干净安装。临时服务和容器已清理。未新增永久测试，未连接真实模型；这三批已批准并推送，新一轮 CI 已触发；尚无修复后的全量与跨平台通过结论。</p>
+      <p>验证入口：<code>scripts/tests/run_pytest.sh</code>；对应测试位于 Host、Console 和 tracing 包。完整 CI 结果以 <a href="https://github.com/agentscope-ai/QwenPaw-Data/pull/126/checks">PR 检查页</a> 为准。</p>
+    </section>
+    <section aria-labelledby="remaining">
+      <h2 id="remaining">合并前必须完成</h2>
+      <ol>
+        <li><strong>完成行为级 replay：</strong>验证 internal 公共能力，保留不冲突的 OSS 能力；冲突先 review。旧嵌入接口退出兼容目标后，继续梳理残留入口与测试，不为旧测试重新引入第二套运行时。</li>
+        <li><strong>保护旧数据：</strong>允许 API breaking change 不等于可以丢弃用户数据。导入/恢复/回滚的显式 CLI、原生 Host 读取及保留策略已通过合成数据验收；继续验证真实部署升级，保护用户修改及新依赖，不盲目删除暂存或目录。共享 workspace、未完成聊天/水位、远端部署密钥一致性仍待处理。自定义模型大小补充已支持，移除的目录模型须明确重映射；旧 DAG 状态不得静默丢弃。尚未读取或修改用户历史数据。</li>
+        <li><strong>按候选提交复验：</strong>29e2145 已通过三平台、原生 Windows smoke、CodeQL 和供应链检查；这不替代新提交的检查或真实部署升级验收。</li>
+        <li><strong>完成发布验收：</strong>保留已通过的七包干净安装与真实 Docker/取消验证；继续真实模型 / graph / channel、跨服务租户隔离、浏览器操作及旧数据升级/备份/回滚。严格 execute 仍不支持持久化 DAG 恢复。</li>
+        <li><strong>事件写入所有权：</strong>同 chat 多个 OutputStream 分配重复序号的 strict xfail 已再次实证；取消恢复修复不解决此竞争。待 review：保留 internal 批量机制并加入写者所有权/接管协议（推荐），或接受逐事件事务落盘的额外写入开销。已发布序号不能在冲突后直接重编号；提交结果不明仍须明确恢复协议。</li>
+      </ol>
+      <p>已批准的澄清决策：按 internal 使用提示性数量建议与 SQL 答复队列，不恢复硬性数量上限或同步“已答复”409。测试已迁往原生 builder、提交与消费边界，旧 grouped toolkit 删除；禁用澄清时由 executor 自动返回用户不在的结果。</p>
+      <p>旧 MCP 转发入口已移除（53790d0）。保留已批准的原生 MCP 服务边界，不再将无效旧入口列为待办。</p>
+      <p>已批准的分享决策：按 internal 要求 Alibaba OSS 对象存储签名下载，不恢复旧本地签名链接。原有失败测试已迁移为对象存储上传/签名调用、无配置拒绝及鉴权检查；普通本地预览/下载保留。对象存储使用替身验证，未验证真实上传或签名链接下载。</p>
+      <p class="warning">待 review 的历史 DAG：failed/abandoned、图级元数据与待执行 edits 无法无损映射到 internal TaskContext。建议提供只读历史归档与查看入口，不恢复旧 DAG 执行；当前转换器明确拒绝这些记录/事件，未把它们改成成功或静默丢弃。</p>
+      <p>MaxCompute v0.8 架构设计是独立验收项：代码移植不等于已经实现 revision 固定读取、投影写入边界或强作用域检索。</p>
+    </section>
+    <footer>
+      本报告仅保留范围、状态、证据摘要与剩余事项，不内嵌逐文件清单，也不重复保存历史报告。原始快照可从 Git 历史恢复；审计附件不属于产品源码。样式沿用仓库共享 UI tokens，页面不依赖 CDN 或脚本。
+    </footer>
+  </main>
+</body>
+</html>

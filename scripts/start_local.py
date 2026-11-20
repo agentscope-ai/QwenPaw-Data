@@ -64,6 +64,21 @@ def start_neo4j(root: Path, env_file: Path) -> None:
     )
 
 
+def graph_backend() -> str:
+    value = (os.getenv("GRAPH_BACKEND") or "neo4j").strip().lower()
+    if value == "neo4j":
+        return value
+    if value in {"holo_age", "holoage", "holo-age"}:
+        missing = [
+            name for name in ("HOLO_AGE_HOST", "HOLO_AGE_USER", "HOLO_AGE_PASSWORD", "HOLO_AGE_DATABASE")
+            if not os.getenv(name, "").strip()
+        ]
+        if missing:
+            raise ValueError("GRAPH_BACKEND=holo_age requires: " + ", ".join(missing))
+        return "holo_age"
+    raise ValueError("GRAPH_BACKEND must be neo4j or holo_age")
+
+
 def start_child(
     argv: list[str], *, cwd: Path, env: dict[str, str] | None = None
 ) -> subprocess.Popen[bytes]:
@@ -71,10 +86,40 @@ def start_child(
     return subprocess.Popen(argv, cwd=cwd, env=env, **process_group_options())
 
 
+def initialize_host_schema(root: Path) -> None:
+    """Create the Host-owned tables required by the shared control plane."""
+    python = venv_executable(root / ".venv", "python")
+    if not python.exists():
+        raise RuntimeError(
+            f"Workspace Python environment not found: {python}; "
+            "run scripts/init_local.py first."
+        )
+    run(
+        [
+            str(python),
+            "-c",
+            "import asyncio\n"
+            "from qwenpaw_data.host.core.db.engine import init_db, reset_engine\n"
+            "async def initialize():\n"
+            "    try:\n"
+            "        await init_db()\n"
+            "    finally:\n"
+            "        await reset_engine()\n"
+            "asyncio.run(initialize())\n",
+        ],
+        cwd=root,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     root = repository_root()
     env_file = ensure_environment(root)
+    try:
+        backend = graph_backend()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     context = root / "packages" / "qwenpaw-data-context"
     frontend = context / "frontend"
     configured_python = os.getenv("CONTEXT_PYTHON", "").strip()
@@ -110,8 +155,9 @@ def main(argv: list[str] | None = None) -> int:
     children: list[subprocess.Popen[bytes]] = []
     try:
         npm = resolve_command(args.npm) if not args.skip_frontend else args.npm
-        if not args.skip_neo4j:
+        if backend == "neo4j" and not args.skip_neo4j:
             start_neo4j(root, env_file)
+        initialize_host_schema(root)
         api_command = [
             str(context_python),
             "scripts/serve.py",

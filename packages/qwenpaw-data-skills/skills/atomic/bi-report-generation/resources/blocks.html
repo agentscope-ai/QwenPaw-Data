@@ -1,0 +1,89 @@
+{#-
+  Static structures for declarative blocks, styled by resources/theme.css (rp-* classes)
+  and matching references/layout-spec.md. Every argument is pre-escaped HTML: the
+  Python side (report_blocks.py) escapes user text, these macros only lay it out.
+-#}
+
+{%- macro panel(title, subtitle, body, tools, extra_class) -%}
+<div class="rp-card{% if extra_class %} {{ extra_class }}{% endif %}">
+  {%- if title or subtitle or tools %}
+  <div class="rp-card-top"><div>
+    {%- if title %}<div class="rp-card-h">{{ title }}</div>{% endif %}
+    {%- if subtitle %}<div class="rp-card-s">{{ subtitle }}</div>{% endif %}
+  </div>{{ tools }}</div>
+  {%- endif %}
+  <div class="rp-card-b">{{ body }}</div>
+</div>
+{%- endmacro -%}
+
+{%- macro conclusion(text) -%}
+<div class="rp-lead">{{ text }}</div>
+{%- endmacro -%}
+
+{%- macro kpi_row(tiles, compact) -%}
+<div class="rp-kpi-band{% if compact %} compact{% endif %}">{{ tiles }}</div>
+{%- endmacro -%}
+
+{%- macro kpi_tile(tone, label, value, unit, foot) -%}
+<div class="rp-kpi k{{ tone }}">
+  <div class="rp-k-label">{{ label }}</div>
+  <div class="rp-k-num">{{ value }}{% if unit %}<small>{{ unit }}</small>{% endif %}</div>
+  {%- if foot %}
+  <div class="rp-k-foot">{{ foot }}</div>
+  {%- endif %}
+</div>
+{%- endmacro -%}
+
+{%- macro note(text) -%}
+<div class="rp-note">{{ text }}</div>
+{%- endmacro -%}
+
+{%- macro caption(text) -%}
+<div class="rp-caption">{{ text }}</div>
+{%- endmacro -%}
+
+{%- macro block_title(text) -%}
+<div class="rp-block-h">{{ text }}</div>
+{%- endmacro -%}
+
+{%- macro grid(grid_class, body) -%}
+<div class="{{ grid_class }}">{{ body }}</div>
+{%- endmacro -%}
+
+{%- macro cell(body) -%}
+<div>{{ body }}</div>
+{%- endmacro -%}
+
+{%- macro stack(body) -%}
+<div class="rp-stack">{{ body }}</div>
+{%- endmacro -%}
+
+{%- macro table_wrap(wrap_class, style, table) -%}
+<div class="{{ wrap_class }}"{% if style %} style="{{ style }}"{% endif %}>{{ table }}</div>
+{%- endmacro -%}
+
+{%- macro table_tools(tid, rows) -%}
+<div class="rp-tools"><input type="search" class="rp-search" placeholder="搜索…" oninput="__biFilterTable('{{ tid }}', this.value)"><span class="rp-count" id="{{ tid }}-count">共 {{ rows }} 行</span></div>
+{%- endmacro -%}
+
+{%- macro chart_toggle(cid) -%}
+<div class="rp-seg" data-chart-toggle="{{ cid }}"><button type="button" class="on" data-view="chart" onclick="__biChartView('{{ cid }}','chart')">图表</button><button type="button" data-view="table" onclick="__biChartView('{{ cid }}','table')">表格</button></div>
+{%- endmacro -%}
+
+{%- macro chart_box(cid, height, table_html) -%}
+<div id="{{ cid }}" class="chart-container" style="height:{{ height }}px"></div>
+<div id="{{ cid }}-table" class="hidden">{{ table_html }}</div>
+{%- endmacro -%}
+
+{%- macro stackbar(segments, legend) -%}
+<div class="rp-stackbar">{{ segments }}</div>
+<div class="rp-legend">{{ legend }}</div>
+{%- endmacro -%}
+
+{%- macro timeline(items) -%}
+<div class="bi-timeline">{{ items }}</div>
+{%- endmacro -%}
+
+{%- macro timeline_item(kind_class, date, title, desc) -%}
+<div class="bi-tl-item{% if kind_class %} {{ kind_class }}{% endif %}"><div class="bi-tl-date">{{ date }}</div><div class="bi-tl-title">{{ title }}</div>{% if desc %}<div class="bi-tl-desc">{{ desc }}</div>{% endif %}</div>
+{%- endmacro -%}

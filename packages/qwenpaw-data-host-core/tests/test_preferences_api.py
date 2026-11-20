@@ -1,138 +1,134 @@
-# -*- coding: utf-8 -*-
+"""Provider API persistence and per-run model assembly on the current service."""
+
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
-import pytest
+from agentscope.state import AgentState
+from agentscope.tool import Toolkit
 
-pytest.importorskip("fastapi")
-import httpx  # noqa: E402
+from qwenpaw_data.host.core.db.engine import get_session_factory
+from qwenpaw_data.host.core.domain.model_usage import ModelUsageSource
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories import PreferencesRepository
+from qwenpaw_data.host.core.runtime.builder import data_agent
+from qwenpaw_data.host.core.runtime.context import RunContext
 
-from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
-from qwenpaw_data.host.core.core import QwenPawDataHost  # noqa: E402
-from qwenpaw_data.host.core.providers.registry import ActiveModel  # noqa: E402
+from . import test_runtime_settings
+from .conftest import TEST_IDENTITY
+from .test_qwenpaw_data_agent import FakeTextModel
 
-
-@asynccontextmanager
-async def service_client(tmp_path: Path, monkeypatch, **app_kwargs):
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_PREFS_MASTER_SECRET", raising=False)
-    app = create_app(home=tmp_path, **app_kwargs)
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-        ) as http:
-            yield http, app
+service = test_runtime_settings.service
 
 
-async def test_provider_config_roundtrip(tmp_path, monkeypatch) -> None:
-    async with service_client(tmp_path, monkeypatch, model=object()) as (http, _):
-        listing = await http.get("/api/v1/preferences/providers")
-        providers = {p["id"]: p for p in listing.json()["providers"]}
-        assert set(providers) == {"dashscope", "openai"}
-        assert not providers["dashscope"]["configured"]
+async def test_provider_config_roundtrip(service) -> None:
+    listing = await service.get("/api/preferences/providers")
+    assert listing.status_code == 200, listing.text
+    providers = {p["id"]: p for p in listing.json()["providers"]}
+    assert set(providers) == {"dashscope", "openai"}
+    assert not providers["dashscope"]["configured"]
 
-        saved = await http.put(
-            "/api/v1/preferences/providers/dashscope",
-            json={"api_key": "sk-super-secret"},
-        )
-        assert saved.status_code == 200
-        provider = saved.json()["provider"]
-        assert provider["configured"] is True
-        assert provider["api_key_masked"] == "sk******"
-        assert "sk-super-secret" not in saved.text
+    saved = await service.put(
+        "/api/preferences/providers/dashscope",
+        json={"api_key": "sk-super-secret"},
+    )
+    assert saved.status_code == 200, saved.text
+    provider = saved.json()["provider"]
+    assert provider["configured"] is True
+    assert provider["api_key_masked"] == "sk******"
+    assert "sk-super-secret" not in saved.text
+    listing = await service.get("/api/preferences/providers")
+    assert "sk-super-secret" not in listing.text
 
-        missing_key = await http.put(
-            "/api/v1/preferences/providers/openai", json={"base_url": "https://x"}
-        )
-        assert missing_key.status_code == 400
+    missing_key = await service.put(
+        "/api/preferences/providers/openai",
+        json={"base_url": "https://x"},
+    )
+    assert missing_key.status_code == 400
+    unknown = await service.put(
+        "/api/preferences/providers/nope", json={"api_key": "k"}
+    )
+    assert unknown.status_code == 400
 
-        unknown = await http.put(
-            "/api/v1/preferences/providers/nope", json={"api_key": "k"}
-        )
-        assert unknown.status_code == 400
-
-        cleared = await http.delete("/api/v1/preferences/providers/dashscope")
-        assert cleared.status_code == 200
-        assert (
-            await http.delete("/api/v1/preferences/providers/dashscope")
-        ).status_code == 404
-
-
-async def test_models_and_active_selection(tmp_path, monkeypatch) -> None:
-    async with service_client(tmp_path, monkeypatch, model=object()) as (http, _):
-        added = await http.put(
-            "/api/v1/preferences/providers/dashscope/models/my-model",
-            json={"source": "extra", "name": "My Model"},
-        )
-        assert added.status_code == 200
-        assert added.json()["model"]["source"] == "extra"
-
-        models = await http.get("/api/v1/preferences/providers/dashscope/models")
-        ids = {m["id"] for m in models.json()["models"]}
-        assert "my-model" in ids and "qwen-max" in ids
-
-        # active selection blocked until credentials exist
-        blocked = await http.put(
-            "/api/v1/preferences/active-models",
-            json={
-                "default_provider_id": "dashscope",
-                "default_model_id": "my-model",
-            },
-        )
-        assert blocked.status_code == 400
-
-        await http.put(
-            "/api/v1/preferences/providers/dashscope", json={"api_key": "sk-k"}
-        )
-        ok = await http.put(
-            "/api/v1/preferences/active-models",
-            json={
-                "default_provider_id": "dashscope",
-                "default_model_id": "my-model",
-            },
-        )
-        assert ok.status_code == 200
-        active = await http.get("/api/v1/preferences/active-models")
-        assert active.json()["active_models"]["default_model_id"] == "my-model"
+    cleared = await service.delete("/api/preferences/providers/dashscope")
+    assert cleared.status_code == 200
+    assert (
+        await service.delete("/api/preferences/providers/dashscope")
+    ).status_code == 404
 
 
-async def test_host_model_resolves_from_preferences(tmp_path, monkeypatch) -> None:
-    """With no explicit model, a new host resolves prefs → ActiveModel."""
-    built: list[ActiveModel] = []
+async def test_models_and_active_selection(service) -> None:
+    added = await service.put(
+        "/api/preferences/providers/dashscope/models/my-model",
+        json={"source": "extra", "name": "My Model", "context_size": 64000},
+    )
+    assert added.status_code == 200, added.text
+    assert added.json()["model"]["source"] == "extra"
+    models = await service.get("/api/preferences/providers/dashscope/models")
+    assert models.status_code == 200, models.text
+    ids = {m["id"] for m in models.json()["models"]}
+    assert {"my-model", "qwen-plus"} <= ids
 
-    def fake_build_model(active: ActiveModel) -> object:
-        built.append(active)
-        return object()
+    selection = {"default_provider_id": "dashscope", "default_model_id": "my-model"}
+    blocked = await service.put("/api/preferences/active-models", json=selection)
+    assert blocked.status_code == 400
+    saved = await service.put(
+        "/api/preferences/providers/dashscope", json={"api_key": "sk-k"}
+    )
+    assert saved.status_code == 200, saved.text
+    ok = await service.put("/api/preferences/active-models", json=selection)
+    assert ok.status_code == 200, ok.text
+    active = await service.get("/api/preferences/active-models")
+    assert active.json()["active_models"]["default_model_id"] == "my-model"
 
-    monkeypatch.setattr(
-        "qwenpaw_data.host.core.api.app.build_model",
-        fake_build_model,
+
+async def test_service_builder_resolves_persisted_preferences(
+    service, tmp_path, monkeypatch
+) -> None:
+    for path, body in [
+        ("providers/dashscope", {"api_key": "sk-k"}),
+        (
+            "active-models",
+            {"default_provider_id": "dashscope", "default_model_id": "qwen-plus"},
+        ),
+    ]:
+        response = await service.put("/api/preferences/" + path, json=body)
+        assert response.status_code == 200, response.text
+
+    factory = get_session_factory()
+    async with factory() as db:
+        config = (await PreferencesRepository(db, TEST_IDENTITY).load()).resolve()
+    paths = UserAgentPaths.from_identity(
+        home=tmp_path,
+        identity=TEST_IDENTITY,
+        agent_id="default",
+        session_id="ses-model-test",
+    )
+    context = RunContext(
+        session_id=paths.session_id,
+        chat_id="chat-model-test",
+        paths=paths,
+        workspace=SimpleNamespace(workdir=str(paths.workspace)),
+        identity=TEST_IDENTITY,
+        session_factory=factory,
+        user_runtime_config=config,
+    )
+    model = FakeTextModel()
+    build_model = Mock(return_value=model)
+    monkeypatch.setattr(data_agent, "build_model", build_model)
+    monkeypatch.setattr(data_agent, "_middlewares", lambda *_: [])
+    builder = data_agent.DataAgentBuilder()
+    monkeypatch.setattr(builder, "build_toolkit", AsyncMock(return_value=Toolkit()))
+
+    agent = await builder.build(
+        run_context=context, envelope=object(), state=AgentState()
     )
 
-    async with service_client(tmp_path, monkeypatch) as (http, app):
-        await http.put(
-            "/api/v1/preferences/providers/dashscope", json={"api_key": "sk-k"}
-        )
-        await http.put(
-            "/api/v1/preferences/active-models",
-            json={
-                "default_provider_id": "dashscope",
-                "default_model_id": "qwen-max",
-            },
-        )
-
-        hosts = app.state.service.hosts
-        host = hosts.get(session_id="ses-model-test")
-        assert isinstance(host, QwenPawDataHost)
-        assert host.model is None  # deferred until first agent build
-
-        resolved = await host._model_factory()
-        assert built and built[0].model_id == "qwen-max"
-        assert built[0].api_key == "sk-k"
-        assert resolved is not None
+    assert agent.model is model
+    active = build_model.call_args.args[0]
+    assert active.model_id == "qwen-plus" and active.api_key == "sk-k"
+    assert build_model.call_args.kwargs["usage"] == context.model_usage(
+        ModelUsageSource.DATA_AGENT
+    )
+    builder.build_toolkit.assert_awaited_once_with(run_context=context)

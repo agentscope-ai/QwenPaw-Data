@@ -17,8 +17,11 @@ from qwenpaw_data.host.core.algo.biztrace.semantic_vocab import (
     SemanticVocabulary,
     VocabEntry,
 )
-from qwenpaw_data.host.core.algo.biztrace.settings import BizTraceSettings, resolve_link_base_url
-from qwenpaw_data.host.core.cm_client import resolve_cm_base_url
+from qwenpaw_data.host.core.algo.biztrace.settings import (
+    BizTraceSettings,
+    resolve_link_base_url,
+)
+from qwenpaw_data.host.core.integrations.cm import resolve_cm_base_url
 
 logger = logging.getLogger(__name__)
 

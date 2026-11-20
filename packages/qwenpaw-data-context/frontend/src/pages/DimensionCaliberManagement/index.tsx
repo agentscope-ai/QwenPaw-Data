@@ -1,134 +1,100 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router';
-import { Button, Modal, message } from '@/design';
-import { ProColumns, ProTable } from '@/design';
-import type { ActionType, ProFormInstance } from '@/design';
 import { PlusOutlined } from '@/design';
-import type { DimensionCaliberItem, QueryDimensionCaliberParams } from '@/types/dimensionManagement';
-import { queryDimensionCaliberList, deleteDimensionCaliber } from '@/services/dimensionManagement';
-import { deleteExtraDelete, formatDatasourceLabel, toOptionalNumber, toOptionalString } from '@/utils';
-import { normalizeListResponse, extractTotal } from '@/utils/listResponse';
+import SemanticExcelActions from '@/components/SemanticExcelActions';
+import { Button, Modal, message } from '@/design';
+import { ProTable } from '@/design';
+import type { ActionType, ProColumns, ProFormInstance } from '@/design';
+import { useCascadeFilterOptions } from '@/hooks/useFilterOptions';
 import { useModal } from '@/hooks/useModal';
-import { useDataSourceFilterOptions, useCascadeFilterOptions } from '@/hooks/useFilterOptions';
+import {
+  deleteDimensionCaliber,
+  queryDimensionCaliberList,
+  queryDimensionList,
+} from '@/services/dimensionManagement';
 import { useBusinessDomainOptions } from '@/store';
-import ActionDimensionCaliberDrawer from './components/ActionDimensionCaliberDrawer';
+import { useHasCapability } from '@/store/authStore';
+import type {
+  DimensionCaliberItem,
+  DimensionItem,
+  QueryDimensionCaliberParams,
+} from '@/types/dimensionManagement';
+import {
+  deleteExtraDelete,
+  formatDatasourceLabel,
+  toOptionalNumber,
+  toOptionalString,
+} from '@/utils';
+import { readUrlSearchValues } from '@/utils/urlSearch';
+import {
+  loadSemanticDeepLinkInOrder,
+  loadSemanticRowsByParent,
+  parseSemanticObjectId,
+} from '@/utils/semanticDeepLink';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
+import ActionDimensionCaliberDrawer from './components/ActionDimensionCaliberDrawer';
 
-const DimensionCaliberManagement: React.FC = () => {
+type DimensionCaliberDeepLink = QueryDimensionCaliberParams & { dimension_id?: number };
+
+const DimensionCaliberManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }) => {
   const { t } = useTranslation();
+  const canWrite = useHasCapability('datasource:write');
+  const canExcel = useHasCapability('excel_import');
   const actionRef = useRef<ActionType | undefined>(undefined);
   const formRef = useRef<ProFormInstance | undefined>(undefined);
   const [searchParams] = useSearchParams();
-  const { modal: actionDrawer, showModal: showActionDrawer } = useModal(ActionDimensionCaliberDrawer);
-
-  const { options: dataSourceOptions } = useDataSourceFilterOptions();
+  const [deepLinkValues] = useState(() =>
+    readUrlSearchValues<DimensionCaliberDeepLink>(searchParams, {
+      domain_id: { parse: parseSemanticObjectId },
+      dimension_id: { parse: parseSemanticObjectId },
+      dataset_id: { parse: parseSemanticObjectId },
+      dimension_name: {},
+    }),
+  );
+  const initialSearchValues = useMemo<QueryDimensionCaliberParams>(
+    () => ({
+      domain_id: deepLinkValues.domain_id,
+      dataset_id: deepLinkValues.dataset_id,
+      dimension_name: deepLinkValues.dimension_name,
+    }),
+    [deepLinkValues.dataset_id, deepLinkValues.dimension_name, deepLinkValues.domain_id],
+  );
+  const { modal, showModal } = useModal(ActionDimensionCaliberDrawer);
   const { loadDomains, loadDimensionNames, loadDatasets } = useCascadeFilterOptions();
-  const [searchDatasourceId, setSearchDatasourceId] = useState('');
-  const searchDomainOptions = useBusinessDomainOptions(searchDatasourceId);
-  const [dimensionNameOptions, setDimensionNameOptions] = useState<{ label: string; value: string }[]>([]);
-  const [searchDatasetOptions, setSearchDatasetOptions] = useState<{ label: string; value: number }[]>([]);
+  const domainOptions = useBusinessDomainOptions();
+  const [dimensionOptions, setDimensionOptions] = useState<Array<{ label: string; value: string }>>(
+    [],
+  );
+  const [datasetOptions, setDatasetOptions] = useState<Array<{ label: string; value: number }>>([]);
 
-  const loadSearchDomainOptions = useCallback(async (dsId: string, resetFields = true) => {
-    setSearchDatasourceId(dsId);
-    if (resetFields) {
-      setDimensionNameOptions([]);
-      setSearchDatasetOptions([]);
-      formRef.current?.setFieldValue('domain_id', undefined);
-      formRef.current?.setFieldValue('dimension_name', undefined);
-      formRef.current?.setFieldValue('dataset_id', undefined);
-    }
-    if (!dsId) return;
-    await loadDomains(dsId);
-  }, [loadDomains]);
-
-  const loadDimensionNameOptions = useCallback(async (domainId: number, resetFields = true) => {
-    if (resetFields) {
-      setDimensionNameOptions([]);
-      formRef.current?.setFieldValue('dimension_name', undefined);
-    }
-    if (!domainId) return;
-    try {
-      const options = await loadDimensionNames(domainId);
-      setDimensionNameOptions(options);
-    } catch (error) {
-      console.error('加载维度名称选项失败:', error);
-    }
-  }, [loadDimensionNames]);
-
-  const loadSearchDatasetOptions = useCallback(async (domainId: number, resetFields = true) => {
-    if (resetFields) {
-      setSearchDatasetOptions([]);
-      formRef.current?.setFieldValue('dataset_id', undefined);
-    }
-    if (!domainId) return;
-    try {
-      const options = await loadDatasets(domainId);
-      setSearchDatasetOptions(options);
-    } catch (error) {
-      console.error('加载数据集选项失败:', error);
-      setSearchDatasetOptions([]);
-    }
-  }, [loadDatasets]);
-
-  // 从维度管理页跳转时，自动带入地址栏筛选条件并触发查询
   useEffect(() => {
-    const datasourceId = searchParams.get('datasource_id');
-    const domainId = searchParams.get('domain_id');
-    const dimensionName = searchParams.get('dimension_name');
-    const datasetId = searchParams.get('dataset_id');
-
-    if (!datasourceId) return;
-
-    const applyUrlParams = async () => {
-      formRef.current?.setFieldValue('datasource_id', datasourceId);
-      setSearchDatasourceId(datasourceId);
-      await loadSearchDomainOptions(datasourceId, false);
-
-      if (domainId) {
-        formRef.current?.setFieldValue('domain_id', Number(domainId));
-        await loadDimensionNameOptions(Number(domainId), false);
-        await loadSearchDatasetOptions(Number(domainId), false);
+    const initialize = async () => {
+      await loadDomains();
+      if (initialSearchValues.domain_id) {
+        const [dimensions, datasets] = await Promise.all([
+          loadDimensionNames(initialSearchValues.domain_id),
+          loadDatasets(initialSearchValues.domain_id, datasourceId),
+        ]);
+        setDimensionOptions(dimensions);
+        setDatasetOptions(datasets);
       }
-      if (dimensionName) {
-        formRef.current?.setFieldValue('dimension_name', dimensionName);
-      }
-      if (datasetId) {
-        formRef.current?.setFieldValue('dataset_id', Number(datasetId));
-      }
-
-      // 提交搜索表单，确保列表请求带上以上设置的参数（reload 不会提交新设置的表单值）
-      formRef.current?.submit();
     };
+    void initialize();
+  }, [datasourceId, initialSearchValues, loadDatasets, loadDimensionNames, loadDomains]);
 
-    applyUrlParams();
-  }, [
-    searchParams,
-    loadSearchDomainOptions,
-    loadDimensionNameOptions,
-    loadSearchDatasetOptions,
-  ]);
-
-  const handleOpenAdd = () => {
-    const searchValues = formRef.current?.getFieldsValue?.() ?? {};
-    showActionDrawer({
-      title: t('dimensionCaliber.addTitle'),
-      record: undefined,
-      initialFilter: {
-        datasource_id: searchValues.datasource_id || undefined,
-        domain_id: searchValues.domain_id || undefined,
-        dimension_name: searchValues.dimension_name || undefined,
-        dataset_id: searchValues.dataset_id || undefined,
-      },
-      callback: () => actionRef.current?.reload(),
-    });
-  };
-
-  const handleOpenEdit = (record: DimensionCaliberItem) => {
-    showActionDrawer({
-      title: t('dimensionCaliber.editTitle'),
-      record,
-      callback: () => actionRef.current?.reload(),
-    });
+  const handleDomainChange = async (domainId?: number) => {
+    formRef.current?.setFieldsValue({ dimension_name: undefined, dataset_id: undefined });
+    if (!domainId) {
+      setDimensionOptions([]);
+      setDatasetOptions([]);
+      return;
+    }
+    const [dimensions, datasets] = await Promise.all([
+      loadDimensionNames(domainId),
+      loadDatasets(domainId, datasourceId),
+    ]);
+    setDimensionOptions(dimensions);
+    setDatasetOptions(datasets);
   };
 
   const handleDelete = (record: DimensionCaliberItem) => {
@@ -138,63 +104,33 @@ const DimensionCaliberManagement: React.FC = () => {
         <div>
           <p>
             {t('dimensionCaliber.confirmDelete', {
-              dimension: record.dimension_name || '-',
-              dataset: record.dataset_name || '-',
+              dimension: record.dimension_name,
+              dataset: record.dataset_name,
             })}
           </p>
-          <p style={{ color: '#faad14', marginBottom: 0 }}>
-            {t('dimensionCaliber.deleteWarning')}
-          </p>
+          <p style={{ color: '#faad14', marginBottom: 0 }}>{t('dimensionCaliber.deleteWarning')}</p>
         </div>
       ),
-      okText: t('common.delete'),
-      cancelText: t('common.cancel'),
       okButtonProps: { danger: true },
       onOk: async () => {
-        try {
-          await deleteDimensionCaliber(record.id);
-          message.success(t('common.deleteSuccess'));
-          actionRef.current?.reload();
-        } catch {
-          // API 错误由响应拦截器统一提示
-        }
+        await deleteDimensionCaliber(record.id);
+        message.success(t('common.deleteSuccess'));
+        actionRef.current?.reload();
       },
     });
   };
 
   const columns: ProColumns<DimensionCaliberItem>[] = [
-    // ---------- 6.6.2 查询筛选区 ----------
     {
-      title: t('fields.dataSourceName'),
-      dataIndex: 'datasource_id',
-      hideInTable: true,
-      valueType: 'select',
-      formItemProps: { rules: [{ required: true, message: t('validation.selectDataSourceName') }] },
-      fieldProps: {
-        options: dataSourceOptions,
-        showSearch: true,
-        allowClear: true,
-        optionFilterProp: 'label',
-        placeholder: t('validation.selectDataSourceName'),
-        onChange: (dsId: string) => loadSearchDomainOptions(dsId),
-      },
-    },
-    {
-      title: t('fields.businessDomainName'),
+      title: t('fields.businessDomain'),
       dataIndex: 'domain_id',
       hideInTable: true,
       valueType: 'select',
-      formItemProps: { rules: [{ required: true, message: t('validation.selectBusinessDomainName') }] },
       fieldProps: {
-        options: searchDomainOptions,
+        options: domainOptions,
         showSearch: true,
         allowClear: true,
-        optionFilterProp: 'label',
-        placeholder: t('validation.selectBusinessDomainName'),
-        onChange: (domainId: number) => {
-          loadDimensionNameOptions(domainId);
-          loadSearchDatasetOptions(domainId);
-        },
+        onChange: (value: number) => void handleDomainChange(value),
       },
     },
     {
@@ -202,56 +138,68 @@ const DimensionCaliberManagement: React.FC = () => {
       dataIndex: 'dimension_name',
       hideInTable: true,
       valueType: 'select',
-      fieldProps: {
-        options: dimensionNameOptions,
-        showSearch: true,
-        allowClear: true,
-        optionFilterProp: 'label',
-        placeholder: t('validation.selectDimensionName'),
-      },
+      fieldProps: { options: dimensionOptions, showSearch: true, allowClear: true },
     },
     {
-      title: t('fields.dataset'),
+      title: t('fields.datasetName'),
       dataIndex: 'dataset_id',
       hideInTable: true,
       valueType: 'select',
-      fieldProps: {
-        options: searchDatasetOptions,
-        showSearch: true,
-        allowClear: true,
-        optionFilterProp: 'label',
-        placeholder: t('validation.selectDataset'),
-      },
+      fieldProps: { options: datasetOptions, showSearch: true, allowClear: true },
     },
-    // ---------- 6.6.3 维度口径列表 ----------
-    { title: t('fields.dataSource'), dataIndex: 'datasource_name', hideInSearch: true, width: 120, ellipsis: true, render: (_, r) => formatDatasourceLabel(r.datasource_name, r.datasource_id) },
-    { title: t('fields.businessDomain'), dataIndex: 'domain_name', hideInSearch: true, width: 120, ellipsis: true, render: (_, r) => r.domain_name || '-' },
-    { title: t('fields.datasetName'), dataIndex: 'dataset_name', hideInSearch: true, width: 180, ellipsis: true, render: (_, r) => r.dataset_name || '-' },
-    { title: t('fields.dimensionName'), dataIndex: 'dimension_name', hideInSearch: true, width: 120, ellipsis: true, render: (_, r) => r.dimension_name || '-' },
+    {
+      title: t('fields.dataSource'),
+      dataIndex: 'datasource_name',
+      search: false,
+      width: 180,
+      render: (_, record) => formatDatasourceLabel(record.datasource_name, record.datasource_id),
+    },
+    { title: t('fields.businessDomain'), dataIndex: 'domain_name', search: false, width: 140 },
+    { title: t('fields.datasetName'), dataIndex: 'dataset_name', search: false, width: 180 },
+    { title: t('fields.dimensionName'), dataIndex: 'dimension_name', search: false, width: 150 },
     {
       title: t('fields.calculateExpression'),
-      dataIndex: 'calculate_expr',
-      hideInSearch: true,
+      dataIndex: 'expr',
+      search: false,
       ellipsis: true,
-      width: 240,
-      render: (_, r) => r.calculate_expr || '-',
+      width: 260,
     },
-    { title: t('fields.dimensionType'), dataIndex: 'dimension_type', hideInSearch: true, width: 120, render: (_, r) => r.dimension_type || '-' },
-    { title: t('fields.dimensionDataType'), dataIndex: 'data_type', hideInSearch: true, width: 120, render: (_, r) => r.data_type || '-' },
+    {
+      title: 'value_example',
+      dataIndex: 'value_example',
+      search: false,
+      ellipsis: true,
+      width: 220,
+    },
     {
       title: t('common.actions'),
-      valueType: 'option',
+      search: false,
       fixed: 'right',
       width: 130,
-      hideInSearch: true,
-      render: (_, record) => [
-        <Button key="edit" type="link" size="small" onClick={() => handleOpenEdit(record)}>
-          {t('common.edit')}
-        </Button>,
-        <Button key="delete" type="link" size="small" danger onClick={() => handleDelete(record)}>
-          {t('common.delete')}
-        </Button>,
-      ],
+      render: (_, record) => (
+        <>
+          {canWrite ? (
+            <Button
+              type="link"
+              onClick={() =>
+                showModal({
+                  datasourceId,
+                  title: t('dimensionCaliber.editTitle'),
+                  record,
+                  callback: () => actionRef.current?.reload(),
+                })
+              }
+            >
+              {t('common.edit')}
+            </Button>
+          ) : null}
+          {canWrite ? (
+            <Button type="link" danger onClick={() => handleDelete(record)}>
+              {t('common.delete')}
+            </Button>
+          ) : null}
+        </>
+      ),
     },
   ];
 
@@ -262,46 +210,119 @@ const DimensionCaliberManagement: React.FC = () => {
         actionRef={actionRef}
         formRef={formRef}
         columns={columns}
+        form={{ initialValues: initialSearchValues }}
         request={async (params) => {
-          const { current, pageSize, datasource_id, domain_id, dataset_id, dimension_name } = params;
           const requestData: QueryDimensionCaliberParams = {
-            page: current,
-            size: pageSize,
-            datasource_id: toOptionalString(datasource_id),
-            domain_id: toOptionalNumber(domain_id),
-            dataset_id: toOptionalNumber(dataset_id),
-            dimension_name: toOptionalString(dimension_name),
+            page: params.current,
+            size: params.pageSize,
+            datasource_id: datasourceId,
+            domain_id: toOptionalNumber(params.domain_id),
+            dataset_id: toOptionalNumber(params.dataset_id),
+            dimension_name: toOptionalString(params.dimension_name),
           };
-          try {
-            const result = await queryDimensionCaliberList(deleteExtraDelete(requestData));
-            const list = normalizeListResponse<DimensionCaliberItem>(result);
+          if (deepLinkValues.dimension_id && requestData.domain_id === deepLinkValues.domain_id) {
+            const resolved = await loadSemanticDeepLinkInOrder(
+              [
+                () => loadDomains(),
+                async () => {
+                  const [dimensions, datasets] = await Promise.all([
+                    loadDimensionNames(deepLinkValues.domain_id!),
+                    loadDatasets(deepLinkValues.domain_id!, datasourceId),
+                  ]);
+                  setDimensionOptions(dimensions);
+                  setDatasetOptions(datasets);
+                },
+              ],
+              () =>
+                loadSemanticRowsByParent({
+                  targetId: deepLinkValues.dimension_id!,
+                  getRecordId: (record: DimensionItem) => record.dimension_id,
+                  size: params.pageSize,
+                  loadPage: (page, size) =>
+                    queryDimensionList({
+                      datasource_id: datasourceId,
+                      domain_id: deepLinkValues.domain_id,
+                      page,
+                      size,
+                    }),
+                  loadRows: (dimension) => {
+                    setDimensionOptions((current) =>
+                      current.some((option) => option.value === dimension.dimension_name)
+                        ? current
+                        : [
+                            ...current,
+                            { label: dimension.dimension_name, value: dimension.dimension_name },
+                          ],
+                    );
+                    formRef.current?.setFieldsValue({
+                      domain_id: dimension.domain_id,
+                      dimension_name: dimension.dimension_name,
+                    });
+                    return queryDimensionCaliberList({
+                      datasource_id: datasourceId,
+                      domain_id: dimension.domain_id,
+                      dimension_name: dimension.dimension_name,
+                      page: params.current,
+                      size: params.pageSize,
+                    });
+                  },
+                }),
+            );
             return {
-              data: list,
+              data: resolved?.rows.records ?? [],
               success: true,
-              total: extractTotal(result) || list.length,
+              total: resolved?.rows.total ?? 0,
             };
-          } catch {
-            return { data: [], success: false, total: 0 };
           }
+          const result = await queryDimensionCaliberList(deleteExtraDelete(requestData));
+          return { data: result.records, success: true, total: result.total };
         }}
-        scroll={{ x: 1500 }}
+        scroll={{ x: 1450 }}
         pagination={{
-          defaultPageSize: 10,
+          defaultPageSize: 20,
           showSizeChanger: true,
-          showQuickJumper: true,
-          showTotal: (total) => t('common.total', { count: total }),
-          pageSizeOptions: ['10', '20', '50', '100'],
+          pageSizeOptions: ['20', '50', '100'],
         }}
         search={{ labelWidth: 'auto', defaultCollapsed: false }}
-        options={{ density: false, reload: true, setting: true }}
+        options={{ density: false }}
         toolBarRender={() => [
-          <Button key="add" type="primary" icon={<PlusOutlined />} onClick={handleOpenAdd}>
-            {t('dimensionCaliber.add')}
-          </Button>,
+          ...(canExcel
+            ? [
+                <SemanticExcelActions
+                  key="excel"
+                  templateObject="dataset_dimension"
+                  datasourceId={datasourceId}
+                  onImportSuccess={() => actionRef.current?.reload()}
+                />,
+              ]
+            : []),
+          ...(canWrite
+            ? [
+                <Button
+                  key="add"
+                  icon={<PlusOutlined />}
+                  type="primary"
+                  onClick={() => {
+                    const values = formRef.current?.getFieldsValue?.() ?? {};
+                    showModal({
+                      datasourceId,
+                      title: t('dimensionCaliber.addTitle'),
+                      initialFilter: {
+                        domain_id: values.domain_id,
+                        dimension_name: values.dimension_name,
+                        dataset_id: values.dataset_id,
+                      },
+                      callback: () => actionRef.current?.reload(),
+                    });
+                  }}
+                >
+                  {t('dimensionCaliber.add')}
+                </Button>,
+              ]
+            : []),
         ]}
       />
-
-      {actionDrawer}
+      {modal}
     </>
   );
 };

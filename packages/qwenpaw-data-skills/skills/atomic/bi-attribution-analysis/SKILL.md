@@ -66,7 +66,7 @@ description: 计算各维度（组）值对指标变动的贡献度，支持可�
 
 #### 方式一：使用脚本
 
-路径：`scripts/contribution_calc.py`
+路径：`<skill-dir>/scripts/contribution_calc.py`
 
 原理：按上述方法计算各维度值的贡献度。支持传入多个维度列进行交叉分析。
 
@@ -91,7 +91,7 @@ description: 计算各维度（组）值对指标变动的贡献度，支持可�
 
 ```bash
 # 单维度 - 量值指标标准法
-python scripts/contribution_calc.py \
+python <skill-dir>/scripts/contribution_calc.py \
     --input-file data.csv \
     --dimension "渠道" \
     --history-col "销售额_往期" \
@@ -100,7 +100,7 @@ python scripts/contribution_calc.py \
     --output-file contribution_result.csv
 
 # 多维度交叉 - 量值指标标准法
-python scripts/contribution_calc.py \
+python <skill-dir>/scripts/contribution_calc.py \
     --input-file data.csv \
     --dimension "渠道" "端类型" \
     --history-col "销售额_往期" \
@@ -109,7 +109,7 @@ python scripts/contribution_calc.py \
     --output-file contribution_result.csv
 
 # 率值指标 - 保留交叉项法
-python scripts/contribution_calc.py \
+python <skill-dir>/scripts/contribution_calc.py \
     --input-file data.csv \
     --dimension "品类" \
     --history-col "转化率_往期" \
@@ -122,7 +122,7 @@ python scripts/contribution_calc.py \
     --output-file contribution_result.csv
 
 # 加权平均指标 - 按渠道拆客单价
-python scripts/contribution_calc.py \
+python <skill-dir>/scripts/contribution_calc.py \
     --input-file data.csv \
     --dimension "渠道" \
     --history-col "客单价_往期" \

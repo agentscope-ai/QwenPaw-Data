@@ -1,6 +1,7 @@
 import json
 
 from semantic_config.models.datasource import DatasourceUpdate
+from semantic_config.principal import LOCAL_DEV_PRINCIPAL
 from semantic_config.services import datasource_service
 from semantic_config.services.connection_tester import _safe_error_message
 from semantic_config.services.datasource_service import _to_response
@@ -9,6 +10,7 @@ from semantic_config.services.datasource_service import _to_response
 def test_datasource_response_exposes_datasource_id_only() -> None:
     response = _to_response(
         {
+            "id": 1,
             "datasource_id": "postgresql-example",
             "datasource_name": "Example",
             "datasource_type": "postgresql",
@@ -26,6 +28,7 @@ def test_datasource_response_exposes_datasource_id_only() -> None:
 def test_datasource_response_never_returns_stored_secrets() -> None:
     response = _to_response(
         {
+            "id": 1,
             "datasource_id": "postgresql-example",
             "datasource_name": "Example",
             "datasource_type": "postgresql",
@@ -35,6 +38,7 @@ def test_datasource_response_never_returns_stored_secrets() -> None:
                     "user": "alice",
                     "password": "must-not-leak",
                     "sts_token": "must-not-leak-either",
+                    "credentials_json": "must-not-leak-service-account",
                 }
             ),
         }
@@ -60,14 +64,14 @@ async def test_empty_secret_on_update_preserves_existing_value(monkeypatch) -> N
     }
     saved: dict[str, str] = {}
 
-    async def find_by_datasource_id(_db, _datasource_id):
+    async def find_by_datasource_id(_db, _datasource_id, *_scope):
         return row
 
     async def update(_db, _id, **kwargs):
         saved["config"] = kwargs["config_json"]
         return 1
 
-    async def find_by_id(_db, _id):
+    async def find_by_id(_db, _id, *_scope):
         next_row = dict(row)
         next_row["config"] = saved["config"]
         return next_row
@@ -88,12 +92,14 @@ async def test_empty_secret_on_update_preserves_existing_value(monkeypatch) -> N
                 "password": "",
             }
         ),
+        LOCAL_DEV_PRINCIPAL,
     )
     assert json.loads(saved["config"])["password"] == "stored-secret"
+    # 0.3 configs used "dbname"; it is accepted and normalized to "database".
     assert response.config == {
         "host": "new-host",
         "port": 5432,
-        "dbname": "app",
+        "database": "app",
         "user": "alice",
     }
 

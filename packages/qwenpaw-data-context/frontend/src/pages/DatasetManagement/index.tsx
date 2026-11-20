@@ -1,30 +1,110 @@
-import { queryDatasetMeta, deleteDatasetMeta } from '@/services/datasetManagement';
+import { queryDatasetMeta, deleteDatasetMeta, getDatasetMeta } from '@/services/datasetManagement';
+import SemanticExcelActions from '@/components/SemanticExcelActions';
 import { DatasetManagementItem, QueryDatasetMetaParams } from '@/types/datasetManagement';
-import { deleteExtraDelete, formatDatasourceLabel, toOptionalNumber, toOptionalString } from '@/utils';
-import { normalizeListResponse, extractTotal } from '@/utils/listResponse';
+import {
+  deleteExtraDelete,
+  formatDatasourceLabel,
+  toOptionalNumber,
+  toOptionalString,
+} from '@/utils';
 import { PlusOutlined } from '@/design';
 import { ProColumns, ProTable } from '@/design';
-import type { ActionType } from '@/design';
+import type { ActionType, ProFormInstance } from '@/design';
 import { Button, Popconfirm, message } from '@/design';
-import React, { useRef } from 'react';
-import { useNavigate } from 'react-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useHasCapability } from '@/store/authStore';
+import { useDataSourceOptionsStore } from '@/store';
 import CreateOrEditDataMetaDrawer from './components/CreateOrEditDataMetaDrawer';
 import { useModal } from '@/hooks/useModal';
 import { useDatasourceDomainFilter } from '@/hooks/useFilterOptions';
 import { useTranslation } from 'react-i18next';
+import { readUrlSearchValues } from '@/utils/urlSearch';
+import { useDatasetAdapter } from '../../embedded/datasetAdapter';
+import { getUiBridge } from '../../embedded/bridge';
+import {
+  loadSemanticDeepLinkInOrder,
+  locateSemanticRecord,
+  parseSemanticDatasourceId,
+  parseSemanticObjectId,
+} from '@/utils/semanticDeepLink';
 
-const DatasetManagement: React.FC = () => {
+type DatasetDeepLink = QueryDatasetMetaParams & { dataset_id?: number };
+
+const DatasetManagement: React.FC<{ datasourceId?: string }> = ({ datasourceId }) => {
   const { t } = useTranslation();
+  const canWrite = useHasCapability('datasource:write');
+  const canExcel = useHasCapability('excel_import');
+  const [searchParams] = useSearchParams();
+  const [deepLinkValues] = useState(() =>
+    readUrlSearchValues<DatasetDeepLink>(searchParams, {
+      datasource_id: { parse: parseSemanticDatasourceId },
+      domain_id: { parse: parseSemanticObjectId },
+      dataset_id: { parse: parseSemanticObjectId },
+      dataset_name: {},
+    }),
+  );
+  const initialSearchValues: QueryDatasetMetaParams = {
+    datasource_id: datasourceId ?? deepLinkValues.datasource_id,
+    domain_id: deepLinkValues.domain_id,
+    dataset_name: deepLinkValues.dataset_name,
+  };
   const actionRef = useRef<ActionType | undefined>(undefined);
+  const formRef = useRef<ProFormInstance | undefined>(undefined);
   const navigate = useNavigate();
-  const { modal: createOrEditDataMetaDrawer, showModal: showCreateOrEditDataMetaDrawer } = useModal(CreateOrEditDataMetaDrawer);
+  const { modal: createOrEditDataMetaDrawer, showModal: showCreateOrEditDataMetaDrawer } = useModal(
+    CreateOrEditDataMetaDrawer,
+  );
 
   const { dataSourceOptions, domainOptions, selectDatasource } = useDatasourceDomainFilter();
+  const sourcesReady = useDataSourceOptionsStore((state) => state.fetched && !state.loading);
+  const root = useRef<HTMLDivElement>(null);
+  const [loadedRows, setLoadedRows] = useState<DatasetManagementItem[]>([]);
+  const [agentTable, setAgentTable] = useState<{
+    epoch: number;
+    params: QueryDatasetMetaParams;
+    target?: DatasetManagementItem;
+  } | null>(null);
+  const tableEpoch = agentTable?.epoch ?? 0;
+  const currentTableEpoch = useRef(tableEpoch);
+  currentTableEpoch.current = tableEpoch;
+  useDatasetAdapter({
+    root,
+    rows: loadedRows,
+    canWrite,
+    sourceOptions: dataSourceOptions,
+    sourcesReady,
+    domainOptions,
+    loadSource: selectDatasource,
+    present: (params, target) => {
+      const currentFilters =
+        formRef.current?.getFieldsValue() ?? agentTable?.params ?? initialSearchValues;
+      setAgentTable((old) => ({
+        epoch: (old?.epoch ?? 0) + 1,
+        params: target ? params : { ...currentFilters, ...params },
+        target,
+      }));
+    },
+    edit: (record, ready) =>
+      showCreateOrEditDataMetaDrawer({
+        title: t('dataset.editTitle'),
+        record,
+        onUiReady: ready,
+        callback: () => actionRef.current?.reload(),
+      }),
+  });
+
+  useEffect(() => {
+    if (initialSearchValues.datasource_id) {
+      void selectDatasource(initialSearchValues.datasource_id);
+    }
+  }, [initialSearchValues.datasource_id, selectDatasource]);
 
   const columns: ProColumns<DatasetManagementItem>[] = [
     {
       title: t('fields.dataSource'),
       dataIndex: 'datasource_id',
+      hideInSearch: Boolean(datasourceId),
       valueType: 'select',
       fieldProps: {
         options: dataSourceOptions,
@@ -50,10 +130,8 @@ const DatasetManagement: React.FC = () => {
       render: (_, record) => record.domain_name || '-',
     },
     { title: t('fields.datasetName'), dataIndex: 'dataset_name' },
-    { title: t('fields.datasetDescription'), dataIndex: 'dataset_comment', search: false },
-    { title: t('fields.datasetType'), dataIndex: 'dataset_type' },
-    { title: t('fields.sqlContent'), search: false, dataIndex: 'sql_content', ellipsis: true },
-    { title: t('fields.parentDataset'), dataIndex: 'parents', search: false },
+    { title: t('fields.datasetDescription'), dataIndex: 'description', search: false },
+    { title: t('fields.sqlContent'), search: false, dataIndex: 'source', ellipsis: true },
     {
       title: t('common.actions'),
       search: false,
@@ -62,36 +140,49 @@ const DatasetManagement: React.FC = () => {
       width: 200,
       render: (_, record) => (
         <>
-          <Button
-            key="edit"
-            type="link"
-            onClick={() => {
-              showCreateOrEditDataMetaDrawer({
-                title: t('dataset.editTitle'),
-                record,
-                callback: () => actionRef.current?.reload(),
-              });
-            }}
-          >
-            {t('common.edit')}
-          </Button>
-          <Popconfirm
-            key="delete"
-            title={t('common.confirmDeleteRecord')}
-            onConfirm={async () => {
-              await deleteDatasetMeta(record.dataset_id);
-              message.success(t('common.deleteSuccess'));
-              actionRef.current?.reload();
-            }}
-          >
-            <Button type="link" danger>
-              {t('common.delete')}
+          {canWrite && (
+            <Button
+              key="edit"
+              type="link"
+              onClick={() => {
+                showCreateOrEditDataMetaDrawer({
+                  title: t('dataset.editTitle'),
+                  record,
+                  callback: () => actionRef.current?.reload(),
+                });
+              }}
+            >
+              {t('common.edit')}
             </Button>
-          </Popconfirm>
+          )}
+          {canWrite && (
+            <Popconfirm
+              key="delete"
+              title={t('common.confirmDeleteRecord')}
+              onConfirm={async () => {
+                await deleteDatasetMeta(record.dataset_id);
+                message.success(t('common.deleteSuccess'));
+                actionRef.current?.reload();
+              }}
+            >
+              <Button type="link" danger>
+                {t('common.delete')}
+              </Button>
+            </Popconfirm>
+          )}
           <Button
             key="column"
             type="link"
-            onClick={() => navigate(`/column?datasetId=${record.dataset_id}&datasetName=${record.dataset_name}&datasourceId=${record.datasource_id}`)}
+            onClick={() => {
+              const params = new URLSearchParams({ dataset_id: String(record.dataset_id) });
+              if (record.datasource_id?.trim()) {
+                params.set('datasource_id', record.datasource_id);
+              }
+              if (record.domain_id != null) {
+                params.set('domain_id', String(record.domain_id));
+              }
+              navigate(`/column?${params}`);
+            }}
           >
             {t('routes.columnManagement')}
           </Button>
@@ -109,43 +200,116 @@ const DatasetManagement: React.FC = () => {
   };
 
   return (
-    <>
+    <div ref={root}>
       <ProTable<DatasetManagementItem>
+        onSubmit={(params) => {
+          if (agentTable?.target)
+            setAgentTable((old) => ({ epoch: (old?.epoch ?? 0) + 1, params }));
+        }}
+        key={agentTable?.epoch ?? 0}
+        onLoad={(rows) => {
+          if (currentTableEpoch.current === tableEpoch) setLoadedRows([...rows]);
+        }}
+        onRow={(record) => ({ tabIndex: -1, 'data-ui-row': String(record.dataset_id) })}
         rowKey={(record: DatasetManagementItem) => record.dataset_id}
         actionRef={actionRef}
+        formRef={formRef}
         columns={columns}
+        form={{
+          initialValues: agentTable?.params ?? initialSearchValues,
+          onValuesChange: () => getUiBridge()?.touch(),
+        }}
         request={async (params) => {
+          if (agentTable?.target) {
+            try {
+              const located = await getDatasetMeta(agentTable.target.dataset_id);
+              return { data: [located.record], success: true, total: 1 };
+            } catch (error) {
+              if (error instanceof Error && 'status' in error && error.status === 404)
+                return { data: [], success: true, total: 0 };
+              throw error;
+            }
+          }
           const requestData: QueryDatasetMetaParams = {
             page: params.current,
             size: params.pageSize,
-            datasource_id: toOptionalString(params.datasource_id),
+            datasource_id: datasourceId ?? toOptionalString(params.datasource_id),
             domain_id: toOptionalNumber(params.domain_id),
             dataset_name: toOptionalString(params.dataset_name),
-            dataset_type: toOptionalString(params.dataset_type),
           };
+          if (
+            !agentTable &&
+            deepLinkValues.dataset_id &&
+            requestData.datasource_id === deepLinkValues.datasource_id &&
+            requestData.domain_id === deepLinkValues.domain_id
+          ) {
+            const match = await loadSemanticDeepLinkInOrder(
+              [
+                () => useDataSourceOptionsStore.getState().fetchOptions(true),
+                () => selectDatasource(deepLinkValues.datasource_id!),
+              ],
+              () =>
+                locateSemanticRecord({
+                  targetId: deepLinkValues.dataset_id!,
+                  getRecordId: (record: DatasetManagementItem) => record.dataset_id,
+                  size: params.pageSize,
+                  loadPage: (page, size) =>
+                    queryDatasetMeta({
+                      datasource_id: deepLinkValues.datasource_id,
+                      domain_id: deepLinkValues.domain_id,
+                      page,
+                      size,
+                    }),
+                }),
+            );
+            return {
+              data: match ? [match.record] : [],
+              success: true,
+              total: match ? 1 : 0,
+            };
+          }
           const result = await queryDatasetMeta(deleteExtraDelete(requestData));
-          const list = normalizeListResponse<DatasetManagementItem>(result);
           return {
-            data: list,
+            data: result.records,
             success: true,
-            total: extractTotal(result) || list.length,
+            total: result.total,
           };
         }}
         scroll={{ x: 1500 }}
         pagination={{
-          defaultPageSize: 10,
+          defaultPageSize: 20,
           showSizeChanger: true,
-          pageSizeOptions: ['10', '20', '50', '100'],
+          pageSizeOptions: ['20', '50', '100'],
         }}
         search={{ labelWidth: 'auto' }}
         toolBarRender={() => [
-          <Button key="add" icon={<PlusOutlined />} type="primary" onClick={handleAddDataMeta}>
-            {t('dataset.add')}
-          </Button>,
+          ...(canExcel
+            ? [
+                <SemanticExcelActions
+                  key="excel"
+                  templateObject="dataset"
+                  datasourceId={datasourceId}
+                  getDatasourceId={() => formRef.current?.getFieldValue('datasource_id')}
+                  onImportSuccess={() => actionRef.current?.reload()}
+                />,
+              ]
+            : []),
+          ...(canWrite
+            ? [
+                <Button
+                  key="add"
+                  icon={<PlusOutlined />}
+                  type="primary"
+                  onClick={handleAddDataMeta}
+                >
+                  {t('dataset.add')}
+                </Button>,
+              ]
+            : []),
         ]}
       />
       {createOrEditDataMetaDrawer}
-    </>
+    </div>
   );
 };
 

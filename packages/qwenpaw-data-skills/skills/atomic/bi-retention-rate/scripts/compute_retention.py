@@ -35,7 +35,7 @@ def main():
     parser.add_argument("--day0_col", required=True, help="第0天用户数列名")
     parser.add_argument("--dayn_col", required=True, help="第n天用户数列名")
     args = parser.parse_args()
-    
+
     try:
         df = pd.read_csv(args.input_file)
         retention = compute_retention(df, args.day0_col, args.dayn_col)
@@ -52,6 +52,7 @@ def main():
     except Exception as e:
         print(f"计算事件统计结果失败: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

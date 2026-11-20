@@ -1,0 +1,237 @@
+.skillDraftPanel {
+  max-height: 228px;
+  background: transparent;
+  border: 1px solid var(--console-line);
+  border-radius: var(--qwenpaw-data-radius-card-secondary);
+  box-shadow: none;
+}
+
+.skillDraftList {
+  display: flex;
+  min-height: 0;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-color: var(--console-border) transparent;
+}
+
+.skillDraftCard {
+  display: flex;
+  width: 100%;
+  padding: 10px 11px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: var(--console-fill);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-default);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+
+  &:hover {
+    background: var(--console-fill-secondary);
+    border-color: var(--console-primary-border);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--console-primary-border);
+    outline-offset: 2px;
+  }
+}
+
+.skillDraftCardTitle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+
+  > svg {
+    flex: 0 0 auto;
+    color: var(--console-primary-active);
+  }
+
+  > strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--console-text);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.skillDraftCardMeta {
+  flex: 0 0 auto;
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+  white-space: nowrap;
+}
+
+.skillDraftError {
+  display: flex;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ant-color-error-text);
+  font-size: 12px;
+  background: var(--ant-color-error-bg);
+  border-radius: var(--radius-small);
+
+  > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.skillDraftEmpty {
+  margin-block: 8px 0;
+
+  :global(.ant-empty-image) {
+    height: 32px;
+  }
+}
+
+.skillDraftModal {
+  --console-text: var(--ant-color-text, #1f1f1f);
+  --console-text-secondary: var(--ant-color-text-secondary, #595959);
+  --console-muted: var(--ant-color-text-tertiary, #8c8c8c);
+  --console-surface: var(--ant-color-bg-container, #fff);
+  --console-fill-secondary: var(--ant-color-fill-secondary, #f5f5f5);
+  --console-line: var(--ant-color-split, #f0f0f0);
+}
+
+.skillDraftLoading {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--console-muted);
+}
+
+.skillDraftDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skillDraftDetailMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--console-muted);
+  font-size: 12px;
+}
+
+.skillDraftFileViewer {
+  min-height: 280px;
+  overflow: hidden;
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: var(--qwenpaw-data-radius-card-secondary);
+}
+
+.skillDraftFileToolbar {
+  display: flex;
+  min-height: 44px;
+  padding: 7px 10px 7px 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--console-line);
+}
+
+.skillDraftFileSelect {
+  width: min(420px, 70%);
+}
+
+.skillDraftPreview {
+  min-height: 220px;
+  max-height: min(48vh, 520px);
+  padding: 16px;
+  overflow: auto;
+  color: var(--console-text);
+  background: var(--console-fill-secondary);
+  scrollbar-color: var(--console-muted) transparent;
+}
+
+.skillDraftMarkdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+
+  :global(.spark-markdown) {
+    min-width: 0;
+    margin: 0;
+  }
+
+  :global(p:first-child),
+  :global(pre:first-child),
+  :global(ul:first-child),
+  :global(ol:first-child) {
+    margin-top: 0;
+  }
+
+  :global(p:last-child),
+  :global(pre:last-child),
+  :global(ul:last-child),
+  :global(ol:last-child) {
+    margin-bottom: 0;
+  }
+}
+
+.skillDraftSource {
+  min-width: 0;
+  margin: 0;
+  color: var(--console-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.skillDraftRevise {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+
+  > span {
+    color: var(--console-text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+}
+
+.skillDraftActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .skillDraftPanel {
+    max-height: 200px;
+  }
+
+  .skillDraftCard {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .skillDraftFileToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .skillDraftFileSelect {
+    width: 100%;
+  }
+}

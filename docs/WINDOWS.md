@@ -1,9 +1,16 @@
 # Native Windows walkthrough
 
-QwenPaw-Data supports Windows 11 through PowerShell 7 and Docker Desktop using
-Linux containers. WSL2 remains the recommended fallback when corporate
-networking, endpoint protection, or Docker named-pipe policy blocks the native
-workflow.
+The native PowerShell entry points initialize the workspace packages and start
+the DataBridge API and its frontend. They do not start the current Auth and
+Host services or perform the multi-user chat setup provided by `start.sh` and
+`setup_chat.sh`. The complete native Windows workflow is not yet validated;
+use the WSL2 workflow for the current multi-service product.
+
+This walkthrough describes the narrower native DataBridge entry points and
+their prerequisites. They require Windows 11, PowerShell 7 and Docker Desktop
+with Linux containers. A successful initializer alone does not establish that
+the current Context service has its Auth/Host-owned database tables or a ready
+graph workspace.
 
 ## 1. Install and verify prerequisites
 
@@ -96,11 +103,16 @@ qwenpaw-data doctor
 ```
 
 Do not continue until Docker, Neo4j, and DataBridge are reported healthy.
+The current Context service depends on the shared Auth/Host schema and graph
+workspace provisioning; these native entry points do not prepare those owners.
+On a fresh installation, use the WSL2 full-service workflow instead.
 
 ## 5. Run the deterministic demo
 
-The bundled smoke test uses a local model stub, but exercises the real CLI,
-DataBridge MCP, PostgreSQL, and SQL execution path.
+The bundled smoke test uses a local model stub, but exercises real Host and
+DataBridge processes, native MCP SQL, PostgreSQL, and SQL chat persistence.
+Run it only after provisioning the full service stack and PostgreSQL; the native
+DataBridge-only launcher above is not sufficient.
 
 ```powershell
 .\examples\init_demo.ps1
@@ -113,14 +125,19 @@ The test must finish with:
 QwenPaw Data deterministic demo smoke passed.
 ```
 
-For an interactive task using the models configured in `.env`, register the
-fixed demo datasource:
+If the complete stack is already running and configured, register the demo
+datasource (the initializer prints its ID):
 
 ```powershell
 .\examples\init_demo.ps1 -Register
 qwenpaw-data datasource list
-qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
+
+Open the local Console, configure its model, select `Demo PG - GAAP use case`,
+and submit: “Analyze the average GAAP value of valid users for product X during
+March 2026; show the trend over time and explain any spikes with relevant KG
+events.” See [Console startup](../packages/qwenpaw-data-console/README.md).
+The former `qwenpaw-data run` command is retired in 0.4.
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
 `45.89`. To relate the spike to Knowledge Graph events, use the DataBridge UI
@@ -163,9 +180,10 @@ repository inside the Linux filesystem (for example `~/src/QwenPaw-Data`, not
 
 ## Validation boundary
 
-Windows CI performs the real native initializer, starts DataBridge through the
-PowerShell lifecycle entry point, checks API and UI health, runs Python tests,
-and validates the CLI and frontend. GitHub's Windows runner does not provide a
-Linux Docker Desktop daemon, so Neo4j/PostgreSQL and Docker-workspace end-to-end
+Windows CI runs the real native initializer and Python tests, and defines checks
+for the PowerShell lifecycle, API/UI health, CLI and frontend. The current
+Python failures prevent the later native lifecycle smoke from running, so they
+are not evidence that native startup has passed. GitHub's Windows runner does
+not provide a Linux Docker Desktop daemon, so Neo4j/PostgreSQL and Docker-workspace end-to-end
 validation must also pass on a clean Windows 11 machine before a release is
 advertised as Windows-validated.

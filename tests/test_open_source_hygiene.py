@@ -13,10 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _tracked_paths() -> list[Path]:
     output = subprocess.check_output(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=ROOT,
     )
-    return [ROOT / item.decode() for item in output.split(b"\0") if item]
+    return [
+        ROOT / item.decode()
+        for item in output.split(b"\0")
+        if item and not item.decode().startswith(".uv-tmp/")
+    ]
 
 
 def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
@@ -26,6 +30,14 @@ def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
         "alibaba" + "-inc.com",
         "gitlab." + "alibaba",
         "tao" + "bao",
+        "art" + "lab.",
+        "anpm." + "alibaba",
+        "yuque" + ".com",
+        "hub.docker." + "alibaba",
+        "ali" + "buc",
+        "normandy" + "-auth",
+        "odps_" + "buc",
+        "odps_" + "internal",
     )
     binary_suffixes = {
         ".docx",
@@ -43,10 +55,21 @@ def test_tracked_tree_has_no_internal_brand_or_network_markers() -> None:
         ".xls",
         ".xlsx",
     }
+    excluded_components = {
+        "dab_" + "tools",
+        "data_" + "agent_bench",
+        "data-" + "agent-bench",
+        ".aone" + "ci",
+        "app-" + "meta",
+    }
     failures: list[str] = []
     for path in _tracked_paths():
         relative = path.relative_to(ROOT).as_posix().lower()
-        if any(marker in relative for marker in markers):
+        if (
+            set(relative.split("/")) & excluded_components
+            or path.name == "test_dab_" + "s2.py"
+            or any(marker in relative for marker in markers)
+        ):
             failures.append(relative)
             continue
         if path.suffix.lower() in binary_suffixes:
@@ -115,7 +138,14 @@ def test_publishable_packages_ship_root_license_and_notice() -> None:
     for project in sorted((ROOT / "packages").glob("*/pyproject.toml")):
         config = tomllib.loads(project.read_text(encoding="utf-8"))
         forced = config["tool"]["hatch"]["build"]["targets"]["sdist"]["force-include"]
-        assert forced == {"../../LICENSE": "LICENSE", "../../NOTICE": "NOTICE"}, project
+        assert forced == {"LICENSE": "LICENSE", "NOTICE": "NOTICE"}, project
+        # Every sdist must rebuild without its original monorepo parent paths.
+        # Keep package-local distribution copies byte-identical to the owners.
+        for name in ("LICENSE", "NOTICE"):
+            assert (project.parent / name).read_bytes() == (ROOT / name).read_bytes(), project
+        wheel = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+        assert "LICENSE" in wheel and "NOTICE" in wheel, project
+        assert not any(source.startswith("../") for source in wheel), project
 
 
 def test_community_health_files_are_present() -> None:

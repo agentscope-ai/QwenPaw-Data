@@ -54,6 +54,7 @@ SOURCE_RELIABILITY = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def parse_date(raw: str):
     """Return a date object, or None if the string is empty / unparseable."""
     if not raw:
@@ -67,9 +68,7 @@ def parse_date(raw: str):
     return None
 
 
-def time_overlap_score(
-    event_start, event_end, anomaly_start, anomaly_end
-) -> float:
+def time_overlap_score(event_start, event_end, anomaly_start, anomaly_end) -> float:
     """
     overlap_days / anomaly_window_days.
     Returns 0 when the event has no usable date info.
@@ -147,6 +146,7 @@ def confidence_level(score: float) -> str:
 # I/O
 # ---------------------------------------------------------------------------
 
+
 def read_csv(path: str):
     with open(path, newline="", encoding="utf-8-sig") as f:
         return list(csv.DictReader(f))
@@ -163,13 +163,20 @@ def write_csv(path: str, rows: list, fieldnames: list):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Score candidate causal events against an anomaly anchor."
     )
-    parser.add_argument("--anomaly-file", required=True, help="Anomaly anchor CSV (step 1 output)")
-    parser.add_argument("--events-file", required=True, help="Extracted events CSV (step 3 output)")
-    parser.add_argument("--output-file", default=None, help="Output CSV path (optional)")
+    parser.add_argument(
+        "--anomaly-file", required=True, help="Anomaly anchor CSV (step 1 output)"
+    )
+    parser.add_argument(
+        "--events-file", required=True, help="Extracted events CSV (step 3 output)"
+    )
+    parser.add_argument(
+        "--output-file", default=None, help="Output CSV path (optional)"
+    )
     args = parser.parse_args()
 
     # --- Load anomaly anchor ---
@@ -247,7 +254,15 @@ def main():
     print(header)
 
     col_w = [20, 6, 8, 8, 8, 8, 8]
-    cols = ["事件名称", "可信度", "综合评分", "时间覆盖度", "方向一致性", "维度吻合度", "来源可信度"]
+    cols = [
+        "事件名称",
+        "可信度",
+        "综合评分",
+        "时间覆盖度",
+        "方向一致性",
+        "维度吻合度",
+        "来源可信度",
+    ]
     header_row = "  ".join(str(c).ljust(w) for c, w in zip(cols, col_w)) + "  原文摘要"
     print(header_row)
     print("-" * 110)
@@ -256,17 +271,25 @@ def main():
         summary = r["原文摘要"]
         if len(summary) > 35:
             summary = summary[:35] + "..."
-        row = "  ".join(
-            str(r[c]).ljust(w) for c, w in zip(cols, col_w)
-        ) + f"  {summary}"
+        row = (
+            "  ".join(str(r[c]).ljust(w) for c, w in zip(cols, col_w)) + f"  {summary}"
+        )
         print(row)
 
     # --- Write output file ---
     if args.output_file:
         fieldnames = [
-            "事件名称", "可信度", "综合评分",
-            "时间覆盖度", "方向一致性", "维度吻合度", "来源可信度",
-            "预期方向", "影响维度", "来源类型", "原文摘要",
+            "事件名称",
+            "可信度",
+            "综合评分",
+            "时间覆盖度",
+            "方向一致性",
+            "维度吻合度",
+            "来源可信度",
+            "预期方向",
+            "影响维度",
+            "来源类型",
+            "原文摘要",
         ]
         write_csv(args.output_file, results, fieldnames)
         print(f"\n结果已写入: {args.output_file}")

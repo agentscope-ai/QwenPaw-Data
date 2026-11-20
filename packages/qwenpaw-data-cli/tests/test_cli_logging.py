@@ -137,7 +137,8 @@ import logging
 from qwenpaw_data.cli.logging_config import configure_cli_logging
 
 log_path = configure_cli_logging()
-from qwenpaw_data.host.core import QwenPawDataHost
+from qwenpaw_data.host.core.api.app import create_app
+create_app()
 
 logging.getLogger("httpx").info("runtime-root-marker")
 logging.getLogger("as").info("runtime-agentscope-marker")

@@ -1,11 +1,27 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AccessibleFormLabel, Drawer, Form, Input, Button, Space, message, Select, InputNumber, Radio, Row, Col } from '@/design';
+import { DIMENSION_TYPE, DIMENSION_PRIORITY_OPTIONS } from '@/constants';
+import { Button, Drawer, Form, Input, Select, Space, message } from '@/design';
+import { useCascadeFilterOptions } from '@/hooks/useFilterOptions';
 import { createDimension, updateDimension } from '@/services/dimensionManagement';
 import { useBusinessDomainOptions } from '@/store';
-import { useDataSourceFilterOptions, useCascadeFilterOptions } from '@/hooks/useFilterOptions';
-import { formatDatasourceLabel, isFormValidationError, omitKeys } from '@/utils';
-import type { DimensionItem } from '@/types/dimensionManagement';
+import type {
+  DimensionCreateRequest,
+  DimensionItem,
+  DimensionPriority,
+  DimensionUpdateRequest,
+} from '@/types/dimensionManagement';
+import { isFormValidationError } from '@/utils';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+
+interface DimensionFormValues {
+  domain_id: number;
+  dimension_name: string;
+  description?: string | null;
+  synonyms?: string | null;
+  dimension_type?: string | null;
+  child_dimensions?: string[];
+  priority: DimensionPriority;
+}
 
 interface ActionDimensionDrawerProps {
   title: string;
@@ -13,11 +29,7 @@ interface ActionDimensionDrawerProps {
   onCancel: () => void;
   callback?: () => void;
   record?: DimensionItem;
-  /** 新增时可从列表筛选条件预填数据源/业务域 */
-  initialFilter?: {
-    datasource_id?: string;
-    domain_id?: number;
-  };
+  initialFilter?: { domain_id?: number };
 }
 
 const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
@@ -29,144 +41,103 @@ const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
   initialFilter,
 }) => {
   const { t } = useTranslation();
-  const [form] = Form.useForm();
-  const isEdit = !!record?.id;
-  const selectedDomainId = Form.useWatch('domain_id', form);
-  const selectedDatasourceId = Form.useWatch('datasource_id', form);
-  const parentSelectEnabled = isEdit ? !!record?.domain_id : !!selectedDomainId;
+  const [form] = Form.useForm<DimensionFormValues>();
+  const isEdit = record != null;
+  const initialPriority: DimensionPriority =
+    record?.priority?.trim().toLowerCase() === 'high' ? 'high' : 'normal';
   const [loading, setLoading] = useState(false);
-  const { options: dataSourceOptions } = useDataSourceFilterOptions();
-  const { loadDomains, loadDimensionIds } = useCascadeFilterOptions();
-  const domainOptions = useBusinessDomainOptions(selectedDatasourceId || '');
-  const [parentOptions, setParentOptions] = useState<{ label: string; value: string }[]>([]);
+  const [childOptions, setChildOptions] = useState<Array<{ label: string; value: string }>>([]);
+  const { loadDomains, loadDimensionNames } = useCascadeFilterOptions();
+  const domainOptions = useBusinessDomainOptions();
 
-  const fetchDomainOptions = useCallback(async (dsId: string, resetFields = true) => {
-    if (resetFields) {
-      form.setFieldValue('domain_id', undefined);
-      form.setFieldValue('parent_name', undefined);
-    }
-    if (!resetFields) {
-      setParentOptions([]);
-    }
-    if (!dsId) return;
-    await loadDomains(dsId);
-  }, [form, loadDomains]);
-
-  const loadParentOptions = useCallback(async (
-    domainId: number,
-    excludeId?: number,
-    resetParent = true,
-  ) => {
-    if (resetParent) {
-      form.setFieldValue('parent_name', undefined);
-    }
-    setParentOptions([]);
-    if (!domainId) return;
-    try {
-      const options = await loadDimensionIds(domainId);
-      setParentOptions(
-        options
-          .filter((item) => item.value !== excludeId)
-          .map((item) => ({ label: item.label, value: item.label }))
-      );
-    } catch (error) {
-      console.error('加载父维度选项失败:', error);
-    }
-  }, [form, loadDimensionIds]);
+  const loadChildren = useCallback(
+    async (domainId?: number) => {
+      if (!domainId) {
+        setChildOptions([]);
+        return;
+      }
+      const options = await loadDimensionNames(domainId);
+      setChildOptions(options.filter((option) => option.value !== record?.dimension_name));
+    },
+    [loadDimensionNames, record?.dimension_name],
+  );
 
   useEffect(() => {
     if (!visible) return;
-
-    if (record) {
-      form.setFieldsValue({
-        dimension_name: record.dimension_name,
-        description: record.description,
-        parent_name: record.parent_name || undefined,
-        depth: record.depth,
-        synonyms: record.synonyms,
-        is_visible: record.is_visible ?? true,
-        is_attribution: record.is_attribution ?? true,
-        enums: record.enums,
-      });
-      if (record.domain_id) {
-        loadParentOptions(record.domain_id, record.id, false);
-      }
-    } else {
+    const initialize = async () => {
       form.resetFields();
-      // domainOptions 会自动清空（因为 datasource_id 变为 undefined）
-      setParentOptions([]);
-      form.setFieldsValue({
-        is_visible: true,
-        is_attribution: true,
-      });
-
-      if (initialFilter?.datasource_id) {
-        form.setFieldValue('datasource_id', initialFilter.datasource_id);
-        fetchDomainOptions(initialFilter.datasource_id, false).then(() => {
-          if (initialFilter.domain_id) {
-            form.setFieldValue('domain_id', initialFilter.domain_id);
-            loadParentOptions(initialFilter.domain_id, undefined, false);
-          }
+      form.setFieldsValue({ priority: 'normal' });
+      if (record) {
+        form.setFieldsValue({
+          domain_id: record.domain_id,
+          dimension_name: record.dimension_name,
+          description: record.description,
+          synonyms: record.synonyms,
+          dimension_type: record.dimension_type,
+          child_dimensions: record.child_dimensions?.split('$$$').filter(Boolean),
+          priority: initialPriority,
         });
+        await Promise.all([loadDomains(), loadChildren(record.domain_id)]);
+        return;
       }
-    }
-  }, [
-    visible,
-    record,
-    initialFilter,
-    form,
-    fetchDomainOptions,
-    loadParentOptions,
-  ]);
+      await loadDomains();
+      if (initialFilter?.domain_id) {
+        form.setFieldValue('domain_id', initialFilter.domain_id);
+        await loadChildren(initialFilter.domain_id);
+      }
+    };
+    void initialize();
+  }, [form, initialFilter, initialPriority, loadChildren, loadDomains, record, visible]);
 
-  const handleDatasourceChange = (dsId: string) => {
-    fetchDomainOptions(dsId, true);
-  };
-
-  const handleDomainChange = (domainId: number) => {
-    loadParentOptions(domainId, record?.id, true);
+  const handleDomainChange = async (domainId?: number) => {
+    form.setFieldValue('child_dimensions', undefined);
+    await loadChildren(domainId);
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      const productFields: DimensionUpdateRequest = {
+        dimension_name: values.dimension_name,
+        description: values.description || null,
+        synonyms: values.synonyms || null,
+        dimension_type: values.dimension_type || null,
+        child_dimensions: values.child_dimensions?.join('$$$') || null,
+        priority: !isEdit || values.priority !== initialPriority ? values.priority : undefined,
+      };
       setLoading(true);
-      if (isEdit) {
-        const rest = omitKeys(values, ['datasource_id', 'domain_id']);
-        await updateDimension(record!.id, rest);
-        message.success(t('common.editSuccess'));
+      if (record) {
+        await updateDimension(record.dimension_id, productFields);
       } else {
-        await createDimension(values);
-        message.success(t('common.createSuccess'));
+        const createRequest: DimensionCreateRequest = {
+          domain_id: values.domain_id,
+          ...productFields,
+          dimension_name: values.dimension_name,
+        };
+        await createDimension(createRequest);
       }
+      message.success(record ? t('common.editSuccess') : t('common.createSuccess'));
       callback?.();
       onCancel();
-    } catch (err: unknown) {
-      if (isFormValidationError(err)) return;
-      // API 错误由响应拦截器统一提示
+    } catch (error: unknown) {
+      if (isFormValidationError(error)) return;
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClose = () => {
-    form.resetFields();
-    onCancel();
-  };
-
   return (
     <Drawer
       title={title}
-      placement="right"
       open={visible}
-      onClose={handleClose}
+      onClose={onCancel}
       width={720}
       destroyOnClose
       footer={
         <div style={{ textAlign: 'right' }}>
           <Space>
-            <Button onClick={handleClose}>{t('common.cancel')}</Button>
-            <Button type="primary" loading={loading} onClick={handleSubmit}>
+            <Button onClick={onCancel}>{t('common.cancel')}</Button>
+            <Button type="primary" loading={loading} onClick={() => void handleSubmit()}>
               {t('common.confirm')}
             </Button>
           </Space>
@@ -174,161 +145,35 @@ const ActionDimensionDrawer: React.FC<ActionDimensionDrawerProps> = ({
       }
     >
       <Form form={form} layout="vertical">
-        {isEdit ? (
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item label={t('fields.dataSource')}>
-                <Input value={formatDatasourceLabel(record?.datasource_name, record?.datasource_id)} disabled />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label={t('fields.businessDomain')}>
-                <Input value={record?.domain_name || '-'} disabled />
-              </Form.Item>
-            </Col>
-          </Row>
-        ) : (
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="datasource_id"
-                label={t('fields.dataSource')}
-                rules={[{ required: true, message: t('validation.selectDataSource') }]}
-                extra={t('dimension.dataSourceExtra')}
-              >
-                <Select
-                  placeholder={t('validation.selectDataSource')}
-                  options={dataSourceOptions}
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  onChange={handleDatasourceChange}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="domain_id"
-                label={t('fields.businessDomain')}
-                rules={[{ required: true, message: t('validation.selectBusinessDomain') }]}
-                extra={t('dimension.businessDomainExtra')}
-              >
-                <Select
-                  placeholder={t('validation.selectBusinessDomain')}
-                  options={domainOptions}
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  onChange={handleDomainChange}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-        )}
-
+        <Form.Item name="domain_id" label={t('fields.businessDomain')} rules={[{ required: true }]}>
+          <Select
+            options={domainOptions}
+            showSearch
+            disabled={isEdit}
+            onChange={(value) => void handleDomainChange(value)}
+          />
+        </Form.Item>
         <Form.Item
           name="dimension_name"
           label={t('fields.dimensionName')}
-          rules={[{ required: true, message: t('dimension.inputDimensionName') }]}
+          rules={[{ required: true, whitespace: true }]}
         >
-          <Input placeholder={t('dimension.inputDimensionName')} allowClear disabled={isEdit} />
+          <Input />
         </Form.Item>
-
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item name="description" label={t('fields.dimensionDescription')} extra={t('dimension.descriptionExtra')}>
-              <Input.TextArea
-                rows={4}
-                placeholder={t('dimension.inputDimensionDescription')}
-                maxLength={500}
-                showCount
-              />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="parent_name" label={t('fields.parentDimensionName')} extra={t('dimension.parentExtra')}>
-              <Select
-                placeholder={t('dimension.selectParentDimension')}
-                options={parentOptions}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                disabled={!parentSelectEnabled}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item name="depth" label={t('fields.depth')}>
-              <InputNumber
-                min={1}
-                placeholder={t('dimension.inputDepth')}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="synonyms" label={t('fields.synonyms')} extra={t('dimension.synonymsExtra')}>
-              <Input.TextArea
-                rows={4}
-                placeholder={t('dimension.synonymsPlaceholder')}
-                maxLength={500}
-                showCount
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              name="is_visible"
-              label={
-                <AccessibleFormLabel
-                  label={t('fields.isVisible')}
-                  description={t('dimension.isVisibleDescription')}
-                />
-              }
-              rules={[{ required: true, message: t('dimension.selectVisible') }]}
-            >
-              <Radio.Group optionType="button" buttonStyle="solid">
-                <Radio.Button value={true}>{t('common.yes')}</Radio.Button>
-                <Radio.Button value={false}>{t('common.no')}</Radio.Button>
-              </Radio.Group>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="is_attribution"
-              label={
-                <AccessibleFormLabel
-                  label={t('fields.isAttribution')}
-                  description={t('dimension.isAttributionDescription')}
-                />
-              }
-              rules={[{ required: true, message: t('dimension.selectAttribution') }]}
-            >
-              <Radio.Group optionType="button" buttonStyle="solid">
-                <Radio.Button value={true}>{t('common.yes')}</Radio.Button>
-                <Radio.Button value={false}>{t('common.no')}</Radio.Button>
-              </Radio.Group>
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Form.Item
-          name="enums"
-          label={t('fields.enums')}
-          extra={t('dimension.enumsExtra')}
-        >
-          <Input.TextArea
-            rows={4}
-            placeholder={t('dimension.inputEnums')}
-            maxLength={1000}
-            showCount
-          />
+        <Form.Item name="description" label={t('fields.dimensionDescription')}>
+          <Input.TextArea rows={3} />
+        </Form.Item>
+        <Form.Item name="synonyms" label={t('fields.synonyms')}>
+          <Input />
+        </Form.Item>
+        <Form.Item name="dimension_type" label={t('fields.dimensionType')}>
+          <Select options={DIMENSION_TYPE} allowClear />
+        </Form.Item>
+        <Form.Item name="child_dimensions" label="child_dimensions">
+          <Select mode="tags" options={childOptions} tokenSeparators={[',']} />
+        </Form.Item>
+        <Form.Item name="priority" label="priority" rules={[{ required: true }]}>
+          <Select options={DIMENSION_PRIORITY_OPTIONS} />
         </Form.Item>
       </Form>
     </Drawer>

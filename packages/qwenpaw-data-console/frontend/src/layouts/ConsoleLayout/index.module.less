@@ -1,0 +1,217 @@
+// Layout-owned styles.
+
+.page {
+  /*
+   * Page semantics alias the CSS variables emitted by the root AgentScope
+   * ConfigProvider. Component colors, type scale, and radii are defined only
+   * in src/theme.ts.
+   */
+  --console-primary: var(--ant-color-primary);
+  --console-primary-hover: var(--ant-color-primary-hover);
+  --console-primary-active: var(--ant-color-primary-active);
+  --console-primary-soft: var(--ant-color-primary-bg);
+  --console-primary-border: var(--ant-color-primary-border);
+  --console-nav: var(--ant-color-bg-spotlight);
+  --console-nav-raised: color-mix(in srgb, var(--console-nav) 88%, var(--ant-color-bg-container));
+  --console-canvas: var(--ant-color-bg-layout);
+  --console-surface: var(--ant-color-bg-container);
+  --console-fill: var(--ant-color-fill-quaternary);
+  --console-fill-secondary: var(--ant-color-fill-secondary);
+  --console-line: var(--ant-color-split);
+  --console-border: var(--ant-color-border);
+  --console-text: var(--ant-color-text);
+  --console-text-secondary: var(--ant-color-text-secondary);
+  --console-muted: var(--ant-color-text-tertiary);
+  --console-success: var(--ant-color-success);
+  --console-success-bg: var(--ant-color-success-bg);
+  --console-success-border: var(--ant-color-success-border);
+  --console-warning: var(--ant-color-warning);
+  --console-warning-bg: var(--ant-color-warning-bg);
+  --console-warning-border: var(--ant-color-warning-border);
+  --console-error: var(--ant-color-error);
+  --console-error-bg: var(--ant-color-error-bg);
+  --console-error-border: var(--ant-color-error-border);
+  --runtime-surface-neutral: var(--ant-color-fill-tertiary);
+  --runtime-surface-important: var(--ant-color-primary-bg);
+  --runtime-surface-on-important: var(--ant-color-bg-container);
+  --assistant-response-background: color-mix(in srgb, var(--console-surface) 72%, transparent);
+  --console-card-shadow: 0 2px 10px -6px rgb(15 23 42 / 18%);
+  --assistant-response-shadow: var(--console-card-shadow);
+  --console-route-content-min-width: var(--qwenpaw-data-layout-route-content-min-width);
+  --console-route-content-max-width: var(--qwenpaw-data-layout-route-content-max-width);
+  --console-route-card-background: transparent;
+  --console-route-card-border: var(--qwenpaw-data-color-border);
+  --console-route-card-shadow: var(--qwenpaw-data-route-card-shadow);
+  --console-route-card-shadow-large: var(--qwenpaw-data-route-card-shadow-large);
+  --text-micro: var(--ant-font-size-sm);
+  --text-caption: var(--ant-font-size-sm);
+  --text-supporting: var(--ant-font-size-sm);
+  --text-body-compact: var(--ant-font-size);
+  --text-body: var(--ant-font-size);
+  --text-subtitle: var(--ant-font-size-lg);
+  --text-title: var(--ant-font-size-lg);
+  --icon-small: var(--ant-font-size);
+  --icon-default: var(--ant-font-size-lg);
+  --icon-large: var(--ant-font-size-xl);
+  --radius-small: var(--ant-border-radius-sm);
+  --radius-default: var(--ant-border-radius);
+  --radius-large: var(--ant-border-radius-lg);
+  --console-topbar-height: var(--qwenpaw-data-layout-topbar-height);
+  --console-nav-width: var(--qwenpaw-data-layout-sider-width);
+  --session-workspace-width: 440px;
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--console-nav-width) minmax(0, 1fr);
+  height: 100vh;
+  min-height: 760px;
+  overflow: hidden;
+  color: var(--console-text);
+  background: var(--console-canvas);
+  transition: grid-template-columns var(--qwenpaw-data-motion-layout)
+    var(--qwenpaw-data-motion-emphasized-easing);
+}
+
+.page.pageNavCollapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.routeContent {
+  position: relative;
+  min-width: 0;
+  height: calc(100vh - (var(--qwenpaw-data-layout-route-outer-margin) * 2));
+  margin: var(--qwenpaw-data-layout-route-outer-margin) var(--qwenpaw-data-layout-route-outer-margin)
+    var(--qwenpaw-data-layout-route-outer-margin) 0;
+  overflow: hidden;
+  background: var(--qwenpaw-data-color-route-surface);
+  border-radius: var(--qwenpaw-data-radius-route);
+  box-shadow: none;
+}
+
+button,
+input,
+textarea,
+.page :global(.ant-select-selection-item) {
+  font-size: var(--text-body-compact);
+}
+
+.navCollapseButton {
+  position: absolute;
+  z-index: 8;
+  top: 50%;
+  left: calc(var(--console-nav-width) - 7px);
+  display: grid;
+  width: 14px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  color: #61738a;
+  font-size: 12px;
+  background: var(--console-surface);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: none;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition:
+    left var(--qwenpaw-data-motion-layout) var(--qwenpaw-data-motion-emphasized-easing),
+    opacity var(--qwenpaw-data-motion-fast) ease,
+    color var(--qwenpaw-data-motion-fast) ease,
+    background-color var(--qwenpaw-data-motion-fast) ease;
+
+  &::before {
+    position: absolute;
+    inset: -6px 0 -6px -10px;
+    content: '';
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: #0b5fc6;
+    background: #e9edf2;
+    box-shadow: none;
+  }
+}
+
+.page:has(> aside:hover) .navCollapseButton,
+.navCollapseButton:hover,
+.navCollapseButton:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .navCollapseButton:hover,
+:global(:root[data-qwenpaw-data-theme='dark']) .navCollapseButton:focus-visible {
+  background: var(--qwenpaw-data-color-fill-secondary);
+}
+
+.pageNavCollapsed .navCollapseButton {
+  left: calc(var(--qwenpaw-data-layout-route-outer-margin) - 7px);
+  width: 14px;
+  border-radius: 4px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pageNavCollapsed .routeContent {
+  margin-left: var(--qwenpaw-data-layout-route-outer-margin);
+}
+
+.page {
+  background: var(--qwenpaw-data-ambient-background);
+}
+
+.mobileNavOverlay {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1380px) {
+  .page {
+    --session-workspace-width: 400px;
+    grid-template-columns: var(--console-nav-width) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1120px) {
+  .page {
+    grid-template-columns: var(--console-nav-width) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .page {
+    display: block;
+    min-height: 100dvh;
+  }
+
+  .routeContent {
+    height: calc(100dvh - (var(--qwenpaw-data-layout-route-outer-margin) * 2));
+  }
+
+  .navCollapseButton {
+    display: none;
+  }
+
+  .mobileNavOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgb(2 6 23 / 52%);
+    backdrop-filter: blur(4px);
+  }
+}

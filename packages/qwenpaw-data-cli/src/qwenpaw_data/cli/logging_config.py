@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import TextIO
@@ -15,8 +16,7 @@ _LOG_LEVEL = logging.INFO
 _MAX_BYTES = 50 * 1024 * 1024
 _BACKUP_COUNT = 2
 _LOG_FORMAT = (
-    "%(asctime)s | %(levelname)-7s | "
-    "%(name)s:%(funcName)s:%(lineno)d - %(message)s"
+    "%(asctime)s | %(levelname)-7s | %(name)s:%(funcName)s:%(lineno)d - %(message)s"
 )
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -104,9 +104,8 @@ def _route_agentscope_logger_to_root() -> None:
     import agentscope  # noqa: F401
 
     for handler in existing_handlers:
-        if (
-            handler not in agentscope_logger.handlers
-            and _is_agentscope_console_handler(handler)
+        if handler not in agentscope_logger.handlers and _is_agentscope_console_handler(
+            handler
         ):
             handler.close()
     for handler in list(agentscope_logger.handlers):
@@ -129,4 +128,27 @@ def configure_cli_logging() -> Path:
     return log_path
 
 
-__all__ = ["configure_cli_logging"]
+@contextmanager
+def without_cli_file_logging():
+    """Migration must not append/rotate a log in the source or target home.
+
+    Do not create or close a file handler. Preserve and restore CLI-owned
+    handlers for in-process callers; externally installed handlers remain the
+    caller's responsibility. Normal CLI commands retain persistent logging.
+    """
+    root = logging.getLogger()
+    owned = [
+        handler
+        for handler in root.handlers
+        if isinstance(handler, _QwenPawDataCLIFileHandler)
+    ]
+    for handler in owned:
+        root.removeHandler(handler)
+    try:
+        yield
+    finally:
+        for handler in owned:
+            root.addHandler(handler)
+
+
+__all__ = ["configure_cli_logging", "without_cli_file_logging"]

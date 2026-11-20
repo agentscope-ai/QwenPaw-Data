@@ -110,6 +110,11 @@ class SegmentArtifactSchema(ApiModel):
     relative_path: str | None = None
 
 
+class SegmentConfidenceSchema(ApiModel):
+    level: Literal["high", "medium", "low"]
+    summary: str
+
+
 class CoverageSchema(ApiModel):
     start_seq: int
     end_seq: int
@@ -126,3 +131,4 @@ class SegmentSchema(ApiModel):
     coverage: CoverageSchema
     started_at: float | None = None
     ended_at: float | None = None
+    confidence: SegmentConfidenceSchema | None = None

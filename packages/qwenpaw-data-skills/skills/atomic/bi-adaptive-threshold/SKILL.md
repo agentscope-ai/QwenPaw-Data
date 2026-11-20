@@ -40,7 +40,7 @@ description: 通过量化历史数据的自然波动幅度，自适应计算判�
 
 #### 方式一：使用脚本
 
-路径： `scripts/adaptive_threshold.py`
+路径：`<skill-dir>/scripts/adaptive_threshold.py`
 
 原理：
 
@@ -81,7 +81,7 @@ description: 通过量化历史数据的自然波动幅度，自适应计算判�
 **调用示例**：
 
 ```bash
-python scripts/adaptive_threshold.py \
+python <skill-dir>/scripts/adaptive_threshold.py \
   --input-file data.csv \
   --date-col "日期" \
   --metric-col "访问用户数"

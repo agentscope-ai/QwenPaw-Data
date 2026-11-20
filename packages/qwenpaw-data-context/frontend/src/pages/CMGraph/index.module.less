@@ -2,7 +2,7 @@
 :root {
   --kg-node-border-color: rgba(255, 255, 255, 0.8);
   --kg-node-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  --kg-node-selected-border-color: #0D76FD;
+  --kg-node-selected-border-color: #0d76fd;
   --kg-node-selected-shadow: 0 0 0 3px rgba(13, 118, 253, 0.4);
   --kg-edge-default-color: #999;
   --kg-edge-selected-color: #f0c040;
@@ -21,12 +21,23 @@
 }
 
 /* ── KGBrowser Page ────────────────────────────────────────────────────────── */
+.pageWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: calc(100dvh - 160px);
+  min-height: 560px;
+}
+
 .page {
   display: flex;
   flex-direction: row;
-  height: calc(100dvh - 160px);
-  min-height: 560px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  background: var(--colorBgContainer, #fff);
+  border-radius: 14px !important;
+  box-shadow: 0 10px 30px rgba(42, 66, 101, 0.08);
 }
 
 /* ── Sidebar ──────────────────────────────────────────────────────────────── */
@@ -168,8 +179,8 @@
 }
 
 .sidebarTabActive {
-  color: var(--colorPrimary, #0D76FD);
-  border-bottom-color: var(--colorPrimary, #0D76FD);
+  color: var(--colorPrimary, #0d76fd);
+  border-bottom-color: var(--colorPrimary, #0d76fd);
 
   :global(html.dark-mode) & {
     color: #4da3ff;
@@ -182,30 +193,224 @@
   overflow-y: auto;
 }
 
-/* ── Search Results ──────────────────────────────────────────────────────── */
-.searchResults {
-  margin-top: 12px;
+/* ── Search Bar ──────────────────────────────────────────────────────────── */
+.searchBar {
   display: flex;
-  flex-direction: column;
   gap: 8px;
+  margin-bottom: 12px;
+
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
-.searchResultItem {
+/* ── Search Filter Card ──────────────────────────────────────────────────── */
+.searchFilterCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--colorFillQuaternary, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--colorBorderSecondary, #f0f0f0);
+
+  :global(html.dark-mode) & {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: #3a3e43;
+  }
+}
+
+.searchFilterRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
+}
+
+.searchFilterLabel {
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+  flex-shrink: 0;
+  min-width: 56px;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.searchChipGroup {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+}
+
+.searchChip {
+  flex: 1;
+  padding: 3px 0;
+  font-size: 12px;
+  text-align: center;
+  background: var(--colorBgContainer, #fff);
+  border: 1px solid var(--colorBorder, #e5e7eb);
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
   cursor: pointer;
+  border-radius: 999px;
+  transition: all 0.15s;
 
   &:hover {
-    background: var(--colorFillSecondary, rgba(0, 0, 0, 0.06));
+    color: var(--colorPrimary, #0d76fd);
+    border-color: var(--colorPrimary, #0d76fd);
   }
 
   :global(html.dark-mode) & {
+    background: transparent;
+    border-color: #3a3e43;
+    color: rgba(255, 255, 255, 0.55);
+
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      color: #4da3ff;
+      border-color: #4da3ff;
     }
+  }
+}
+
+.searchChipActive {
+  color: var(--colorPrimary, #0d76fd);
+  background: rgba(13, 118, 253, 0.08);
+  border-color: var(--colorPrimary, #0d76fd);
+  font-weight: 500;
+
+  :global(html.dark-mode) & {
+    color: #4da3ff;
+    background: rgba(77, 163, 255, 0.15);
+    border-color: #4da3ff;
+  }
+}
+
+.searchRadioGroup {
+  flex: 1;
+  display: flex;
+
+  :global(.ant-radio-button-wrapper) {
+    flex: 1;
+    text-align: center;
+    padding-inline: 0;
+    font-size: 12px;
+  }
+}
+
+.searchStats {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  padding: 4px 0;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
+.searchSkeleton {
+  margin-top: 16px;
+}
+
+.searchEmptyState {
+  margin-top: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  // Neutral strokes of the illustration follow this color.
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.18));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.22);
+  }
+}
+
+.searchEmptyIconAccent {
+  color: var(--colorPrimary, #0d76fd);
+  opacity: 0.75;
+
+  :global(html.dark-mode) & {
+    color: #4da3ff;
+  }
+}
+
+.searchEmptyHint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
+/* ── Search Results ──────────────────────────────────────────────────────── */
+.searchResults {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.searchResultCard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--colorBorderSecondary, #f0f0f0);
+  background: var(--colorBgContainer, #fff);
+  cursor: pointer;
+  transition: all 0.15s;
+
+  .searchResultLocate {
+    opacity: 0;
+  }
+
+  &:hover {
+    border-color: var(--colorPrimary, #0d76fd);
+    background: rgba(13, 118, 253, 0.04);
+
+    .searchResultLocate {
+      opacity: 1;
+    }
+  }
+
+  :global(html.dark-mode) & {
+    background: transparent;
+    border-color: #3a3e43;
+
+    &:hover {
+      border-color: #4da3ff;
+      background: rgba(77, 163, 255, 0.08);
+    }
+  }
+}
+
+.searchResultDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.searchResultMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.searchResultCaption {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
   }
 }
 
@@ -221,138 +426,39 @@
   }
 }
 
-.searchResultEmpty {
-  font-size: 12px;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
-  text-align: center;
-  padding: 16px 0;
-
-  :global(html.dark-mode) & {
-    color: rgba(255, 255, 255, 0.45);
-  }
-}
-
-/* ── Search Box ──────────────────────────────────────────────────────────── */
-.searchBox {
-  margin-bottom: 12px;
-}
-
-.searchBoxBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
+.searchHighlight {
   background: transparent;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
-  cursor: pointer;
-  border-radius: 4px;
   padding: 0;
-  transition: all 0.15s;
-
-  &:hover:not(:disabled) {
-    color: var(--colorPrimary, #0D76FD);
-    background: var(--colorFillSecondary, rgba(0, 0, 0, 0.06));
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-  }
+  color: var(--colorPrimary, #0d76fd);
+  font-weight: 600;
 
   :global(html.dark-mode) & {
-    color: rgba(255, 255, 255, 0.45);
-
-    &:hover:not(:disabled) {
-      color: #4da3ff;
-      background: rgba(255, 255, 255, 0.08);
-    }
+    color: #4da3ff;
   }
 }
 
-/* ── Search Config ─────────────────────────────────────────────────────── */
-.searchConfig {
-  margin-top: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.searchConfigRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.searchConfigLabel {
-  font-size: 12px;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
+.zoneBadge {
   flex-shrink: 0;
-  min-width: 56px;
-
-  :global(html.dark-mode) & {
-    color: rgba(255, 255, 255, 0.55);
-  }
-}
-
-.searchConfigValue {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.searchConfigBtn {
-  flex: 1;
-  padding: 3px 0;
-  font-size: 11px;
-  text-align: center;
-  background: transparent;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
   border: 1px solid var(--colorBorder, #e5e7eb);
   color: var(--colorTextSecondary, rgba(0, 0, 0, 0.55));
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s;
-
-  &:hover {
-    color: #fff;
-    background: var(--colorPrimary, #0D76FD);
-    border-color: var(--colorPrimary, #0D76FD);
-  }
 
   :global(html.dark-mode) & {
     border-color: #3a3e43;
     color: rgba(255, 255, 255, 0.55);
-
-    &:hover {
-      color: #fff;
-      background: #4da3ff;
-      border-color: #4da3ff;
-    }
   }
 }
 
-.searchConfigBtnActive {
-  color: #fff;
-  background: var(--colorPrimary, #0D76FD);
-  border-color: var(--colorPrimary, #0D76FD);
+.searchResultLocate {
+  flex-shrink: 0;
+  color: var(--colorPrimary, #0d76fd);
+  transition: opacity 0.15s;
 
   :global(html.dark-mode) & {
-    background: #4da3ff;
-    border-color: #4da3ff;
-    color: #fff;
-  }
-}
-
-.searchStats {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
-  padding: 4px 0;
-
-  :global(html.dark-mode) & {
-    color: rgba(255, 255, 255, 0.45);
+    color: #4da3ff;
   }
 }
 
@@ -394,7 +500,7 @@
   user-select: none;
 
   &:hover {
-    color: var(--colorPrimary, #0D76FD);
+    color: var(--colorPrimary, #0d76fd);
   }
 
   :global(html.dark-mode) & {
@@ -407,8 +513,8 @@
 }
 
 .zoneTabActive {
-  color: var(--colorPrimary, #0D76FD) !important;
-  border-bottom-color: var(--colorPrimary, #0D76FD);
+  color: var(--colorPrimary, #0d76fd) !important;
+  border-bottom-color: var(--colorPrimary, #0d76fd);
 
   :global(html.dark-mode) & {
     color: #4da3ff !important;
@@ -492,6 +598,61 @@
   margin-left: 8px;
 }
 
+/* ── Scope Hint ───────────────────────────────────────────────────────────── */
+.scopeHint {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  background: var(--colorBgLayout, #f5f5f5);
+  border-bottom: 1px solid var(--colorBorder, #e5e7eb);
+  flex-shrink: 0;
+
+  :global(html.dark-mode) & {
+    background: #1e2227;
+    border-color: #3a3e43;
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
+/* ── Member List (sidebar members tab) ────────────────────────────────────── */
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+}
+
+.memberItem {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--colorText, rgba(0, 0, 0, 0.85));
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--colorBgTextHover, rgba(0, 0, 0, 0.04));
+  }
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.85);
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+}
+
+.memberItemActive {
+  background: var(--colorPrimaryBg, #e6f4ff);
+  color: var(--colorPrimary, #0d76fd);
+
+  :global(html.dark-mode) & {
+    background: rgba(77, 163, 255, 0.15);
+    color: #4da3ff;
+  }
+}
+
 /* ── Frames Container ─────────────────────────────────────────────────────── */
 .framesContainer {
   flex: 1;
@@ -500,7 +661,7 @@
   flex-direction: column;
   overflow: hidden;
   padding: 16px;
-  background: var(--colorBgLayout, #f5f5f5);
+  background: #f7f9fc;
   position: relative;
 
   :global(html.dark-mode) & {
@@ -587,23 +748,23 @@
   display: flex;
   flex-direction: column;
   background: var(--colorBgContainer, #fff);
-  border-radius: 8px;
-  border: 1px solid var(--colorBorder, #e5e7eb);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(42, 66, 101, 0.06);
   overflow: hidden;
-
-  :global(.ant-empty),
-  :global(.spark-empty) {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  }
 
   :global(html.dark-mode) & {
     background: #2a2e33;
     border-color: #3a3e43;
   }
+}
+
+.framesInitialEmpty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
 }
 
 .framesInitialQueryBar {
@@ -701,8 +862,9 @@
 /* ── Result Frame (Card) ─────────────────────────────────────────────────── */
 .resultFrame {
   background: var(--colorBgContainer, #fff);
-  border-radius: 8px;
-  border: 1px solid var(--colorBorder, #e5e7eb);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(42, 66, 101, 0.06);
   overflow: hidden;
   position: relative;
   /* Fill all available height in framesContainer */
@@ -845,7 +1007,7 @@
   transition: all 0.2s;
 
   &:hover {
-    color: var(--colorPrimary, #0D76FD);
+    color: var(--colorPrimary, #0d76fd);
     background: var(--colorBgTextHover, rgba(0, 0, 0, 0.06));
   }
 
@@ -860,8 +1022,8 @@
 }
 
 .frameTabActive {
-  color: var(--colorPrimary, #0D76FD) !important;
-  border-left: 3px solid var(--colorPrimary, #0D76FD);
+  color: var(--colorPrimary, #0d76fd) !important;
+  border-left: 3px solid var(--colorPrimary, #0d76fd);
   background: var(--colorBgTextHover, rgba(0, 0, 0, 0.04));
 
   :global(html.dark-mode) & {
@@ -948,7 +1110,7 @@
   }
 
   :global(.ant-btn:hover) {
-    color: var(--colorPrimary, #0D76FD);
+    color: var(--colorPrimary, #0d76fd);
     background: var(--colorBgTextHover, rgba(0, 0, 0, 0.06));
   }
 
@@ -1181,7 +1343,7 @@
   font-size: 12px;
 
   &:hover {
-    color: var(--colorPrimary, #0D76FD);
+    color: var(--colorPrimary, #0d76fd);
   }
 
   :global(html.dark-mode) & {
@@ -1421,7 +1583,7 @@
   transition: all 0.2s;
 
   &:hover {
-    color: var(--colorPrimary, #0D76FD);
+    color: var(--colorPrimary, #0d76fd);
     background: var(--colorBgTextHover, rgba(0, 0, 0, 0.06));
   }
 

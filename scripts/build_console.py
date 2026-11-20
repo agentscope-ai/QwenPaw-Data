@@ -23,9 +23,10 @@ def main():
     npm = shutil.which("npm")
     if not npm:
         parser.error("Node.js/npm is required to build Console release assets")
+    # Host's unified build consumes the embedded Context library and its dependencies.
     for name, frontend, mode in (
-        ("chat", PACKAGE / "frontend", "production"),
         ("databridge", ROOT / "packages/qwenpaw-data-context/frontend", "console"),
+        ("chat", PACKAGE / "frontend", "production"),
     ):
         if not args.skip_install:
             subprocess.run(

@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path, PurePath
+from dataclasses import dataclass
+from pathlib import Path, PurePath, PurePosixPath
+from typing import TYPE_CHECKING, Any
 
 from .artifact_paths import ArtifactPathContext
+
+if TYPE_CHECKING:
+    from qwenpaw_data.host.core.domain.identity import Identity
 
 QWENPAW_DATA_HOME_ENV = "QWENPAW_DATA_HOME"
 _DEFAULT_HOME = Path("~/.qwenpaw-data")
@@ -103,3 +107,75 @@ class Paths:
             host_artifact_dir=self.artifact_dir,
             model_artifact_dir=model_artifact_dir,
         )
+
+
+@dataclass(frozen=True)
+class UserAgentPaths:
+    """Console paths: ``{home}/{tenant}/{workspace}/{user}/{agent}/workspace/...``."""
+
+    home: Path
+    tenant_id: str
+    workspace_id: str
+    user_id: str
+    agent_id: str
+    session_id: str
+
+    @classmethod
+    def from_identity(
+        cls,
+        *,
+        home: Path,
+        identity: Identity,
+        agent_id: str,
+        session_id: str,
+    ) -> UserAgentPaths:
+        return cls(
+            home=home,
+            tenant_id=identity.tenant_id,
+            workspace_id=identity.workspace_id,
+            user_id=identity.user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
+
+    @property
+    def user_root(self) -> Path:
+        return self.home / self.tenant_id / self.workspace_id / self.user_id
+
+    @property
+    def agent_root(self) -> Path:
+        return self.user_root / self.agent_id
+
+    @property
+    def workspace(self) -> Path:
+        return self.agent_root / "workspace"
+
+    def agent_artifact_dir(self, workspace: Any) -> str:
+        """Agent 在执行环境里看到的当前 Session 产物目录。"""
+        relative = self.artifact_dir.relative_to(self.workspace).as_posix()
+        return str(PurePosixPath(workspace.workdir) / relative)
+
+    @property
+    def artifacts_root(self) -> Path:
+        return self.workspace / "artifacts"
+
+    @property
+    def skills_root(self) -> Path:
+        return self.workspace / "skills"
+
+    @property
+    def skills(self) -> Path:
+        return self.skills_root / self.agent_id
+
+    @property
+    def mcp_manifest(self) -> Path:
+        """Host MCP inventory: ``{agent}/workspace/mcp.json``."""
+        return self.workspace / "mcp.json"
+
+    @property
+    def artifact_dir(self) -> Path:
+        return self.artifacts_root / self.session_id
+
+    @property
+    def uploads_dir(self) -> Path:
+        return self.workspace / "uploads" / self.session_id

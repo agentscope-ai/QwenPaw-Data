@@ -1,10 +1,30 @@
-"""Package: LLM doc → Neo4j knowledge / semantic edges."""
+"""Expose Knowledge document query, import and deletion services."""
 
-__all__ = ["run_doc_ingest"]
+from .deletion import KnowledgeDeleteService
+from .importer import KnowledgeImportLimits, KnowledgeImportPlan, KnowledgeImportService
+from .query import DocumentQueryService
+from .algo import document_reader
+from .algo.contract import (
+    KnowledgeImportError,
+    KnowledgeImportErrorCode,
+    KnowledgeImportResult,
+    KnowledgeNodeSeed,
+    UploadedDocument,
+)
+from .algo.document_reader import DocumentLimits, read_document
 
-
-def run_doc_ingest(*args, **kwargs):  # type: ignore[no-untyped-def]
-    """Lazy import so ``python -m context_manager.knowledge`` works without Neo4j driver deps at import time."""
-    from .pipeline import run_doc_ingest as _impl
-
-    return _impl(*args, **kwargs)
+__all__ = [
+    "DocumentLimits",
+    "KnowledgeDeleteService",
+    "DocumentQueryService",
+    "KnowledgeImportError",
+    "KnowledgeImportErrorCode",
+    "KnowledgeImportLimits",
+    "KnowledgeImportPlan",
+    "KnowledgeImportResult",
+    "KnowledgeImportService",
+    "KnowledgeNodeSeed",
+    "UploadedDocument",
+    "document_reader",
+    "read_document",
+]

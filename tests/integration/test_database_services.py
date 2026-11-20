@@ -45,6 +45,28 @@ def test_postgres_service() -> None:
             assert cursor.fetchone() == (1,)
 
 
+def test_postgres_migration_target_connection_is_read_only() -> None:
+    from uuid import uuid4
+    from sqlalchemy.exc import DBAPIError
+    from qwenpaw_data.host.core.migration.target import _read_only_target
+
+    # No tables/accounts are provisioned by this check. Even if read-only mode
+    # regresses, the attempted DDL remains in an always-rolled-back transaction.
+    with _read_only_target(os.environ["QWENPAW_DATA_TEST_POSTGRES_DSN"]) as conn:
+        assert conn.exec_driver_sql("SHOW transaction_read_only").scalar() == "on"
+        assert (
+            conn.exec_driver_sql("SHOW transaction_isolation").scalar()
+            == "repeatable read"
+        )
+        assert conn.exec_driver_sql("SHOW statement_timeout").scalar() == "10s"
+        assert conn.exec_driver_sql("SHOW lock_timeout").scalar() == "1s"
+        with pytest.raises(DBAPIError) as raised:
+            conn.exec_driver_sql(
+                f"CREATE TABLE migration_readonly_probe_{uuid4().hex} (id integer)"
+            )
+        assert raised.value.orig.sqlstate == "25006"  # read_only_sql_transaction
+
+
 def test_mysql_service() -> None:
     import pymysql
 

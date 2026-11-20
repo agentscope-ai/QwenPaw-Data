@@ -1,21 +1,26 @@
 # -*- coding: utf-8 -*-
-"""The ask_user_question producer: schema bounds, flags, and registration."""
+"""The native ask_user_question producer: advisory bounds and registration."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from qwenpaw_data.host.core.agent.tools import AskUserQuestionTool
-from qwenpaw_data.host.core.agent.toolkit import build_qwenpaw_data_toolkit
+from qwenpaw_data.host.core.db.engine import get_session_factory
 from qwenpaw_data.host.core.domain.clarification import (
     ASK_USER_QUESTION,
-    ClarificationSettings,
     ClarificationWithFrontend,
-    ClarificationWithLLM,
 )
-from qwenpaw_data.host.core.orchestration import RuntimeStateManager
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.runtime.builder.data_agent import DataAgentBuilder
+from qwenpaw_data.host.core.runtime.context import RunContext
+from qwenpaw_data.host.core.settings import ClarificationSettings, clear_settings
+
+from .conftest import TEST_IDENTITY
 
 _ENV_PREFIX = "QWENPAW_DATA_CLARIFICATION_"
 
@@ -29,13 +34,15 @@ def test_tool_is_external_so_the_executor_can_park() -> None:
     assert tool.is_concurrency_safe is False
 
 
-def test_schema_carries_default_bounds() -> None:
-    schema = ClarificationWithLLM.agent_input_schema()
+def test_schema_carries_advisory_default_bounds() -> None:
+    schema = AskUserQuestionTool.build_input_schema()
 
     questions = schema["properties"]["questions"]
-    assert (questions["minItems"], questions["maxItems"]) == (1, 4)
-    options = questions["items"]["properties"]["options"]
-    assert (options["minItems"], options["maxItems"]) == (2, 4)
+    assert "prefer 1..4 items" in questions["description"]
+    options = schema["$defs"]["_AskUserQuestionQuestion"]["properties"]["options"]
+    assert "Prefer 2..4 items" in options["description"]
+    assert not {"minItems", "maxItems"} & questions.keys()
+    assert not {"minItems", "maxItems"} & options.keys()
     assert schema["required"] == ["title", "questions"]
     assert schema["additionalProperties"] is False
 
@@ -43,25 +50,27 @@ def test_schema_carries_default_bounds() -> None:
 def test_schema_bounds_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(f"{_ENV_PREFIX}QUESTIONS_MAX_ITEMS", "2")
     monkeypatch.setenv(f"{_ENV_PREFIX}OPTIONS_MAX_ITEMS", "6")
+    clear_settings()
 
     schema = AskUserQuestionTool().input_schema
 
     questions = schema["properties"]["questions"]
-    assert questions["maxItems"] == 2
     assert "1..2 items" in questions["description"]
-    options = questions["items"]["properties"]["options"]
-    assert options["maxItems"] == 6
+    options = schema["$defs"]["_AskUserQuestionQuestion"]["properties"]["options"]
     assert "2..6 items" in options["description"]
+    assert not {"minItems", "maxItems"} & questions.keys()
+    assert not {"minItems", "maxItems"} & options.keys()
 
 
 @pytest.mark.parametrize("raw", ["0", "-3", "abc", "", "   "])
-def test_unusable_env_falls_back_to_default(
+def test_unusable_env_is_rejected(
     raw: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(f"{_ENV_PREFIX}QUESTIONS_MAX_ITEMS", raw)
 
-    assert ClarificationSettings().questions_max_items == 4
+    with pytest.raises(ValueError, match="questions_max_items"):
+        ClarificationSettings()
 
 
 def test_inverted_bounds_are_rejected() -> None:
@@ -71,21 +80,23 @@ def test_inverted_bounds_are_rejected() -> None:
         ClarificationSettings(options_min_items=4, options_max_items=2)
 
 
-def test_hint_ttl_is_configurable() -> None:
+def test_hint_ttl_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
+    monkeypatch.setenv(f"{_ENV_PREFIX}HINT_TTL_SECONDS", "60")
+    clear_settings()
 
     metadata = ClarificationWithFrontend.tool_call_metadata(
         now=now,
-        settings=ClarificationSettings(hint_ttl_seconds=60),
     )
 
     assert metadata == {"expires_at": "2026-01-01T00:01:00Z"}
 
 
-def test_description_forbids_plain_text_questions() -> None:
-    description = ClarificationWithLLM.tool_description()
+def test_description_distinguishes_choices_from_open_questions() -> None:
+    description = AskUserQuestionTool.description
 
-    assert "REQUIRED" in description
+    assert "closed multiple-choice" in description
+    assert "Do not call it when the user must type" in description
     assert "status=timeout" in description
 
 
@@ -93,46 +104,56 @@ class _FakeWorkspace:
     async def list_tools(self) -> list:
         return []
 
-    async def list_mcps(self) -> list:
+    async def list_mcps(self, *, agent_id: str, session_id: str) -> list:
         return []
 
-    async def list_skills(self) -> list:
+    async def list_skills(self, *, agent_id: str) -> list:
         return []
 
 
-async def _tool_names(*, enable_clarification: bool, mode: str) -> set[str]:
-    toolkit = await build_qwenpaw_data_toolkit(
-        RuntimeStateManager(),
+async def _tool_names() -> set[str]:
+    context = RunContext(
+        session_id="session-a",
+        chat_id="chat-a",
         workspace=_FakeWorkspace(),
-        enable_clarification=enable_clarification,
+        paths=UserAgentPaths.from_identity(
+            home=Path("."),
+            identity=TEST_IDENTITY,
+            agent_id="agent-a",
+            session_id="session-a",
+        ),
+        user_runtime_config=SimpleNamespace(
+            tool_timeout_enabled=True,
+            tool_timeout_seconds=1800,
+        ),
+        identity=TEST_IDENTITY,
+        session_factory=get_session_factory(),
     )
-    toolkit.set_qwenpaw_data_mode(mode)
-    return {
-        schema["function"]["name"]
-        for schema in await toolkit.get_tool_schemas([mode])
-    }
+    toolkit = await DataAgentBuilder().build_toolkit(run_context=context)
+    return {schema["function"]["name"] for schema in await toolkit.get_tool_schemas()}
 
 
-@pytest.mark.parametrize("mode", ["plan", "agent"])
-async def test_registered_in_both_modes_when_enabled(
-    mode: str,
+@pytest.mark.parametrize("delegation", ["true", "false"])
+async def test_registered_in_native_builder(
+    delegation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", raising=False)
+    monkeypatch.setenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", delegation)
 
-    names = await _tool_names(enable_clarification=True, mode=mode)
+    names = await _tool_names()
 
     assert ASK_USER_QUESTION in names
 
 
-@pytest.mark.parametrize("mode", ["plan", "agent"])
-async def test_absent_when_no_executor_can_service_it(
-    mode: str,
+@pytest.mark.parametrize("ui_enabled", ["true", "false"])
+async def test_registration_is_independent_of_ui_tool_flag(
+    ui_enabled: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CLI-style hosts leave it off, or the turn would park forever."""
-    monkeypatch.delenv("QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED", raising=False)
+    """Headless chats use the executor's automatic answer, not tool removal."""
+    monkeypatch.setenv("QWENPAW_DATA_TOOL_UI_ENABLED", ui_enabled)
+    clear_settings()
 
-    names = await _tool_names(enable_clarification=False, mode=mode)
+    names = await _tool_names()
 
-    assert ASK_USER_QUESTION not in names
+    assert ASK_USER_QUESTION in names

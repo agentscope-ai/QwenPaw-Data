@@ -1,0 +1,51 @@
+.failure {
+  margin-top: 12px;
+  min-width: 0;
+}
+
+.card {
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: var(--ant-color-fill-tertiary, rgba(128, 128, 128, 0.08));
+  color: var(--ant-color-text, inherit);
+  overflow-wrap: anywhere;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.icon {
+  color: var(--ant-color-error, #ff4d4f);
+}
+
+.message {
+  margin-top: 12px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.action {
+  display: inline-block;
+  margin: 12px 12px 0;
+  color: var(--console-primary);
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:hover {
+    color: var(--ant-color-link-hover, var(--console-primary));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--console-primary);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+}

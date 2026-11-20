@@ -1,0 +1,47 @@
+.card {
+  color: var(--console-text);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+
+  pre,
+  :global(.ant-btn) {
+    font-size: 12px;
+  }
+
+  header {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  summary {
+    cursor: pointer;
+    color: var(--console-primary);
+  }
+
+  pre {
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    padding: 10px;
+    background: var(--console-fill);
+    border-radius: 6px;
+  }
+
+  small,
+  p {
+    display: block;
+    color: var(--console-text-secondary);
+    font-size: 12px;
+    margin: 8px 0;
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+}

@@ -1,0 +1,467 @@
+// Component-owned styles.
+
+@keyframes settlementPanelBorderPulse {
+  0%,
+  100% {
+    border-color: var(--console-line);
+    outline-color: rgb(22 119 255 / 0%);
+  }
+
+  22%,
+  68% {
+    border-color: rgb(22 119 255 / 72%);
+    outline-color: rgb(22 119 255 / 12%);
+  }
+
+  45% {
+    border-color: rgb(22 119 255 / 28%);
+    outline-color: rgb(22 119 255 / 4%);
+  }
+}
+
+.workspaceSettlementPanel {
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.workspaceSettlementPanelWithDrafts {
+  grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.settlementPanel {
+  min-height: 0;
+  border: 1px solid var(--console-line);
+  box-shadow: none;
+}
+
+.settlementPanelHighlighted {
+  outline: 4px solid transparent;
+  outline-offset: 0;
+  animation: settlementPanelBorderPulse 3.2s ease-in-out;
+}
+
+.settlementList {
+  display: flex;
+  min-height: 0;
+  margin-top: 2px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settlementCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 13px;
+  background: var(--console-fill);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-default);
+  box-shadow: none;
+}
+
+.settlementCardReadOnly {
+  background: var(--console-fill-secondary);
+}
+
+.settlementCardHeader {
+  min-width: 0;
+}
+
+.settlementCardToggle {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  flex-direction: column;
+  gap: 5px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--console-primary-border);
+    outline-offset: 3px;
+    border-radius: var(--radius-small);
+  }
+}
+
+.settlementCardToggleTop {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  > svg {
+    flex: 0 0 auto;
+    color: var(--console-muted);
+    font-size: 11px;
+    transition: transform 180ms ease;
+  }
+}
+
+.settlementCardExpandIconOpen {
+  transform: rotate(180deg);
+}
+
+.settlementCardTitleRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+
+  > strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--console-text);
+    font-size: 13px;
+    line-height: 1.5;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.settlementCardMeta {
+  overflow: hidden;
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settlementFields {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.settlementField {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+
+  > span:first-child {
+    color: var(--console-muted);
+    font-size: var(--text-micro);
+    line-height: 1.5;
+  }
+
+  :global(.ant-input) {
+    color: var(--console-text);
+    font-size: 12px;
+    line-height: 1.6;
+    background: var(--console-surface);
+    border-color: var(--console-line);
+    border-radius: var(--radius-small);
+    resize: vertical;
+  }
+}
+
+.settlementFieldValue {
+  display: block;
+  padding: 7px 9px;
+  color: var(--console-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: var(--console-fill-secondary);
+  border-radius: var(--radius-small);
+}
+
+.settlementCardActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+
+  > button {
+    flex-shrink: 0;
+  }
+}
+
+.settlementError {
+  display: flex;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ant-color-error-text);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--ant-color-error-bg);
+  border-radius: var(--radius-small);
+
+  > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.skillProposalMeta {
+  display: flex;
+  min-width: 0;
+  margin-top: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+  line-height: 1.5;
+
+  > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > span:last-child {
+    flex: 0 0 auto;
+  }
+}
+
+.skillDiffModal {
+  --console-text: var(--ant-color-text, #1f1f1f);
+  --console-text-secondary: var(--ant-color-text-secondary, #595959);
+  --console-muted: var(--ant-color-text-tertiary, #8c8c8c);
+  --console-surface: var(--ant-color-bg-container, #fff);
+  --console-fill-secondary: var(--ant-color-fill-secondary, #f5f5f5);
+  --console-line: var(--ant-color-split, #f0f0f0);
+  --console-border: var(--ant-color-border, #d9d9d9);
+  --console-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.skillDiffBody {
+  display: flex;
+  min-width: 0;
+  max-height: min(66vh, 720px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skillDiffSummary,
+.skillDiffHint {
+  margin: 0;
+  color: var(--console-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.skillDiffHint {
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+}
+
+.skillDiffFile {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 0;
+}
+
+.skillDiffFileHead,
+.skillDiffHunkBar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--console-text);
+  font-size: 12px;
+
+  :global(.ant-checkbox-wrapper) {
+    flex: 0 0 auto;
+    margin-inline-end: 0;
+  }
+
+  > code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.skillDiffFileHead {
+  min-height: 32px;
+  padding: 5px 8px;
+  background: var(--console-fill-secondary);
+  border-radius: 6px;
+
+  > code {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+}
+
+.skillDiffFileCount {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--console-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.skillDiffFileIcon {
+  flex: 0 0 auto;
+  color: var(--console-muted);
+  font-size: 13px;
+}
+
+.skillDiffChildren {
+  display: flex;
+  min-width: 0;
+  width: calc(100% - 17px);
+  max-width: calc(100% - 17px);
+  box-sizing: border-box;
+  margin-left: 17px;
+  padding: 8px 0 4px 24px;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skillDiffHunk {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 10px 12px;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: 10px;
+
+  &::before {
+    position: absolute;
+    top: 14px;
+    left: -24px;
+    width: 20px;
+    border-top: 1px solid var(--console-line);
+    content: '';
+  }
+
+  &::after {
+    position: absolute;
+    top: -14px;
+    bottom: -14px;
+    left: -24px;
+    border-left: 1px solid var(--console-line);
+    content: '';
+  }
+
+  &:last-child::after {
+    bottom: auto;
+    height: 28px;
+  }
+}
+
+.skillDiffHunkBar {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 8px;
+
+  > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--console-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    background: var(--console-fill-secondary);
+  }
+}
+
+.skillDiffReason {
+  margin: 0;
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.skillDiffCodeFrame {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--console-fill-secondary);
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+}
+
+.skillDiffPre {
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: min(32vh, 320px);
+  margin: 0;
+  padding: 8px 0;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  color: var(--console-text-secondary);
+  font-family: var(--console-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  background: transparent;
+  border: 0;
+}
+
+.skillDiffCode {
+  display: table;
+  min-width: 100%;
+  color: inherit;
+  font: inherit;
+  border-collapse: collapse;
+}
+
+.skillDiffLine {
+  display: table-row;
+}
+
+.skillDiffLineContent {
+  display: table-cell;
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.skillDiffLine_add {
+  color: #237804;
+  background: rgb(82 196 26 / 10%);
+}
+
+.skillDiffLine_del {
+  color: #a8071a;
+  background: rgb(255 77 79 / 10%);
+}
+
+.skillDiffLine_ctx {
+  color: var(--console-text-secondary);
+}
+
+.skillDiffLine_meta {
+  color: var(--console-muted);
+  background: var(--console-surface);
+}

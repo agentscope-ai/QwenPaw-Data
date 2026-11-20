@@ -20,9 +20,11 @@ class ConsoleConfig(BaseModel):
             **self.model_dump(),
             "console_protocol": 1,
             "capabilities": {
-                "skillsHub": False,
+                "skillsHub": True,
                 "mcpHub": False,
-                "channels": False,
+                # Configuration is available; individual channels remain disabled
+                # until explicitly configured and enabled in Host.
+                "channels": True,
                 "contextConsole": databridge,
             },
             "databridge": {

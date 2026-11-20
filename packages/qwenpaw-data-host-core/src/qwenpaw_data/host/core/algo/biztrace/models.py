@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from qwenpaw_data.host.core.algo.evaluation.models import ConfidenceResult
+
 BizEventKind = Literal[
     "user",
     "assistant_text",
@@ -31,6 +33,9 @@ BoundaryReason = Literal[
 ]
 ArtifactKind = Literal["query_script", "dataset", "report", "dashboard", "other"]
 ArtifactRole = Literal["intermediate", "final", "supporting"]
+SegmentKind = Literal[
+    "probe", "fetch_transform", "verify_fix", "metric_modeling", "delivery", "other"
+]
 # Host TaskStateUpdate states; pending never forces a segment boundary.
 SubtaskState = Literal["pending", "in_progress", "completed"]
 OrchestrationCategory = Literal["PlanCreate", "PlanUpdate", "TaskStateUpdate"]
@@ -186,11 +191,13 @@ class Segment(BaseModel):
     behavior: str | None = None
     conclusion: str | None = None
     artifact: list[Artifact] | None = None
+    kind: SegmentKind | None = None
 
     coverage: Coverage
     subtask: SubtaskScope | None = None
     boundary_reason: BoundaryReason
     forced_complete: bool = False
+    confidence: ConfidenceResult | None = None
 
     started_at: float | None = None
     ended_at: float | None = None
@@ -227,6 +234,7 @@ class FrontendSegment(BaseModel):
     behavior: str
     conclusion: str
     artifact: list[FrontendArtifact] | None
+    confidence: ConfidenceResult | None = None
     coverage: FrontendCoverage
     started_at: float | None
     ended_at: float | None
@@ -251,6 +259,7 @@ class FrontendSegment(BaseModel):
             behavior=segment.behavior or "",
             conclusion=segment.conclusion or "",
             artifact=artifacts or None,
+            confidence=segment.confidence,
             coverage=FrontendCoverage(
                 start_seq=segment.coverage.start_seq,
                 end_seq=segment.coverage.end_seq,
@@ -280,6 +289,7 @@ __all__ = [
     "OrchestrationInfo",
     "Presentation",
     "Segment",
+    "SegmentKind",
     "SegmentStatus",
     "SubtaskScope",
     "SubtaskState",

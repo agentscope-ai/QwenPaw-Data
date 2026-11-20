@@ -1,19 +1,17 @@
-# -*- coding: utf-8 -*-
-"""End-to-end smoke: POST a turn, consume SSE, resume, and fail paths."""
+"""Host HTTP/SQL/SSE smoke; only the agent and external Context are simulated."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from pathlib import Path
+from datetime import timedelta
 from typing import Any
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-
-pytest.importorskip("fastapi")
-import httpx  # noqa: E402
-from agentscope.event import (  # noqa: E402
+from agentscope.event import (
     ModelCallEndEvent,
     ReplyEndEvent,
     ReplyStartEvent,
@@ -26,11 +24,17 @@ from agentscope.event import (  # noqa: E402
     ToolResultEndEvent,
     ToolResultStartEvent,
     ToolResultTextDeltaEvent,
+    UserConfirmResultEvent,
 )
-from agentscope.message import ToolResultState  # noqa: E402
-
-from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
-from qwenpaw_data.host.core.core import QwenPawDataHost  # noqa: E402
+from agentscope.message import ToolResultState
+from qwenpaw_data.host.core.api.app import create_app
+from qwenpaw_data.host.core.db.engine import get_session_factory
+from qwenpaw_data.host.core.repositories import ChatRepository, SessionRepository
+from qwenpaw_data.host.core.repositories.chat_event import ChatEventRepository
+from qwenpaw_data.host.core.runtime.builder.data_agent import DataAgentBuilder
+from qwenpaw_data.host.core.stream.output_stream import OutputStream
+from qwenpaw_data.host.core.utils.time import utcnow
+from .conftest import TEST_IDENTITY, _seed_test_preferences
 
 
 def _script() -> list[Any]:
@@ -53,69 +57,64 @@ def _script() -> list[Any]:
         ToolResultEndEvent(
             reply_id="r1", tool_call_id="call-1", state=ToolResultState.SUCCESS
         ),
-        # Agent-internal confirmation events must be silently ignored.
+        # SDK prompts must be denied without leaking to the wire.
         RequireUserConfirmEvent(reply_id="r1", tool_calls=[]),
         ModelCallEndEvent(reply_id="r1", input_tokens=7, output_tokens=3),
         ReplyEndEvent(session_id="s1", reply_id="r1"),
     ]
 
 
-class ScriptedState:
-    def __init__(self) -> None:
-        self.context: list[Any] = []
-
-
 class ScriptedAgent:
-    def __init__(
-        self,
-        events: list[Any] | None = None,
-        *,
-        gate: asyncio.Event | None = None,
-        boom: bool = False,
-    ) -> None:
-        self._events = events or []
-        self._gate = gate
-        self._boom = boom
+    def __init__(self, *, gate=None, boom=False):
+        self.gate, self.boom = gate, boom
+        self.started = asyncio.Event()
+        self.confirmations = []
         self.name = "qwenpaw-data"
-        self.state = ScriptedState()
-        self._reasoning_middlewares: list[Any] = []
+        self._reply_middlewares = []
 
-    async def reply_stream(self, _inputs: Any):
-        if self._gate is not None:
-            await self._gate.wait()
-        if self._boom:
+    async def reply_stream(self, inputs):
+        if isinstance(inputs, UserConfirmResultEvent):
+            self.confirmations.append(inputs)
+            return
+        self.started.set()
+        if self.gate is not None:
+            await self.gate.wait()
+        if self.boom:
             raise RuntimeError("model exploded")
-        for event in self._events:
+        for event in _script():
             yield event
 
 
 @asynccontextmanager
-async def service_client(
-    tmp_path: Path, agent: ScriptedAgent, monkeypatch, *, store_backend="sql"
-):
-    async def fake_get_agent(self, *, mode: str, request_context=None):
+async def service_client(agent, monkeypatch):
+    async def build(self, *, run_context, envelope, state):
+        agent.state = state
         return agent
 
-    monkeypatch.setattr(QwenPawDataHost, "get_agent", fake_get_agent)
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.setenv("QWENPAW_DATA_STORE", store_backend)
-    app = create_app(home=tmp_path, model=object())
+    monkeypatch.setattr(DataAgentBuilder, "build", build)
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.runtime.chat_runtime.McpRepository.sync",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.runtime.chat_runtime.fetch_datasource_type",
+        AsyncMock(return_value=None),
+    )
+    app = create_app()
     async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
+        await _seed_test_preferences(get_session_factory())
         async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
+            transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 1234)),
+            base_url="http://localhost",
+            trust_env=False,
         ) as http:
-            yield http, app
+            yield http
 
 
-async def _collect_sse(http: httpx.AsyncClient, url: str, **kwargs: Any):
-    """Consume an SSE stream to completion, returning (ids, payloads)."""
-    ids: list[int] = []
-    payloads: list[dict[str, Any]] = []
+async def _collect_sse(http, url, **kwargs):
+    ids, payloads = [], []
     async with http.stream("GET", url, **kwargs) as response:
-        assert response.status_code == 200
+        assert response.status_code == 200, await response.aread()
         assert response.headers["content-type"].startswith("text/event-stream")
         async for line in response.aiter_lines():
             if line.startswith("id: "):
@@ -125,306 +124,221 @@ async def _collect_sse(http: httpx.AsyncClient, url: str, **kwargs: Any):
     return ids, payloads
 
 
-async def _wait_terminal(app, chat_id: str) -> dict[str, Any]:
-    store = app.state.service.chats
-    for _ in range(200):
-        chat = await store.get(chat_id)
-        if chat.status != "running":
-            return {"status": chat.status, "error": chat.error}
-        await asyncio.sleep(0.02)
-    raise AssertionError("chat never reached a terminal status")
-
-
-async def _new_session(http: httpx.AsyncClient) -> str:
-    response = await http.post("/api/v1/sessions", json={"title": "smoke"})
-    assert response.status_code == 200
+async def _new_session(http):
+    response = await http.post("/api/sessions", json={"title": "smoke"})
+    assert response.status_code == 200, response.text
     return response.json()["session"]["id"]
 
 
+async def _post_turn(http, session_id, *, legacy=False):
+    url = f"/api/v1/sessions/{session_id}/chats" if legacy else "/api/console/chat"
+    body = {"text": "hi"} if legacy else {"session_id": session_id, "text": "hi"}
+    response = await http.post(url, json=body)
+    assert response.status_code == 200, response.text
+    return response.json()["chat"]
 
-async def test_full_turn_streams_expected_event_sequence(
-    tmp_path, monkeypatch
-) -> None:
-    async with service_client(tmp_path, ScriptedAgent(_script()), monkeypatch) as (
-        http,
-        _app,
-    ):
+
+async def _chat(chat_id):
+    async with get_session_factory()() as db:
+        return await ChatRepository(db, TEST_IDENTITY).get(chat_id)
+
+
+async def _session_chat(session_id):
+    async with get_session_factory()() as db:
+        chats = await ChatRepository(db, TEST_IDENTITY).list_for_session(session_id)
+        assert len(chats) == 1
+        return chats[0]
+
+
+def _url(session_id, chat_id):
+    return f"/api/sessions/{session_id}/chats/{chat_id}/events"
+
+
+async def _cleanup(*tasks):
+    for task in tasks:
+        if task is not None and not task.done():
+            task.cancel()
+    await asyncio.gather(*[t for t in tasks if t is not None], return_exceptions=True)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_completed_turn_replays_messages_usage_and_cursor(monkeypatch, legacy):
+    agent = ScriptedAgent()
+    async with service_client(agent, monkeypatch) as http:
         session_id = await _new_session(http)
-        created = await http.post(
-            f"/api/v1/sessions/{session_id}/chats",
-            json={"text": "run the numbers", "datasource_id": "ds1"},
-        )
-        assert created.status_code == 200
-        chat = created.json()["chat"]
-        chat_id = chat["id"]
-        assert chat["status"] == "running"
-        assert chat["sequence"] == 1
-
-        # A second turn while one is active conflicts.
-        conflict = await http.post(
-            f"/api/v1/sessions/{session_id}/chats",
-            json={"text": "another"},
-        )
-        assert conflict.status_code == 409
-
-        ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
-        )
-        assert ids == list(range(len(ids)))  # dense monotonic SSE ids
-
-        objects = [p["object"] for p in payloads]
+        created = await _post_turn(http, session_id, legacy=legacy)
+        chat_id = created["id"]
+        assert created["status"] == "running"
+        assert created["sequence"] == 1
+        assert (await _chat(chat_id)).status == "completed"
+        ids, payloads = await _collect_sse(http, _url(session_id, chat_id))
+        assert ids == sorted(set(ids))
+        assert len(ids) > 5
         responses = [p for p in payloads if p["object"] == "response"]
-        assert [r["status"] for r in responses] == [
+        assert [p["status"] for p in responses] == [
             "created",
             "in_progress",
             "completed",
         ]
         assert responses[-1]["usage"] == {"input_tokens": 7, "output_tokens": 3}
-
+        # Terminal compaction retains completed messages, not content deltas.
+        assert not any(p["object"] == "content" for p in payloads)
         messages = [p for p in payloads if p["object"] == "message"]
-        assert [m["type"] for m in messages] == [
-            "message",
-            "message",
-            "plugin_call",
-            "plugin_call",
-            "plugin_call_output",
-            "plugin_call_output",
+        text = [
+            p for p in messages if p["type"] == "message" and p["status"] == "completed"
         ]
-        # Both the tool call and its output complete with the shared source id.
-        completed = [m for m in messages if m["status"] == "completed"]
-        assert {m["source_id"] for m in completed if m["type"] != "message"} == {
-            "call-1"
-        }
-
-        text_deltas = [
-            p["text"]
-            for p in payloads
-            if p["object"] == "content" and p.get("delta") and p["type"] == "text"
+        assert text[0]["content"][0]["text"] == "hello world"
+        tools = [
+            p for p in messages if p["type"] != "message" and p["status"] == "completed"
         ]
-        assert text_deltas == ["hello ", "world"]
-        final_text = [
-            p["text"]
-            for p in payloads
-            if p["object"] == "content"
-            and not p.get("delta")
-            and p["type"] == "text"
-        ]
-        assert final_text == ["hello world"]
-        assert "error" not in objects
+        assert {p["type"] for p in tools} == {"plugin_call", "plugin_call_output"}
+        assert {p["source_id"] for p in tools} == {"call-1"}
+        assert len(agent.confirmations) == 1
+        assert not any("confirm" in p["object"] for p in payloads)
+        cursor = ids[len(ids) // 2]
+        tail, _ = await _collect_sse(
+            http, _url(session_id, chat_id), headers={"Last-Event-ID": str(cursor)}
+        )
+        assert tail == ids[ids.index(cursor) + 1 :]
+        assert await _collect_sse(
+            http, _url(session_id, chat_id), headers={"Last-Event-ID": str(ids[-1])}
+        ) == ([], [])
+        other = await _new_session(http)
+        assert (await http.get(_url(other, chat_id))).status_code == 404
+        assert (await http.get(_url(session_id, "missing"))).status_code == 404
 
-        final_chat = await _wait_terminal(_app, chat_id)
-        assert final_chat["status"] == "completed"
 
-
-async def test_resume_with_last_event_id_replays_tail_only(
-    tmp_path, monkeypatch
-) -> None:
-    async with service_client(tmp_path, ScriptedAgent(_script()), monkeypatch) as (
-        http,
-        _app,
-    ):
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_running_turn_conflicts_and_stream_terminates(monkeypatch, cancel):
+    agent = ScriptedAgent(gate=asyncio.Event())
+    async with service_client(agent, monkeypatch) as http:
         session_id = await _new_session(http)
-        created = await http.post(
-            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
-        )
-        chat_id = created.json()["chat"]["id"]
-        await _wait_terminal(_app, chat_id)
+        # ASGITransport awaits background work, so POST must be concurrent.
+        turn = asyncio.create_task(_post_turn(http, session_id))
+        collector = None
+        try:
+            await asyncio.wait_for(agent.started.wait(), 5)
+            chat = await _session_chat(session_id)
+            conflict = await http.post(
+                "/api/console/chat", json={"session_id": session_id, "text": "second"}
+            )
+            assert conflict.status_code == 409
+            collector = asyncio.create_task(
+                _collect_sse(http, _url(session_id, chat.id))
+            )
+            if cancel:
+                stopped = await http.post(
+                    "/api/console/chat/stop",
+                    params={"session_id": session_id, "chat_id": chat.id},
+                )
+                assert stopped.status_code == 200, stopped.text
+            else:
+                agent.gate.set()
+            await asyncio.wait_for(turn, 5)
+            ids, payloads = await asyncio.wait_for(collector, 5)
+            assert ids == sorted(set(ids))
+            assert payloads[-1]["object"] == "response"
+            assert payloads[-1]["status"] == ("cancelled" if cancel else "completed")
+            assert (await _chat(chat.id)).status == (
+                "canceled" if cancel else "completed"
+            )
+        finally:
+            agent.gate.set()
+            await _cleanup(turn, collector)
 
-        full_ids, _ = await _collect_sse(
-            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
-        )
-        assert full_ids, "expected a replayed event history"
 
-        resume_from = full_ids[len(full_ids) // 2]
-        tail_ids, _ = await _collect_sse(
-            http,
-            f"/api/v1/sessions/{session_id}/chats/{chat_id}/events",
-            headers={"Last-Event-ID": str(resume_from)},
-        )
-        assert tail_ids == full_ids[full_ids.index(resume_from) + 1 :]
-
-        missing = await http.get("/api/v1/sessions/s1/chats/nope/events")
-        assert missing.status_code == 404
-        wrong_session = await http.get(
-            f"/api/v1/sessions/other/chats/{chat_id}/events"
-        )
-        assert wrong_session.status_code == 404
-
-
-async def test_live_subscription_receives_events_as_they_happen(
-    tmp_path, monkeypatch
-) -> None:
-    gate = asyncio.Event()
-    agent = ScriptedAgent(_script(), gate=gate)
-    async with service_client(tmp_path, agent, monkeypatch) as (http, _app):
+async def test_agent_failure_is_persisted_and_streamed(monkeypatch):
+    async with service_client(ScriptedAgent(boom=True), monkeypatch) as http:
         session_id = await _new_session(http)
-        created = await http.post(
-            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
-        )
-        chat_id = created.json()["chat"]["id"]
-
-        async def _open_gate() -> None:
-            await asyncio.sleep(0.05)
-            gate.set()
-
-        opener = asyncio.create_task(_open_gate())
-        ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
-        )
-        await opener
-
-        assert ids == list(range(len(ids)))
-        assert payloads[-1]["object"] == "response"
-        assert payloads[-1]["status"] == "completed"
-
-
-async def test_failing_agent_yields_response_failed(tmp_path, monkeypatch) -> None:
-    async with service_client(
-        tmp_path, ScriptedAgent(boom=True), monkeypatch
-    ) as (http, _app):
-        session_id = await _new_session(http)
-        created = await http.post(
-            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
-        )
-        chat_id = created.json()["chat"]["id"]
-
-        final_chat = await _wait_terminal(_app, chat_id)
-        assert final_chat["status"] == "failed"
-        assert final_chat["error"]["message"] == "model exploded"
-
-        _ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
-        )
-        assert payloads[-1]["object"] == "response"
+        created = await _post_turn(http, session_id)
+        chat = await _chat(created["id"])
+        assert chat.status == "failed"
+        assert chat.error["code"] == "INTERNAL"
+        assert chat.error["details"]["cause"] == "model exploded"
+        _, payloads = await _collect_sse(http, _url(session_id, chat.id))
         assert payloads[-1]["status"] == "failed"
-        assert payloads[-1]["error"]["message"] == "model exploded"
+        assert payloads[-1]["error"] == chat.error
 
 
-@pytest.mark.parametrize("store_backend", ["sql", "json"])
 @pytest.mark.parametrize("outcome", ["completed", "failed"])
-async def test_stream_waits_for_terminal_response_after_status_is_saved(
-    tmp_path, monkeypatch, store_backend, outcome
-) -> None:
-    from qwenpaw_data.host.core.stream.hub import get_hub
-    from qwenpaw_data.host.core.stream.output_stream import OutputStream
-
-    terminal_pending = asyncio.Event()
-    release_terminal = asyncio.Event()
-    live_started = asyncio.Event()
-    original_append = OutputStream.append
+async def test_stream_waits_for_terminal_event_after_status_commit(
+    monkeypatch, outcome
+):
+    pending, release, polled = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    original_append, original_read = OutputStream.append, ChatEventRepository.read_after
 
     async def delayed_append(self, payload):
         if payload.get("object") == "response" and payload.get("status") == outcome:
-            terminal_pending.set()
-            await release_terminal.wait()
+            pending.set()
+            await release.wait()
         return await original_append(self, payload)
 
+    async def observed_read(self, *args, **kwargs):
+        result = await original_read(self, *args, **kwargs)
+        polled.set()
+        return result
+
     monkeypatch.setattr(OutputStream, "append", delayed_append)
-    agent = ScriptedAgent(_script(), boom=outcome == "failed")
+    monkeypatch.setattr(ChatEventRepository, "read_after", observed_read)
     async with service_client(
-        tmp_path, agent, monkeypatch, store_backend=store_backend
-    ) as (http, app):
-        hub = get_hub()
-        original_iterate = hub.iterate
-
-        async def observed_iterate(*args, **kwargs):
-            live_started.set()
-            async for obj in original_iterate(*args, **kwargs):
-                yield obj
-
-        monkeypatch.setattr(hub, "iterate", observed_iterate)
+        ScriptedAgent(boom=outcome == "failed"), monkeypatch
+    ) as http:
         session_id = await _new_session(http)
-        created = await http.post(
-            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
-        )
-        chat_id = created.json()["chat"]["id"]
-        url = f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
+        turn = asyncio.create_task(_post_turn(http, session_id))
         collector = None
-        observer = None
         try:
-            await asyncio.wait_for(terminal_pending.wait(), timeout=5)
-            assert (await app.state.service.chats.get(chat_id)).status == outcome
-            collector = asyncio.create_task(_collect_sse(http, url))
-            observer = asyncio.create_task(live_started.wait())
-            await asyncio.wait(
-                [collector, observer], timeout=5, return_when=asyncio.FIRST_COMPLETED
+            await asyncio.wait_for(pending.wait(), 5)
+            chat = await _session_chat(session_id)
+            assert chat.status == outcome
+            collector = asyncio.create_task(
+                _collect_sse(http, _url(session_id, chat.id))
             )
-            assert live_started.is_set(), "stream closed before terminal response"
-            assert not collector.done()
-            release_terminal.set()
-            ids, payloads = await asyncio.wait_for(collector, timeout=5)
-            assert ids == list(range(len(ids)))
-            assert payloads[-1]["object"] == "response"
+            await asyncio.wait_for(polled.wait(), 5)
+            # The route must remain open when status is saved but event is absent.
+            await asyncio.sleep(0.1)
+            assert not collector.done(), "SSE closed before terminal event commit"
+            release.set()
+            await asyncio.wait_for(turn, 5)
+            ids, payloads = await asyncio.wait_for(collector, 5)
             assert payloads[-1]["status"] == outcome
-
-            # Reconnecting at the terminal cursor must return an empty stream.
-            resumed = await asyncio.wait_for(
-                _collect_sse(http, url, headers={"Last-Event-ID": str(ids[-1])}),
-                timeout=5,
-            )
-            assert resumed == ([], [])
+            assert await _collect_sse(
+                http, _url(session_id, chat.id), headers={"Last-Event-ID": str(ids[-1])}
+            ) == ([], [])
         finally:
-            release_terminal.set()
-            tasks = [task for task in (collector, observer) if task is not None]
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            release.set()
+            await _cleanup(turn, collector)
 
 
-async def test_orphaned_running_chats_are_cancelled_on_startup(
-    tmp_path, monkeypatch
-) -> None:
-    gate = asyncio.Event()  # never opened: chat stays running at shutdown
-    agent = ScriptedAgent(_script(), gate=gate)
-    async with service_client(tmp_path, agent, monkeypatch) as (http, _app):
-        session_id = await _new_session(http)
-        created = await http.post(
-            f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
-        )
-        chat_id = created.json()["chat"]["id"]
-        assert created.json()["chat"]["status"] == "running"
-
-    # Restart the service on the same home: the orphan must be cancelled.
-    async with service_client(
-        tmp_path, ScriptedAgent(_script()), monkeypatch
-    ) as (http, _app):
-        stopped = await http.post(f"/api/v1/sessions/{session_id}/chats/{chat_id}/stop")
-        assert stopped.json()["chat"]["status"] == "canceled"
-        _ids, payloads = await _collect_sse(
-            http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
-        )
-        assert payloads[-1]["object"] == "response"
+async def test_restart_recovers_stale_chat_but_preserves_fresh_chat(monkeypatch):
+    async with service_client(ScriptedAgent(), monkeypatch) as http:
+        session_ids = [await _new_session(http) for _ in range(2)]
+        chat_ids = []
+        async with get_session_factory()() as db:
+            for index, session_id in enumerate(session_ids):
+                session = await SessionRepository(db, TEST_IDENTITY).get(session_id)
+                chat = session.open_chat(
+                    text="orphan", datasource_id=None, has_active_chat=False
+                )
+                chat.heartbeat_at = (
+                    utcnow() - timedelta(hours=1) if index == 0 else utcnow()
+                )
+                await SessionRepository(db, TEST_IDENTITY).save(session)
+                await ChatRepository(db, TEST_IDENTITY).add(chat)
+                chat_ids.append(chat.id)
+            await db.commit()
+    async with service_client(ScriptedAgent(), monkeypatch) as http:
+        assert (await _chat(chat_ids[0])).status == "canceled"
+        assert (await _chat(chat_ids[1])).status == "running"
+        _, payloads = await _collect_sse(http, _url(session_ids[0], chat_ids[0]))
         assert payloads[-1]["status"] == "cancelled"
 
 
-async def test_full_turn_on_json_store_backend(tmp_path, monkeypatch) -> None:
-    """Regression: QWENPAW_DATA_STORE=json keeps the file-backed stores working."""
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
+async def test_json_mode_rejected_before_database_initialization(monkeypatch):
     monkeypatch.setenv("QWENPAW_DATA_STORE", "json")
-
-    agent = ScriptedAgent(_script())
-
-    async def fake_get_agent(self, *, mode: str, request_context=None):
-        return agent
-
-    monkeypatch.setattr(QwenPawDataHost, "get_agent", fake_get_agent)
-    app = create_app(home=tmp_path, model=object())
-    async with app.router.lifespan_context(app):
-        from qwenpaw_data.host.core.store.json_store import JSONChatStore as _J
-
-        assert isinstance(app.state.service.chats, _J)
-        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as http:
-            session_id = await _new_session(http)
-            created = await http.post(
-                f"/api/v1/sessions/{session_id}/chats", json={"text": "hi"}
-            )
-            chat_id = created.json()["chat"]["id"]
-            _ids, payloads = await _collect_sse(
-                http, f"/api/v1/sessions/{session_id}/chats/{chat_id}/events"
-            )
-            assert payloads[-1]["object"] == "response"
-            assert payloads[-1]["status"] == "completed"
+    init = AsyncMock()
+    monkeypatch.setattr("qwenpaw_data.host.core.api.app.init_db", init)
+    app = create_app()
+    with pytest.raises(RuntimeError, match="existing JSON data has not been migrated"):
+        async with app.router.lifespan_context(app):
+            pytest.fail("legacy JSON mode must not silently start a SQL Host")
+    init.assert_not_called()

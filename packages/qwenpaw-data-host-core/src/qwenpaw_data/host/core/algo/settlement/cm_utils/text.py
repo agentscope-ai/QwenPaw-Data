@@ -7,7 +7,7 @@ from typing import Any
 
 
 def extract_content_text(content: list[Any] | Any) -> str:
-    """Join the text of content blocks; accepts a list or a single block."""
+    """从 content blocks 中拼接文本。兼容 list[Block] 或单个对象。"""
     if not content:
         return ""
     blocks = content if isinstance(content, list) else [content]

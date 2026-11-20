@@ -38,7 +38,7 @@ jobs:
           if tag and not re.fullmatch(r"(?:console-)?v\d+\.\d+\.\d+", tag):
               raise SystemExit("Unsupported release tag")
           package = "qwenpaw-data-console" if tag.startswith("console-v") else ""
-          suffixes = ["console"] if package else ["console", "skills", "context", "host-core", "cli"]
+          suffixes = ["console"] if package else ["console", "skills", "auth", "tracing", "context", "host-core", "cli"]
           matrix = [{"project": "qwenpaw-data-" + s, "environment": "pypi-" + s} for s in suffixes]
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               print("package=" + package, file=output)
@@ -108,6 +108,22 @@ jobs:
         with:
           name: python-distributions-qwenpaw-data-skills
           path: dist/qwenpaw_data_skills-*
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.package == ''
+        with:
+          name: python-distributions-qwenpaw-data-auth
+          path: dist/qwenpaw_data_auth-*
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.package == ''
+        with:
+          name: python-distributions-qwenpaw-data-tracing
+          path: dist/qwenpaw_data_tracing-*
           if-no-files-found: error
           retention-days: 7
 

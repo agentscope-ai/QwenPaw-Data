@@ -3,7 +3,7 @@
  * the user scans & confirms; on success the returned credentials are passed
  * back via onSuccess (the parent writes them into the form).
  *
- * Ported from QwenPaw's QrcodeAuthBlock; adapted to the DataPaw
+ * Ported from QwenPaw's QrcodeAuthBlock; adapted to the QwenPawData
  * useChannelQrcode hook + design-system imports.
  */
 import { Button } from '@agentscope-ai/design';
@@ -33,12 +33,7 @@ export default function QrcodeAuthBlock({
 
   return (
     <Form.Item label={label}>
-      <Button
-        type="primary"
-        block
-        loading={qrcode.loading}
-        onClick={qrcode.fetchQrcode}
-      >
+      <Button type="primary" block loading={qrcode.loading} onClick={qrcode.fetchQrcode}>
         {buttonText}
       </Button>
       {qrcode.loading && (

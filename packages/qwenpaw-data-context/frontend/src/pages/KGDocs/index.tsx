@@ -1,1 +1,1 @@
-export { default } from "./KGDocsPage";
+export { default } from './KGDocsPage';

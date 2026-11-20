@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""QwenPaw Data tool namespace.
+"""QwenPawData tool namespace.
 
-Runtime tools are registered through ``qwenpaw_data.host.core.agent.toolkit``.
+Runtime tools are registered by the agent builders.
 """

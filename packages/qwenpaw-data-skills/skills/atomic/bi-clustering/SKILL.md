@@ -45,7 +45,7 @@ description: 对用户、产品等业务对象做分群：用波士顿矩阵法�
 使用 `<skill-dir>/scripts/boston_quadrant.py` 脚本完成数据的划分，如
 
 ```bash
-python scripts/boston_quadrant.py \
+python <skill-dir>/scripts/boston_quadrant.py \
   --input-file data.csv \
   --id-col user_id \
   --x-col 市场份额 \
@@ -83,7 +83,7 @@ python scripts/boston_quadrant.py \
 使用 `<skill-dir>/scripts/clustering.py`执行聚类，分群结果保存为 json 文件。脚本调用示例如下，
 
 ```bash
-python scripts/clustering.py \
+python <skill-dir>/scripts/clustering.py \
   --input-file data.csv \
   --id-col user_id \
   --feature-cols 年龄 消费金额 访问次数 \
@@ -95,7 +95,7 @@ python scripts/clustering.py \
 调优示例（K-means 按轮廓系数选 K；**`--output-json` 仍必填**，写出最终簇划分）：
 
 ```bash
-python scripts/clustering.py \
+python <skill-dir>/scripts/clustering.py \
   --input-file data.csv \
   --id-col user_id \
   --feature-cols 年龄 消费金额 访问次数 \
@@ -110,7 +110,7 @@ python scripts/clustering.py \
 DBSCAN 调优示例（**`--tune` 时必须同时提供** `--tune-eps` 与 `--tune-min-samples`）：
 
 ```bash
-python scripts/clustering.py \
+python <skill-dir>/scripts/clustering.py \
   --input-file data.csv \
   --id-col user_id \
   --feature-cols f1 f2 \

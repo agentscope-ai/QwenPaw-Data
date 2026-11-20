@@ -1,6 +1,6 @@
 import { Result, Button } from '@/design';
 import React from 'react';
-import { useRouteError, useNavigate } from 'react-router';
+import { useRouteError, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 const RouteErrorBoundary: React.FC = () => {

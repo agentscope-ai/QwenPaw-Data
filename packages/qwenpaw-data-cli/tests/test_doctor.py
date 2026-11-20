@@ -8,6 +8,8 @@ import json
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+import pytest
+
 from qwenpaw_data.cli.commands import doctor
 
 
@@ -74,9 +76,42 @@ def test_docker_compose_missing_is_actionable_failure(monkeypatch):
 
 
 def test_neo4j_unreachable(monkeypatch):
-    monkeypatch.setenv("NEO4J_BOLT_PORT", "1")  # 必然连不上的端口
+    monkeypatch.setenv("GRAPH_BACKEND", "neo4j")
+    monkeypatch.setenv("NEO4J_URI", "bolt://127.0.0.1:1")
     result = doctor._check_neo4j()
     assert result.status == doctor._FAIL
+
+
+def test_neo4j_checks_configured_uri_not_local_compose_port(monkeypatch):
+    monkeypatch.setenv("GRAPH_BACKEND", "neo4j")
+    monkeypatch.setenv("NEO4J_URI", "neo4j+s://graph.example:9876")
+    monkeypatch.setenv("NEO4J_BOLT_PORT", "1234")
+    calls = []
+    monkeypatch.setattr(doctor, "_port_reachable", lambda host, port: calls.append((host, port)) or True)
+    result = doctor._check_neo4j()
+    assert calls == [("graph.example", 9876)]
+    assert result.status == doctor._OK
+    assert "authentication and database not checked" in result.detail
+
+
+@pytest.mark.parametrize("backend", ["holoage", "holo_age", " HOLO-AGE "])
+def test_neo4j_is_not_required_for_hologres(monkeypatch, backend):
+    monkeypatch.setenv("GRAPH_BACKEND", backend)
+    monkeypatch.setattr(doctor, "_port_reachable", lambda *args: pytest.fail("unexpected Neo4j probe"))
+    result = doctor._check_neo4j()
+    assert result.status == doctor._INFO
+    assert "not checked" in result.detail
+
+
+@pytest.mark.parametrize("uri", [
+    "bolt://user:secret@graph.example:7687", "bolt://graph.example:99999", "https://graph.example"
+])
+def test_invalid_neo4j_uri_fails_without_exposing_credentials(monkeypatch, uri):
+    monkeypatch.setenv("GRAPH_BACKEND", "neo4j")
+    monkeypatch.setenv("NEO4J_URI", uri)
+    result = doctor._check_neo4j()
+    assert result.status == doctor._FAIL
+    assert "secret" not in result.detail
 
 
 def test_databridge_unreachable(monkeypatch):
@@ -113,11 +148,55 @@ def test_node_requires_supported_baseline(monkeypatch):
 
 
 def test_model_check_does_not_expose_api_key(monkeypatch):
-    monkeypatch.setenv("LLM_MODEL", "demo-model")
-    monkeypatch.setenv("OPENAI_API_KEY", "super-secret")
+    from qwenpaw_data.host.core import semantic_config_client
+
+    class Client:
+        def get(self, path):
+            assert path == "/api/v1/config"
+            return {
+                "llm": {"model": "chat", "api_key": "super-secret"},
+                "embedding": {"model": "embed", "api_key": "super-secret"},
+                "errors": {},
+            }
+
+    monkeypatch.setattr(semantic_config_client, "SemanticConfigClient", Client)
     result = doctor._check_model_config()
     assert result.status == doctor._OK
     assert "super-secret" not in result.detail
+    assert "connectivity not tested" in result.detail
+
+
+@pytest.mark.parametrize(("errors", "expected"), [
+    ({"embedding": "missing"}, doctor._FAIL),
+    ({"llm": "missing"}, doctor._WARN),
+])
+def test_model_check_distinguishes_publication_and_chat(monkeypatch, errors, expected):
+    from qwenpaw_data.host.core import semantic_config_client
+
+    class Client:
+        def get(self, path):
+            return {
+                "llm": {"model": "chat", "api_key": "****"},
+                "embedding": {"model": "embed", "api_key": "****"},
+                "errors": errors,
+            }
+
+    monkeypatch.setattr(semantic_config_client, "SemanticConfigClient", Client)
+    assert doctor._check_model_config().status == expected
+
+
+def test_model_check_reports_auth_failure_as_unchecked(monkeypatch):
+    from qwenpaw_data.host.core import semantic_config_client
+
+    class Client:
+        def get(self, path):
+            raise semantic_config_client.SemanticConfigClientError("secret", status_code=403)
+
+    monkeypatch.setattr(semantic_config_client, "SemanticConfigClient", Client)
+    result = doctor._check_model_config()
+    assert result.status == doctor._WARN
+    assert "could not be checked" in result.detail
+    assert "secret" not in result.detail
 
 
 def test_auth_check_reports_presence_without_token(monkeypatch):

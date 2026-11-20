@@ -173,9 +173,7 @@ class ArtifactVerifier:
             if rel_path is None:
                 if label is not None:
                     self.unverified += 1
-                    logger.info(
-                        "artifact %s is not in the workspace listing", filename
-                    )
+                    logger.info("artifact %s is not in the workspace listing", filename)
                 continue
             kind_guess, role_guess, description_guess = infer_artifact_meta(
                 filename, path

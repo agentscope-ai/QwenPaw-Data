@@ -1,163 +1,131 @@
-import { useModal } from '@/hooks/useModal';
-import { queryMetricList, deleteMetric } from '@/services/metricLib';
-import type { MetricLibItem, QueryMetricLibParams } from '@/types/metricLib';
-import { deleteExtraDelete, formatDatasourceLabel, toOptionalNumber, toOptionalString } from '@/utils';
-import { normalizeListResponse, extractTotal } from '@/utils/listResponse';
-import { ROUTES } from '@/router';
-import { useNavigate } from 'react-router';
 import { PlusOutlined } from '@/design';
-import { ProColumns, ProTable } from '@/design';
-import type { ActionType, ProFormInstance } from '@/design';
+import SemanticExcelActions from '@/components/SemanticExcelActions';
 import { Button, Popconfirm, Tag, message } from '@/design';
-import React, { useRef } from 'react';
-import { useDatasourceDomainFilter } from '@/hooks/useFilterOptions';
-import ActionMetricModal from './components/ActionMetricModal';
+import { ProTable } from '@/design';
+import type { ActionType, ProColumns, ProFormInstance } from '@/design';
+import { useCascadeFilterOptions } from '@/hooks/useFilterOptions';
+import { useModal } from '@/hooks/useModal';
+import { ROUTES } from '@/router';
+import { deleteMetric, queryMetricList } from '@/services/metricLib';
+import { useHasCapability } from '@/store/authStore';
+import { useBusinessDomainOptions } from '@/store';
+import type { MetricLibItem, QueryMetricLibParams } from '@/types/metricLib';
+import { deleteExtraDelete, toOptionalNumber, toOptionalString } from '@/utils';
+import { readUrlSearchValues } from '@/utils/urlSearch';
+import {
+  loadSemanticDeepLinkInOrder,
+  locateSemanticRecord,
+  parseSemanticObjectId,
+} from '@/utils/semanticDeepLink';
+import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import ActionMetricModal from './components/ActionMetricModal';
 
-const MetricLib: React.FC = () => {
+type MetricDeepLink = QueryMetricLibParams & { metric_id?: number };
+
+const MetricLib: React.FC<{ datasourceId?: string }> = ({ datasourceId }) => {
   const { t } = useTranslation();
+  const canWrite = useHasCapability('datasource:write');
+  const canExcel = useHasCapability('excel_import');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [deepLinkValues] = useState(() =>
+    readUrlSearchValues<MetricDeepLink>(searchParams, {
+      domain_id: { parse: parseSemanticObjectId },
+      metric_id: { parse: parseSemanticObjectId },
+      metric_name: {},
+    }),
+  );
+  const initialSearchValues: QueryMetricLibParams = {
+    domain_id: deepLinkValues.domain_id,
+    metric_name: deepLinkValues.metric_name,
+  };
   const actionRef = useRef<ActionType | undefined>(undefined);
   const formRef = useRef<ProFormInstance | undefined>(undefined);
-  const { modal: actionMetricModal, showModal: showActionMetricModal } = useModal(ActionMetricModal);
+  const { modal, showModal } = useModal(ActionMetricModal);
+  const { loadDomains } = useCascadeFilterOptions();
+  const domainOptions = useBusinessDomainOptions();
 
-  const { dataSourceOptions, domainOptions, selectDatasource } = useDatasourceDomainFilter();
-
-  // 删除单条记录
   const handleDelete = async (record: MetricLibItem) => {
-    if (!record.id) {
-      message.error(t('metric.recordIdMissing'));
-      return;
-    }
-    try {
-      await deleteMetric(record.id);
-      message.success(t('common.deleteSuccess'));
-      actionRef.current?.reload();
-    } catch {
-      // API 错误由响应拦截器统一提示
-    }
-  };
-
-  // 新增指标（带入搜索栏的数据源/业务域）
-  const handleAdd = () => {
-    const searchValues = formRef.current?.getFieldsValue?.() ?? {};
-    showActionMetricModal({
-      title: t('metric.addTitle'),
-      record: undefined,
-      initialFilter: {
-        datasource_id: searchValues.datasource_id,
-        domain_id: searchValues.domain_id,
-      },
-      callback: () => {
-        actionRef.current?.reload();
-      },
-    });
-  };
-
-  // 编辑指标
-  const handleEdit = (record: MetricLibItem) => {
-    showActionMetricModal({
-      title: t('metric.editTitle'),
-      record,
-      callback: () => {
-        actionRef.current?.reload();
-      },
-    });
-  };
-
-  // 跳转指标口径
-  const handleNavigateFormula = (record: MetricLibItem) => {
-    const params = new URLSearchParams();
-    if (record.datasource_id) params.set('datasource_id', String(record.datasource_id));
-    if (record.domain_id) params.set('domain_id', String(record.domain_id));
-    if (record.metric_name) params.set('metric_name', record.metric_name);
-    navigate(`${ROUTES.METRIC_FORMULA_LIB}?${params.toString()}`);
+    await deleteMetric(record.metric_id);
+    message.success(t('common.deleteSuccess'));
+    actionRef.current?.reload();
   };
 
   const columns: ProColumns<MetricLibItem>[] = [
     {
-      title: t('fields.dataSource'),
-      dataIndex: 'datasource_id',
-      valueType: 'select',
-      formItemProps: { rules: [{ required: true, message: t('validation.selectDataSource') }] },
-      fieldProps: {
-        options: dataSourceOptions,
-        showSearch: true,
-        allowClear: true,
-        optionFilterProp: 'label',
-        placeholder: t('validation.selectDataSource'),
-        onChange: (dsId: string) => selectDatasource(dsId),
-      },
-      width: 120,
-      render: (_, record) => formatDatasourceLabel(record.datasource_name, record.datasource_id),
-    },
-    {
       title: t('fields.businessDomain'),
       dataIndex: 'domain_id',
       valueType: 'select',
-      formItemProps: { rules: [{ required: true, message: t('validation.selectBusinessDomain') }] },
-      fieldProps: {
-        options: domainOptions,
-        showSearch: true,
-        allowClear: true,
-        optionFilterProp: 'label',
-        placeholder: t('validation.selectBusinessDomain'),
-      },
-      width: 120,
-      render: (_, record) => record.domain_name || '-',
+      fieldProps: { options: domainOptions, showSearch: true, allowClear: true },
+      width: 140,
+      render: (_, record) => record.domain_name,
     },
+    { title: t('fields.metricName'), dataIndex: 'metric_name', hideInTable: true },
+    { title: t('fields.metricName'), dataIndex: 'metric_name', search: false, width: 160 },
     {
-      title: t('fields.metricName'),
-      dataIndex: 'metric_name',
-      hideInTable: true,
-      width: 150,
-      fieldProps: { placeholder: t('validation.inputMetricName') },
-    },
-    { title: t('fields.metricName'), dataIndex: 'metric_name', search: false, width: 150 },
-    { title: t('fields.description'), dataIndex: 'description', search: false, ellipsis: true, width: 160 },
-    { title: t('fields.unit'), dataIndex: 'unit', search: false, width: 80 },
-    {
-      title: t('fields.isPolaris'),
-      dataIndex: 'is_polaris',
+      title: t('fields.description'),
+      dataIndex: 'description',
       search: false,
-      width: 100,
-      render: (_, record) =>
-        record.is_polaris ? <Tag color="green">{t('common.yes')}</Tag> : <Tag color="default">{t('common.no')}</Tag>,
+      ellipsis: true,
+      width: 220,
     },
     {
-      title: t('fields.showDistribution'),
-      dataIndex: 'show_distribution',
+      title: t('fields.synonyms'),
+      dataIndex: 'synonyms',
+      search: false,
+      ellipsis: true,
+      width: 180,
+    },
+    {
+      title: 'priority',
+      dataIndex: 'priority',
       search: false,
       width: 110,
-      render: (_, record) =>
-        record.show_distribution ? <Tag color="green">{t('common.yes')}</Tag> : <Tag color="default">{t('common.no')}</Tag>,
+      render: (_, record) => <Tag>{record.priority}</Tag>,
     },
-    {
-      title: t('fields.isVisible'),
-      dataIndex: 'is_visible',
-      search: false,
-      width: 90,
-      render: (_, record) =>
-        record.is_visible ? <Tag color="green">{t('common.yes')}</Tag> : <Tag color="default">{t('common.no')}</Tag>,
-    },
-    { title: t('fields.synonyms'), dataIndex: 'synonyms', search: false, ellipsis: true, width: 140 },
-    { title: t('fields.tags'), dataIndex: 'tags', search: false, ellipsis: true, width: 120 },
     {
       title: t('common.actions'),
       search: false,
-      dataIndex: 'action',
       fixed: 'right',
       width: 200,
       render: (_, record) => (
         <>
-          <Button type="link" size="small" onClick={() => handleEdit(record)}>{t('common.edit')}</Button>
-          <Popconfirm
-            title={t('common.confirmDeleteRecord')}
-            onConfirm={() => handleDelete(record)}
+          {canWrite ? (
+            <Button
+              type="link"
+              onClick={() =>
+                showModal({
+                  title: t('metric.editTitle'),
+                  record,
+                  callback: () => actionRef.current?.reload(),
+                })
+              }
+            >
+              {t('common.edit')}
+            </Button>
+          ) : null}
+          {canWrite ? (
+            <Popconfirm
+              title={t('common.confirmDeleteRecord')}
+              onConfirm={() => void handleDelete(record)}
+            >
+              <Button type="link" danger>
+                {t('common.delete')}
+              </Button>
+            </Popconfirm>
+          ) : null}
+          <Button
+            type="link"
+            onClick={() =>
+              navigate(
+                `${ROUTES.METRIC_FORMULA_LIB}?domain_id=${record.domain_id}&metric_id=${record.metric_id}`,
+              )
+            }
           >
-            <Button size="small" type="link" danger>{t('common.delete')}</Button>
-          </Popconfirm>
-          <Button type="link" size="small" onClick={() => handleNavigateFormula(record)}>{t('routes.metricFormula')}</Button>
+            {t('routes.metricFormula')}
+          </Button>
         </>
       ),
     },
@@ -165,56 +133,87 @@ const MetricLib: React.FC = () => {
 
   return (
     <>
-        <ProTable<MetricLibItem>
-          rowKey={(record: MetricLibItem) => record.id ?? ''}
-          actionRef={actionRef}
-          formRef={formRef}
-          columns={columns}
-          request={async (params) => {
-            const { current, pageSize, datasource_id, domain_id, metric_name } = params;
-            const requestData: QueryMetricLibParams = {
-              page: current,
-              size: pageSize,
-              datasource_id: toOptionalString(datasource_id),
-              domain_id: toOptionalNumber(domain_id),
-              metric_name: toOptionalString(metric_name),
+      <ProTable<MetricLibItem>
+        rowKey="metric_id"
+        actionRef={actionRef}
+        formRef={formRef}
+        form={{ initialValues: initialSearchValues }}
+        columns={columns}
+        request={async (params) => {
+          const requestData: QueryMetricLibParams = {
+            page: params.current,
+            size: params.pageSize,
+            datasource_id: datasourceId,
+            domain_id: toOptionalNumber(params.domain_id),
+            metric_name: toOptionalString(params.metric_name),
+          };
+          if (deepLinkValues.metric_id && requestData.domain_id === deepLinkValues.domain_id) {
+            const match = await loadSemanticDeepLinkInOrder([() => loadDomains()], () =>
+              locateSemanticRecord({
+                targetId: deepLinkValues.metric_id!,
+                getRecordId: (record: MetricLibItem) => record.metric_id,
+                size: params.pageSize,
+                loadPage: (page, size) =>
+                  queryMetricList({
+                    datasource_id: datasourceId,
+                    domain_id: deepLinkValues.domain_id,
+                    page,
+                    size,
+                  }),
+              }),
+            );
+            return {
+              data: match ? [match.record] : [],
+              success: true,
+              total: match ? 1 : 0,
             };
-            try {
-              const result = await queryMetricList(deleteExtraDelete(requestData));
-              const list = normalizeListResponse<MetricLibItem>(result);
-              return {
-                data: list,
-                success: true,
-                total: extractTotal(result) || list.length,
-              };
-            } catch {
-              return { data: [], success: false, total: 0 };
-            }
-          }}
-          scroll={{ x: 1500 }}
-          options={{ density: false }}
-          pagination={{
-            defaultPageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => t('common.total', { count: total }),
-            pageSizeOptions: ['10', '20', '50', '100'],
-          }}
-          search={{
-            labelWidth: 'auto',
-            defaultCollapsed: false,
-          }}
-          toolBarRender={() => [
-            <Button
-              key="add"
-              icon={<PlusOutlined />}
-              type="primary"
-              onClick={handleAdd}
-            >
-              {t('metric.add')}
-            </Button>,
-          ]}
-        />
-        {actionMetricModal}
+          }
+          const result = await queryMetricList(deleteExtraDelete(requestData));
+          return { data: result.records, success: true, total: result.total };
+        }}
+        scroll={{ x: 1250 }}
+        pagination={{
+          defaultPageSize: 20,
+          showSizeChanger: true,
+          pageSizeOptions: ['20', '50', '100'],
+        }}
+        search={{ labelWidth: 'auto', defaultCollapsed: false }}
+        options={{ density: false }}
+        toolBarRender={() => [
+          ...(canExcel
+            ? [
+                <SemanticExcelActions
+                  key="excel"
+                  templateObject="metric"
+                  datasourceId={datasourceId}
+                  onImportSuccess={() => actionRef.current?.reload()}
+                />,
+              ]
+            : []),
+          ...(canWrite
+            ? [
+                <Button
+                  key="add"
+                  icon={<PlusOutlined />}
+                  type="primary"
+                  onClick={() => {
+                    const values = formRef.current?.getFieldsValue?.() ?? {};
+                    showModal({
+                      title: t('metric.addTitle'),
+                      initialFilter: {
+                        domain_id: values.domain_id,
+                      },
+                      callback: () => actionRef.current?.reload(),
+                    });
+                  }}
+                >
+                  {t('metric.add')}
+                </Button>,
+              ]
+            : []),
+        ]}
+      />
+      {modal}
     </>
   );
 };

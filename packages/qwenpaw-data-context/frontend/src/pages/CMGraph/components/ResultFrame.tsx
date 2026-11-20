@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Tooltip, Input, message } from "@/design";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { Button, Tooltip, Input, message } from '@/design';
 import {
   ExpandOutlined,
   CompressOutlined,
@@ -10,29 +18,34 @@ import {
   ZoomInOutlined,
   ZoomOutOutlined,
   AimOutlined,
-} from "@/design";
-import { useTranslation } from "react-i18next";
-import GraphCanvas from "./GraphCanvas";
-import type { GraphCanvasHandle } from "./GraphCanvas";
-import OverviewPanel from "./OverviewPanel";
-import NodePropertiesPanel from "./NodePropertiesPanel";
-import RelationshipPropertiesPanel from "./RelationshipPropertiesPanel";
-import TableView from "./TableView";
-import TextView from "./TextView";
-import CodeView from "./CodeView";
-import { NODE_TYPE_COLORS } from "../mock-data";
-import type { QueryFrame, ViewTab } from "../types";
-import styles from "../index.module.less";
+} from '@/design';
+import { useTranslation } from 'react-i18next';
+import GraphCanvas from './GraphCanvas';
+import type { GraphCanvasHandle } from './GraphCanvas';
+import OverviewPanel from './OverviewPanel';
+import NodePropertiesPanel from './NodePropertiesPanel';
+import RelationshipPropertiesPanel from './RelationshipPropertiesPanel';
+import TableView from './TableView';
+import TextView from './TextView';
+import CodeView from './CodeView';
+import { NODE_TYPE_COLORS } from '../nodeColors';
+import type { QueryFrame, ViewTab } from '../types';
+import styles from '../index.module.less';
 
 const ALL_VIEW_TABS: { key: ViewTab; icon: string }[] = [
-  { key: "graph", icon: "⚡" },
-  { key: "table", icon: "☰" },
-  { key: "text", icon: "A" },
-  { key: "code", icon: "{}" },
+  { key: 'graph', icon: '⚡' },
+  { key: 'table', icon: '☰' },
+  { key: 'text', icon: 'A' },
+  { key: 'code', icon: '{}' },
 ];
 
 interface ResultFrameProps {
   frame: QueryFrame;
+  readOnly?: boolean;
+  queryDisabled?: boolean;
+  targetOwnerId?: string;
+  /** Scope prefix shown before the query input (e.g. "mysql-xxxx$"); defaults to "$". */
+  queryPrefix?: string;
   onTabChange: (frameId: string, tab: ViewTab) => void;
   onClose: (frameId: string) => void;
   onNodeUpdate?: (frameId: string, nodeId: string, properties: Record<string, unknown>) => void;
@@ -41,11 +54,35 @@ interface ResultFrameProps {
   errorMessage?: string;
   onDismissError?: (frameId: string) => void;
   loading?: boolean;
+  onRetryGraph?: () => void;
+  /** Node key requested for canvas focus (from the sidebar search results). */
+  focusNodeKey?: string | null;
+  /** Monotonic token so repeated clicks on the same node re-trigger focus. */
+  focusNodeToken?: number;
+}
+
+class GraphRenderBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('Graph render failed:', error);
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
+  const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = filename;
   document.body.appendChild(anchor);
@@ -55,8 +92,13 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 function escapeCsvValue(value: unknown): string {
-  const str = value === null || value === undefined ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
-  if (str.includes('"') || str.includes(",") || str.includes("\n")) {
+  const str =
+    value === null || value === undefined
+      ? ''
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+  if (str.includes('"') || str.includes(',') || str.includes('\n')) {
     return '"' + str.replace(/"/g, '""') + '"';
   }
   return str;
@@ -64,6 +106,10 @@ function escapeCsvValue(value: unknown): string {
 
 export default function ResultFrame({
   frame,
+  readOnly,
+  queryDisabled,
+  targetOwnerId,
+  queryPrefix,
   onTabChange,
   onClose,
   onNodeUpdate,
@@ -72,6 +118,9 @@ export default function ResultFrame({
   errorMessage,
   onDismissError,
   loading,
+  onRetryGraph,
+  focusNodeKey,
+  focusNodeToken,
 }: ResultFrameProps) {
   const { t } = useTranslation();
 
@@ -101,13 +150,13 @@ export default function ResultFrame({
     return new Map(frame.result.edges.map((e) => [e.id, e] as const));
   }, [frame.result.edges]);
 
-  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
-  const selectedEdge = selectedEdgeId ? edgeById.get(selectedEdgeId) ?? null : null;
+  const selectedNode = selectedNodeId ? (nodeById.get(selectedNodeId) ?? null) : null;
+  const selectedEdge = selectedEdgeId ? (edgeById.get(selectedEdgeId) ?? null) : null;
 
   // Dynamically filter tabs: hide "graph" when there is no graph data
   const hasGraphData = frame.result.nodes.length > 0 || frame.result.edges.length > 0;
   const viewTabs = useMemo(
-    () => ALL_VIEW_TABS.filter((tab) => tab.key !== "graph" || hasGraphData),
+    () => ALL_VIEW_TABS.filter((tab) => tab.key !== 'graph' || hasGraphData),
     [hasGraphData],
   );
 
@@ -126,24 +175,60 @@ export default function ResultFrame({
     setSelectedEdgeId(null);
   }, []);
 
-  const handleExecute = useCallback(() => {
-    onExecuteQuery?.(editQuery, frame.id);
-  }, [editQuery, onExecuteQuery, frame.id]);
+  // Focus a node located from the sidebar search results. Each frame checks
+  // whether the node belongs to its own connected component; other frames
+  // ignore the request. The canvas renders its force layout asynchronously
+  // (and may still be mounting after a tab switch), so poll focusNode until
+  // it reports success, bounded to ~3s.
+  useEffect(() => {
+    if (!focusNodeToken || !focusNodeKey) return;
+    if (!nodeById.has(focusNodeKey)) return;
+    if (frame.activeTab !== 'graph') onTabChange(frame.id, 'graph');
+    setSelectedNodeId(focusNodeKey);
+    setSelectedEdgeId(null);
+    // The owning frame may be scrolled out of view when the search produced
+    // multiple connected components.
+    frameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    let cancelled = false;
+    let attempts = 0;
+    let timer = 0;
+    const tryFocus = async () => {
+      if (cancelled) return;
+      const applied = await graphCanvasRef.current?.focusNode(focusNodeKey).catch(() => false);
+      if (cancelled || applied) return;
+      attempts += 1;
+      if (attempts < 15) timer = window.setTimeout(tryFocus, 200);
+    };
+    timer = window.setTimeout(tryFocus, 50);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNodeToken]);
 
-  const runGraphControl = useCallback((action: keyof Pick<GraphCanvasHandle, "zoomIn" | "zoomOut" | "fitView">) => {
-    const actionPromise = graphCanvasRef.current?.[action]();
-    actionPromise?.catch(() => {
-      message.error(t("kgBrowser.genericError"));
-    });
-  }, [t]);
+  const handleExecute = useCallback(() => {
+    if (queryDisabled) return;
+    onExecuteQuery?.(editQuery, frame.id);
+  }, [editQuery, frame.id, onExecuteQuery, queryDisabled]);
+
+  const runGraphControl = useCallback(
+    (action: keyof Pick<GraphCanvasHandle, 'zoomIn' | 'zoomOut' | 'fitView'>) => {
+      const actionPromise = graphCanvasRef.current?.[action]();
+      actionPromise?.catch(() => {
+        message.error(t('kgBrowser.genericError'));
+      });
+    },
+    [t],
+  );
 
   useEffect(() => {
     const onFullscreenChange = () => {
       setIsFullscreen(document.fullscreenElement === frameRef.current);
       resizeGraphCanvas();
     };
-    document.addEventListener("fullscreenchange", onFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [resizeGraphCanvas]);
 
   const handleToggleFullscreen = useCallback(async () => {
@@ -156,7 +241,7 @@ export default function ResultFrame({
       }
       resizeGraphCanvas();
     } catch {
-      message.error(t("kgBrowser.genericError"));
+      message.error(t('kgBrowser.genericError'));
     }
   }, [resizeGraphCanvas, t]);
 
@@ -164,7 +249,7 @@ export default function ResultFrame({
     const ts = Date.now();
     try {
       switch (frame.activeTab) {
-        case "graph": {
+        case 'graph': {
           if (!graphCanvasRef.current) return;
           const dataUrl = await graphCanvasRef.current.toDataURL();
           const res = await fetch(dataUrl);
@@ -172,55 +257,65 @@ export default function ResultFrame({
           downloadBlob(blob, `cmgraph-graph-${ts}.png`);
           break;
         }
-        case "table": {
+        case 'table': {
           const cols = frame.columns ?? [];
           const rows = frame.rows ?? [];
-          const header = cols.map(escapeCsvValue).join(",");
-          const body = rows.map((row) => cols.map((col) => escapeCsvValue(row[col])).join(",")).join("\n");
-          const csv = header + "\n" + body;
-          downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `cmgraph-table-${ts}.csv`);
+          const header = cols.map(escapeCsvValue).join(',');
+          const body = rows
+            .map((row) => cols.map((col) => escapeCsvValue(row[col])).join(','))
+            .join('\n');
+          const csv = header + '\n' + body;
+          downloadBlob(
+            new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+            `cmgraph-table-${ts}.csv`,
+          );
           break;
         }
-        case "text": {
+        case 'text': {
           const rows = frame.rows ?? [];
           const text = rows
             .map((row) =>
               Object.entries(row)
-                .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
-                .join(", "),
+                .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
+                .join(', '),
             )
-            .join("\n");
-          downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), `cmgraph-text-${ts}.txt`);
+            .join('\n');
+          downloadBlob(
+            new Blob([text], { type: 'text/plain;charset=utf-8' }),
+            `cmgraph-text-${ts}.txt`,
+          );
           break;
         }
-        case "code": {
+        case 'code': {
           const json = JSON.stringify(frame.meta ?? {}, null, 2);
-          downloadBlob(new Blob([json], { type: "application/json;charset=utf-8" }), `cmgraph-code-${ts}.json`);
+          downloadBlob(
+            new Blob([json], { type: 'application/json;charset=utf-8' }),
+            `cmgraph-code-${ts}.json`,
+          );
           break;
         }
       }
     } catch {
-      message.error("Download failed");
+      message.error(t('kgBrowser.downloadFailed'));
     }
-  }, [frame.activeTab, frame.columns, frame.rows, frame.meta]);
+  }, [frame.activeTab, frame.columns, frame.meta, frame.rows, t]);
 
   return (
     <div className={styles.resultFrame} ref={frameRef}>
       {/* Frame header: editable query input + toolbar */}
       <div className={styles.frameHeader}>
         <div className={styles.frameQuery}>
-          <span className={styles.frameQueryPrefix}>$</span>
+          <span className={styles.frameQueryPrefix}>{queryPrefix ?? '$'}</span>
           <Input
             value={editQuery}
             onChange={(e) => setEditQuery(e.target.value)}
             onPressEnter={handleExecute}
+            disabled={queryDisabled}
             className={styles.frameQueryInput}
             variant="borderless"
             size="small"
           />
-          {frame.subTitle && (
-            <span className={styles.frameQuerySub}>{frame.subTitle}</span>
-          )}
+          {frame.subTitle && <span className={styles.frameQuerySub}>{frame.subTitle}</span>}
         </div>
         <div className={styles.frameActions}>
           <Button
@@ -229,16 +324,21 @@ export default function ResultFrame({
             size="small"
             onClick={handleExecute}
             loading={loading}
-            disabled={loading}
+            disabled={loading || queryDisabled}
             className={styles.frameExecuteBtn}
           />
-          <Tooltip title={t("kgBrowser.download")}>
+          <Tooltip title={t('kgBrowser.download')}>
             <Button type="text" icon={<DownloadOutlined />} size="small" onClick={handleDownload} />
           </Tooltip>
-          <Tooltip title={isFullscreen ? t("kgBrowser.exitFullscreen") : t("kgBrowser.fullscreen")}>
-            <Button type="text" icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />} size="small" onClick={handleToggleFullscreen} />
+          <Tooltip title={isFullscreen ? t('kgBrowser.exitFullscreen') : t('kgBrowser.fullscreen')}>
+            <Button
+              type="text"
+              icon={isFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+              size="small"
+              onClick={handleToggleFullscreen}
+            />
           </Tooltip>
-          <Tooltip title={t("kgBrowser.close")}>
+          <Tooltip title={t('kgBrowser.close')}>
             <Button
               type="text"
               icon={<CloseOutlined />}
@@ -254,7 +354,10 @@ export default function ResultFrame({
         <div className={styles.frameErrorPanel}>
           <WarningOutlined className={styles.frameErrorIcon} />
           <span className={styles.frameErrorText}>{errorMessage}</span>
-          <CloseOutlined className={styles.frameErrorClose} onClick={() => onDismissError?.(frame.id)} />
+          <CloseOutlined
+            className={styles.frameErrorClose}
+            onClick={() => onDismissError?.(frame.id)}
+          />
         </div>
       )}
 
@@ -265,73 +368,88 @@ export default function ResultFrame({
           {viewTabs.map((tab) => (
             <div
               key={tab.key}
-              className={`${styles.frameTab} ${frame.activeTab === tab.key ? styles.frameTabActive : ""}`}
+              className={`${styles.frameTab} ${frame.activeTab === tab.key ? styles.frameTabActive : ''}`}
               onClick={() => onTabChange(frame.id, tab.key)}
             >
               <span className={styles.frameTabIcon}>{tab.icon}</span>
-              <span className={styles.frameTabLabel}>
-                {t(`kgBrowser.${tab.key}View`)}
-              </span>
+              <span className={styles.frameTabLabel}>{t(`kgBrowser.${tab.key}View`)}</span>
             </div>
           ))}
         </div>
 
         {/* Content area */}
         <div className={styles.frameContent}>
-          {frame.activeTab === "graph" && (
+          {frame.activeTab === 'graph' && (
             <>
-              <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-                <GraphCanvas
-                  ref={graphCanvasRef}
-                  graphNodes={frame.result.nodes}
-                  graphEdges={frame.result.edges}
-                  onNodeClick={handleNodeClick}
-                  onEdgeClick={handleEdgeClick}
-                  onPaneClick={handlePaneClick}
-                  selectedEdgeId={selectedEdgeId}
-                />
-              </div>
+              <GraphRenderBoundary
+                fallback={
+                  <div className={styles.framesInitial}>
+                    <span>{t('kgBrowser.graphRenderFailed')}</span>
+                    <Button size="small" onClick={onRetryGraph}>
+                      {t('kgBrowser.retry')}
+                    </Button>
+                  </div>
+                }
+              >
+                <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                  <GraphCanvas
+                    ref={graphCanvasRef}
+                    graphNodes={frame.result.nodes}
+                    graphEdges={frame.result.edges}
+                    onNodeClick={handleNodeClick}
+                    onEdgeClick={handleEdgeClick}
+                    onPaneClick={handlePaneClick}
+                    selectedEdgeId={selectedEdgeId}
+                  />
+                </div>
+              </GraphRenderBoundary>
               <div className={styles.graphViewportControls}>
-                <Tooltip title={t("kgBrowser.zoomIn")}>
+                <Tooltip title={t('kgBrowser.zoomIn')}>
                   <Button
                     type="text"
                     size="small"
                     icon={<ZoomInOutlined />}
-                    onClick={() => runGraphControl("zoomIn")}
+                    onClick={() => runGraphControl('zoomIn')}
                   />
                 </Tooltip>
-                <Tooltip title={t("kgBrowser.zoomOut")}>
+                <Tooltip title={t('kgBrowser.zoomOut')}>
                   <Button
                     type="text"
                     size="small"
                     icon={<ZoomOutOutlined />}
-                    onClick={() => runGraphControl("zoomOut")}
+                    onClick={() => runGraphControl('zoomOut')}
                   />
                 </Tooltip>
-                <Tooltip title={t("kgBrowser.fitView")}>
+                <Tooltip title={t('kgBrowser.fitView')}>
                   <Button
                     type="text"
                     size="small"
                     icon={<AimOutlined />}
-                    onClick={() => runGraphControl("fitView")}
+                    onClick={() => runGraphControl('fitView')}
                   />
                 </Tooltip>
               </div>
               {selectedNode ? (
                 <NodePropertiesPanel
                   node={selectedNode}
-                  nodeColor={NODE_TYPE_COLORS[selectedNode.type] || "#78909c"}
+                  nodeColor={NODE_TYPE_COLORS[selectedNode.type] || '#78909c'}
+                  targetOwnerId={targetOwnerId}
                   onClose={handlePaneClick}
-                  onNodeUpdate={(nodeId, properties) =>
-                    onNodeUpdate?.(frame.id, nodeId, properties)
+                  onNodeUpdate={
+                    readOnly
+                      ? undefined
+                      : (nodeId, properties) => onNodeUpdate?.(frame.id, nodeId, properties)
                   }
                 />
               ) : selectedEdge ? (
                 <RelationshipPropertiesPanel
                   edge={selectedEdge}
+                  targetOwnerId={targetOwnerId}
                   onClose={handlePaneClick}
-                  onEdgeUpdate={(edgeId, properties) =>
-                    onEdgeUpdate?.(frame.id, edgeId, properties)
+                  onEdgeUpdate={
+                    readOnly
+                      ? undefined
+                      : (edgeId, properties) => onEdgeUpdate?.(frame.id, edgeId, properties)
                   }
                 />
               ) : (
@@ -339,9 +457,9 @@ export default function ResultFrame({
               )}
             </>
           )}
-          {frame.activeTab === "table" && <TableView frame={frame} />}
-          {frame.activeTab === "text" && <TextView frame={frame} />}
-          {frame.activeTab === "code" && <CodeView frame={frame} />}
+          {frame.activeTab === 'table' && <TableView frame={frame} />}
+          {frame.activeTab === 'text' && <TextView frame={frame} />}
+          {frame.activeTab === 'code' && <CodeView frame={frame} />}
         </div>
       </div>
     </div>

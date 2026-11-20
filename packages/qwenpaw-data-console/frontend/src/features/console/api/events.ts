@@ -12,7 +12,7 @@ interface SubscribeChatEventsOptions {
 }
 
 export interface SubscribeChatEventsResult {
-  reason: 'eof' | 'aborted';
+  reason: 'eof' | 'aborted' | 'dropped';
 }
 
 export async function subscribeChatEvents({
@@ -55,8 +55,8 @@ export async function subscribeChatEvents({
         return { reason: 'eof' };
       }
     }
-  } catch (error) {
-    if (!signal.aborted) throw error;
+  } catch {
+    if (!signal.aborted) return { reason: 'dropped' };
   } finally {
     reader.releaseLock();
   }

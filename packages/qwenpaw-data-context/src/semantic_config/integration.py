@@ -6,12 +6,16 @@
   两侧前端返回协议均不变。
 - 复用 CM 的统一认证与 scope 授权中间件。
 """
+
 from __future__ import annotations
+
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from profiling.integration import mount_profiling
 
 from semantic_config.errors import (
     BadRequestError,
@@ -21,16 +25,21 @@ from semantic_config.errors import (
 )
 from semantic_config.routers import (
     biz_domain_router,
-    dataset_column_meta_router,
     dataset_dimension_router,
+    dataset_field_router,
     dataset_meta_router,
     datasource_router,
     dimension_router,
+    export_router,
     import_router,
-    metric_formula_lib_router,
+    metric_caliber_router,
     metric_lib_router,
+    table_column_router,
+    verified_query_router,
     weave_task_router,
 )
+
+log = logging.getLogger("semantic_config.integration")
 
 # 编辑层统一挂在 /api/semantic-config 下做隔离（各 router 自身前缀已是 /api/semantic-config/xxx，
 # 避免与 CM dashboard 的 /api/* 兜底路由相撞）。命中该前缀的请求走 semantic-config 错误协议，其余回退 CM。
@@ -77,13 +86,21 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _fallback(request: Request, exc: Exception):
+        log.error(
+            "unhandled error on %s %s",
+            request.method,
+            request.url.path,
+            exc_info=exc,
+        )
         if _is_editing_path(request):
             return JSONResponse(
                 status_code=500, content=_body(500, "服务器内部错误，请联系管理员")
             )
         if prev_exc_handler is not None:
             return await prev_exc_handler(request, exc)
-        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+        return JSONResponse(
+            status_code=500, content={"detail": "Internal Server Error"}
+        )
 
 
 def mount_semantic_config(app: FastAPI) -> None:
@@ -92,20 +109,35 @@ def mount_semantic_config(app: FastAPI) -> None:
     须在 CM 自身的 include_router / exception_handler 都注册完之后调用，
     以便正确捕获并回退 CM 既有的兜底异常处理逻辑。
     """
+    from semantic_config.cm_runtime import bind_runtime
+
+    app.state.semantic_config_mounted = True
+
+    @app.middleware("http")
+    async def bind_editor_runtime(request: Request, call_next):
+        with bind_runtime(getattr(request.app.state, "context_runtime", None)):
+            return await call_next(request)
+
     # 各 router 自身前缀已是 /api/semantic-config/xxx，直接挂载即可。
     for r in (
         datasource_router,
         biz_domain_router,
         dataset_meta_router,
-        dataset_column_meta_router,
+        table_column_router,
+        dataset_field_router,
         dimension_router,
         dataset_dimension_router,
         metric_lib_router,
-        metric_formula_lib_router,
+        metric_caliber_router,
+        verified_query_router,
         import_router,
+        export_router,
         weave_task_router,
     ):
         app.include_router(r.router)
+
     app.include_router(datasource_router.metadata_router)
+
+    mount_profiling(app)
 
     _register_exception_handlers(app)

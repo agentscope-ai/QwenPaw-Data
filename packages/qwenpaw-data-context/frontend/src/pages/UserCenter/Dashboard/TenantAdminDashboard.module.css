@@ -1,0 +1,131 @@
+.recentUserGrid {
+  display: grid;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  grid-template-columns: repeat(5, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.userCard,
+.userCardSkeleton {
+  min-width: 0;
+  height: 124px !important;
+  border-radius: var(--context-radius-lg) !important;
+}
+
+.userCard {
+  display: grid;
+  align-items: center;
+  padding: 14px;
+  color: var(--context-color-text);
+  text-align: left;
+  background: rgb(255 255 255 / 70%);
+  border: 1px solid var(--context-color-border-secondary);
+  cursor: pointer;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.userCard:hover,
+.userCard:focus-visible {
+  background: #fff;
+  border-color: var(--context-color-border);
+  box-shadow: var(--qwenpaw-data-card-hover-shadow);
+  outline: none;
+}
+
+.userCard:active {
+  box-shadow: var(--qwenpaw-data-card-hover-shadow);
+}
+
+.userAvatar {
+  flex: 0 0 auto;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+.userCardBody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.userName,
+.userDetailValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userName {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.userNameRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.userNameRow :global(.ant-tag) {
+  max-width: 100%;
+  margin: 0;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.userDetailRow {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.userDetailLabel {
+  flex: 0 0 auto;
+  color: var(--context-color-text-tertiary);
+}
+
+.userDetailValue {
+  min-width: 0;
+  color: var(--context-color-text-secondary);
+}
+
+.emptyUsers {
+  padding: 12px 0;
+  background: rgb(255 255 255 / 48%);
+  border-radius: var(--context-radius-lg);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .userCard,
+:global(:root[data-qwenpaw-data-theme='dark']) .emptyUsers {
+  color: var(--qwenpaw-data-color-text);
+  background: var(--qwenpaw-data-color-form-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .userCard:hover,
+:global(:root[data-qwenpaw-data-theme='dark']) .userCard:focus-visible {
+  background: var(--qwenpaw-data-color-fill-secondary);
+  border-color: var(--qwenpaw-data-color-primary-border);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .userName {
+  color: var(--qwenpaw-data-color-text);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .userDetailLabel,
+:global(:root[data-qwenpaw-data-theme='dark']) .userDetailValue {
+  color: var(--qwenpaw-data-color-text-secondary);
+}

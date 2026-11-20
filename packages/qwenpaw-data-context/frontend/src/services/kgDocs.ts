@@ -1,7 +1,5 @@
-import { getConsoleConfig } from "./consoleConfig";
-import { buildAuthHeaders } from "./authHeaders";
-import { clearAuthToken, getApiUrl } from "./config";
-import { request } from "./request";
+import { ApiRequestError } from './apiError';
+import { request, requestBlob } from './request';
 
 export interface KgDocsApiEnvelope<T> {
   code: number;
@@ -9,7 +7,7 @@ export interface KgDocsApiEnvelope<T> {
   data: T | null;
 }
 
-export type IngestStatus = "building" | "ready" | "failed";
+export type IngestStatus = 'building' | 'ready' | 'failed';
 
 interface KgDocumentBase {
   doc_id: string;
@@ -17,96 +15,118 @@ interface KgDocumentBase {
   file_size: number;
   download_url: string;
   ingest_status: IngestStatus;
+  last_modified: string | null;
 }
 
 export interface KgDocument extends KgDocumentBase {
   ingest_error: string | null;
+  owner_id: string;
+  owner_name: string;
+  can_delete: boolean;
+  retry_action: 'reingest' | 'delete' | null;
 }
 
-export type KgUploadedDocument = Omit<KgDocument, "ingest_error">;
+export type KgUploadedDocument = KgDocumentBase;
 
 export interface KgDocsListData {
   list: KgDocument[];
   page: number;
   page_size: number;
   total: number;
+  status_counts?: Record<IngestStatus, number>;
 }
 
 export interface KgDocsDeleteData {
   doc_id: string;
 }
 
+export type KgDocPreviewKind = 'pdf' | 'text' | 'markdown' | 'docx';
+
+export interface KgDocPreview {
+  doc_id: string;
+  filename: string;
+  kind: KgDocPreviewKind;
+  text: string | null;
+  truncated: boolean;
+}
+
 function ensureSuccess<T>(envelope: KgDocsApiEnvelope<T>): T {
   if (envelope.code !== 0 || envelope.data == null) {
-    throw new Error(envelope.message || "Request failed");
+    throw new ApiRequestError(envelope.message || 'Request failed', {
+      status: 200,
+      code: String(envelope.code),
+      body: envelope,
+    });
   }
   return envelope.data;
 }
 
-async function parseEnvelope<T>(
-  response: Response,
-): Promise<KgDocsApiEnvelope<T>> {
-  const contentType = response.headers.get("content-type") || "";
-  const text = await response.text();
-
-  if (response.status === 401) {
-    clearAuthToken();
-    const entry = getConsoleConfig()?.base_path || "/login";
-    if (window.location.pathname !== entry) {
-      window.location.href = entry;
-    }
-    throw new Error("Not authenticated");
-  }
-
-  if (!contentType.includes("application/json")) {
-    throw new Error(
-      text || `Request failed: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  try {
-    const envelope = JSON.parse(text) as KgDocsApiEnvelope<T>;
-    if (!response.ok) {
-      throw new Error(envelope.message || text);
-    }
-    return envelope;
-  } catch (error) {
-    if (error instanceof Error && error.message) {
-      throw error;
-    }
-    throw new Error(text || "Invalid response");
-  }
-}
-
 export const kgDocsApi = {
-  listKgDocs: async (params: { page: number; pageSize: number }) => {
+  listKgDocs: async (params: {
+    page: number;
+    pageSize: number;
+    status?: IngestStatus;
+    keyword?: string;
+  }) => {
     const query = new URLSearchParams({
       page: String(params.page),
       page_size: String(params.pageSize),
     });
+    if (params.status) query.set('status', params.status);
+    if (params.keyword) query.set('keyword', params.keyword);
     const envelope = await request<KgDocsApiEnvelope<KgDocsListData>>(
       `/v1/docs?${query.toString()}`,
+      { redirectOnForbidden: false },
     );
     return ensureSuccess(envelope);
   },
 
   uploadKgDoc: async (file: File) => {
     const formData = new FormData();
-    formData.append("file", file);
-    const response = await fetch(getApiUrl("/v1/docs/upload"), {
-      method: "POST",
-      headers: buildAuthHeaders(),
+    formData.append('file', file);
+    const envelope = await request<KgDocsApiEnvelope<KgUploadedDocument>>('/v1/docs/upload', {
+      method: 'POST',
       body: formData,
+      redirectOnForbidden: false,
     });
-    const envelope = await parseEnvelope<KgUploadedDocument>(response);
+    return ensureSuccess(envelope);
+  },
+
+  reingestKgDoc: async (docId: string) => {
+    const query = new URLSearchParams({ doc_id: docId });
+    const envelope = await request<KgDocsApiEnvelope<KgUploadedDocument>>(
+      `/v1/docs/reingest?${query.toString()}`,
+      {
+        method: 'POST',
+        redirectOnForbidden: false,
+      },
+    );
     return ensureSuccess(envelope);
   },
 
   deleteKgDoc: async (docId: string) => {
     const envelope = await request<KgDocsApiEnvelope<KgDocsDeleteData>>(
       `/v1/docs/${encodeURIComponent(docId)}`,
-      { method: "DELETE" },
+      {
+        method: 'DELETE',
+        redirectOnForbidden: false,
+      },
     );
     return ensureSuccess(envelope);
+  },
+
+  previewKgDoc: async (docId: string) => {
+    const query = new URLSearchParams({ doc_id: docId });
+    const envelope = await request<KgDocsApiEnvelope<KgDocPreview>>(
+      `/v1/docs/preview?${query.toString()}`,
+      { redirectOnForbidden: false },
+    );
+    return ensureSuccess(envelope);
+  },
+
+  downloadKgDocBlob: async (docId: string) => {
+    return requestBlob(`/v1/docs/${encodeURIComponent(docId)}/download`, {
+      redirectOnForbidden: false,
+    });
   },
 };

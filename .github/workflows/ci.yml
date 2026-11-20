@@ -46,23 +46,6 @@ jobs:
       - name: Run tests
         run: uv run pytest -q
 
-      - name: API smoke test
-        run: |
-          uv run python packages/qwenpaw-data-context/scripts/serve.py \
-            --port 8799 --log-level warning &
-          SERVE_PID=$!
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8799/api/health >/dev/null 2>&1; then
-              echo "smoke test OK"
-              kill "$SERVE_PID"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "smoke test FAILED" >&2
-          kill "$SERVE_PID" || true
-          exit 1
-
   frontend:
     name: Frontend (lint + build)
     runs-on: ubuntu-latest
@@ -109,6 +92,12 @@ jobs:
           node-version: 22.22.0
           cache: npm
           cache-dependency-path: packages/qwenpaw-data-context/frontend/package-lock.json
+
+      - name: Install Java for native Neo4j smoke
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
 
       - name: Initialize native Windows environment
         shell: pwsh
@@ -159,16 +148,42 @@ jobs:
       - name: Native lifecycle smoke test
         shell: pwsh
         run: |
+          # Windows runners do not provide a Linux Docker daemon. Run a real
+          # Neo4j process rather than weakening the dependency-aware health check.
+          $neo4jArchive = Join-Path $env:RUNNER_TEMP "neo4j-community-5.26.0-windows.zip"
+          $neo4jRoot = Join-Path $env:RUNNER_TEMP "neo4j-native"
+          $neo4jHome = Join-Path $neo4jRoot "neo4j-community-5.26.0"
+          Invoke-WebRequest -Uri "https://dist.neo4j.org/neo4j-community-5.26.0-windows.zip" -OutFile $neo4jArchive
+          $expectedHash = "ea9c98111b72310dab8ae00b7ae4d43df59a1ea82a490579b886bffb3e30de8f"
+          if ((Get-FileHash -Algorithm SHA256 $neo4jArchive).Hash.ToLowerInvariant() -ne $expectedHash) {
+            throw "Neo4j archive SHA256 mismatch"
+          }
+          Expand-Archive -LiteralPath $neo4jArchive -DestinationPath $neo4jRoot
+          $env:NEO4J_URI = "bolt://127.0.0.1:7687"
+          $env:NEO4J_USER = "neo4j"
+          $env:NEO4J_PASSWORD = "qwenpaw-data-test"
+          & (Join-Path $neo4jHome "bin\neo4j-admin.bat") dbms set-initial-password $env:NEO4J_PASSWORD
+          if ($LASTEXITCODE -ne 0) { throw "Neo4j password initialization failed" }
+          $neo4jOut = Join-Path $env:RUNNER_TEMP "neo4j.stdout.log"
+          $neo4jErr = Join-Path $env:RUNNER_TEMP "neo4j.stderr.log"
+          $neo4jCommand = Join-Path $neo4jHome "bin\neo4j.bat"
+          $neo4j = Start-Process -FilePath "pwsh" -ArgumentList @(
+            "-NoProfile", "-Command", "`"& '$neo4jCommand' console`""
+          ) -PassThru -RedirectStandardOutput $neo4jOut -RedirectStandardError $neo4jErr
           $stdout = Join-Path $env:RUNNER_TEMP "qwenpaw-data-start.stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "qwenpaw-data-start.stderr.log"
-          $server = Start-Process -FilePath "pwsh" -ArgumentList @(
-            "-NoProfile", "-File", (Resolve-Path "scripts/start_local.ps1"),
-            "--skip-neo4j"
-          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $server = $null
           try {
+            $server = Start-Process -FilePath "pwsh" -ArgumentList @(
+              "-NoProfile", "-File", (Resolve-Path "scripts/start_local.ps1"),
+              "--skip-neo4j"
+            ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             $apiHealthy = $false
             $uiHealthy = $false
             for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              if ($neo4j.HasExited) {
+                throw "Neo4j exited early with code $($neo4j.ExitCode)"
+              }
               if ($server.HasExited) {
                 throw "start_local.ps1 exited early with code $($server.ExitCode)"
               }
@@ -191,19 +206,30 @@ jobs:
             $env:Path = "$env:QWENPAW_DATA_CLI_BIN;$env:Path"
             qwenpaw-data datasource list
           } finally {
-            if (-not $server.HasExited) {
+            $serverStopped = $true
+            if ($server -and -not $server.HasExited) {
               # taskkill races child processes that exit on their own while the
               # tree is being killed and then returns a non-zero exit code that
               # would fail the step. Tolerate that race and verify termination
               # of the root process instead.
               taskkill /PID $server.Id /T /F 2>&1 | Out-Null
               $global:LASTEXITCODE = 0
-              if (-not $server.WaitForExit(30000)) {
-                throw "start_local.ps1 (PID $($server.Id)) is still running after taskkill"
-              }
+              $serverStopped = $server.WaitForExit(30000)
             }
             if (Test-Path $stdout) { Get-Content $stdout }
             if (Test-Path $stderr) { Get-Content $stderr }
+            if (-not $neo4j.HasExited) {
+              taskkill /PID $neo4j.Id /T /F 2>&1 | Out-Null
+              $global:LASTEXITCODE = 0
+              if (-not $neo4j.WaitForExit(30000)) {
+                throw "Neo4j console process (PID $($neo4j.Id)) is still running after taskkill"
+              }
+            }
+            if (Test-Path $neo4jOut) { Get-Content $neo4jOut }
+            if (Test-Path $neo4jErr) { Get-Content $neo4jErr }
+            if (-not $serverStopped) {
+              throw "start_local.ps1 (PID $($server.Id)) is still running after taskkill"
+            }
           }
 
       - name: Verify initialization kept the checkout clean
@@ -244,18 +270,22 @@ jobs:
       - name: Build all workspace packages
         run: uv build --all-packages --out-dir dist
 
-      - name: Replace editable packages with built wheels
-        run: >
-          uv pip install --python .venv/bin/python
-          --reinstall --no-deps dist/*.whl
+      - name: Install wheels into a clean environment
+        run: |
+          uv venv "$RUNNER_TEMP/qpd-release"
+          uv pip install --python "$RUNNER_TEMP/qpd-release/bin/python" dist/*.whl
+          uv pip check --python "$RUNNER_TEMP/qpd-release/bin/python"
 
       - name: Verify installed CLI and package imports
+        working-directory: ${{ runner.temp }}
+        env:
+          PYTHONPATH: ''
         run: |
-          .venv/bin/qwenpaw-data --help
-          .venv/bin/python -c \
-            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core, qwenpaw_data.console'
-          .venv/bin/qwenpaw-data-console --help
-          .venv/bin/python -c \
+          "$RUNNER_TEMP/qpd-release/bin/qwenpaw-data" --help
+          "$RUNNER_TEMP/qpd-release/bin/python" -I -c \
+            'import context_manager, qwenpaw_data.cli, qwenpaw_data.host.core.client, qwenpaw_data.console, qwenpaw_data_auth, qwenpaw_data.skills, qwenpaw_data.tracing'
+          "$RUNNER_TEMP/qpd-release/bin/qwenpaw-data-console" --help
+          "$RUNNER_TEMP/qpd-release/bin/python" -I -c \
             'from qwenpaw_data.console import create_app; create_app(host_url="http://127.0.0.1:8766", token="wheel-smoke", bridge_url="http://127.0.0.1:8765")'
 
       - uses: actions/upload-artifact@v7
@@ -316,6 +346,54 @@ jobs:
           QWENPAW_DATA_TEST_NEO4J_URI: bolt://127.0.0.1:7687
           QWENPAW_DATA_TEST_NEO4J_PASSWORD: qwenpaw-data-test
         run: uv run pytest -q tests/integration/test_database_services.py
+
+      - name: Context graph transactions and query authorization
+        env:
+          CM_BATCH_NEO4J_URI: bolt://127.0.0.1:7687
+          CM_BATCH_NEO4J_PASSWORD: qwenpaw-data-test
+          CM_EXPLORER_TEST_NEO4J_URI: bolt://127.0.0.1:7687
+          CM_EXPLORER_TEST_NEO4J_PASSWORD: qwenpaw-data-test
+        run: bash scripts/tests/run_pytest.sh packages/qwenpaw-data-context/tests/cm
+
+      - name: Context API smoke with real dependencies
+        env:
+          QWENPAW_DATA_HOME: ${{ runner.temp }}/context-smoke-home
+          QWENPAW_DATA_DB_URL: sqlite+aiosqlite:///${{ runner.temp }}/context-smoke.db
+          QWENPAW_DATA_ENV_FILE: /dev/null
+          NEO4J_URI: bolt://127.0.0.1:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: qwenpaw-data-test
+        run: |
+          # Context validates the shared schema; each owner creates its own tables.
+          uv run python - <<'PY'
+          import asyncio
+          from qwenpaw_data_auth import AuthConfig, bootstrap_local
+          from qwenpaw_data.host.core.db.engine import init_db, reset_engine
+          bootstrap_local(AuthConfig.from_env())
+          async def prepare():
+              try:
+                  await init_db()
+              finally:
+                  await reset_engine()
+          asyncio.run(prepare())
+          PY
+          uv run python packages/qwenpaw-data-context/scripts/serve.py \
+            --port 8799 --log-level warning &
+          SERVE_PID=$!
+          trap 'kill "$SERVE_PID" 2>/dev/null || true; wait "$SERVE_PID" || true' EXIT
+          for i in $(seq 1 30); do
+            if ! kill -0 "$SERVE_PID" 2>/dev/null; then
+              echo "Context exited before becoming healthy" >&2
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:8799/api/health >/dev/null 2>&1; then
+              echo "Context smoke test OK"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Context smoke test FAILED" >&2
+          exit 1
 
   cli-demo-smoke:
     name: Deterministic CLI demo smoke
@@ -391,6 +469,7 @@ jobs:
   audit:
     name: Supply-chain gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -419,13 +498,13 @@ jobs:
       - name: Audit Python dependencies
         run: >
           uvx --from pip-audit==2.10.1 pip-audit
-          -r /tmp/requirements.txt --disable-pip
+          -r /tmp/requirements.txt --disable-pip --timeout 60
 
       - name: Audit standalone Context dependencies
         run: >
           uvx --from pip-audit==2.10.1 pip-audit
           -r packages/qwenpaw-data-context/requirements.lock.txt
-          --disable-pip --no-deps
+          --disable-pip --no-deps --timeout 60
 
       - name: Install locked Python dependencies
         run: uv sync --all-packages --all-groups
@@ -433,7 +512,7 @@ jobs:
       - name: Generate Python SBOM
         run: |
           uvx --from pip-audit==2.10.1 pip-audit \
-            -r /tmp/requirements.txt --disable-pip \
+            -r /tmp/requirements.txt --disable-pip --timeout 60 \
             --format cyclonedx-json --output python.cdx.json
           .venv/bin/python scripts/qualify_python_sbom.py \
             --from-environment python.cdx.json

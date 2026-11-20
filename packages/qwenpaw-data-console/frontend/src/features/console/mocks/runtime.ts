@@ -167,7 +167,7 @@ const completedOutput = [
     aggregation: 'count_distinct(user_id)',
   }),
   toolCall('call_sql', 'ExecuteSQL', {
-    datasource_id: 'tongyi_business_db',
+    datasource_id: 'sales_business_db',
     statement: 'SELECT dt, country, dau FROM example_app_dau_daily ...',
   }),
   toolOutput('out_sql', 'call_sql', 'ExecuteSQL', {
@@ -202,7 +202,7 @@ const runningOutput = [
     'call_attribution',
     'ExecuteSQL',
     {
-      datasource_id: 'tongyi_business_db',
+      datasource_id: 'sales_business_db',
       statement: 'SELECT channel, app_version, user_type, contribution ...',
     },
     inProgress,

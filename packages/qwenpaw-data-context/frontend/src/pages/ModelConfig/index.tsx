@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   ApiOutlined,
@@ -8,30 +8,34 @@ import {
   Form,
   Input,
   InputNumber,
+  Popconfirm,
   Radio,
   Space,
-} from "@/design";
-import { useAppMessage } from "@/hooks/useAppMessage";
+} from '@/design';
+import { useAppMessage } from '@/hooks/useAppMessage';
 import {
   clearModelConfigEntryCheck,
+  embeddingSpaceConflictDetails,
   modelConfigApi,
   readModelConfigEntryCheck,
   type EmbeddingConfig,
   type EmbeddingConfigPayload,
+  type EmbeddingSpaceConflictDetails,
   type LLMConfig,
   type LLMConfigPayload,
+  type ModelConfigKeyStatus,
   type TestResult,
-} from "@/services/modelConfig";
-import ModelConfigFormCard from "./components/ModelConfigFormCard";
-import RebuildStatus from "./components/RebuildStatus";
+} from '@/services/modelConfig';
+import ModelConfigFormCard from './components/ModelConfigFormCard';
+import RebuildStatus from './components/RebuildStatus';
 import {
   getProviderBaseUrl,
   inferProvider,
   LLM_PROVIDER_PRESETS,
   type LLMProvider,
-} from "./providerPresets";
-import { useEmbeddingRebuild } from "./useEmbeddingRebuild";
-import styles from "./index.module.less";
+} from './providerPresets';
+import { useEmbeddingRebuild } from './useEmbeddingRebuild';
+import styles from './index.module.less';
 
 interface LLMFormValues {
   provider: LLMProvider;
@@ -51,8 +55,24 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** 按稳定分类码生成本地化连通性测试文案，未知分类时回退 message。 */
+function testResultText(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  result: TestResult,
+): string {
+  if (!result.code) return result.message;
+  return t(`modelConfig.testCode.${result.code}`, {
+    defaultValue: result.message,
+  });
+}
+
 function configuredKeyMask(maskedKey: string | null | undefined): string {
-  return maskedKey?.trim() ?? "";
+  return maskedKey?.trim() ?? '';
+}
+
+/** The model/endpoint/dimension triple that decides which vector space we embed into. */
+function embeddingIdentity(config: EmbeddingConfig): string {
+  return [config.base_url?.trim() ?? '', config.model?.trim() ?? '', config.dim ?? 0].join('|');
 }
 
 function entryCheckResult(
@@ -64,9 +84,7 @@ function entryCheckResult(
   return {
     ...result,
     success: false,
-    message: result.success
-      ? incompleteMessage
-      : `${incompleteMessage} ${result.message}`,
+    message: result.success ? incompleteMessage : `${incompleteMessage} ${result.message}`,
   };
 }
 
@@ -85,37 +103,39 @@ export default function ModelConfigPage() {
   const [embeddingSaving, setEmbeddingSaving] = useState(false);
   const [llmTestResult, setLlmTestResult] = useState<TestResult | null>(() =>
     entryCheck
+      ? entryCheckResult(entryCheck.llm, entryCheck.llmComplete, t('modelConfig.llmIncomplete'))
+      : null,
+  );
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<TestResult | null>(() =>
+    entryCheck
       ? entryCheckResult(
-          entryCheck.llm,
-          entryCheck.llmComplete,
-          t("modelConfig.llmIncomplete"),
+          entryCheck.embedding,
+          entryCheck.embeddingComplete,
+          t('modelConfig.embeddingIncomplete'),
         )
       : null,
   );
-  const [embeddingTestResult, setEmbeddingTestResult] =
-    useState<TestResult | null>(() =>
-      entryCheck
-        ? entryCheckResult(
-            entryCheck.embedding,
-            entryCheck.embeddingComplete,
-            t("modelConfig.embeddingIncomplete"),
-          )
-        : null,
-    );
-  const [llmKeyMask, setLlmKeyMask] = useState("");
-  const [embeddingKeyMask, setEmbeddingKeyMask] = useState("");
-  const [missingRebuildJob, setMissingRebuildJob] = useState(false);
+  const [llmKeyMask, setLlmKeyMask] = useState('');
+  const [embeddingKeyMask, setEmbeddingKeyMask] = useState('');
+  // 保存换了向量空间后置起：图内向量仍是旧模型产出的，等用户主动重建。
+  const [rebuildAdvised, setRebuildAdvised] = useState(false);
+  const [embeddingSpaceConflict, setEmbeddingSpaceConflict] =
+    useState<EmbeddingSpaceConflictDetails | null>(null);
+  const [keyStatus, setKeyStatus] = useState<ModelConfigKeyStatus>('ok');
+  const [seeded, setSeeded] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const llmAuxModelRef = useRef<string | null>(null);
+  const embeddingIdentityRef = useRef('');
 
   const applyLLMConfig = useCallback(
     (llm: LLMConfig) => {
       llmAuxModelRef.current = llm.aux_model ?? null;
       setLlmKeyMask(configuredKeyMask(llm.api_key));
       llmForm.setFieldsValue({
-        provider: inferProvider(llm.base_url, LLM_PROVIDER_PRESETS, "custom"),
-        base_url: llm.base_url ?? "",
-        model: llm.model ?? "",
-        api_key: "",
+        provider: inferProvider(llm.base_url, LLM_PROVIDER_PRESETS, 'custom'),
+        base_url: llm.base_url ?? '',
+        model: llm.model ?? '',
+        api_key: '',
       });
     },
     [llmForm],
@@ -123,25 +143,27 @@ export default function ModelConfigPage() {
 
   const applyEmbeddingConfig = useCallback(
     (embedding: EmbeddingConfig) => {
+      embeddingIdentityRef.current = embeddingIdentity(embedding);
       setEmbeddingKeyMask(configuredKeyMask(embedding.api_key));
       embeddingForm.setFieldsValue({
-        base_url: embedding.base_url ?? "",
-        model: embedding.model ?? "",
+        base_url: embedding.base_url ?? '',
+        model: embedding.model ?? '',
         dim: embedding.dim ?? 1024,
-        api_key: "",
+        api_key: '',
       });
     },
     [embeddingForm],
   );
 
   const handleRebuildSuccess = useCallback(() => {
-    message.success(t("modelConfig.rebuild.successToast"));
+    message.success(t('modelConfig.rebuild.successToast'));
+    setRebuildAdvised(false);
     void modelConfigApi
       .get()
       .then(({ embedding }) => applyEmbeddingConfig(embedding))
       .catch((error) => {
         message.error(
-          t("modelConfig.rebuild.refreshFailed", {
+          t('modelConfig.rebuild.refreshFailed', {
             message: errorMessage(error),
           }),
         );
@@ -151,10 +173,11 @@ export default function ModelConfigPage() {
   const {
     job,
     active: rebuildActive,
+    starting: rebuildStarting,
     retrying,
     pollError,
     restoreJob,
-    beginJob,
+    start: startRebuild,
     retry,
   } = useEmbeddingRebuild({ onSuccess: handleRebuildSuccess });
 
@@ -169,23 +192,25 @@ export default function ModelConfigPage() {
     ]);
     const errors: string[] = [];
 
-    if (configResult.status === "fulfilled") {
-      const { llm, embedding } = configResult.value;
+    if (configResult.status === 'fulfilled') {
+      const { llm, embedding, key_status, seeded: isSeeded } = configResult.value;
       applyLLMConfig(llm);
       applyEmbeddingConfig(embedding);
+      setKeyStatus(key_status ?? 'ok');
+      setSeeded(Boolean(isSeeded));
       setConfigLoaded(true);
     } else {
       errors.push(errorMessage(configResult.reason));
     }
 
-    if (jobResult.status === "fulfilled") {
+    if (jobResult.status === 'fulfilled') {
       restoreJob(jobResult.value);
     } else {
       errors.push(errorMessage(jobResult.reason));
     }
 
     if (errors.length > 0) {
-      setLoadError(errors.join("; "));
+      setLoadError(errors.join('; '));
     }
     setInitialLoading(false);
   }, [applyEmbeddingConfig, applyLLMConfig, restoreJob]);
@@ -201,26 +226,21 @@ export default function ModelConfigPage() {
   }, [loadInitialData]);
 
   const buildLLMPayload = (values: LLMFormValues): LLMConfigPayload => ({
-    base_url: values.base_url?.trim() ?? "",
-    model: values.model?.trim() ?? "",
+    base_url: values.base_url?.trim() ?? '',
+    model: values.model?.trim() ?? '',
     aux_model: llmAuxModelRef.current,
-    api_key: values.api_key?.trim() ?? "",
+    api_key: values.api_key?.trim() ?? '',
   });
 
-  const buildEmbeddingPayload = (
-    values: EmbeddingFormValues,
-  ): EmbeddingConfigPayload => ({
-    base_url: values.base_url?.trim() ?? "",
-    model: values.model?.trim() ?? "",
+  const buildEmbeddingPayload = (values: EmbeddingFormValues): EmbeddingConfigPayload => ({
+    base_url: values.base_url?.trim() ?? '',
+    model: values.model?.trim() ?? '',
     dim: values.dim,
-    api_key: values.api_key?.trim() ?? "",
+    api_key: values.api_key?.trim() ?? '',
   });
 
   const handleLLMProviderChange = (provider: LLMProvider) => {
-    llmForm.setFieldValue(
-      "base_url",
-      getProviderBaseUrl(provider, LLM_PROVIDER_PRESETS),
-    );
+    llmForm.setFieldValue('base_url', getProviderBaseUrl(provider, LLM_PROVIDER_PRESETS));
     setLlmTestResult(null);
   };
 
@@ -232,7 +252,7 @@ export default function ModelConfigPage() {
       setLlmTestResult(result);
     } catch (error) {
       if (error instanceof Error) {
-        message.error(t("modelConfig.testRequestFailed", { message: error.message }));
+        message.error(t('modelConfig.testRequestFailed', { message: error.message }));
       }
     } finally {
       setLlmTesting(false);
@@ -246,10 +266,10 @@ export default function ModelConfigPage() {
       const result = await modelConfigApi.updateLLM(buildLLMPayload(values));
       applyLLMConfig(result.llm);
       setLlmTestResult(null);
-      message.success(t("modelConfig.llmSaveSuccess"));
+      message.success(t('modelConfig.llmSaveSuccess'));
     } catch (error) {
       if (error instanceof Error) {
-        message.error(t("modelConfig.saveFailed", { message: error.message }));
+        message.error(t('modelConfig.saveFailed', { message: error.message }));
       }
     } finally {
       setLlmSaving(false);
@@ -263,11 +283,11 @@ export default function ModelConfigPage() {
       const result = await modelConfigApi.testEmbedding(buildEmbeddingPayload(values));
       setEmbeddingTestResult(result);
       if (result.success && result.detected_dim) {
-        embeddingForm.setFieldValue("dim", result.detected_dim);
+        embeddingForm.setFieldValue('dim', result.detected_dim);
       }
     } catch (error) {
       if (error instanceof Error) {
-        message.error(t("modelConfig.testRequestFailed", { message: error.message }));
+        message.error(t('modelConfig.testRequestFailed', { message: error.message }));
       }
     } finally {
       setEmbeddingTesting(false);
@@ -278,28 +298,48 @@ export default function ModelConfigPage() {
     try {
       const values = await embeddingForm.validateFields();
       setEmbeddingSaving(true);
-      const result = await modelConfigApi.updateEmbedding(
-        buildEmbeddingPayload(values),
-      );
-      const embedding = result.embedding;
-      applyEmbeddingConfig({ ...embedding, dim: embedding.dim ?? values.dim });
+      setEmbeddingSpaceConflict(null);
+      const previousIdentity = embeddingIdentityRef.current;
+      const { embedding } = await modelConfigApi.updateEmbedding(buildEmbeddingPayload(values));
+      const saved = { ...embedding, dim: embedding.dim ?? values.dim };
+      applyEmbeddingConfig(saved);
       setEmbeddingTestResult(null);
-      setMissingRebuildJob(false);
-
-      if (result.rebuild_required) {
-        if (result.job_id) {
-          beginJob(result.job_id);
-        } else {
-          setMissingRebuildJob(true);
-        }
-      }
-      message.success(t("modelConfig.embeddingSaveSuccess"));
+      // 保存只换查询期用的模型，图内向量要等显式重建。
+      setRebuildAdvised(embeddingIdentity(saved) !== previousIdentity);
+      message.success(t('modelConfig.embeddingSaveSuccess'));
     } catch (error) {
-      if (error instanceof Error) {
-        message.error(t("modelConfig.saveFailed", { message: error.message }));
+      // 409：当前 embedding 配置与工作区向量空间不一致。
+      const conflict = embeddingSpaceConflictDetails(error);
+      if (conflict) {
+        setEmbeddingSpaceConflict(conflict);
+      } else if (error instanceof Error) {
+        message.error(t('modelConfig.saveFailed', { message: error.message }));
       }
     } finally {
       setEmbeddingSaving(false);
+    }
+  };
+
+  const handleStartRebuild = async () => {
+    try {
+      await startRebuild();
+      setRebuildAdvised(false);
+      message.success(t('modelConfig.rebuild.startedToast'));
+    } catch (error) {
+      message.error(t('modelConfig.rebuild.startFailed', { message: errorMessage(error) }));
+    }
+  };
+
+  const handleClearConfig = async () => {
+    setClearing(true);
+    try {
+      await modelConfigApi.clear();
+      message.success(t('modelConfig.clearSuccess'));
+      await loadInitialData();
+    } catch (error) {
+      message.error(t('modelConfig.clearFailed', { message: errorMessage(error) }));
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -315,27 +355,57 @@ export default function ModelConfigPage() {
   const llmStatus = llmTestResult ? (
     <Alert
       showIcon
-      type={llmTestResult.success ? "success" : "error"}
-      message={llmTestResult.message}
+      type={llmTestResult.success ? 'success' : 'error'}
+      message={testResultText(t, llmTestResult)}
     />
   ) : null;
   const hasEmbeddingStatus = Boolean(
-    embeddingTestResult || missingRebuildJob || job || pollError,
+    embeddingTestResult || embeddingSpaceConflict || rebuildAdvised || job || pollError,
   );
   const embeddingStatus = hasEmbeddingStatus ? (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
       {embeddingTestResult ? (
         <Alert
           showIcon
-          type={embeddingTestResult.success ? "success" : "error"}
-          message={embeddingTestResult.message}
+          type={embeddingTestResult.success ? 'success' : 'error'}
+          message={testResultText(t, embeddingTestResult)}
         />
       ) : null}
-      {missingRebuildJob ? (
+      {embeddingSpaceConflict ? (
+        <Alert
+          showIcon
+          type="error"
+          message={t('modelConfig.embeddingSpaceConflict.title')}
+          description={t('modelConfig.embeddingSpaceConflict.description', {
+            workspaceModel: embeddingSpaceConflict.workspace.model,
+            workspaceDim: embeddingSpaceConflict.workspace.dim ?? '-',
+            myModel: embeddingSpaceConflict.mine.model,
+            myDim: embeddingSpaceConflict.mine.dim ?? '-',
+          })}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                // 对齐为工作区配置：只改模型身份三元组，api_key 仍是自己的。
+                embeddingForm.setFieldsValue({
+                  base_url: embeddingSpaceConflict.workspace.base_url,
+                  model: embeddingSpaceConflict.workspace.model,
+                  dim: embeddingSpaceConflict.workspace.dim ?? undefined,
+                });
+                setEmbeddingSpaceConflict(null);
+              }}
+            >
+              {t('modelConfig.embeddingSpaceConflict.alignAction')}
+            </Button>
+          }
+        />
+      ) : null}
+      {rebuildAdvised && !rebuildActive ? (
         <Alert
           showIcon
           type="warning"
-          message={t("modelConfig.rebuild.missingJob")}
+          message={t('modelConfig.rebuild.advisedTitle')}
+          description={t('modelConfig.rebuild.advisedDescription')}
         />
       ) : null}
       <RebuildStatus
@@ -354,9 +424,29 @@ export default function ModelConfigPage() {
           className={styles.loadError}
           type="error"
           showIcon
-          message={t("modelConfig.loadFailed")}
+          message={t('modelConfig.loadFailed')}
           description={loadError}
-          action={<Button onClick={() => void loadInitialData()}>{t("common.retry")}</Button>}
+          action={<Button onClick={() => void loadInitialData()}>{t('common.retry')}</Button>}
+        />
+      ) : null}
+
+      {keyStatus === 'undecryptable' ? (
+        <Alert
+          className={styles.loadError}
+          type="error"
+          showIcon
+          message={t('modelConfig.keyUndecryptable.title')}
+          description={t('modelConfig.keyUndecryptable.description')}
+        />
+      ) : null}
+
+      {seeded ? (
+        <Alert
+          className={styles.loadError}
+          type="warning"
+          showIcon
+          message={t('modelConfig.seeded.title')}
+          description={t('modelConfig.seeded.description')}
         />
       ) : null}
 
@@ -366,7 +456,7 @@ export default function ModelConfigPage() {
           title={
             <span className={styles.cardTitle}>
               <ApiOutlined className={styles.llmIcon} />
-              {t("modelConfig.llmTitle")}
+              {t('modelConfig.llmTitle')}
             </span>
           }
           actions={
@@ -376,7 +466,7 @@ export default function ModelConfigPage() {
                 loading={llmTesting}
                 onClick={() => void handleTestLLM()}
               >
-                {t("modelConfig.testConnection")}
+                {t('modelConfig.testConnection')}
               </Button>
               <Button
                 type="primary"
@@ -384,7 +474,7 @@ export default function ModelConfigPage() {
                 loading={llmSaving}
                 onClick={() => void handleSaveLLM()}
               >
-                {t("common.save")}
+                {t('common.save')}
               </Button>
             </div>
           }
@@ -394,43 +484,41 @@ export default function ModelConfigPage() {
             form={llmForm}
             layout="vertical"
             disabled={!configLoaded}
-            initialValues={{ provider: "dashscope", base_url: "", model: "" }}
+            initialValues={{ provider: 'dashscope', base_url: '', model: '' }}
           >
-            <Form.Item name="provider" label={t("modelConfig.provider")}>
+            <Form.Item name="provider" label={t('modelConfig.provider')}>
               <Radio.Group
                 className={styles.providerGroup}
                 buttonStyle="solid"
-                onChange={(event) =>
-                  handleLLMProviderChange(event.target.value as LLMProvider)
-                }
+                onChange={(event) => handleLLMProviderChange(event.target.value as LLMProvider)}
               >
                 {renderProviderButtons(LLM_PROVIDER_PRESETS)}
               </Radio.Group>
             </Form.Item>
-            <Form.Item name="base_url" label={t("modelConfig.endpoint")}>
-              <Input placeholder={t("modelConfig.endpointPlaceholder")} allowClear />
+            <Form.Item name="base_url" label={t('modelConfig.endpoint')}>
+              <Input placeholder={t('modelConfig.endpointPlaceholder')} allowClear />
             </Form.Item>
             <Form.Item
               name="model"
-              label={t("modelConfig.model")}
-              rules={[{ required: true, message: t("modelConfig.modelRequired") }]}
+              label={t('modelConfig.model')}
+              rules={[{ required: true, message: t('modelConfig.modelRequired') }]}
             >
-              <Input placeholder={t("modelConfig.modelPlaceholder")} allowClear />
+              <Input placeholder={t('modelConfig.modelPlaceholder')} allowClear />
             </Form.Item>
             <Form.Item
               name="api_key"
-              label={t("modelConfig.apiKey")}
+              label={t('modelConfig.apiKey')}
               extra={
                 llmKeyMask ? (
                   <span className={styles.keyHint}>
-                    {t("modelConfig.apiKeyConfigured", { masked: llmKeyMask })}
+                    {t('modelConfig.apiKeyConfigured', { masked: llmKeyMask })}
                   </span>
                 ) : undefined
               }
             >
               <Input.Password
                 autoComplete="new-password"
-                placeholder={t("modelConfig.apiKeyPlaceholder")}
+                placeholder={t('modelConfig.apiKeyPlaceholder')}
               />
             </Form.Item>
           </Form>
@@ -441,7 +529,7 @@ export default function ModelConfigPage() {
           title={
             <span className={styles.cardTitle}>
               <DeploymentUnitOutlined className={styles.embeddingIcon} />
-              {t("modelConfig.embeddingTitle")}
+              {t('modelConfig.embeddingTitle')}
             </span>
           }
           actions={
@@ -451,7 +539,7 @@ export default function ModelConfigPage() {
                 loading={embeddingTesting}
                 onClick={() => void handleTestEmbedding()}
               >
-                {t("modelConfig.testConnection")}
+                {t('modelConfig.testConnection')}
               </Button>
               <Button
                 type="primary"
@@ -459,8 +547,23 @@ export default function ModelConfigPage() {
                 loading={embeddingSaving}
                 onClick={() => void handleSaveEmbedding()}
               >
-                {t("common.save")}
+                {t('common.save')}
               </Button>
+              <Popconfirm
+                title={t('modelConfig.rebuild.confirmTitle')}
+                description={t('modelConfig.rebuild.confirmDescription')}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+                onConfirm={() => void handleStartRebuild()}
+              >
+                <Button
+                  danger
+                  disabled={!configLoaded || rebuildActive || embeddingSaving}
+                  loading={rebuildStarting}
+                >
+                  {t('modelConfig.rebuild.startAction')}
+                </Button>
+              </Popconfirm>
             </div>
           }
           status={embeddingStatus}
@@ -470,8 +573,8 @@ export default function ModelConfigPage() {
             layout="vertical"
             disabled={!configLoaded || rebuildActive}
             initialValues={{
-              base_url: "",
-              model: "",
+              base_url: '',
+              model: '',
               dim: 1024,
             }}
           >
@@ -479,33 +582,33 @@ export default function ModelConfigPage() {
               className={styles.rebuildHint}
               type="info"
               showIcon
-              message={t("modelConfig.rebuildImpact")}
+              message={t('modelConfig.rebuildImpact')}
             />
-            <Form.Item name="base_url" label={t("modelConfig.baseUrl")}>
-              <Input placeholder={t("modelConfig.embeddingBaseUrlPlaceholder")} allowClear />
+            <Form.Item name="base_url" label={t('modelConfig.baseUrl')}>
+              <Input placeholder={t('modelConfig.embeddingBaseUrlPlaceholder')} allowClear />
             </Form.Item>
             <Form.Item
               name="model"
-              label={t("modelConfig.model")}
-              rules={[{ required: true, message: t("modelConfig.modelRequired") }]}
+              label={t('modelConfig.model')}
+              rules={[{ required: true, message: t('modelConfig.modelRequired') }]}
             >
-              <Input placeholder={t("modelConfig.modelPlaceholder")} allowClear />
+              <Input placeholder={t('modelConfig.modelPlaceholder')} allowClear />
             </Form.Item>
             <Form.Item
               name="dim"
-              label={t("modelConfig.dimension")}
-              extra={t("modelConfig.dimensionHint")}
-              rules={[{ required: true, message: t("modelConfig.dimensionRequired") }]}
+              label={t('modelConfig.dimension')}
+              extra={t('modelConfig.dimensionHint')}
+              rules={[{ required: true, message: t('modelConfig.dimensionRequired') }]}
             >
-              <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+              <InputNumber min={1} precision={0} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item
               name="api_key"
-              label={t("modelConfig.apiKey")}
+              label={t('modelConfig.apiKey')}
               extra={
                 embeddingKeyMask ? (
                   <span className={styles.keyHint}>
-                    {t("modelConfig.apiKeyConfigured", {
+                    {t('modelConfig.apiKeyConfigured', {
                       masked: embeddingKeyMask,
                     })}
                   </span>
@@ -514,11 +617,23 @@ export default function ModelConfigPage() {
             >
               <Input.Password
                 autoComplete="new-password"
-                placeholder={t("modelConfig.apiKeyPlaceholder")}
+                placeholder={t('modelConfig.apiKeyPlaceholder')}
               />
             </Form.Item>
           </Form>
         </ModelConfigFormCard>
+      </div>
+
+      <div className={styles.dangerZone}>
+        <span className={styles.dangerHint}>{t('modelConfig.clearHint')}</span>
+        <Button
+          danger
+          disabled={!configLoaded || rebuildActive}
+          loading={clearing}
+          onClick={() => void handleClearConfig()}
+        >
+          {t('modelConfig.clearAction')}
+        </Button>
       </div>
     </div>
   );

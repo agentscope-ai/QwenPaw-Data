@@ -32,7 +32,9 @@ def write_result(conversion: pd.Series, metric_name: str, save_file: Path):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="计算转化率（结束阶段用户合计 / 起始阶段用户合计）")
+    parser = argparse.ArgumentParser(
+        description="计算转化率（结束阶段用户合计 / 起始阶段用户合计）"
+    )
     parser.add_argument("--input_file", required=True, help="输入数据文件路径 (CSV)")
     parser.add_argument("--metric_name", required=True, help="计算指标名称")
     parser.add_argument("--begin_col", required=True, help="起始阶段用户数列名")
@@ -55,6 +57,7 @@ def main() -> None:
     except Exception as e:
         print(f"计算失败: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

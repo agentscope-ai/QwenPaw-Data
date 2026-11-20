@@ -1,117 +1,227 @@
 from __future__ import annotations
 
-import aiosqlite
+from sqlalchemy import func, select
+from sqlalchemy import insert as sa_insert
+from sqlalchemy import update as sa_update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from semantic_config.db import now_iso
+from semantic_config.tables import (
+    dataset,
+    dataset_dimension,
+    datasource,
+    dimension_dict,
+    domain,
+)
 
-_RESPONSE_SELECT = """
-    SELECT dd.id, dd.dataset_id, ds.dataset_name,
-           dd.dimension_id, dim.dimension_name,
-           dd.datasource_id, dd.domain_id, s.datasource_name, b.domain_name,
-           dd.calculate_expr, dd.dimension_type, dd.data_type
-    FROM dataset_dimension dd
-    LEFT JOIN dataset_meta ds ON ds.id = dd.dataset_id AND ds.is_deleted = 0
-    LEFT JOIN dimension dim ON dim.id = dd.dimension_id AND dim.is_deleted = 0
-    LEFT JOIN datasource s ON s.datasource_id = dd.datasource_id AND s.is_deleted = 0
-    LEFT JOIN biz_domain b ON b.id = dd.domain_id AND b.is_deleted = 0
-"""
+# 维度口径：表结构不变；冗余 datasource_id/domain_id 改为派生自父 dataset（SPEC 00 §5.3），
+# 维度引用改指 dimension_dict.id。
 
 
-async def insert(db: aiosqlite.Connection, m) -> int:
+def _response_select():
+    return select(
+        dataset_dimension.c.id,
+        dataset_dimension.c.datasource_id,
+        dataset_dimension.c.domain_id,
+        dataset_dimension.c.dataset_id,
+        dataset_dimension.c.dimension_id,
+        datasource.c.datasource_name,
+        domain.c.domain_name,
+        dataset.c.dataset_name,
+        dimension_dict.c.dimension_name,
+        dataset_dimension.c.expr,
+        dataset_dimension.c.value_example,
+    ).select_from(
+        dataset_dimension.outerjoin(
+            dataset, dataset.c.id == dataset_dimension.c.dataset_id
+        )
+        .outerjoin(
+            dimension_dict, dimension_dict.c.id == dataset_dimension.c.dimension_id
+        )
+        .outerjoin(
+            datasource,
+            (datasource.c.datasource_id == dataset_dimension.c.datasource_id)
+            & (datasource.c.tenant_id == dataset_dimension.c.tenant_id)
+            & (datasource.c.workspace_id == dataset_dimension.c.workspace_id)
+            & (datasource.c.is_deleted == 0),
+        )
+        .outerjoin(domain, domain.c.id == dataset_dimension.c.domain_id)
+    )
+
+
+async def insert(
+    db: AsyncSession,
+    m,
+    *,
+    domain_id: int | None,
+    datasource_id: str | None = None,
+    tenant_id: str,
+    workspace_id: str,
+    created_by: str,
+) -> int:
     ts = now_iso()
-    sql = """
-        INSERT INTO dataset_dimension
-            (dataset_id, dimension_id, datasource_id, domain_id, calculate_expr,
-             dimension_type, data_type, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-    """
-    async with db.execute(sql, (
-        m.dataset_id, m.dimension_id, m.datasource_id, m.domain_id, m.calculate_expr,
-        m.dimension_type, m.data_type, ts, ts,
-    )) as cur:
-        row = await cur.fetchone()
-    return int(row["id"])
+    res = await db.execute(
+        sa_insert(dataset_dimension).values(
+            dataset_id=m.dataset_id,
+            dimension_id=m.dimension_id,
+            domain_id=domain_id,
+            datasource_id=datasource_id or getattr(m, "datasource_id", None),
+            expr=m.expr,
+            value_example=m.value_example,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            created_by=created_by,
+            updated_by=created_by,
+            created_at=ts,
+            updated_at=ts,
+        )
+    )
+    return int(res.inserted_primary_key[0])
 
 
-async def update(db: aiosqlite.Connection, dd_id: int, m) -> int:
-    sql = """
-        UPDATE dataset_dimension SET
-            calculate_expr = COALESCE(?, calculate_expr), dimension_type = COALESCE(?, dimension_type),
-            data_type = COALESCE(?, data_type), updated_at = ?
-        WHERE id = ? AND is_deleted = 0
-    """
-    cur = await db.execute(sql, (m.calculate_expr, m.dimension_type, m.data_type, now_iso(), dd_id))
-    return cur.rowcount
+async def update(
+    db: AsyncSession,
+    dd_id: int,
+    m,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    updated_by: str,
+) -> int:
+    res = await db.execute(
+        sa_update(dataset_dimension)
+        .where(
+            dataset_dimension.c.id == dd_id,
+            dataset_dimension.c.tenant_id == tenant_id,
+            dataset_dimension.c.workspace_id == workspace_id,
+            dataset_dimension.c.is_deleted == 0,
+        )
+        .values(
+            expr=m.expr,
+            value_example=m.value_example,
+            updated_by=updated_by,
+            updated_at=now_iso(),
+        )
+    )
+    return res.rowcount
 
 
-async def find_by_id(db: aiosqlite.Connection, dd_id: int) -> aiosqlite.Row | None:
-    async with db.execute(
-        "SELECT * FROM dataset_dimension WHERE id = ? AND is_deleted = 0", (dd_id,)
-    ) as cur:
-        return await cur.fetchone()
+async def find_by_id(db: AsyncSession, dd_id: int, tenant_id: str, workspace_id: str):
+    res = await db.execute(
+        select(dataset_dimension).where(
+            dataset_dimension.c.id == dd_id,
+            dataset_dimension.c.tenant_id == tenant_id,
+            dataset_dimension.c.workspace_id == workspace_id,
+            dataset_dimension.c.is_deleted == 0,
+        )
+    )
+    return res.mappings().first()
 
 
-async def find_response_by_id(db: aiosqlite.Connection, dd_id: int) -> aiosqlite.Row | None:
-    async with db.execute(_RESPONSE_SELECT + " WHERE dd.is_deleted = 0 AND dd.id = ?", (dd_id,)) as cur:
-        return await cur.fetchone()
+async def find_response_by_id(
+    db: AsyncSession, dd_id: int, tenant_id: str, workspace_id: str
+):
+    stmt = _response_select().where(
+        dataset_dimension.c.is_deleted == 0,
+        dataset_dimension.c.id == dd_id,
+        dataset_dimension.c.tenant_id == tenant_id,
+        dataset_dimension.c.workspace_id == workspace_id,
+    )
+    res = await db.execute(stmt)
+    return res.mappings().first()
 
 
-def _build_where(datasource_id, domain_id, dataset_id, dataset_name, dimension_name, params: list) -> str:
-    where = ["dd.is_deleted = 0"]
-    if datasource_id is not None:
-        where.append("dd.datasource_id = ?"); params.append(datasource_id)
-    if domain_id is not None:
-        where.append("dd.domain_id = ?"); params.append(domain_id)
+def _conds(dataset_id, dimension_name, tenant_id, workspace_id):
+    conds = [
+        dataset_dimension.c.is_deleted == 0,
+        dataset_dimension.c.tenant_id == tenant_id,
+        dataset_dimension.c.workspace_id == workspace_id,
+    ]
     if dataset_id is not None:
-        where.append("dd.dataset_id = ?"); params.append(dataset_id)
-    if dataset_name:
-        where.append("ds.dataset_name LIKE ?"); params.append(f"%{dataset_name}%")
+        conds.append(dataset_dimension.c.dataset_id == dataset_id)
     if dimension_name:
-        where.append("dim.dimension_name LIKE ?"); params.append(f"%{dimension_name}%")
-    return " AND ".join(where)
+        conds.append(dimension_dict.c.dimension_name.like(f"%{dimension_name}%"))
+    return conds
 
 
-async def count(db, datasource_id, domain_id, dataset_id, dataset_name, dimension_name) -> int:
-    params: list = []
-    where = _build_where(datasource_id, domain_id, dataset_id, dataset_name, dimension_name, params)
-    sql = f"""
-        SELECT COUNT(1) AS c FROM dataset_dimension dd
-        LEFT JOIN dataset_meta ds ON ds.id = dd.dataset_id AND ds.is_deleted = 0
-        LEFT JOIN dimension dim ON dim.id = dd.dimension_id AND dim.is_deleted = 0
-        WHERE {where}
-    """
-    async with db.execute(sql, params) as cur:
-        row = await cur.fetchone()
-    return int(row["c"])
-
-
-async def find_page(db, datasource_id, domain_id, dataset_id, dataset_name, dimension_name, limit, off):
-    params: list = []
-    where = _build_where(datasource_id, domain_id, dataset_id, dataset_name, dimension_name, params)
-    sql = _RESPONSE_SELECT + f" WHERE {where} ORDER BY dd.id DESC LIMIT ? OFFSET ?"
-    params.extend([limit, off])
-    async with db.execute(sql, params) as cur:
-        return await cur.fetchall()
-
-
-async def find_all_by_dataset(db: aiosqlite.Connection, dataset_id: int) -> list[aiosqlite.Row]:
-    sql = _RESPONSE_SELECT + " WHERE dd.is_deleted = 0 AND dd.dataset_id = ? ORDER BY dd.id"
-    async with db.execute(sql, (dataset_id,)) as cur:
-        return await cur.fetchall()
-
-
-async def soft_delete(db: aiosqlite.Connection, dd_id: int) -> int:
-    cur = await db.execute(
-        "UPDATE dataset_dimension SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0",
-        (now_iso(), dd_id),
+async def count(db, dataset_id, dimension_name, tenant_id, workspace_id) -> int:
+    conds = _conds(dataset_id, dimension_name, tenant_id, workspace_id)
+    res = await db.execute(
+        select(func.count())
+        .select_from(
+            dataset_dimension.outerjoin(
+                dimension_dict, dimension_dict.c.id == dataset_dimension.c.dimension_id
+            )
+        )
+        .where(*conds)
     )
-    return cur.rowcount
+    return int(res.scalar_one())
 
 
-async def soft_delete_by_dataset(db: aiosqlite.Connection, dataset_id: int) -> int:
-    cur = await db.execute(
-        "UPDATE dataset_dimension SET is_deleted = 1, updated_at = ? WHERE dataset_id = ? AND is_deleted = 0",
-        (now_iso(), dataset_id),
+async def find_page(
+    db, dataset_id, dimension_name, limit, off, tenant_id, workspace_id
+):
+    conds = _conds(dataset_id, dimension_name, tenant_id, workspace_id)
+    stmt = (
+        _response_select()
+        .where(*conds)
+        .order_by(dataset_dimension.c.id.desc())
+        .limit(limit)
+        .offset(off)
     )
-    return cur.rowcount
+    res = await db.execute(stmt)
+    return res.mappings().all()
+
+
+async def find_all_by_dataset(
+    db: AsyncSession, dataset_id: int, tenant_id: str, workspace_id: str
+):
+    stmt = (
+        _response_select()
+        .where(
+            dataset_dimension.c.is_deleted == 0,
+            dataset_dimension.c.dataset_id == dataset_id,
+            dataset_dimension.c.tenant_id == tenant_id,
+            dataset_dimension.c.workspace_id == workspace_id,
+        )
+        .order_by(dataset_dimension.c.id)
+    )
+    res = await db.execute(stmt)
+    return res.mappings().all()
+
+
+async def soft_delete(
+    db: AsyncSession, dd_id: int, *, tenant_id: str, workspace_id: str, updated_by: str
+) -> int:
+    res = await db.execute(
+        sa_update(dataset_dimension)
+        .where(
+            dataset_dimension.c.id == dd_id,
+            dataset_dimension.c.tenant_id == tenant_id,
+            dataset_dimension.c.workspace_id == workspace_id,
+            dataset_dimension.c.is_deleted == 0,
+        )
+        .values(is_deleted=1, updated_by=updated_by, updated_at=now_iso())
+    )
+    return res.rowcount
+
+
+async def soft_delete_by_dataset(
+    db: AsyncSession,
+    dataset_id: int,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    updated_by: str,
+) -> int:
+    res = await db.execute(
+        sa_update(dataset_dimension)
+        .where(
+            dataset_dimension.c.dataset_id == dataset_id,
+            dataset_dimension.c.tenant_id == tenant_id,
+            dataset_dimension.c.workspace_id == workspace_id,
+            dataset_dimension.c.is_deleted == 0,
+        )
+        .values(is_deleted=1, updated_by=updated_by, updated_at=now_iso())
+    )
+    return res.rowcount

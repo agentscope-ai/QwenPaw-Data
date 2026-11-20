@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from agentscope.agent import Agent
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 from agentscope.event import (
-    ConfirmResult,
     RequireUserConfirmEvent,
-    UserConfirmResultEvent,
 )
-from agentscope.message import ToolCallBlock
+from agentscope.message import ToolCallBlock, ToolResultState
 from agentscope.permission import PermissionMode
 
 from qwenpaw_data.host.core.permission import (
@@ -16,7 +18,9 @@ from qwenpaw_data.host.core.permission import (
     deny_confirmation,
     resolve_permission_mode,
 )
-from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.agent.middleware.tool_confirmation import (
+    ToolConfirmationMiddleware,
+)
 
 
 def test_library_permission_defaults_are_workspace_aware() -> None:
@@ -28,8 +32,7 @@ def test_library_permission_defaults_are_workspace_aware() -> None:
 
 def test_explicit_permission_mode_is_preserved() -> None:
     assert (
-        resolve_permission_mode("local", "accept_edits")
-        is PermissionMode.ACCEPT_EDITS
+        resolve_permission_mode("local", "accept_edits") is PermissionMode.ACCEPT_EDITS
     )
 
 
@@ -60,39 +63,74 @@ def test_unattended_confirmation_is_denied() -> None:
     assert result.confirm_results[0].tool_call is tool_call
 
 
-async def test_agent_resumes_after_confirmation(monkeypatch) -> None:
+@pytest.mark.parametrize("answer", ["approved", "denied", "timeout", "invalid"])
+async def test_service_only_executes_explicitly_approved_tools(answer) -> None:
     tool_call = ToolCallBlock(
         id="call-1",
         name="Bash",
         input='{"command":"pwd"}',
     )
-    required = RequireUserConfirmEvent(
-        reply_id="reply-1",
-        tool_calls=[tool_call],
+    middleware = ToolConfirmationMiddleware(
+        run_context=SimpleNamespace(
+            session_factory=None,
+            chat_id="chat-1",
+            user_runtime_config=SimpleNamespace(tool_confirmation_level="all"),
+        ),
     )
-    received = []
+    middleware._gate = SimpleNamespace(
+        decide=lambda _: "ask", wait=AsyncMock(return_value=answer)
+    )
+    executed = []
 
-    async def fake_reply_stream(self, inputs=None):
-        received.append(inputs)
-        if len(received) == 1:
-            yield required
+    async def execute(**kwargs):
+        executed.append(kwargs["tool_call"].id)
+        yield "executed"
+
+    async def collect():
+        return [
+            item
+            async for item in middleware.on_acting(
+                None, {"tool_call": tool_call}, execute
+            )
+        ]
+
+    if answer == "invalid":
+        with pytest.raises(ValueError, match="invalid tool confirmation"):
+            await collect()
+    else:
+        events = await collect()
+        if answer == "approved":
+            assert events == ["executed"]
         else:
-            yield inputs
+            assert len(events) == 1
+            assert events[0].state == ToolResultState.DENIED
+    assert executed == (["call-1"] if answer == "approved" else [])
+    middleware._gate.wait.assert_awaited_once_with("call-1")
 
-    async def confirm(event):
-        return UserConfirmResultEvent(
-            reply_id=event.reply_id,
-            confirm_results=[
-                ConfirmResult(confirmed=True, tool_call=event.tool_calls[0]),
-            ],
-        )
 
-    monkeypatch.setattr(Agent, "reply_stream", fake_reply_stream)
-    agent = object.__new__(QwenPawDataAgent)
-    agent._confirmation_handler = confirm
+@pytest.mark.parametrize(
+    "error", [RuntimeError("gate failed"), asyncio.CancelledError()]
+)
+async def test_service_confirmation_failure_never_executes_tool(error) -> None:
+    middleware = ToolConfirmationMiddleware(
+        run_context=SimpleNamespace(
+            session_factory=None,
+            chat_id="chat-1",
+            user_runtime_config=SimpleNamespace(tool_confirmation_level="all"),
+        ),
+    )
+    middleware._gate = SimpleNamespace(
+        decide=lambda _: "ask", wait=AsyncMock(side_effect=error)
+    )
+    executed = []
 
-    events = [event async for event in agent._reply_with_confirmations("start")]
+    async def execute(**kwargs):
+        executed.append(kwargs)
+        yield "must not execute"
 
-    assert events[0] is required
-    assert isinstance(received[1], UserConfirmResultEvent)
-    assert received[1].confirm_results[0].confirmed is True
+    with pytest.raises(type(error)):
+        async for _ in middleware.on_acting(
+            None, {"tool_call": SimpleNamespace(id="call-1", name="Bash")}, execute
+        ):
+            pass
+    assert executed == []

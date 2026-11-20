@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "term_groups": [
+    {
+      "node": "Entity",
+      "property": "type",
+      "terms": [
+        {
+          "value": "product",
+          "description": "可交付的软件产品/工具，含 coding agent、模型服务（Qwen、Cursor、Qoder、Studio 等聊天助手、AI 编辑器、代码助手、模型开发平台）"
+        },
+        {
+          "value": "model_family",
+          "description": "模型系列的抽象名，无版本后缀（Qwen、Wan、Claude、豆包）"
+        },
+        {
+          "value": "model_version",
+          "description": "带具体版本/变体后缀的模型（qwen3-max、wan2.6-i2v、glm-5）"
+        },
+        {
+          "value": "feature",
+          "description": "产品内的功能点（图生视频、知识库、agent 模式）"
+        },
+        {
+          "value": "platform",
+          "description": "面向操作者的控制台/门户（模型服务控制台、开发者门户）"
+        },
+        {
+          "value": "subscription_plan",
+          "description": "订阅/计费档位（Coding Plan、Pro、按量计费）"
+        },
+        {
+          "value": "company",
+          "description": "公司/法人主体/大型组织（阿里云、字节、OpenAI）"
+        },
+        {
+          "value": "team",
+          "description": "公司内的 BU/团队（电商事业部、办公协同团队、实验室）"
+        },
+        {
+          "value": "customer",
+          "description": "外部客户/调用方（汽车制造商、AI 创业公司、内容制作公司）"
+        },
+        {
+          "value": "scenario",
+          "description": "业务应用场景（影视漫剧、AI 搜索、数据打标）"
+        },
+        {
+          "value": "region",
+          "description": "地域/市场（国内、海外、华东）"
+        },
+        {
+          "value": "technology",
+          "description": "技术/协议/方法论（RAG、MCP 协议、Agent 架构）"
+        }
+      ],
+      "graph_labels": {
+        "Core": [
+          "product",
+          "platform",
+          "model_family",
+          "model_version",
+          "subscription_plan"
+        ]
+      }
+    }
+  ]
+}

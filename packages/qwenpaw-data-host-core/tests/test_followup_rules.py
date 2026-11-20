@@ -130,15 +130,12 @@ def test_the_focus_metric_is_the_anchor_the_ranking_chose() -> None:
 
 
 def test_a_hand_built_snapshot_falls_back_to_the_first_analyzed_metric() -> None:
-    metrics = (EntityRecord(name="人均GAAP"), EntityRecord(name="GAAP用户数", analyzed=True))
+    metrics = (
+        EntityRecord(name="人均GAAP"),
+        EntityRecord(name="GAAP用户数", analyzed=True),
+    )
 
     assert focus_metric(_snapshot(anchor_metric="", metrics=metrics)) == "GAAP用户数"
-
-
-def test_insufficient_retrieval_skips_analysis_transitions() -> None:
-    snapshot = _snapshot(intent_coverage="insufficient")
-
-    assert _intents(snapshot) == set()
 
 
 def test_every_candidate_names_only_entities_the_run_touched() -> None:

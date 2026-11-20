@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-import psycopg
 from neo4j import Driver
 
 from qwenpaw_data.context.blocking_io import BlockingIOGovernor, BlockingPool
@@ -343,6 +342,8 @@ def _execute_sql_via_psycopg(
     except (ValueError, RuntimeError) as exc:
         return ExecResult(sql=sql, error=str(exc), elapsed_ms=(time.time() - t0) * 1000)
     try:
+        import psycopg
+
         with psycopg.connect(
             **kwargs,
             autocommit=True,
@@ -832,6 +833,8 @@ def _distinct_values(table_qualified: str, column: str, *, limit: int = 30) -> l
         f"GROUP BY {column} ORDER BY c DESC LIMIT {int(limit)}"
     )
     try:
+        import psycopg
+
         kwargs = _pg_connect_kwargs(datasource_id=active_ds)
         with psycopg.connect(
             **kwargs,

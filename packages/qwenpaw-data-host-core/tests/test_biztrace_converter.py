@@ -48,9 +48,7 @@ def _tool_pair(
     close: bool = True,
 ) -> list[dict[str, Any]]:
     entries = [
-        _agent_event(
-            type="TOOL_CALL_START", tool_call_id=call_id, tool_call_name=name
-        ),
+        _agent_event(type="TOOL_CALL_START", tool_call_id=call_id, tool_call_name=name),
         _agent_event(type="TOOL_CALL_DELTA", tool_call_id=call_id, delta=arguments),
         # TOOL_CALL_END carries no tool name; it must come from the start event.
         _agent_event(type="TOOL_CALL_END", tool_call_id=call_id),
@@ -59,9 +57,7 @@ def _tool_pair(
         return entries
     return entries + [
         _agent_event(type="TOOL_RESULT_START", tool_call_id=call_id),
-        _agent_event(
-            type="TOOL_RESULT_TEXT_DELTA", tool_call_id=call_id, delta=output
-        ),
+        _agent_event(type="TOOL_RESULT_TEXT_DELTA", tool_call_id=call_id, delta=output),
         # TOOL_RESULT_END carries no output; only the deltas do.
         _agent_event(type="TOOL_RESULT_END", tool_call_id=call_id, state=state),
     ]
@@ -179,7 +175,7 @@ async def test_unclosed_call_is_rewritten_once_and_not_forwarded_again() -> None
     assert converter.stats.events == 1
 
 
-async def test_hint_becomes_a_rule_based_card() -> None:
+async def test_non_steer_hint_is_ignored() -> None:
     collector, _ = await _run(
         [
             _agent_event(
@@ -191,15 +187,7 @@ async def test_hint_becomes_a_rule_based_card() -> None:
         ]
     )
 
-    row = collector.rows[0]
-    assert row.kind == "assistant_text"
-    assert row.event_id == "blk-h"
-    assert row.content == "先确认口径"
-    assert row.presentation is not None
-    assert row.presentation.card_type == "text"
-    assert row.presentation.caption == "模型回复"
-    assert "先确认口径" in row.presentation.body
-    assert "interaction-strategy" not in row.presentation.body
+    assert collector.rows == []
 
 
 async def test_steer_hint_stays_user_guidance() -> None:
@@ -224,7 +212,7 @@ async def test_steer_hint_stays_user_guidance() -> None:
     assert "请改用周口径" in row.presentation.body
 
 
-async def test_non_steer_system_reminder_becomes_assistant_text() -> None:
+async def test_non_steer_system_reminder_is_ignored() -> None:
     collector, _ = await _run(
         [
             _agent_event(
@@ -244,15 +232,7 @@ async def test_non_steer_system_reminder_becomes_assistant_text() -> None:
         ]
     )
 
-    row = collector.rows[0]
-    assert row.kind == "assistant_text"
-    assert row.content == "Remember to cite sources."
-    assert "<system-reminder>" not in (row.content or "")
-    assert row.presentation is not None
-    assert row.presentation.card_type == "text"
-    assert row.presentation.caption == "模型回复"
-    assert "Remember to cite sources." in row.presentation.body
-    assert "<system-reminder>" not in row.presentation.body
+    assert collector.rows == []
 
 
 async def test_rows_keep_arrival_order_when_cards_finish_out_of_order() -> None:
@@ -331,3 +311,49 @@ async def test_host_plan_tools_become_orchestration_events() -> None:
     assert revise.orchestration.category == "PlanUpdate"
     assert converter._plan_nodes["n2"] == "出图"
     assert converter.stats.orchestration_events == 3
+
+
+async def test_ask_call_shows_options_then_blanks_when_the_result_arrives() -> None:
+    payload = (
+        '{"title":"口径确认","questions":[{"question":"看哪个口径?",'
+        '"options":[{"label":"自然日"}]}]}'
+    )
+    output = (
+        '{"status":"answered","answers":[{"question":"看哪个口径?",'
+        '"selected_options":["自然日"]}]}'
+    )
+    collector, converter = await _run(
+        [*_tool_pair("q1", "ask_user_question", payload, output=output)]
+    )
+
+    call, blank, result = collector.rows
+    assert call.kind == blank.kind == "tool_use"
+    assert call.event_id == blank.event_id == "q1"
+    assert call.seq == blank.seq
+    assert call.presentation is not None
+    assert "1. 看哪个口径?" in call.presentation.body
+    assert "- 自然日" in call.presentation.body
+    assert blank.presentation is not None
+    assert blank.presentation.caption == "澄清提问：口径确认"
+    assert blank.presentation.body == ""
+    assert result.kind == "tool_result"
+    assert result.presentation is not None
+    assert "*自然日*" in result.presentation.body
+    assert [event.event_id for event in collector.events] == ["q1", "q1:result"]
+    assert converter.stats.events == 2
+
+
+async def test_an_unanswered_ask_keeps_the_question_card() -> None:
+    payload = (
+        '{"title":"口径确认","questions":[{"question":"看哪个口径?",'
+        '"options":[{"label":"自然日"}]}]}'
+    )
+    collector, _ = await _run(
+        [*_tool_pair("q1", "ask_user_question", payload, close=False)]
+    )
+
+    # Unclosed rewrite appends the "never finished" note; the questions stay.
+    first = collector.rows[0]
+    assert first.presentation is not None
+    assert "1. 看哪个口径?" in first.presentation.body
+    assert "- 自然日" in first.presentation.body

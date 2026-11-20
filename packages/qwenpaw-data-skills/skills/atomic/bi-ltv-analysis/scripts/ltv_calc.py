@@ -132,13 +132,13 @@ def compute_ltv_series(
 ) -> pd.Series:
     if formula == "cumulative":
         assert revenue_cols
-        return df.apply(
-            lambda r: ltv_cumulative(r, revenue_cols), axis=1
-        )
+        return df.apply(lambda r: ltv_cumulative(r, revenue_cols), axis=1)
     if formula == "stage_weighted":
         assert revenue_cols and churn_cols
         return df.apply(
-            lambda r: ltv_stage_weighted(r, revenue_cols, churn_cols, rate_is_retention),
+            lambda r: ltv_stage_weighted(
+                r, revenue_cols, churn_cols, rate_is_retention
+            ),
             axis=1,
         )
     if formula == "lifecycle":
@@ -150,7 +150,9 @@ def compute_ltv_series(
     if formula == "churn":
         assert revenue_col and churn_col
         return df.apply(
-            lambda r: ltv_churn(r, revenue_col, churn_col, users_col, rate_is_retention),
+            lambda r: ltv_churn(
+                r, revenue_col, churn_col, users_col, rate_is_retention
+            ),
             axis=1,
         )
     raise ValueError(f"Unknown formula: {formula}")
@@ -274,7 +276,9 @@ def main() -> None:
         args.rate_is_retention,
     )
 
-    out = pd.DataFrame({args.object_col: df[args.object_col], args.ltv_col: ltv.round(6)})
+    out = pd.DataFrame(
+        {args.object_col: df[args.object_col], args.ltv_col: ltv.round(6)}
+    )
     out.to_csv(args.output_file, index=False)
 
     pd.set_option("display.max_columns", None)

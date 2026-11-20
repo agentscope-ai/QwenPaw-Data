@@ -1,15 +1,18 @@
+"""Service task state replaces legacy standalone graph reply metadata."""
+
 from __future__ import annotations
 
 import json
 
 import pytest
+from agentscope.agent._config import ReActConfig
 from agentscope.message import TextBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse, ChatUsage
-from agentscope.tool import Toolkit, ToolGroup
+from agentscope.state import AgentState, TaskContext
+from agentscope.tool import Toolkit
 
 from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
-from qwenpaw_data.host.core.orchestration import RuntimeStateManager
-from qwenpaw_data.host.core.orchestration.tools import build_qwenpaw_data_tools
+from qwenpaw_data.host.core.agent.tools.plan_tools import build_plan_tools
 from qwenpaw_data.host.core.utils.msg import user_msg
 
 
@@ -19,7 +22,7 @@ class _Formatter:
 
 class ScriptedModel(ChatModelBase):
     def __init__(self, calls: list[tuple[str, dict]]) -> None:
-        self.model = "execution-metadata-test"
+        self.model = "service-plan-test"
         self.stream = False
         self.max_retries = 0
         self.context_size = 32768
@@ -31,9 +34,13 @@ class ScriptedModel(ChatModelBase):
         self.sequence += 1
         if self.calls:
             name, payload = self.calls.pop(0)
-            content = [ToolCallBlock(
-                id=f"call-{self.sequence}", name=name, input=json.dumps(payload),
-            )]
+            content = [
+                ToolCallBlock(
+                    id=f"call-{self.sequence}",
+                    name=name,
+                    input=json.dumps(payload),
+                )
+            ]
         else:
             content = [TextBlock(text="Analysis reply.")]
         return ChatResponse(
@@ -43,98 +50,99 @@ class ScriptedModel(ChatModelBase):
         )
 
 
-def _create_plan(name: str = "Analysis") -> tuple[str, dict]:
-    return "create_plan", {
-        "name": name,
-        "description": "Verify execution metadata.",
-        "expected_outcome": "An analysis result.",
-        "nodes": [{
-            "node_id": "analyze", "name": "Analyze", "description": "Analyze data.",
-            "expected_outcome": "An analysis result.",
-        }],
+def _create_plan(subject: str = "Analyze") -> tuple[str, dict]:
+    return "PlanCreate", {
+        "tasks": [
+            {"id": "analyze", "subject": subject, "description": "Analyze data."}
+        ],
     }
 
 
 def _completion_calls() -> list[tuple[str, dict]]:
     return [
         _create_plan(),
-        ("update_subtask", {"node_id": "analyze", "state": "in_progress"}),
-        ("update_subtask", {
-            "node_id": "analyze", "state": "done",
-            "reasoning": "Analyzed data.", "summary": "Analysis completed.",
-        }),
-        ("finish_plan", {"state": "done", "outcome": "Analysis completed."}),
+        ("TaskStateUpdate", {"task_id": "analyze", "state": "in_progress"}),
+        ("TaskStateUpdate", {"task_id": "analyze", "state": "completed"}),
     ]
 
 
-def _agent(calls: list[tuple[str, dict]]) -> QwenPawDataAgent:
-    runtime = RuntimeStateManager()
+def _agent(calls: list[tuple[str, dict]], **kwargs) -> QwenPawDataAgent:
     return QwenPawDataAgent(
-        name="metadata-test", system_prompt="", model=ScriptedModel(calls),
-        toolkit=Toolkit(tool_groups=[ToolGroup(
-            name="agent", description="Analysis tools.",
-            tools=build_qwenpaw_data_tools(runtime),
-        )]),
-        runtime_state=runtime,
+        name="service-plan-test",
+        system_prompt="",
+        model=ScriptedModel(calls),
+        toolkit=Toolkit(tools=build_plan_tools()),
+        react_config=ReActConfig(max_iters=10, interruption_raise_cancelled_error=True),
+        **kwargs,
     )
 
 
-@pytest.mark.asyncio
-async def test_finished_plan_retains_graph_and_completed_nodes_in_reply() -> None:
-    agent = _agent(_completion_calls())
+def _assert_no_standalone_metadata(msg) -> None:
+    assert not {"graph_id", "completed", "nodes", "artifacts"} & msg.metadata.keys()
 
+
+async def test_completed_tasks_remain_in_serializable_service_state() -> None:
+    agent = _agent(_completion_calls())
     msg = await agent.reply(user_msg("Run the analysis."))
 
-    assert agent.plan_notebook.current_graph_id is None
-    assert msg.metadata["graph_id"] == agent.plan_notebook.last_finished_graph_id
-    assert msg.metadata["graph_id"] is not None
-    assert msg.metadata["completed"] is True
-    assert msg.metadata["nodes"] == [{
-        "id": "analyze", "name": "Analyze", "state": "done",
-    }]
-    assert "last_finished_graph_id" not in agent.plan_notebook.state_dict()
+    assert isinstance(agent.get_plan(), TaskContext)
+    assert agent.get_plan() is agent.state.tasks_context
+    assert [(t.id, t.state) for t in agent.get_plan().tasks] == [
+        ("analyze", "completed"),
+    ]
+    restored = AgentState.model_validate(agent.state.model_dump(mode="json"))
+    assert restored.tasks_context == agent.get_plan()
+    _assert_no_standalone_metadata(msg)
 
 
-@pytest.mark.asyncio
-async def test_next_graph_free_reply_does_not_reuse_finished_graph() -> None:
+async def test_followup_does_not_synthesize_a_new_completion_claim() -> None:
     agent = _agent(_completion_calls())
-    first = await agent.reply(user_msg("Run the analysis."))
-    assert first.metadata["completed"] is True
+    await agent.reply(user_msg("Run the analysis."))
+    before = agent.get_plan().model_dump(mode="json")
 
     second = await agent.reply(user_msg("Hello."))
 
-    assert second.metadata["graph_id"] is None
-    assert second.metadata["completed"] is False
-    assert second.metadata["nodes"] == []
+    assert agent.get_plan().model_dump(mode="json") == before
+    _assert_no_standalone_metadata(second)
 
 
-@pytest.mark.asyncio
-async def test_active_new_plan_takes_precedence_over_finished_plan() -> None:
+async def test_new_plan_replaces_completed_tasks_without_implicit_dag_loop() -> None:
     agent = _agent(_completion_calls() + [_create_plan("Follow-up")])
-
     msg = await agent.reply(user_msg("Finish one analysis and start another."))
 
-    assert msg.metadata["graph_id"] == agent.plan_notebook.current_graph_id
-    assert msg.metadata["graph_id"] != agent.plan_notebook.last_finished_graph_id
-    assert msg.metadata["completed"] is False
-    assert msg.metadata["nodes"][0]["state"] == "todo"
+    assert [(t.subject, t.state) for t in agent.get_plan().tasks] == [
+        ("Follow-up", "pending"),
+    ]
+    # Four tool turns plus one answer, no hidden standalone continuation turns.
+    assert agent.model.sequence == 5
+    _assert_no_standalone_metadata(msg)
 
 
-@pytest.mark.asyncio
-async def test_execute_sop_reports_graph_after_finish_plan() -> None:
-    agent = _agent(_completion_calls()[1:])
+@pytest.mark.parametrize(
+    "option",
+    [
+        "runtime_state",
+        "mode",
+        "session_id",
+        "workspace_dir",
+        "artifact_dir",
+        "session_trace_writer",
+        "confirmation_handler",
+    ],
+)
+def test_standalone_options_are_explicitly_unsupported(option) -> None:
+    with pytest.raises(TypeError, match=option):
+        _agent([], **{option: object()})
 
-    msg = await agent.execute_sop({
-        "name": "Loaded analysis",
-        "description": "Execute an existing plan.",
-        "expected_outcome": "Analysis result.",
-        "nodes": [{
-            "node_id": "analyze", "name": "Analyze", "description": "Analyze data.",
-            "expected_outcome": "Analysis result.", "deps": [],
-        }],
-    })
 
-    assert agent.plan_notebook.current_graph_id is None
-    assert msg.metadata["graph_id"] is not None
-    assert msg.metadata["completed"] is True
-    assert msg.metadata["nodes"][0]["state"] == "done"
+def test_agent_exposes_no_standalone_dag_api() -> None:
+    agent = _agent([])
+    for name in (
+        "plan_notebook",
+        "execute_sop",
+        "set_mode",
+        "get_plan_states",
+        "set_execution_metadata",
+        "_dag",
+    ):
+        assert not hasattr(agent, name)

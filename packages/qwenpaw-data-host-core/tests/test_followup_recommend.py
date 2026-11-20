@@ -14,9 +14,11 @@ import pytest
 from qwenpaw_data.host.core.algo.followup import recommend as recommend_module
 from qwenpaw_data.host.core.algo.followup.models import Candidate, SignalSnapshot
 from qwenpaw_data.host.core.algo.followup.recommend import FollowUpRecommend
+from qwenpaw_data.host.core.db.engine import get_session_factory
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.preference import ActiveModel, UserRuntimeConfig
 from qwenpaw_data.host.core.runtime.context import RunContext
+from qwenpaw_data.host.core.settings import get_settings
 
 # Captured before the fixture below stubs the method out, so the model tests can
 # still drive the real resolution.
@@ -62,17 +64,36 @@ def _active(**overrides: object) -> ActiveModel:
 
 
 def _run_context(light: ActiveModel | None = None) -> RunContext:
+    from qwenpaw_data.host.core.paths import UserAgentPaths
+
+    runtime = get_settings().runtime
     return RunContext(
         session_id="ses-1",
         chat_id="chat-1",
         workspace=object(),
-        paths=object(),
+        paths=UserAgentPaths(
+            home=Path("."),
+            tenant_id="t1",
+            workspace_id="w1",
+            user_id="u1",
+            agent_id="a1",
+            session_id="ses-1",
+        ),
         user_runtime_config=UserRuntimeConfig(
             default=_active(model_id="qwen-plus", name="Qwen Plus"),
             light=light,
+            react_max_iters=20,
+            llm_retry_enabled=True,
+            llm_max_retries=3,
+            context_trigger_ratio=runtime.context_trigger_ratio,
+            context_reserve_ratio=runtime.context_reserve_ratio,
+            tool_result_limit=runtime.tool_result_limit,
+            tool_timeout_enabled=runtime.tool_timeout_enabled,
+            tool_timeout_seconds=runtime.tool_timeout_seconds,
         ),
         request_context={},
-        identity=Identity(user_id="u1"),
+        identity=Identity(user_id="u1", tenant_id="t1", workspace_id="w1"),
+        session_factory=get_session_factory(),
     )
 
 
@@ -85,9 +106,7 @@ def _tool_call(
     name: str, arguments: dict[str, Any], *, call_id: str
 ) -> list[dict[str, Any]]:
     return [
-        _agent_event(
-            type="TOOL_CALL_START", tool_call_id=call_id, tool_call_name=name
-        ),
+        _agent_event(type="TOOL_CALL_START", tool_call_id=call_id, tool_call_name=name),
         _agent_event(
             type="TOOL_CALL_DELTA",
             tool_call_id=call_id,
@@ -99,21 +118,60 @@ def _tool_call(
 
 def _turn() -> list[dict[str, Any]]:
     """A minimal analysis: one metric fetched, one dimension left untouched."""
-    context = json.dumps(
-        {"schema_prompt": "指标: met:holo:DemoBiz:GAAP用户数\n  可下钻维度: 渠道类型, 页面"},
+    metric_dimensions = json.dumps(
+        {
+            "columns": ["metric", "dimension"],
+            "rows": [
+                {"metric": "GAAP用户数", "dimension": "渠道类型"},
+                {"metric": "GAAP用户数", "dimension": "页面"},
+            ],
+            "row_count": 2,
+            "truncated": False,
+        },
         ensure_ascii=False,
     )
     question = {"content": [{"type": "text", "text": "看下 GAAP用户数"}]}
     return [
         {"kind": "user_input", "payload": question},
-        *_tool_call("search_context", {"query": "GAAP用户数"}, call_id="c1"),
-        _agent_event(type="TOOL_RESULT_TEXT_DELTA", tool_call_id="c1", delta=context),
+        *_tool_call(
+            "query_graph",
+            {
+                "cypher": (
+                    "MATCH (m:Metric)-[:HAS_CALIBER]->(c:MetricCaliber)-[:CALIBER_ON]->"
+                    "(ds:Dataset)<-[:DIMENSION_BINDING]-(d:Dimension) "
+                    "WHERE m.name = $name "
+                    "RETURN m.name AS metric, d.name AS dimension"
+                ),
+                "params": {"name": "GAAP用户数"},
+            },
+            call_id="c1",
+        ),
+        _agent_event(
+            type="TOOL_RESULT_TEXT_DELTA", tool_call_id="c1", delta=metric_dimensions
+        ),
         _agent_event(type="TOOL_RESULT_END", tool_call_id="c1", state="success"),
-        *_tool_call("get_metric", {"name": "GAAP用户数"}, call_id="c2"),
-        *_tool_call("get_dimension", {"name": "页面"}, call_id="c3"),
+        *_tool_call(
+            "query_graph",
+            {
+                "cypher": (
+                    "MATCH (d:Dimension) WHERE d.name = $name "
+                    "RETURN d.name AS dimension"
+                ),
+                "params": {"name": "页面"},
+            },
+            call_id="c3",
+        ),
+        _agent_event(
+            type="TOOL_RESULT_TEXT_DELTA",
+            tool_call_id="c3",
+            delta=json.dumps({"rows": [{"dimension": "页面"}]}, ensure_ascii=False),
+        ),
+        _agent_event(type="TOOL_RESULT_END", tool_call_id="c3", state="success"),
         _agent_event(type="TEXT_BLOCK_START", block_id="blk-1"),
         _agent_event(
-            type="TEXT_BLOCK_DELTA", block_id="blk-1", delta="GAAP用户数 7 月环比下降 12%。"
+            type="TEXT_BLOCK_DELTA",
+            block_id="blk-1",
+            delta="GAAP用户数 7 月环比下降 12%。",
         ),
         _agent_event(type="TEXT_BLOCK_END", block_id="blk-1"),
     ]
@@ -144,9 +202,9 @@ def _recording_build_model(
 ) -> None:
     real = recommend_module.build_model
 
-    def record(model: ActiveModel) -> Any:
+    def record(model: ActiveModel, **kwargs: Any) -> Any:
         seen.append(model)
-        return real(model)
+        return real(model, **kwargs)
 
     monkeypatch.setattr(recommend_module, "build_model", record)
 
@@ -210,7 +268,7 @@ def test_the_agents_own_model_stands_in_without_a_light_one(
 def test_an_unusable_model_leaves_the_rules_channel_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def explode(_model: ActiveModel) -> Any:
+    def explode(_model: ActiveModel, **kwargs: Any) -> Any:
         raise ValueError("api_key is required")
 
     monkeypatch.setattr(recommend_module, "build_model", explode)
@@ -251,7 +309,7 @@ async def test_the_eof_sentinel_freezes_without_a_join() -> None:
     snapshot = await unit._snapshot  # type: ignore[arg-type]
 
     assert isinstance(snapshot, SignalSnapshot)
-    assert unit._questions is None
+    assert unit._pipeline is None
 
 
 async def test_join_answers_the_same_way_twice() -> None:
@@ -268,24 +326,49 @@ async def test_join_without_start_recommends_nothing() -> None:
     assert await _recommend().join() == []
 
 
-async def test_a_slow_model_falls_back_before_join_returns(
+async def test_an_over_budget_recommendation_arrives_late(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class SlowLLM:
-        async def complete(self, prompt: str) -> dict[str, Any]:
-            await asyncio.sleep(0.2)
-            return {
-                "questions": [
-                    {"text": "按页面拆解 GAAP用户数", "intent": "drilldown"}
-                ]
-            }
+    """The turn closes on time; the result is still worth persisting when it
+    lands, so the next Chat can carry it."""
 
-    monkeypatch.setattr(FollowUpRecommend, "_build_llm", lambda self: SlowLLM())
+    late = Candidate(
+        text="按渠道类型拆解一下 GAAP用户数",
+        intent_category="drilldown",
+        target_entities=[],
+        source_channel="rules",
+    )
 
-    questions = await _drive(_recommend(timeout_sec=0.02))
+    async def slow_recommend(self: Any, snapshot: SignalSnapshot) -> list[Candidate]:
+        await asyncio.sleep(0.2)
+        return [late]
 
-    assert questions
-    assert all("GAAP用户数" in question for question in questions)
+    monkeypatch.setattr(recommend_module.FollowUpService, "recommend", slow_recommend)
+    delivered: list[list[str]] = []
+
+    async def deliver(questions: list[str]) -> None:
+        delivered.append(questions)
+
+    unit = _recommend(deliver=deliver, timeout_sec=0.02)
+
+    assert await _drive(unit) == []
+
+    await unit._late  # type: ignore[arg-type]
+    assert delivered == [[late.text]]
+
+
+async def test_a_late_result_is_dropped_when_the_host_wants_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def slow_recommend(self: Any, snapshot: SignalSnapshot) -> list[Candidate]:
+        await asyncio.sleep(0.05)
+        return []
+
+    monkeypatch.setattr(recommend_module.FollowUpService, "recommend", slow_recommend)
+    unit = _recommend(timeout_sec=0.01)
+
+    assert await _drive(unit) == []
+    assert unit._late is None
 
 
 async def test_a_failing_pipeline_costs_the_host_nothing(

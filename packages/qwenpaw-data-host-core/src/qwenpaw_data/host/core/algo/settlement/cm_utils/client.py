@@ -8,11 +8,8 @@ import logging
 from typing import Any
 
 import httpx
-
-from qwenpaw_data.host.core.cm_client import (
-    _trust_env_for_url,
-    resolve_cm_base_url,
-)
+from qwenpaw_data.host.core.integrations.cm import resolve_cm_base_url
+from qwenpaw_data.host.core.utils.auth import is_loopback_http_url, resolve_context_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +67,21 @@ class SettlementCmClient:
     def base_url(self) -> str:
         return (self._base_url or resolve_cm_base_url()).strip().rstrip("/")
 
-    def _headers(self) -> dict[str, str]:
+    def _headers(self, *, loopback: bool) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
+        # Resolve against the actual destination at send time. A local machine
+        # credential is neither a user delegation nor a token for a remote CM.
+        token = resolve_context_access_token(self.access_token) if loopback else self.access_token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     def _resolve_ds(self, kwargs: dict[str, Any]) -> str | None:
         return _meta_datasource_id(kwargs.get("metadata")) or self.datasource_id
 
-    def _with_ds(self, params: dict[str, Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _with_ds(
+        self, params: dict[str, Any], kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         out = {k: v for k, v in params.items() if v is not None and v != ""}
         ds = self._resolve_ds(kwargs)
         if ds:
@@ -95,20 +97,23 @@ class SettlementCmClient:
         json_body: dict[str, Any] | None = None,
         timeout: float | None = None,
     ) -> Any:
-        url = f"{self.base_url}{path}"
+        url = httpx.URL(f"{self.base_url}{path}")
+        loopback = is_loopback_http_url(url)
         async with httpx.AsyncClient(
             timeout=timeout or self.timeout,
-            trust_env=_trust_env_for_url(self.base_url),
+            trust_env=not loopback,
         ) as client:
             response = await client.request(
                 method,
                 url,
                 params=params,
                 json=json_body,
-                headers=self._headers(),
+                headers=self._headers(loopback=loopback),
             )
         if not response.is_success:
-            detail = response.text[:500] if response.text else f"HTTP {response.status_code}"
+            detail = (
+                response.text[:500] if response.text else f"HTTP {response.status_code}"
+            )
             try:
                 body = response.json()
                 if isinstance(body, dict) and body.get("detail") is not None:
@@ -120,7 +125,11 @@ class SettlementCmClient:
                     )
             except Exception:
                 pass
-            raise RuntimeError(f"{path} [{response.status_code}]: {detail}")
+            raise httpx.HTTPStatusError(
+                f"{path} [{response.status_code}]: {detail}",
+                request=response.request,
+                response=response,
+            )
         if not response.content:
             return None
         try:
@@ -180,29 +189,13 @@ class SettlementCmClient:
             ),
         )
 
-    async def search_context(self, kwargs: dict[str, Any] | None = None) -> Any:
-        kwargs = kwargs or {}
-        body: dict[str, Any] = {
-            "query": kwargs.get("query", ""),
-            "stream": False,
-        }
-        ds = self._resolve_ds(kwargs)
-        if ds:
-            body["datasource_id"] = ds
-        domain = kwargs.get("domain")
-        if domain:
-            body["scope"] = {"domain": domain}
-        return await self._request(
-            "POST", f"{CM_API_PREFIX}/search_context", json_body=body
-        )
-
     async def feedback_card(
         self,
         kwargs: dict[str, Any] | None = None,
         *,
         mode: str,
     ) -> Any:
-        """POST feedback_card. ``mode=test`` dry-runs; ``mode=confirm`` writes."""
+        """POST feedback_card. ``mode=test`` dry-run；``mode=confirm`` 真实落图。"""
         mode_norm = str(mode).strip().lower()
         if mode_norm not in ("confirm", "test"):
             raise ValueError(
@@ -256,7 +249,6 @@ class SettlementCmClient:
             "search_metrics": self.search_metrics,
             "get_dimension": self.get_dimension,
             "get_dataset": self.get_dataset,
-            "search_context": self.search_context,
         }
         handler = handlers.get(tool_name)
         if handler is None:
@@ -272,6 +264,8 @@ class SettlementCmClient:
             detail = _format_cm_error(e)
             record["status"] = f"error: {detail}"
             record["result"] = detail
+            if isinstance(e, httpx.HTTPStatusError):
+                record["http_status"] = e.response.status_code
             logger.debug("CM REST %s failed", tool_name, exc_info=True)
         return record
 
@@ -285,8 +279,4 @@ class SettlementCmClient:
             return []
         if not isinstance(domains, list):
             return []
-        return [
-            d["name"]
-            for d in domains
-            if isinstance(d, dict) and d.get("name")
-        ]
+        return [d["name"] for d in domains if isinstance(d, dict) and d.get("name")]

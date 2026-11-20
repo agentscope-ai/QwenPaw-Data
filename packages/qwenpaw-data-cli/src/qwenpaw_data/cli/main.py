@@ -7,20 +7,34 @@ import logging
 import sys
 
 from qwenpaw_data.cli.env import load_qwenpaw_data_env
-from qwenpaw_data.cli.logging_config import configure_cli_logging
+from qwenpaw_data.cli.logging_config import (
+    configure_cli_logging,
+    without_cli_file_logging,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments and arguments[0] == "migration":
+        with without_cli_file_logging():
+            load_qwenpaw_data_env(override=False)
+            return _run_command(arguments, log_errors=False)
     load_qwenpaw_data_env(override=False)
     try:
         configure_cli_logging()
     except OSError as exc:
-        print(f"qwenpaw-data: error: unable to initialize log file: {exc}", file=sys.stderr)
+        print(
+            f"qwenpaw-data: error: unable to initialize log file: {exc}",
+            file=sys.stderr,
+        )
         return 1
 
-    arguments = sys.argv[1:] if argv is None else argv
+    return _run_command(arguments, log_errors=True)
+
+
+def _run_command(arguments: list[str], *, log_errors: bool) -> int:
     parser = build_parser(include_internal=bool(arguments and arguments[0] == "mcp"))
     args = parser.parse_args(arguments)
     handler = getattr(args, "handler", None)
@@ -36,10 +50,11 @@ def main(argv: list[str] | None = None) -> int:
         print("\nInterrupted.", file=sys.stderr)
         return 130
     except Exception as exc:
-        logger.exception(
-            "QwenPaw Data CLI command failed: command=%s",
-            getattr(args, "command", None) or "-",
-        )
+        if log_errors:
+            logger.exception(
+                "QwenPaw Data CLI command failed: command=%s",
+                getattr(args, "command", None) or "-",
+            )
         for line in _flatten_exception(exc):
             print(f"qwenpaw-data: error: {line}", file=sys.stderr)
         return 1

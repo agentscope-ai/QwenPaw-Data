@@ -8,12 +8,16 @@ interface ContextConsoleConfig {
 
 declare global {
   interface Window {
-    QWENPAW_DATA_CONSOLE?: { databridge?: ContextConsoleConfig | null };
+    QWENPAW_DATA_CONSOLE?: { console_protocol?: number; databridge?: ContextConsoleConfig | null };
   }
 }
 
 export function getConsoleConfig(): ContextConsoleConfig | undefined {
-  return window.QWENPAW_DATA_CONSOLE?.databridge ?? undefined;
+  return typeof window === 'undefined' ? undefined : window.QWENPAW_DATA_CONSOLE?.databridge ?? undefined;
+}
+
+export function isConsolePortal(): boolean {
+  return typeof window !== 'undefined' && window.QWENPAW_DATA_CONSOLE?.console_protocol === 1;
 }
 
 export function getContextBasePath(): string {

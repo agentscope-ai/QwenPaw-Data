@@ -1,7 +1,6 @@
-"""Agent building blocks for QwenPaw Data."""
+# -*- coding: utf-8 -*-
+"""Agent building blocks for QwenPawData."""
 
 from .qwenpaw_data_agent import QwenPawDataAgent
-from .formatting import format_pending_edits
-from .spawn_subagent import SpawnSubagent
 
-__all__ = ["QwenPawDataAgent", "SpawnSubagent", "format_pending_edits"]
+__all__ = ["QwenPawDataAgent"]

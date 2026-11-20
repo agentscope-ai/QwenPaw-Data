@@ -3,9 +3,8 @@
 
 Complements ``smoke_test.py`` (task-execution surface) by exercising the
 configuration-management surface end to end against a real DataBridge,
-PostgreSQL, and Neo4j — no model API key required: the weave step only
-needs the graph store, and its embedding indexing is non-fatal without
-an embedding endpoint.
+PostgreSQL, and Neo4j. A loopback embedding fixture supplies deterministic
+vectors; no external model API key or semantic-quality claim is involved.
 
 Chain: datasource test/create/get/update → workbook import → semantic
 CRUD with partial update → dataset-level batch delete → weave submit
@@ -21,12 +20,16 @@ import os
 import subprocess
 import sys
 import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
-from init_demo import load_repo_environment, seed_postgres
+from init_demo import seed_postgres
 from smoke_test import (
+    _embedding_fixture,
     _free_port,
+    _host_service,
+    _smoke_environment,
     _postgres_config,
     _run_cli,
     _stop_process,
@@ -35,7 +38,6 @@ from smoke_test import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKBOOK = REPO_ROOT / "examples" / "demo_semantic_config.xlsx"
-WORKBOOK_DATASOURCE_ID = "postgresql-demo-gaap"
 
 
 def _cli_json(env: dict[str, str], *args: str, timeout: float = 90) -> Any:
@@ -81,18 +83,25 @@ def _check_datasource_lifecycle(env: dict[str, str], config: dict[str, Any]) -> 
 
     tested = _cli_json(
         env,
-        "datasource", "test",
-        "--type", "postgresql",
-        "--config", config_json,
+        "datasource",
+        "test",
+        "--type",
+        "postgresql",
+        "--config",
+        config_json,
     )
     _expect(tested.get("success") is True, f"ad-hoc connection test failed: {tested}")
 
     created = _cli_json(
         env,
-        "datasource", "create",
-        "--name", "semantic-smoke-pg",
-        "--type", "postgresql",
-        "--config", config_json,
+        "datasource",
+        "create",
+        "--name",
+        "semantic-smoke-pg",
+        "--type",
+        "postgresql",
+        "--config",
+        config_json,
         "--test",
     )
     datasource_id = created.get("datasource_id") or ""
@@ -109,7 +118,12 @@ def _check_datasource_lifecycle(env: dict[str, str], config: dict[str, Any]) -> 
     )
 
     renamed = _cli_json(
-        env, "datasource", "update", datasource_id, "--name", "semantic-smoke-renamed",
+        env,
+        "datasource",
+        "update",
+        datasource_id,
+        "--name",
+        "semantic-smoke-renamed",
     )
     _expect(
         renamed.get("datasource_name") == "semantic-smoke-renamed",
@@ -117,7 +131,7 @@ def _check_datasource_lifecycle(env: dict[str, str], config: dict[str, Any]) -> 
     )
     after = _cli_json(env, "datasource", "get", datasource_id, "--show-config")
     _expect(
-        after.get("config", {}).get("dbname") == config["dbname"],
+        after.get("config", {}).get("database") == config["dbname"],
         "update dropped the stored connection config",
     )
 
@@ -126,73 +140,134 @@ def _check_datasource_lifecycle(env: dict[str, str], config: dict[str, Any]) -> 
 
     # Deletion is fail-closed without --yes outside a TTY.
     refused = _run_cli_expect_failure(env, "datasource", "delete", datasource_id)
-    _expect("--yes" in refused.stderr, f"non-TTY delete was not refused: {refused.stderr}")
+    _expect(
+        "--yes" in refused.stderr, f"non-TTY delete was not refused: {refused.stderr}"
+    )
     return datasource_id
 
 
-def _check_semantic_crud(env: dict[str, str]) -> None:
-    imported = _cli_json(env, "semantic", "import", "--file", str(WORKBOOK))
+def _check_semantic_crud(env: dict[str, str], datasource_id: str) -> None:
+    imported = _cli_json(
+        env,
+        "semantic",
+        "import",
+        "--file",
+        str(WORKBOOK),
+        "--datasource-id",
+        datasource_id,
+    )
     _expect(imported.get("success") is True, f"workbook import failed: {imported}")
     summary = imported.get("summary") or {}
     _expect(summary.get("metric") == 1, f"unexpected import summary: {summary}")
 
     metrics = _cli_json(
-        env, "semantic", "metric", "list", "--datasource-id", WORKBOOK_DATASOURCE_ID,
+        env,
+        "semantic",
+        "metric",
+        "list",
+        "--datasource-id",
+        datasource_id,
     )
     _expect(metrics.get("total") == 1, f"expected 1 imported metric: {metrics}")
     domain_id = metrics["items"][0]["domain_id"]
 
     created = _cli_json(
         env,
-        "semantic", "metric", "create",
-        "--datasource-id", WORKBOOK_DATASOURCE_ID,
-        "--domain-id", str(domain_id),
-        "--name", "smoke_metric",
-        "--unit", "CNY",
-        "--description", "original",
+        "semantic",
+        "metric",
+        "create",
+        "--domain-id",
+        str(domain_id),
+        "--name",
+        "smoke_metric",
+        "--synonyms",
+        "smoke synonym",
+        "--description",
+        "original",
     )
-    metric_id = created["id"]
+    metric_id = created["metric_id"]
 
     # Partial update must keep the fields that were not sent (regression for
     # the repository-level full-column UPDATE bug).
     updated = _cli_json(
         env,
-        "semantic", "metric", "update", str(metric_id),
-        "--description", "changed",
+        "semantic",
+        "metric",
+        "update",
+        str(metric_id),
+        "--description",
+        "changed",
     )
     _expect(updated.get("description") == "changed", f"update failed: {updated}")
     _expect(
-        updated.get("metric_name") == "smoke_metric" and updated.get("unit") == "CNY",
+        updated.get("metric_name") == "smoke_metric"
+        and updated.get("synonyms") == "smoke synonym",
         f"partial update erased omitted fields: {updated}",
     )
 
     _cli_json(env, "semantic", "metric", "delete", str(metric_id), "--yes")
 
+    datasets = _cli_json(
+        env, "semantic", "dataset", "list", "--datasource-id", datasource_id
+    )
+    _expect(datasets.get("total", 0) > 0, "workbook import created no datasets")
+    dataset_id = datasets["items"][0]["dataset_id"]
     bindings = _cli_json(
-        env, "semantic", "binding", "list", "--datasource-id", WORKBOOK_DATASOURCE_ID,
+        env,
+        "semantic",
+        "binding",
+        "list",
+        "--dataset-id",
+        str(dataset_id),
     )
     _expect(bindings.get("total", 0) > 0, "workbook import created no bindings")
     dataset_id = bindings["items"][0]["dataset_id"]
     _cli_json(
-        env, "semantic", "binding", "delete", "--dataset-id", str(dataset_id), "--yes",
+        env,
+        "semantic",
+        "binding",
+        "delete",
+        "--dataset-id",
+        str(dataset_id),
+        "--yes",
     )
     remaining = _cli_json(
-        env, "semantic", "binding", "list", "--dataset-id", str(dataset_id),
+        env,
+        "semantic",
+        "binding",
+        "list",
+        "--dataset-id",
+        str(dataset_id),
     )
     _expect(remaining.get("total") == 0, f"batch delete left bindings: {remaining}")
 
     # Restore the workbook state so the weave publishes the full bundle.
-    _cli_json(env, "semantic", "import", "--file", str(WORKBOOK))
+    _cli_json(
+        env,
+        "semantic",
+        "import",
+        "--file",
+        str(WORKBOOK),
+        "--datasource-id",
+        datasource_id,
+    )
 
 
-def _check_weave(env: dict[str, str], *, timeout: float) -> None:
+def _check_weave(env: dict[str, str], datasource_id: str, *, timeout: float) -> None:
     task = _cli_json(
         env,
-        "semantic", "weave", "submit",
-        "--datasource-id", WORKBOOK_DATASOURCE_ID,
-        "--mode", "FULL",
-        "--name", "semantic-smoke-weave",
-        "--wait", "--timeout", str(timeout),
+        "semantic",
+        "weave",
+        "submit",
+        "--datasource-id",
+        datasource_id,
+        "--mode",
+        "FULL",
+        "--name",
+        "semantic-smoke-weave",
+        "--wait",
+        "--timeout",
+        str(timeout),
         timeout=timeout + 60,
     )
     _expect(
@@ -210,13 +285,19 @@ def _check_weave(env: dict[str, str], *, timeout: float) -> None:
     )
 
 
-def _cleanup(env: dict[str, str], datasource_id: str) -> None:
+def _cleanup(
+    env: dict[str, str], datasource_id: str, workbook_datasource_id: str
+) -> None:
     _cli_json(env, "datasource", "delete", datasource_id, "--yes")
 
-    # The workbook datasource is referenced by a domain, so deletion must be
+    # The workbook datasource is referenced by a dataset, so deletion must be
     # rejected by the fail-closed reference check.
     refused = _run_cli_expect_failure(
-        env, "datasource", "delete", WORKBOOK_DATASOURCE_ID, "--yes",
+        env,
+        "datasource",
+        "delete",
+        workbook_datasource_id,
+        "--yes",
     )
     _expect(
         "数据源被引用" in refused.stderr or "referenced" in refused.stderr.lower(),
@@ -229,28 +310,18 @@ def run_smoke(args: argparse.Namespace) -> None:
     postgres = _postgres_config(args.postgres_dsn)
     cm_port = _free_port()
 
-    with tempfile.TemporaryDirectory(prefix="qwenpaw-data-semantic-smoke-") as temp_name:
+    with tempfile.TemporaryDirectory(
+        prefix="qwenpaw-data-semantic-smoke-"
+    ) as temp_name:
         temp_root = Path(temp_name)
-        home = temp_root / "home"
         log_path = temp_root / "databridge.log"
-        env = dict(os.environ)
-        env.update(
-            {
-                "QWENPAW_DATA_HOME": str(home),
-                "QWENPAW_DATA_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
-                "NEO4J_URI": args.neo4j_uri,
-                "NEO4J_USER": args.neo4j_user,
-                "NEO4J_PASSWORD": args.neo4j_password,
-                "NO_PROXY": "127.0.0.1,localhost",
-                "no_proxy": "127.0.0.1,localhost",
-                "QWENPAW_DATA_API_TOKEN": "",
-                "QWENPAW_DATA_API_KEYS": "",
-                "QWENPAW_DATA_CLIENT_API_TOKEN": "",
-                "NEO4J_DATABASE": "",
-            },
-        )
+        env = _smoke_environment(temp_root, cm_port, args)
 
-        with log_path.open("w", encoding="utf-8") as log_file:
+        with (
+            ExitStack() as cleanup,
+            _host_service(env, temp_root, args.startup_timeout),
+            log_path.open("w", encoding="utf-8") as log_file,
+        ):
             bridge = subprocess.Popen(
                 [
                     sys.executable,
@@ -277,13 +348,29 @@ def run_smoke(args: argparse.Namespace) -> None:
                     bridge,
                     args.startup_timeout,
                 )
+                embeddings = cleanup.enter_context(_embedding_fixture(env))
                 datasource_id = _check_datasource_lifecycle(env, postgres)
-                _check_semantic_crud(env)
+                workbook_source = _cli_json(
+                    env,
+                    "datasource",
+                    "create",
+                    "--name",
+                    "workbook-smoke-pg",
+                    "--type",
+                    "postgresql",
+                    "--config",
+                    json.dumps(postgres),
+                )["datasource_id"]
+                _check_semantic_crud(env, workbook_source)
                 if args.skip_weave:
                     print("weave step skipped (--skip-weave)")
                 else:
-                    _check_weave(env, timeout=args.weave_timeout)
-                _cleanup(env, datasource_id)
+                    _check_weave(env, workbook_source, timeout=args.weave_timeout)
+                _cleanup(env, datasource_id, workbook_source)
+                _expect(
+                    embeddings.embedding_calls > 0,
+                    "publication did not request embeddings",
+                )
             except BaseException as exc:
                 try:
                     log_file.flush()
@@ -301,7 +388,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--postgres-dsn",
-        default=("postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:55432/qwenpaw_data_demo"),
+        default=(
+            "postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:55432/qwenpaw_data_demo"
+        ),
     )
     parser.add_argument("--neo4j-uri", default="bolt://127.0.0.1:7687")
     parser.add_argument("--neo4j-user", default="neo4j")
@@ -314,13 +403,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--skip-weave",
         action="store_true",
-        help="Skip the weave publish step (no graph store available)",
+        help="Skip the explicit weave task; automatic publication still requires Neo4j",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_repo_environment()
     try:
         run_smoke(parse_args(argv))
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:

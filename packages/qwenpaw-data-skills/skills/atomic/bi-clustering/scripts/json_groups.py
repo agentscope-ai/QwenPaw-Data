@@ -31,7 +31,9 @@ def jsonify_scalar(v: Any) -> Any:
     return str(v)
 
 
-def build_json_from_labels(ids: Sequence[Any], labels: Sequence[int]) -> Dict[str, List[Any]]:
+def build_json_from_labels(
+    ids: Sequence[Any], labels: Sequence[int]
+) -> Dict[str, List[Any]]:
     """
     Cluster labels as from sklearn: 0..K-1 -> keys \"cluster 1\"..\"cluster K\"; -1 -> \"noise\".
     Keys ordered cluster 1, cluster 2, ... then noise.

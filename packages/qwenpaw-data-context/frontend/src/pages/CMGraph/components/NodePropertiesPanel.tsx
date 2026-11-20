@@ -1,17 +1,19 @@
-import { useEffect, useState } from "react";
-import { Input, Button, message, Tooltip } from "@/design";
-import { CopyOutlined, RightOutlined, EditOutlined, SaveOutlined, CloseOutlined } from "@/design";
-import { useTranslation } from "react-i18next";
+import { useEffect, useState } from 'react';
+import { Input, Button, message, Tooltip } from '@/design';
+import { CopyOutlined, RightOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@/design';
+import { useTranslation } from 'react-i18next';
 
-import { explorerApi, kgApi } from "@/services/cmgraph";
-import type { EntityUpdatePayload, EventUpdatePayload } from "@/services/cmgraph";
-import type { GraphNode } from "../types";
-import styles from "../index.module.less";
-import { formatPropertyValue, copyProperty, copyAllProperties } from "../utils/propertyUtils";
+import { explorerApi, kgApi } from '@/services/cmgraph';
+import type { EntityUpdatePayload, EventUpdatePayload } from '@/services/cmgraph';
+import type { GraphNode } from '../types';
+import styles from '../index.module.less';
+import { formatPropertyValue, copyProperty, copyAllProperties } from '../utils/propertyUtils';
+import { filterEditableGraphFields, filterGraphProperties } from '@/utils/propertySafety';
 
 interface NodePropertiesPanelProps {
   node: GraphNode;
   nodeColor: string;
+  targetOwnerId?: string;
   onClose: () => void;
   onNodeUpdate?: (nodeId: string, properties: Record<string, unknown>) => void;
 }
@@ -19,13 +21,16 @@ interface NodePropertiesPanelProps {
 export default function NodePropertiesPanel({
   node,
   nodeColor,
+  targetOwnerId,
   onClose,
   onNodeUpdate,
 }: NodePropertiesPanelProps) {
   const { t } = useTranslation();
 
   // Local copy of properties so we can reflect edits immediately
-  const [localProps, setLocalProps] = useState<Record<string, unknown>>(node.properties ?? {});
+  const [localProps, setLocalProps] = useState<Record<string, unknown>>(
+    filterGraphProperties(node.properties),
+  );
 
   // Node detail (editable_fields) fetched from API
   const [editableFields, setEditableFields] = useState<string[]>([]);
@@ -40,27 +45,34 @@ export default function NodePropertiesPanel({
   useEffect(() => {
     let cancelled = false;
     setDetailLoading(true);
+    setEditableFields([]);
     explorerApi
-      .getNodeDetail(node.id)
+      .getNodeDetail(node.id, targetOwnerId ? { owner_id: targetOwnerId } : {})
       .then((detail) => {
         if (cancelled) return;
-        setEditableFields(detail.editable_fields ?? []);
-        setLocalProps(detail.properties ?? node.properties ?? {});
+        setEditableFields(
+          detail.labels.some((label) => label === 'Entity' || label === 'Event')
+            ? filterEditableGraphFields(detail.editable_fields)
+            : [],
+        );
+        setLocalProps(filterGraphProperties(detail.properties ?? node.properties));
       })
       .catch((err) => {
         if (cancelled) return;
         // Detail fetch failed — just use what we have from the graph node
-        console.warn("Failed to fetch node detail:", err);
+        console.warn('Failed to fetch node detail:', err);
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [node.id, node.properties]);
+    return () => {
+      cancelled = true;
+    };
+  }, [node.id, node.properties, targetOwnerId]);
 
   // Reset local state when node changes
   useEffect(() => {
-    setLocalProps(node.properties ?? {});
+    setLocalProps(filterGraphProperties(node.properties));
     setEditing(false);
     setEditValues({});
   }, [node.id, node.properties]);
@@ -73,7 +85,7 @@ export default function NodePropertiesPanel({
   const handleStartEdit = () => {
     const initial: Record<string, string> = {};
     for (const field of editableFields) {
-      initial[field] = formatPropertyValue(properties[field] ?? "");
+      initial[field] = formatPropertyValue(properties[field] ?? '');
     }
     setEditValues(initial);
     setEditing(true);
@@ -99,21 +111,21 @@ export default function NodePropertiesPanel({
         if (Array.isArray(raw)) {
           // Parse comma-separated string back to array (e.g. aliases)
           updates[field] = editValues[field]
-            .split(",")
+            .split(',')
             .map((s) => s.trim())
             .filter(Boolean);
-        } else if (typeof raw === "number") {
+        } else if (typeof raw === 'number') {
           const n = Number(editValues[field]);
           updates[field] = Number.isNaN(n) ? raw : n;
-        } else if (typeof raw === "boolean") {
-          updates[field] = editValues[field] === "true" || editValues[field] === "1";
+        } else if (typeof raw === 'boolean') {
+          updates[field] = editValues[field] === 'true' || editValues[field] === '1';
         } else {
           updates[field] = editValues[field];
         }
       }
 
       // Determine whether this is an entity or event based on labels/type
-      const isEvent = node.type === "Event" || node.type === "event";
+      const isEvent = node.type === 'Event' || node.type === 'event';
       if (isEvent) {
         const payload: EventUpdatePayload = {
           name: (properties.canonical_name as string) || (properties.name as string) || node.label,
@@ -136,10 +148,10 @@ export default function NodePropertiesPanel({
       setEditing(false);
       setEditValues({});
       onNodeUpdate?.(node.id, merged);
-      message.success(t("kgBrowser.editSuccess"));
+      message.success(t('kgBrowser.editSuccess'));
     } catch (err) {
-      console.error("Failed to update node:", err);
-      message.error(t("kgBrowser.editFailed"));
+      console.error('Failed to update node:', err);
+      message.error(t('kgBrowser.editFailed'));
     } finally {
       setSaving(false);
     }
@@ -149,40 +161,32 @@ export default function NodePropertiesPanel({
     <div className={styles.nodePropertiesPanel}>
       {/* Header */}
       <div className={styles.propertiesPanelHeader}>
-        <span className={styles.overviewTitle}>
-          {t("kgBrowser.nodeProperties")}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {!editing && hasEditable && !detailLoading && (
-            <Tooltip title={t("kgBrowser.edit")}>
-              <EditOutlined
-                style={{ fontSize: 13, cursor: "pointer" }}
-                onClick={handleStartEdit}
-              />
+        <span className={styles.overviewTitle}>{t('kgBrowser.nodeProperties')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!editing && hasEditable && !detailLoading && onNodeUpdate && (
+            <Tooltip title={t('kgBrowser.edit')}>
+              <EditOutlined style={{ fontSize: 13, cursor: 'pointer' }} onClick={handleStartEdit} />
             </Tooltip>
           )}
           <CopyOutlined
             className={styles.copyBtn}
             onClick={() => copyAllProperties(properties, t)}
-            title={t("kgBrowser.copyProperty")}
+            title={t('kgBrowser.copyProperty')}
           />
-          <RightOutlined
-            style={{ fontSize: 12, cursor: "pointer" }}
-            onClick={onClose}
-          />
+          <RightOutlined style={{ fontSize: 12, cursor: 'pointer' }} onClick={onClose} />
         </div>
       </div>
 
       {/* Node type tag */}
-      <div className={styles.nodeTypeTag} style={{ background: nodeColor, color: "#fff" }}>
+      <div className={styles.nodeTypeTag} style={{ background: nodeColor, color: '#fff' }}>
         {node.type}
       </div>
 
       {/* Properties list */}
       <div className={styles.propertiesPanelContent}>
         {entries.length === 0 ? (
-          <div style={{ color: "var(--colorTextSecondary, #999)", fontSize: 13 }}>
-            {t("kgBrowser.noProperties")}
+          <div style={{ color: 'var(--colorTextSecondary, #999)', fontSize: 13 }}>
+            {t('kgBrowser.noProperties')}
           </div>
         ) : (
           entries.map(([key, value]) => {
@@ -192,17 +196,15 @@ export default function NodePropertiesPanel({
             return (
               <div key={key} className={styles.propertyRow}>
                 <span className={styles.propertyKey}>
-                  {key.startsWith("element") || key === "id"
-                    ? `<${key}>`
-                    : key}
+                  {key.startsWith('element') || key === 'id' ? `<${key}>` : key}
                 </span>
                 {isEditingThis ? (
                   <div className={styles.propertyEditValue}>
-                    {typeof value === "string" && value.length > 50 ? (
+                    {typeof value === 'string' && value.length > 50 ? (
                       <Input.TextArea
                         size="small"
                         autoSize={{ minRows: 2, maxRows: 6 }}
-                        value={editValues[key] ?? ""}
+                        value={editValues[key] ?? ''}
                         onChange={(e) =>
                           setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
                         }
@@ -210,7 +212,7 @@ export default function NodePropertiesPanel({
                     ) : (
                       <Input
                         size="small"
-                        value={editValues[key] ?? ""}
+                        value={editValues[key] ?? ''}
                         onChange={(e) =>
                           setEditValues((prev) => ({ ...prev, [key]: e.target.value }))
                         }
@@ -220,9 +222,9 @@ export default function NodePropertiesPanel({
                 ) : (
                   <span className={styles.propertyValue}>
                     <span>{formatPropertyValue(value)}</span>
-                    {isEditable && !editing && (
+                    {isEditable && !editing && onNodeUpdate && (
                       <EditOutlined
-                        style={{ fontSize: 11, cursor: "pointer", marginLeft: 4 }}
+                        style={{ fontSize: 11, cursor: 'pointer', marginLeft: 4 }}
                         onClick={handleStartEdit}
                       />
                     )}
@@ -239,7 +241,7 @@ export default function NodePropertiesPanel({
       </div>
 
       {/* Footer: Save / Cancel buttons in edit mode */}
-      {editing && (
+      {editing && onNodeUpdate && (
         <div className={styles.propertiesPanelFooter}>
           <Button
             size="small"
@@ -247,7 +249,7 @@ export default function NodePropertiesPanel({
             onClick={handleCancelEdit}
             disabled={saving}
           >
-            {t("kgBrowser.cancel")}
+            {t('kgBrowser.cancel')}
           </Button>
           <Button
             type="primary"
@@ -256,7 +258,7 @@ export default function NodePropertiesPanel({
             onClick={handleSave}
             loading={saving}
           >
-            {t("kgBrowser.save")}
+            {t('kgBrowser.save')}
           </Button>
         </div>
       )}

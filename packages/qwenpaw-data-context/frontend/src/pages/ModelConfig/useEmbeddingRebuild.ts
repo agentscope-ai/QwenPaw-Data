@@ -1,16 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  modelConfigApi,
-  type RebuildJob,
-  type RebuildJobStatus,
-} from "@/services/modelConfig";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { modelConfigApi, type RebuildJob, type RebuildJobStatus } from '@/services/modelConfig';
 
 const POLL_INTERVAL_MS = 2500;
 
-export function isEmbeddingRebuildActive(
-  status: RebuildJobStatus | undefined,
-): boolean {
-  return status === "pending" || status === "running";
+export function isEmbeddingRebuildActive(status: RebuildJobStatus | undefined): boolean {
+  return status === 'pending' || status === 'running';
 }
 
 interface UseEmbeddingRebuildOptions {
@@ -20,11 +14,11 @@ interface UseEmbeddingRebuildOptions {
 function createPendingJob(jobId: string): RebuildJob {
   return {
     job_id: jobId,
-    status: "pending",
+    status: 'pending',
     created_at: new Date().toISOString(),
     progress: {
-      phase: "",
-      current_label: "",
+      phase: '',
+      current_label: '',
       labels_done: 0,
       labels_total: 0,
     },
@@ -32,10 +26,9 @@ function createPendingJob(jobId: string): RebuildJob {
   };
 }
 
-export function useEmbeddingRebuild({
-  onSuccess,
-}: UseEmbeddingRebuildOptions = {}) {
+export function useEmbeddingRebuild({ onSuccess }: UseEmbeddingRebuildOptions = {}) {
   const [job, setJob] = useState<RebuildJob | null>(null);
+  const [starting, setStarting] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
   const onSuccessRef = useRef(onSuccess);
@@ -46,7 +39,7 @@ export function useEmbeddingRebuild({
   }, [onSuccess]);
 
   const restoreJob = useCallback((nextJob: RebuildJob | null) => {
-    notifiedJobIdRef.current = nextJob?.status === "success" ? nextJob.job_id : null;
+    notifiedJobIdRef.current = nextJob?.status === 'success' ? nextJob.job_id : null;
     setPollError(null);
     setJob(nextJob);
   }, []);
@@ -56,6 +49,19 @@ export function useEmbeddingRebuild({
     setPollError(null);
     setJob(createPendingJob(jobId));
   }, []);
+
+  /** Ask the backend to rebuild now; rejects with the backend's refusal. */
+  const start = useCallback(async () => {
+    if (starting) return;
+
+    setStarting(true);
+    try {
+      const { job_id } = await modelConfigApi.rebuildEmbeddings();
+      beginJob(job_id);
+    } finally {
+      setStarting(false);
+    }
+  }, [beginJob, starting]);
 
   const active = isEmbeddingRebuildActive(job?.status);
   const jobId = job?.job_id;
@@ -74,10 +80,7 @@ export function useEmbeddingRebuild({
         setJob(nextJob);
         setPollError(null);
 
-        if (
-          nextJob.status === "success" &&
-          notifiedJobIdRef.current !== nextJob.job_id
-        ) {
+        if (nextJob.status === 'success' && notifiedJobIdRef.current !== nextJob.job_id) {
           notifiedJobIdRef.current = nextJob.job_id;
           onSuccessRef.current?.(nextJob);
         }
@@ -112,7 +115,7 @@ export function useEmbeddingRebuild({
         current
           ? {
               ...current,
-              status: "pending",
+              status: 'pending',
               error: null,
               finished_at: null,
             }
@@ -128,10 +131,11 @@ export function useEmbeddingRebuild({
   return {
     job,
     active,
+    starting,
     retrying,
     pollError,
     restoreJob,
-    beginJob,
+    start,
     retry,
   };
 }

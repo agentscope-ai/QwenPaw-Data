@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -15,15 +16,17 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from init_demo import configure_demo_bundle, load_repo_environment, seed_postgres
+from init_demo import _request_json, seed_postgres
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUCCESS_MARKER = "QWENPAW_DATA_DEMO_SMOKE_OK"
+EMBEDDING_DIMENSIONS = 1024  # Current Neo4j Store catalog contract.
 DEMO_SQL = (
     "SELECT ds, ROUND(AVG(gaap_val), 2) AS average_gaap "
     "FROM dws_gaap_di WHERE product = 'X' AND ytd_gaap >= 10 "
@@ -43,7 +46,7 @@ def _wait_for_health(url: str, process: subprocess.Popen[Any], timeout: float) -
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(
-                f"DataBridge exited early with code {process.returncode}"
+                f"Service at {url} exited early with code {process.returncode}"
             )
         try:
             with urllib.request.urlopen(url, timeout=1) as response:
@@ -52,18 +55,135 @@ def _wait_for_health(url: str, process: subprocess.Popen[Any], timeout: float) -
         except (OSError, urllib.error.URLError) as exc:
             last_error = str(exc)
         time.sleep(0.2)
-    raise RuntimeError(f"DataBridge did not become healthy: {last_error}")
+    raise RuntimeError(f"Service at {url} did not become healthy: {last_error}")
 
 
 def _stop_process(process: subprocess.Popen[Any]) -> None:
     if process.poll() is not None:
         return
-    process.terminate()
+    if os.name == "nt":
+        try:
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        except (OSError, ValueError):
+            pass
+    else:
+        process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            process.kill()
         process.wait(timeout=5)
+
+
+def _smoke_environment(
+    root: Path, cm_port: int, args: argparse.Namespace
+) -> dict[str, str]:
+    """Use disposable shared SQL state, never the caller's runtime or .env."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(
+            (
+                "QWENPAW_DATA_",
+                "CM_",
+                "NEO4J_",
+                "HOLO_",
+                "TRACING_",
+                "OTEL_",
+                "OPENAI_",
+                "ANTHROPIC_",
+                "DASHSCOPE_",
+                "EMBED_",
+                "LLM_",
+                "RERANK_",
+                "FC_",
+                "ACS_",
+            )
+        )
+        and key not in {"PYTHONPATH", "GRAPH_BACKEND"}
+    }
+    env.update(
+        {
+            "QWENPAW_DATA_HOME": str(root / "home"),
+            "QWENPAW_DATA_ENV_FILE": str(root / "absent.env"),
+            "QWENPAW_DATA_DB_URL": f"sqlite+aiosqlite:///{root / 'control.sqlite'}",
+            "QWENPAW_DATA_AUTH_MODE": "local",
+            "QWENPAW_DATA_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
+            # Only our scripted SQL request runs; Docker isolation has separate CI.
+            "QWENPAW_DATA_WORKSPACE_BACKEND": "local",
+            "QWENPAW_DATA_TOOL_CONFIRMATION_DEFAULT_LEVEL": "off",
+            "QWENPAW_DATA_FOLLOWUP_ENABLED": "0",
+            "QWENPAW_DATA_SETTLEMENT_ENABLED": "0",
+            "QWENPAW_DATA_BIZ_LINK_ENABLED": "0",
+            "QWENPAW_DATA_BIZ_TRACE_ENABLED": "0",
+            "QWENPAW_DATA_TRACE2SEGMENT_ENABLED": "0",
+            "NEO4J_URI": args.neo4j_uri,
+            "NEO4J_USER": args.neo4j_user,
+            "NEO4J_PASSWORD": args.neo4j_password,
+            "NEO4J_DATABASE": "",
+            "GRAPH_BACKEND": "neo4j",
+            "SQL_EXEC_BACKEND": "direct",
+            "NO_PROXY": "127.0.0.1,localhost",
+            "no_proxy": "127.0.0.1,localhost",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+    )
+    return env
+
+
+@contextmanager
+def _host_service(env: dict[str, str], root: Path, timeout: float):
+    """Host owns the shared Auth/Host schema and must start before Context."""
+    port = _free_port()
+    env["QWENPAW_DATA_HOST_URL"] = f"http://127.0.0.1:{port}"
+    path = root / "host.log"
+    with path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "qwenpaw_data.host.core.api.app:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--log-level",
+                "warning",
+            ],
+            cwd=root,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}),
+        )
+        try:
+            _wait_for_health(env["QWENPAW_DATA_HOST_URL"] + "/health", process, timeout)
+            yield
+        except Exception as exc:
+            log.flush()
+            raise RuntimeError(
+                f"{exc}\nHost log:\n{path.read_text(encoding='utf-8', errors='replace')[-8000:]}"
+            ) from exc
+        finally:
+            _stop_process(process)
+
+
+def _host_json(env: dict[str, str], path: str, *, payload: Any = None) -> Any:
+    request = urllib.request.Request(
+        env["QWENPAW_DATA_HOST_URL"] + path,
+        data=None if payload is None else json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="GET" if payload is None else "PUT",
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.load(response)
 
 
 class _ModelStub(ThreadingHTTPServer):
@@ -71,8 +191,10 @@ class _ModelStub(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int]) -> None:
         super().__init__(address, _ModelHandler)
-        self.saw_execute_sql = False
+        self.saw_execute_read = False
+        self.datasource_id = ""
         self.saw_expected_result = False
+        self.embedding_calls = 0
 
 
 class _ModelHandler(BaseHTTPRequestHandler):
@@ -80,7 +202,7 @@ class _ModelHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if self.path.rstrip("/") != "/v1/chat/completions":
+        if self.path.rstrip("/") not in {"/v1/chat/completions", "/v1/embeddings"}:
             self.send_error(404)
             return
         try:
@@ -88,7 +210,36 @@ class _ModelHandler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError("request body must be an object")
-            self._respond_to_chat(body)
+            if self.path.rstrip("/") == "/v1/embeddings":
+                inputs = body["input"]
+                if isinstance(inputs, str):
+                    inputs = [inputs]
+                self.server.embedding_calls += len(inputs)
+                payload = json.dumps(
+                    {
+                        "object": "list",
+                        "model": body["model"],
+                        "data": [
+                            {
+                                "object": "embedding",
+                                "index": i,
+                                "embedding": [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1),
+                            }
+                            for i in range(len(inputs))
+                        ],
+                        "usage": {
+                            "prompt_tokens": len(inputs),
+                            "total_tokens": len(inputs),
+                        },
+                    }
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            else:
+                self._respond_to_chat(body)
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             payload = json.dumps({"error": {"message": str(exc)}}).encode()
             self.send_response(400)
@@ -111,7 +262,7 @@ class _ModelHandler(BaseHTTPRequestHandler):
         serialized = json.dumps(tool_messages, ensure_ascii=False)
         has_tool_result = bool(tool_messages)
         if has_tool_result:
-            self.server.saw_execute_sql = True
+            self.server.saw_execute_read = True
             expected_values = (
                 "2026-03-01",
                 "4.64",
@@ -122,7 +273,7 @@ class _ModelHandler(BaseHTTPRequestHandler):
             )
             if not all(value in serialized for value in expected_values):
                 raise ValueError(
-                    "execute_sql did not return the expected demo aggregates: "
+                    "execute_read did not return the expected demo aggregates: "
                     f"{serialized[-3000:]}",
                 )
             self.server.saw_expected_result = True
@@ -142,11 +293,13 @@ class _ModelHandler(BaseHTTPRequestHandler):
             if isinstance(function, dict) and isinstance(function.get("name"), str):
                 tool_names.append(function["name"])
         execute_tool = next(
-            (name for name in tool_names if name.endswith("__execute_sql")),
+            (name for name in tool_names if name.endswith("__execute_read")),
             None,
         )
         if execute_tool is None:
-            raise ValueError("DataBridge execute_sql tool was not exposed to the model")
+            raise ValueError(
+                "DataBridge execute_read tool was not exposed to the model"
+            )
 
         call_id = "call_qwenpaw_data_demo_sql"
         self._send_sse(
@@ -173,7 +326,12 @@ class _ModelHandler(BaseHTTPRequestHandler):
                             {
                                 "index": 0,
                                 "function": {
-                                    "arguments": json.dumps({"sql": DEMO_SQL}),
+                                    "arguments": json.dumps(
+                                        {
+                                            "sql": DEMO_SQL,
+                                            "datasource_id": self.server.datasource_id,
+                                        }
+                                    ),
                                 },
                             },
                         ],
@@ -202,6 +360,10 @@ class _ModelHandler(BaseHTTPRequestHandler):
         }
 
     def _send_sse(self, chunks: list[dict[str, Any]]) -> None:
+        usage = self._chunk({})
+        usage["choices"] = []
+        usage["usage"] = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        chunks = [*chunks, usage]
         lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in chunks]
         lines.append("data: [DONE]\n\n")
         payload = "".join(lines).encode()
@@ -217,31 +379,34 @@ class _ModelHandler(BaseHTTPRequestHandler):
         return
 
 
-def _write_mcp_config(home: Path, cm_port: int) -> None:
-    target = home / "host" / "workspace" / ".mcp"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(
-            [
-                {
-                    "name": "databridge",
-                    "is_stateful": False,
-                    "mcp_config": {
-                        "type": "http_mcp",
-                        "url": f"http://127.0.0.1:{cm_port}/mcp/v1/cm",
-                        "headers": {},
-                        "timeout": 30.0,
-                    },
-                    "enable_tools": ["execute_sql"],
-                    "disable_tools": None,
-                    "execution_timeout": 30.0,
-                },
-            ],
-            indent=2,
+@contextmanager
+def _embedding_fixture(env: dict[str, str]):
+    """Use deterministic vectors; publication still uses the real graph backend."""
+    server = _ModelStub(("127.0.0.1", 0))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_port}/v1"
+        _host_json(
+            env,
+            "/api/preferences/providers/openai",
+            payload={"api_key": "fixture-embedding", "base_url": base},
         )
-        + "\n",
-        encoding="utf-8",
-    )
+        _request_json(
+            env["QWENPAW_DATA_CM_BASE_URL"] + "/api/v1/config/embed",
+            method="PUT",
+            headers={"Content-Type": "application/json"},
+            payload={
+                "provider_id": "openai",
+                "model": "fixture-embedding",
+                "dim": EMBEDDING_DIMENSIONS,
+            },
+        )
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def _postgres_config(dsn: str) -> dict[str, Any]:
@@ -274,7 +439,7 @@ def _run_cli(
     )
     if completed.returncode != 0:
         raise RuntimeError(
-            f"{' '.join(command)} failed ({completed.returncode})\n"
+            f"CLI {args[0] if args else 'command'} failed ({completed.returncode})\n"
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
         )
     return completed
@@ -289,37 +454,42 @@ def run_smoke(args: argparse.Namespace) -> None:
     model_thread = threading.Thread(target=model_server.serve_forever, daemon=True)
     model_thread.start()
 
-    with tempfile.TemporaryDirectory(prefix="qwenpaw-data-demo-smoke-") as temp_name:
+    with ExitStack() as cleanup:
+        cleanup.callback(model_thread.join, timeout=5)
+        cleanup.callback(model_server.server_close)
+        cleanup.callback(model_server.shutdown)
+        temp_name = cleanup.enter_context(
+            tempfile.TemporaryDirectory(prefix="qwenpaw-data-demo-smoke-")
+        )
         temp_root = Path(temp_name)
-        home = temp_root / "home"
         log_path = temp_root / "databridge.log"
-        _write_mcp_config(home, cm_port)
-        env = dict(os.environ)
-        env.update(
-            {
-                "QWENPAW_DATA_HOME": str(home),
-                "QWENPAW_DATA_CM_BASE_URL": f"http://127.0.0.1:{cm_port}",
-                "QWENPAW_DATA_MODEL_PROVIDER": "openai",
-                "QWENPAW_DATA_MODEL_NAME": "qwenpaw-data-demo-model",
-                "QWENPAW_DATA_MODEL_API_KEY": "local-demo-key",
-                "QWENPAW_DATA_MODEL_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
-                "QWENPAW_DATA_WORKSPACE": "local",
-                # The deterministic local stub can request only the fixed SQL
-                # call below. Bypass is explicit because unattended dont_ask
-                # correctly denies executable MCP tools.
-                "QWENPAW_DATA_PERMISSION_MODE": "bypass",
-                "QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED": "0",
-                "NEO4J_URI": args.neo4j_uri,
-                "NEO4J_USER": args.neo4j_user,
-                "NEO4J_PASSWORD": args.neo4j_password,
-                "SQL_EXEC_BACKEND": "direct",
-                "NO_PROXY": "127.0.0.1,localhost",
-                "no_proxy": "127.0.0.1,localhost",
-                "QWENPAW_DATA_API_TOKEN": "",
-                "QWENPAW_DATA_API_KEYS": "",
-                "QWENPAW_DATA_CLIENT_API_TOKEN": "",
-                "NEO4J_DATABASE": "",
-            },
+        env = _smoke_environment(temp_root, cm_port, args)
+        cleanup.enter_context(_host_service(env, temp_root, args.startup_timeout))
+        for path, payload in [
+            (
+                "providers/openai",
+                {
+                    "api_key": "local-demo-key",
+                    "base_url": f"http://127.0.0.1:{model_port}/v1",
+                },
+            ),
+            (
+                "providers/openai/models/qwenpaw-data-demo-model",
+                {"source": "extra", "name": "Smoke fixture", "context_size": 32000},
+            ),
+            (
+                "active-models",
+                {
+                    "default_provider_id": "openai",
+                    "default_model_id": "qwenpaw-data-demo-model",
+                },
+            ),
+        ]:
+            _host_json(env, "/api/preferences/" + path, payload=payload)
+        _host_json(
+            env,
+            "/api/mcp/context-manager/tools",
+            payload={"enable_tools": ["execute_read"]},
         )
 
         with log_path.open("w", encoding="utf-8") as log_file:
@@ -342,6 +512,7 @@ def run_smoke(args: argparse.Namespace) -> None:
                 env=env,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}),
             )
             try:
                 _wait_for_health(
@@ -349,13 +520,27 @@ def run_smoke(args: argparse.Namespace) -> None:
                     bridge,
                     args.startup_timeout,
                 )
-                datasource_id = configure_demo_bundle(
-                    f"http://127.0.0.1:{cm_port}",
-                    int(postgres["port"]),
-                    host=str(postgres["host"]),
-                    dbname=str(postgres["dbname"]),
-                    user=str(postgres["user"]),
-                    password=str(postgres["password"]),
+                created = _run_cli(
+                    env,
+                    "datasource",
+                    "create",
+                    "--name",
+                    "Demo PG - GAAP smoke",
+                    "--type",
+                    "postgresql",
+                    "--config",
+                    json.dumps(postgres),
+                )
+                datasource_id = json.loads(created.stdout)["datasource_id"]
+                model_server.datasource_id = datasource_id
+                _run_cli(
+                    env,
+                    "semantic",
+                    "import",
+                    "--file",
+                    str(REPO_ROOT / "examples/demo_semantic_config.xlsx"),
+                    "--datasource-id",
+                    datasource_id,
                 )
                 listed = _run_cli(env, "datasource", "list")
                 listing = json.loads(listed.stdout)
@@ -376,10 +561,6 @@ def run_smoke(args: argparse.Namespace) -> None:
                         "during March 2026 and identify the largest spike."
                     ),
                     "--no-stream",
-                    "--workspace",
-                    "local",
-                    "--permission-mode",
-                    "bypass",
                     "--datasource-id",
                     datasource_id,
                 )
@@ -388,21 +569,27 @@ def run_smoke(args: argparse.Namespace) -> None:
                         f"CLI response did not contain {SUCCESS_MARKER!r}"
                     )
                 if (
-                    not model_server.saw_execute_sql
+                    not model_server.saw_execute_read
                     or not model_server.saw_expected_result
                 ):
                     raise RuntimeError(
                         "CLI did not execute and verify the demo SQL tool call"
                     )
 
-                sessions = list(
-                    (home / "host" / "workspace" / "sessions").rglob("*.json")
+                session_id = next(
+                    line.removeprefix("Session: ")
+                    for line in result.stderr.splitlines()
+                    if line.startswith("Session: ")
                 )
-                if not sessions:
-                    raise RuntimeError("CLI run did not persist a session trace")
+                snapshot = _host_json(env, f"/api/sessions/{session_id}/snapshot")
+                if (
+                    len(snapshot["chats"]) != 1
+                    or snapshot["chats"][0]["status"] != "completed"
+                ):
+                    raise RuntimeError("CLI run did not persist a completed SQL chat")
                 print(listed.stdout.strip())
                 print(result.stdout.strip())
-                print(f"Session files: {len(sessions)}")
+                print("Persisted SQL chats: 1")
             except BaseException as exc:
                 try:
                     log_file.flush()
@@ -414,16 +601,15 @@ def run_smoke(args: argparse.Namespace) -> None:
                 ) from exc
             finally:
                 _stop_process(bridge)
-                model_server.shutdown()
-                model_server.server_close()
-                model_thread.join(timeout=5)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--postgres-dsn",
-        default=("postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:55432/qwenpaw_data_demo"),
+        default=(
+            "postgresql://qwenpaw_data:qwenpaw-data-demo@127.0.0.1:55432/qwenpaw_data_demo"
+        ),
     )
     parser.add_argument("--neo4j-uri", default="bolt://127.0.0.1:7687")
     parser.add_argument("--neo4j-user", default="neo4j")
@@ -436,7 +622,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_repo_environment()
     try:
         run_smoke(parse_args(argv))
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:

@@ -45,9 +45,7 @@ def _tool_call(
     encoded = json.dumps(arguments, ensure_ascii=False)
     middle = len(encoded) // 2
     return [
-        _agent_event(
-            type="TOOL_CALL_START", tool_call_id=call_id, tool_call_name=name
-        ),
+        _agent_event(type="TOOL_CALL_START", tool_call_id=call_id, tool_call_name=name),
         _agent_event(
             type="TOOL_CALL_DELTA", tool_call_id=call_id, delta=encoded[:middle]
         ),
@@ -84,31 +82,88 @@ async def _collect(entries: list[dict[str, Any]], **kwargs: Any) -> SignalSnapsh
     return await collector.freeze()
 
 
+def _graph_lookup(
+    cypher: str,
+    columns: list[str],
+    rows: list[list[Any]],
+    *,
+    call_id: str,
+    params: dict[str, Any] | None = None,
+    state: str = "success",
+    metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """One query_graph call and the result envelope Context Manager returns."""
+    body = json.dumps(
+        {
+            "columns": columns,
+            "rows": [dict(zip(columns, row, strict=True)) for row in rows],
+            "row_count": len(rows),
+            "truncated": False,
+            "elapsed_ms": 3,
+        },
+        ensure_ascii=False,
+    )
+    arguments: dict[str, Any] = {"cypher": cypher, "limit": 50}
+    if params:
+        arguments["params"] = params
+    return [
+        *_tool_call("query_graph", arguments, call_id=call_id),
+        *_tool_result(body, call_id=call_id, state=state, metadata=metadata),
+    ]
+
+
+_METRIC_BY_NAME = (
+    "MATCH (m:Metric) WHERE m.name = $name "
+    "RETURN m.name AS metric, m.synonyms AS synonyms"
+)
+_METRIC_DIMENSIONS = (
+    "MATCH (m:Metric)-[:HAS_CALIBER]->(c:MetricCaliber)-[:CALIBER_ON]->(ds:Dataset)"
+    "<-[:DIMENSION_BINDING]-(d:Dimension) WHERE m.name IN $names "
+    "RETURN DISTINCT m.name AS metric, d.name AS dimension"
+)
+_DIMENSION_DUMP = "MATCH (d:Dimension) RETURN d.name AS dimension"
+
+
 async def test_a_streamed_tool_call_is_reassembled_before_it_is_read() -> None:
-    snapshot = await _collect(_tool_call("get_metric", {"name": "GAAP用户数"}))
+    snapshot = await _collect(
+        _graph_lookup(
+            _METRIC_BY_NAME,
+            ["metric", "synonyms"],
+            [["GAAP用户数", ["GAAP用户"]]],
+            call_id="c1",
+            params={"name": "GAAP用户数"},
+        )
+    )
 
     assert snapshot.metrics[0].name == "GAAP用户数"
     assert snapshot.metrics[0].analyzed is True
+    assert snapshot.entity_aliases == (("GAAP用户", "GAAP用户数"),)
 
 
 async def test_a_graph_key_is_stripped_to_the_surface_name() -> None:
-    """Agents often pass CM keys as get_metric name; follow-up must not keep them."""
+    """Rows may carry CM keys instead of names; follow-up must not keep them."""
 
     entries = [
-        *_tool_call(
-            "get_metric",
-            {"name": "met:postgresql-70569beb:ShopDemo:DAU"},
+        *_graph_lookup(
+            "MATCH (m:Metric) WHERE m.name = $name RETURN m.key AS metric",
+            ["metric"],
+            [["met:postgresql-70569beb:示例站点:DAU"]],
             call_id="c1",
+            params={"name": "DAU"},
         ),
-        *_tool_call(
-            "get_dimension",
-            {"name": "dim:postgresql-70569beb:ShopDemo:渠道类型"},
+        *_graph_lookup(
+            "MATCH (d:Dimension) WHERE d.name = $name RETURN d.key AS dimension",
+            ["dimension"],
+            [["dim:postgresql-70569beb:示例站点:渠道类型"]],
             call_id="c2",
+            params={"name": "渠道类型"},
         ),
-        *_tool_call(
-            "get_dataset",
-            {"name": "ds:postgresql-70569beb:ShopDemo:dau_daily"},
+        *_graph_lookup(
+            "MATCH (ds:Dataset) WHERE ds.name = $name RETURN ds.key AS dataset",
+            ["dataset"],
+            [["ds:postgresql-70569beb:示例站点:dau_daily"]],
             call_id="c3",
+            params={"name": "dau_daily"},
         ),
     ]
 
@@ -119,30 +174,27 @@ async def test_a_graph_key_is_stripped_to_the_surface_name() -> None:
     assert "渠道类型" in snapshot.business_entities
     assert "dau_daily" in {entity.name for entity in snapshot.datasets}
     assert not any(
-        name.startswith(("met:", "dim:", "ds:"))
-        for name in snapshot.business_entities
+        name.startswith(("met:", "dim:", "ds:")) for name in snapshot.business_entities
     )
 
 
-async def test_a_graph_key_merges_with_the_surface_name_from_context() -> None:
-    """search_context yields DAU; get_metric with the key must not fork a second metric."""
+async def test_a_graph_key_merges_with_the_surface_name_from_another_lookup() -> None:
+    """A key and a name for one metric must not fork it in two."""
 
-    context = json.dumps(
-        {
-            "schema_prompt": (
-                "指标: met:postgresql-70569beb:ShopDemo:DAU\n"
-                "  可下钻维度: 渠道类型, 页面"
-            )
-        },
-        ensure_ascii=False,
-    )
     entries = [
-        *_tool_call("search_context", {"query": "DAU"}, call_id="c1"),
-        *_tool_result(context, call_id="c1"),
-        *_tool_call(
-            "get_metric",
-            {"name": "met:postgresql-70569beb:ShopDemo:DAU"},
+        *_graph_lookup(
+            _METRIC_DIMENSIONS,
+            ["metric", "dimension"],
+            [["DAU", "渠道类型"], ["DAU", "页面"]],
+            call_id="c1",
+            params={"names": ["DAU"]},
+        ),
+        *_graph_lookup(
+            "MATCH (m:Metric) WHERE m.name = $name RETURN m.key AS metric",
+            ["metric"],
+            [["met:postgresql-70569beb:示例站点:DAU"]],
             call_id="c2",
+            params={"name": "DAU"},
         ),
     ]
 
@@ -271,18 +323,21 @@ async def test_plan_update_registers_revised_task_subjects() -> None:
 
 
 async def test_a_lookup_names_entities_and_only_analysis_marks_them() -> None:
-    context = json.dumps(
-        {
-            "schema_prompt": (
-                "指标: met:holo_test:DemoBiz:GAAP用户数\n  可下钻维度: 渠道类型, 页面"
-            )
-        },
-        ensure_ascii=False,
-    )
     entries = [
-        *_tool_call("search_context", {"query": "GAAP用户数"}, call_id="c1"),
-        *_tool_result(context, call_id="c1"),
-        *_tool_call("get_dimension", {"name": "渠道类型"}, call_id="c2"),
+        *_graph_lookup(
+            _METRIC_DIMENSIONS,
+            ["metric", "dimension"],
+            [["GAAP用户数", "渠道类型"], ["GAAP用户数", "页面"]],
+            call_id="c1",
+            params={"names": ["GAAP用户数"]},
+        ),
+        *_graph_lookup(
+            "MATCH (d:Dimension) WHERE d.name = $name RETURN d.name AS dimension",
+            ["dimension"],
+            [["渠道类型"]],
+            call_id="c2",
+            params={"name": "渠道类型"},
+        ),
     ]
 
     snapshot = await _collect(entries)
@@ -296,19 +351,13 @@ async def test_a_dimension_is_bound_to_the_metric_it_was_listed_under() -> None:
     """The lookup reports bindings per metric, and only the anchor's own
     dimensions are worth offering as a breakdown of it."""
 
-    context = json.dumps(
-        {
-            "schema_prompt": (
-                "指标: met:holo_test:DemoBiz:人均GAAP\n  可下钻维度: 渠道类型\n"
-                "指标: met:holo_test:DemoBiz:漏斗有效付费用户数\n  可下钻维度: 落地页\n"
-            )
-        },
-        ensure_ascii=False,
+    entries = _graph_lookup(
+        _METRIC_DIMENSIONS,
+        ["metric", "dimension"],
+        [["人均GAAP", "渠道类型"], ["漏斗有效付费用户数", "落地页"]],
+        call_id="c1",
+        params={"names": ["人均GAAP", "漏斗有效付费用户数"]},
     )
-    entries = [
-        *_tool_call("search_context", {"query": "人均GAAP"}, call_id="c1"),
-        *_tool_result(context, call_id="c1"),
-    ]
 
     snapshot = await _collect(entries)
     relevance = {entity.name: entity.relevance for entity in snapshot.dimensions}
@@ -317,21 +366,43 @@ async def test_a_dimension_is_bound_to_the_metric_it_was_listed_under() -> None:
     assert relevance["渠道类型"] > relevance["落地页"]
 
 
-def _listed_dimension(name: str, alias: str) -> list[dict[str, Any]]:
-    body = json.dumps(
-        [{"dimension_name": name, "aliases": [alias]}], ensure_ascii=False
+async def test_whole_nodes_are_read_as_well_as_projected_properties() -> None:
+    entries = _graph_lookup(
+        "MATCH (m:Metric)-[:HAS_CALIBER]->(c:MetricCaliber) "
+        "WHERE m.name = $name RETURN m, c",
+        ["m", "c"],
+        [
+            [
+                {"name": "DAU", "synonyms": ["日活"]},
+                {"metric_name": "DAU", "dataset": "dau_daily"},
+            ]
+        ],
+        call_id="c1",
+        params={"name": "DAU"},
     )
-    return [
-        *_tool_call("list_dimensions", {"domain": "DemoBiz"}, call_id="dims"),
-        *_tool_result(body, call_id="dims"),
-    ]
+
+    snapshot = await _collect(entries)
+
+    assert {entity.name for entity in snapshot.metrics} == {"DAU"}
+    assert snapshot.entity_aliases == (("日活", "DAU"),)
+    assert {entity.name for entity in snapshot.datasets} == {"dau_daily"}
+
+
+def _listed_dimension(name: str, column: str) -> list[dict[str, Any]]:
+    return _graph_lookup(
+        "MATCH (d:Dimension)-[r:MAPS_TO_FIELD]->(f:DatasetField) "
+        "RETURN d.name AS dimension, r.expr AS expr",
+        ["dimension", "expr"],
+        [[name, column]],
+        call_id="dims",
+    )
 
 
 async def test_a_dimension_grouped_by_in_sql_counts_as_analyzed() -> None:
     entries = [
         *_listed_dimension("渠道类型", "channel_type"),
         *_tool_call(
-            "execute_sql",
+            "execute_read",
             {
                 "sql": (
                     "SELECT channel_type, sum(gaap) FROM dwd.gaap_daily "
@@ -356,11 +427,10 @@ async def test_a_dimension_only_filtered_on_is_still_worth_drilling_into() -> No
     entries = [
         *_listed_dimension("渠道类型", "channel_type"),
         *_tool_call(
-            "execute_sql",
+            "execute_read",
             {
                 "sql": (
-                    "SELECT sum(gaap) FROM dwd.gaap_daily "
-                    "WHERE channel_type = 'app'"
+                    "SELECT sum(gaap) FROM dwd.gaap_daily WHERE channel_type = 'app'"
                 )
             },
             call_id="c2",
@@ -374,10 +444,10 @@ async def test_a_dimension_only_filtered_on_is_still_worth_drilling_into() -> No
 
 
 async def test_a_query_local_alias_is_not_a_dataset() -> None:
-    """"WITH daily_agg AS (...)" names a step of the query, not a table."""
+    """ "WITH daily_agg AS (...)" names a step of the query, not a table."""
 
     entries = _tool_call(
-        "execute_sql",
+        "execute_read",
         {
             "sql": (
                 "WITH daily_agg AS (SELECT dt, sum(gaap) g FROM dwd.gaap_daily "
@@ -395,14 +465,20 @@ async def test_a_dimension_from_a_domain_listing_is_pruned_but_still_real() -> N
     """Nobody asked for it, so it must not be recommended; a question naming it
     is still grounded."""
 
-    body = json.dumps(
-        [{"dimension_name": "MCPServerID"}, {"dimension_name": "渠道类型"}],
-        ensure_ascii=False,
-    )
     entries = [
-        *_tool_call("get_metric", {"name": "人均GAAP"}, call_id="c1"),
-        *_tool_call("list_dimensions", {"domain": "DemoBiz"}, call_id="c2"),
-        *_tool_result(body, call_id="c2"),
+        *_graph_lookup(
+            _METRIC_BY_NAME,
+            ["metric", "synonyms"],
+            [["人均GAAP", []]],
+            call_id="c1",
+            params={"name": "人均GAAP"},
+        ),
+        *_graph_lookup(
+            _DIMENSION_DUMP,
+            ["dimension"],
+            [["MCPServerID"], ["渠道类型"]],
+            call_id="c2",
+        ),
     ]
 
     snapshot = await _collect(entries)
@@ -413,19 +489,13 @@ async def test_a_dimension_from_a_domain_listing_is_pruned_but_still_real() -> N
 
 
 async def test_the_pruning_budget_is_configurable() -> None:
-    context = json.dumps(
-        {
-            "schema_prompt": (
-                "指标: met:holo_test:DemoBiz:人均GAAP\n"
-                "  可下钻维度: 渠道类型, 落地页, 地域, 产品"
-            )
-        },
-        ensure_ascii=False,
+    entries = _graph_lookup(
+        _METRIC_DIMENSIONS,
+        ["metric", "dimension"],
+        [["人均GAAP", name] for name in ("渠道类型", "落地页", "地域", "产品")],
+        call_id="c1",
+        params={"names": ["人均GAAP"]},
     )
-    entries = [
-        *_tool_call("search_context", {"query": "人均GAAP"}, call_id="c1"),
-        *_tool_result(context, call_id="c1"),
-    ]
 
     assert len((await _collect(entries)).dimensions) == 4
 
@@ -435,12 +505,12 @@ async def test_the_pruning_budget_is_configurable() -> None:
 
 
 async def test_a_failed_tool_result_contributes_nothing() -> None:
-    body = json.dumps({"dimension_name": "页面"}, ensure_ascii=False)
     entries = [
-        *_tool_call("list_dimensions", {}, call_id="c1"),
-        *_tool_result(body, call_id="c1", state="error"),
-        *_tool_call("list_dimensions", {}, call_id="c2"),
-        *_tool_result("Error executing tool list_dimensions: 404", call_id="c2"),
+        *_graph_lookup(
+            _DIMENSION_DUMP, ["dimension"], [["页面"]], call_id="c1", state="error"
+        ),
+        *_tool_call("query_graph", {"cypher": _DIMENSION_DUMP}, call_id="c2"),
+        *_tool_result("Error executing tool query_graph: syntax error", call_id="c2"),
     ]
 
     snapshot = await _collect(entries)
@@ -449,11 +519,13 @@ async def test_a_failed_tool_result_contributes_nothing() -> None:
 
 
 async def test_a_sub_agent_transcript_is_not_this_run_s_tool_output() -> None:
-    body = json.dumps({"dimension_name": "页面"}, ensure_ascii=False)
-    entries = [
-        *_tool_call("list_dimensions", {}, call_id="c1"),
-        *_tool_result(body, call_id="c1", metadata={"subagent_event": True}),
-    ]
+    entries = _graph_lookup(
+        _DIMENSION_DUMP,
+        ["dimension"],
+        [["页面"]],
+        call_id="c1",
+        metadata={"subagent_event": True},
+    )
 
     snapshot = await _collect(entries)
 
@@ -531,18 +603,13 @@ async def test_the_snapshot_cannot_be_edited_after_it_is_frozen() -> None:
         snapshot.user_input = "改一下"
 
 
-async def test_get_priority_metrics_lists_are_domain_dumps() -> None:
-    body = json.dumps(
-        [
-            {"metric_name": "DAU", "aliases": ["日活"], "priority": "high"},
-            {"metric_name": "MAU", "priority": "normal"},
-        ],
-        ensure_ascii=False,
+async def test_an_unfiltered_metric_listing_is_a_domain_dump() -> None:
+    entries = _graph_lookup(
+        "MATCH (m:Metric) RETURN m.name AS metric, m.synonyms AS synonyms",
+        ["metric", "synonyms"],
+        [["DAU", ["日活"]], ["MAU", []]],
+        call_id="c1",
     )
-    entries = [
-        *_tool_call("get_priority_metrics", {"domain": "ShopDemo"}, call_id="c1"),
-        *_tool_result(body, call_id="c1"),
-    ]
 
     snapshot = await _collect(entries)
 
@@ -551,40 +618,46 @@ async def test_get_priority_metrics_lists_are_domain_dumps() -> None:
     assert all(not entity.analyzed for entity in snapshot.metrics)
 
 
-async def test_get_north_star_metrics_is_the_same_listing() -> None:
-    body = json.dumps([{"metric_name": "DAU"}], ensure_ascii=False)
-    entries = [
-        *_tool_call("get_north_star_metrics", {"domain": "ShopDemo"}, call_id="c1"),
-        *_tool_result(body, call_id="c1"),
-    ]
-
-    snapshot = await _collect(entries)
-
-    assert {entity.name for entity in snapshot.metrics} == {"DAU"}
-
-
-async def test_search_context_records_intent_feedback_and_golden_query() -> None:
-    context = json.dumps(
-        {
-            "schema_prompt": "指标: met:holo_test:DemoBiz:DAU\n  可下钻维度: 渠道",
-            "intent_feedback": {
-                "coverage": "insufficient",
-                "gaps": ["无指标命中", "时间不可解析"],
-                "next_steps": ["澄清时间范围", "换同义指标"],
-            },
-            "golden_query": {"verified_sql": "SELECT 1"},
-        },
-        ensure_ascii=False,
+async def test_a_search_by_wording_is_mildly_relevant_but_not_a_lookup() -> None:
+    entries = _graph_lookup(
+        "MATCH (m:Metric) WHERE $term IN m.synonyms RETURN m.name AS metric",
+        ["metric"],
+        [["DAU"]],
+        call_id="c1",
+        params={"term": "日活"},
     )
-    entries = [
-        *_tool_call("search_context", {"query": "DAU"}, call_id="c1"),
-        *_tool_result(context, call_id="c1"),
-    ]
 
     snapshot = await _collect(entries)
 
-    assert snapshot.intent_coverage == "insufficient"
-    assert snapshot.intent_gaps == ("无指标命中", "时间不可解析")
-    assert snapshot.intent_next_step == "澄清时间范围"
+    assert [entity.name for entity in snapshot.metrics] == ["DAU"]
+    assert snapshot.metrics[0].analyzed is False
+
+
+async def test_a_verified_query_marks_the_golden_query() -> None:
+    entries = _graph_lookup(
+        "MATCH (v:VerifiedQuery)-[:ANCHORED_TO]->(dom:Domain) "
+        "RETURN v.question AS question, v.verified_sql AS sql",
+        ["question", "sql"],
+        [["昨天 DAU 多少", "SELECT 1"]],
+        call_id="c1",
+    )
+
+    snapshot = await _collect(entries)
+
     assert snapshot.has_golden_query is True
+
+
+async def test_a_dataset_is_read_off_the_caliber_that_sits_on_it() -> None:
+    entries = _graph_lookup(
+        "MATCH (m:Metric)-[:HAS_CALIBER]->(c:MetricCaliber) "
+        "WHERE m.name = $name RETURN m.name AS metric, c.dataset AS dataset",
+        ["metric", "dataset"],
+        [["DAU", "dau_daily"]],
+        call_id="c1",
+        params={"name": "DAU"},
+    )
+
+    snapshot = await _collect(entries)
+
+    assert {entity.name for entity in snapshot.datasets} == {"dau_daily"}
     assert snapshot.anchor_metric == "DAU"

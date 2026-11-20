@@ -1,55 +1,58 @@
 # -*- coding: utf-8 -*-
-"""Async engine helpers for the host service database.
-
-No module-global singleton: the app owns the engine lifecycle (created in
-the lifespan, disposed on shutdown), stores hold the session factory.
-"""
-
 from __future__ import annotations
 
-import os
-from collections.abc import Mapping
 from pathlib import Path
 
-from sqlalchemy import event, inspect, text
-from sqlalchemy.engine import Connection, make_url
+from qwenpaw_data_auth import DEFAULT_PRINCIPAL
+from sqlalchemy import event
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.schema import CreateTable
 
-from qwenpaw_data.host.core.db.tables import Base
+from qwenpaw_data.host.core.db.align import align_host_schema
+from qwenpaw_data.host.core.settings import get_settings
 
-DB_URL_ENV = "QWENPAW_DATA_DB_URL"
+_engine: AsyncEngine | None = None
+_SessionLocal: async_sessionmaker[AsyncSession] | None = None
 
-
-def resolve_db_url(
-    home: Path,
-    env: Mapping[str, str] | None = None,
-) -> str:
-    values = os.environ if env is None else env
-    url = str(values.get(DB_URL_ENV, "")).strip()
-    if url:
-        return url
-    return f"sqlite+aiosqlite:///{home / 'host' / 'host.db'}"
+TEST_USER_ID = DEFAULT_PRINCIPAL.user_id
+TEST_TENANT_ID = DEFAULT_PRINCIPAL.tenant_id
+TEST_WORKSPACE_ID = DEFAULT_PRINCIPAL.active_workspace_id
 
 
-def create_engine_and_factory(
-    url: str,
-) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
+def get_engine() -> AsyncEngine:
+    global _engine, _SessionLocal
+    if _engine is not None:
+        return _engine
+
+    db = get_settings().db
+    url = db.url
     sa_url = make_url(url)
-    if sa_url.get_backend_name() == "sqlite":
+    backend = sa_url.get_backend_name()
+    engine_kwargs: dict = {
+        "pool_size": db.pool_size,
+        "max_overflow": db.max_overflow,
+    }
+    if backend == "sqlite":
         database = sa_url.database
         if not database:
-            raise ValueError(f"sqlite {DB_URL_ENV} missing database path: {url}")
+            raise ValueError(f"sqlite QWENPAW_DATA_DB_URL missing database path: {url}")
         Path(database).parent.mkdir(parents=True, exist_ok=True)
+    elif backend == "postgresql":
+        engine_kwargs["pool_pre_ping"] = True
+        engine_kwargs["pool_recycle"] = db.pool_recycle_seconds
+    else:
+        raise ValueError(
+            f"QWENPAW_DATA_DB_URL backend must be sqlite or postgresql, got {backend}"
+        )
 
-    engine = create_async_engine(url)
+    engine = create_async_engine(url, **engine_kwargs)
 
-    if sa_url.get_backend_name() == "sqlite":
+    if backend == "sqlite":
 
         @event.listens_for(engine.sync_engine, "connect")
         def _sqlite_pragma(dbapi_conn, _connection_record) -> None:  # noqa: ANN001
@@ -59,32 +62,28 @@ def create_engine_and_factory(
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
-    return engine, async_sessionmaker(engine, expire_on_commit=False)
+    _engine = engine
+    _SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+    return engine
 
 
-async def init_db(engine: AsyncEngine) -> None:
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    if _SessionLocal is None:
+        get_engine()
+    assert _SessionLocal is not None
+    return _SessionLocal
+
+
+async def init_db() -> AsyncEngine:
+    engine = get_engine()
     async with engine.begin() as conn:
-        for table in Base.metadata.sorted_tables:
-            await conn.execute(CreateTable(table, if_not_exists=True))
-        await conn.run_sync(_add_missing_columns)
+        await conn.run_sync(align_host_schema)
+    return engine
 
 
-def _add_missing_columns(conn: Connection) -> None:
-    """Additive migration: columns introduced after a table already exists.
-
-    Added as nullable regardless of the model (SQLite cannot ADD COLUMN
-    NOT NULL without a default); readers treat NULL as the empty value.
-    """
-    inspector = inspect(conn)
-    for table in Base.metadata.sorted_tables:
-        existing = {column["name"] for column in inspector.get_columns(table.name)}
-        for column in table.columns:
-            if column.name in existing:
-                continue
-            column_type = column.type.compile(conn.dialect)
-            conn.execute(
-                text(
-                    f'ALTER TABLE "{table.name}" '
-                    f'ADD COLUMN "{column.name}" {column_type}'
-                )
-            )
+async def reset_engine() -> None:
+    global _engine, _SessionLocal
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = None
+    _SessionLocal = None

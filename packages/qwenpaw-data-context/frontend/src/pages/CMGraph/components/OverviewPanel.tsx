@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
-import { Tag } from "@/design";
-import { RightOutlined } from "@/design";
-import { useTranslation } from "react-i18next";
+import { useMemo, useState } from 'react';
+import { Tag } from '@/design';
+import { RightOutlined } from '@/design';
+import { useTranslation } from 'react-i18next';
 
-import { NODE_TYPE_COLORS } from "../mock-data";
-import type { QueryFrame } from "../types";
-import styles from "../index.module.less";
+import { NODE_TYPE_COLORS } from '../nodeColors';
+import type { QueryFrame } from '../types';
+import styles from '../index.module.less';
 
 interface OverviewPanelProps {
   frame: QueryFrame;
@@ -24,9 +24,9 @@ export default function OverviewPanel({ frame }: OverviewPanelProps) {
     const items = Array.from(map, ([label, count]) => ({
       label,
       count,
-      color: NODE_TYPE_COLORS[label] || "#78909c",
+      color: NODE_TYPE_COLORS[label] || '#78909c',
     }));
-    items.unshift({ label: "*", count: nodes.length, color: "#78909c" });
+    items.unshift({ label: '*', count: nodes.length, color: '#78909c' });
     return items;
   }, [nodes]);
 
@@ -35,7 +35,7 @@ export default function OverviewPanel({ frame }: OverviewPanelProps) {
     const map = new Map<string, number>();
     edges.forEach((e) => map.set(e.type, (map.get(e.type) ?? 0) + 1));
     const items = Array.from(map, ([type, count]) => ({ type, count }));
-    items.unshift({ type: "*", count: edges.length });
+    items.unshift({ type: '*', count: edges.length });
     return items;
   }, [edges]);
 
@@ -47,11 +47,9 @@ export default function OverviewPanel({ frame }: OverviewPanelProps) {
       <div
         className={styles.overviewPanel}
         onClick={() => setCollapsed(false)}
-        style={{ cursor: "pointer", padding: "12px 16px" }}
+        style={{ cursor: 'pointer', padding: '12px 16px' }}
       >
-        <span className={styles.overviewTitle}>
-          {t("kgBrowser.overview")}
-        </span>
+        <span className={styles.overviewTitle}>{t('kgBrowser.overview')}</span>
         <RightOutlined style={{ fontSize: 12, marginLeft: 8 }} />
       </div>
     );
@@ -59,48 +57,35 @@ export default function OverviewPanel({ frame }: OverviewPanelProps) {
 
   return (
     <div className={styles.overviewPanel}>
-      <div
-        className={styles.overviewHeader}
-        onClick={() => setCollapsed(true)}
-      >
-        <span className={styles.overviewTitle}>
-          {t("kgBrowser.overview")}
-        </span>
+      <div className={styles.overviewHeader} onClick={() => setCollapsed(true)}>
+        <span className={styles.overviewTitle}>{t('kgBrowser.overview')}</span>
         <RightOutlined style={{ fontSize: 12 }} />
       </div>
 
       <div className={styles.overviewSection}>
-        <div className={styles.overviewLabel}>
-          {t("kgBrowser.nodeLabels")}
-        </div>
+        <div className={styles.overviewLabel}>{t('kgBrowser.nodeLabels')}</div>
         <div className={styles.overviewTags}>
           {nodeLabels.map((item) => (
             <Tag key={item.label} color={item.color} className={styles.overviewTag}>
-              {item.label === "*"
-                ? `* (${item.count})`
-                : `${item.label} (${item.count})`}
+              {item.label === '*' ? `* (${item.count})` : `${item.label} (${item.count})`}
             </Tag>
           ))}
         </div>
       </div>
 
       <div className={styles.overviewSection}>
-        <div className={styles.overviewLabel}>
-          {t("kgBrowser.relationshipTypes")}
-        </div>
+        <div className={styles.overviewLabel}>{t('kgBrowser.relationshipTypes')}</div>
         <div className={styles.overviewTags}>
           {relTypes.map((item) => (
             <Tag key={item.type} className={styles.overviewTag}>
-              {item.type === "*"
-                ? `* (${item.count})`
-                : `${item.type} (${item.count})`}
+              {item.type === '*' ? `* (${item.count})` : `${item.type} (${item.count})`}
             </Tag>
           ))}
         </div>
       </div>
 
       <div className={styles.overviewFooter}>
-        {t("kgBrowser.displayingStats", {
+        {t('kgBrowser.displayingStats', {
           nodes: totalNodes,
           relationships: totalRels,
         })}

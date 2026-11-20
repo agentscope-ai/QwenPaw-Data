@@ -3,14 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from qwenpaw_data.host.core.domain.chat import Chat
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.utils.ids import create_id
 from qwenpaw_data.host.core.utils.safe_name import require_safe_name
-from qwenpaw_data.host.core.utils.session_naming import derive_session_title
 from qwenpaw_data.host.core.utils.time import utcnow
+from qwenpaw_data.host.core.utils.session_naming import derive_session_title
+
+ShareScope = Literal["none", "workspace", "tenant", "anyone"]
 
 
 @dataclass
@@ -27,6 +29,8 @@ class Session:
     deleted_at: datetime | None = None
     parent_session_id: str | None = None
     forked_from_chat_id: str | None = None
+    share_scope: ShareScope = "none"
+    enable_clarification: bool = True
 
     @classmethod
     def create(
@@ -37,6 +41,8 @@ class Session:
         title: str | None = None,
         datasource_id: str | None = None,
         channel: str = "console",
+        parent_session_id: str | None = None,
+        enable_clarification: bool = True,
     ) -> Session:
         now = utcnow()
         return cls(
@@ -49,7 +55,42 @@ class Session:
             channel=channel,
             created_at=now,
             updated_at=now,
+            parent_session_id=parent_session_id,
+            share_scope="none",
+            enable_clarification=enable_clarification,
         )
+
+    def is_owner(self, identity: Identity) -> bool:
+        return self.identity == identity
+
+    def can_read(self, identity: Identity) -> bool:
+        if self.is_owner(identity):
+            return True
+        if self.share_scope == "anyone":
+            return True
+        if self.share_scope == "tenant":
+            return identity.tenant_id == self.identity.tenant_id
+        if self.share_scope == "workspace":
+            return (
+                identity.tenant_id == self.identity.tenant_id
+                and identity.workspace_id == self.identity.workspace_id
+            )
+        return False
+
+    def can_write(self, identity: Identity) -> bool:
+        return self.is_owner(identity)
+
+    def set_share_scope(self, share_scope: ShareScope) -> None:
+        if self.share_scope == share_scope:
+            return
+        self.share_scope = share_scope
+        self.updated_at = utcnow()
+
+    def set_enable_clarification(self, enable_clarification: bool) -> None:
+        if self.enable_clarification == enable_clarification:
+            return
+        self.enable_clarification = enable_clarification
+        self.updated_at = utcnow()
 
     def rename(self, title: str | None) -> None:
         if title is None:
@@ -74,18 +115,17 @@ class Session:
         datasource_id: str | None,
         has_active_chat: bool,
         artifact_comments: list[dict[str, Any]] | None = None,
-        dataset_names: list[str] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        dataset_names: list[str] | None = None,
+        enable_clarification: bool | None = None,
     ) -> Chat:
         if has_active_chat:
             raise RuntimeError("CONFLICT: session already has an active chat")
-        # datasource: bind if a value is given; otherwise keep the session's.
+        if self.chat_count == 0 and not self.title.strip():
+            self.title = derive_session_title(text)
+        # datasource: bind if have value; use current session otherwise
         if datasource_id is not None and datasource_id.strip():
             self.bind_datasource(datasource_id)
-        if dataset_names and not self.datasource_id:
-            raise ValueError("dataset selection requires a datasource")
-        if not self.title.strip():
-            self.title = derive_session_title(text)
         sequence = self.register_chat()
         return Chat.start(
             session_id=self.id,
@@ -94,14 +134,31 @@ class Session:
             datasource_id=self.datasource_id,
             text=text,
             artifact_comments=artifact_comments,
-            dataset_names=dataset_names,
             attachments=attachments,
+            dataset_names=dataset_names,
+            enable_clarification=(
+                self.enable_clarification
+                if enable_clarification is None
+                else enable_clarification
+            ),
         )
 
     def register_chat(self) -> int:
         self.chat_count += 1
         self.updated_at = utcnow()
         return self.chat_count
+
+    def soft_delete(self, *, has_active_chat: bool) -> None:
+        if self.deleted_at is not None:
+            return
+        if has_active_chat:
+            raise RuntimeError("CONFLICT: session has active chat")
+        now = utcnow()
+        self.deleted_at = now
+        self.updated_at = now
+
+    def derive_status(self, *, has_active_chat: bool) -> str:
+        return "running" if has_active_chat else "idle"
 
     def fork(self, *, at_chat: Chat, has_active_chat: bool) -> Session:
         if has_active_chat:
@@ -110,6 +167,8 @@ class Session:
             raise LookupError("chat not found")
         if at_chat.status != "completed":
             raise RuntimeError("CONFLICT: chat is not completed")
+        if not at_chat.agent_state:
+            raise ValueError("chat agent_state is required")
         now = utcnow()
         title = self.title.strip()
         return Session(
@@ -124,16 +183,5 @@ class Session:
             updated_at=now,
             parent_session_id=self.id,
             forked_from_chat_id=at_chat.id,
+            enable_clarification=self.enable_clarification,
         )
-
-    def soft_delete(self, *, has_active_chat: bool) -> None:
-        if self.deleted_at is not None:
-            return
-        if has_active_chat:
-            raise RuntimeError("CONFLICT: session has active chat")
-        now = utcnow()
-        self.deleted_at = now
-        self.updated_at = now
-
-    def derive_status(self, *, has_active_chat: bool) -> str:
-        return "running" if has_active_chat else "idle"

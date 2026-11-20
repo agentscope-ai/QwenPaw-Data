@@ -71,6 +71,7 @@ def analysis_environment_hint(
     workspace_dir: PurePath | str,
     artifact_dir: PurePath | str,
     prompt_dir: Path | str | None = None,
+    workspace_mode: str = "由嵌入宿主管理的 workspace（隔离方式由宿主配置）",
 ) -> str:
     """Return the runtime analysis-environment block appended to the system prompt."""
     root = Path(prompt_dir) if prompt_dir is not None else Path(__file__).resolve().parent
@@ -81,4 +82,5 @@ def analysis_environment_hint(
         session_id=session_id,
         workspace_dir=workspace_dir,
         artifact_dir=artifact_dir,
+        workspace_mode=workspace_mode,
     )

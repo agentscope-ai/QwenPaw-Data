@@ -31,7 +31,7 @@ A single, domain-agnostic workflow for answering quantitative questions from loc
 - For scientific/binary files (`.npz`, `.fits`, `.h5`), print all keys and array shapes to identify the correct arrays before use.
 - Print exact column names and sample values; use names—not indices—for all downstream selection.
 
-> Run `scripts/explore_input.py [data_dir]` first to profile every file (pass the data directory; defaults to `input/`). See `references/data-ingestion-and-cleaning.md` for encoding, header-detection, Excel, and scientific/binary-format patterns.
+> Run `<skill-dir>/scripts/explore_input.py [data_dir]` first to profile every file (pass the data directory; defaults to `input/`). See `references/data-ingestion-and-cleaning.md` for encoding, header-detection, Excel, and scientific/binary-format patterns.
 
 ### 2. Ingest Robustly
 
@@ -98,20 +98,14 @@ Print intermediate results at every stage:
 
 ### 8. Output
 
-Save the final answer under the current artifact directory supplied by the
-QwenPaw Data runtime:
-
-```text
-Direct chat:        artifacts/<session_id>/answer.json
-TaskGraph node:     artifacts/<session_id>/<graph_id>/<node_id>/answer.json
-```
+Save the final answer under the current Session artifact directory supplied by
+the QwenPaw Data runtime (`artifacts/<session_id>/answer.json`):
 
 ```json
 {"answer": <value>}
 ```
 
-- Always use the current `session_id`. Append `graph_id/node_id` only when the
-  runtime explicitly supplies an active TaskGraph node; never invent IDs.
+- Always use the current `session_id`; never invent IDs.
 - Do not write answer files directly under the shared `artifacts/` root.
 - Ensure the current artifact directory exists before writing.
 - Use the `write_file` tool (not shell echo/redirection) for proper JSON formatting.
@@ -131,7 +125,7 @@ Add `shapely` (and optionally `geopandas`) for geospatial tasks; `beautifulsoup4
 
 | Resource | When to use |
 |----------|-------------|
-| `scripts/explore_input.py` | Run at the start of every task to profile all files in the task's data directory (pass it as an argument; defaults to `input/`) |
+| `<skill-dir>/scripts/explore_input.py` | Run at the start of every task to profile all files in the task's data directory (pass it as an argument; defaults to `input/`) |
 | `references/data-ingestion-and-cleaning.md` | Encoding, header detection, type coercion, sentinel fills, censored values, Excel/HTML/scientific-binary parsing, join-key mismatches |
 | `references/analysis-patterns.md` | Tie-breaking, joins, rate/ratio calculation, time-series, signal processing, forecasting, statistics, causal inference |
 | `references/geospatial.md` | Coordinate validation, distance calculations, GPKG → shapely fallback, orbital mechanics & coordinate systems |

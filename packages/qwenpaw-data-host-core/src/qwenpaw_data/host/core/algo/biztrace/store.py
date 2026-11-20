@@ -29,13 +29,9 @@ def build_store_paths(*, session_id: str, log_dir: str | None = None) -> StorePa
     reported by ``list_session_files`` and would pollute artifact verification.
     """
 
-    from qwenpaw_data.host.core.paths import resolve_qwenpaw_data_home
+    from qwenpaw_data.host.core.settings import get_settings
 
-    root = (
-        Path(log_dir)
-        if log_dir
-        else resolve_qwenpaw_data_home() / "host" / "biztrace"
-    )
+    root = Path(log_dir) if log_dir else get_settings().paths.home / "biztrace"
     return StorePaths(
         biz_trace=root / "biz_trace" / f"{session_id}.jsonl",
         segments=root / "segments" / f"{session_id}.jsonl",

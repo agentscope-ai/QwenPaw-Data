@@ -1,8 +1,7 @@
 import { Button, Result } from '@/design';
 import React from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-
 
 const NotFoundPage: React.FC = () => {
   const { t } = useTranslation();
@@ -18,7 +17,7 @@ const NotFoundPage: React.FC = () => {
         </Button>
       }
     />
-  )
-}
+  );
+};
 
 export default NotFoundPage;

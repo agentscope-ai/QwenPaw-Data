@@ -94,7 +94,9 @@ def _prepare_features(
         X = sub.iloc[idx].to_numpy(dtype=float)
         return df.iloc[idx].reset_index(drop=True), idx, X
     if sub.isna().any().any():
-        raise ValueError("Feature matrix contains NaN. Use default drop (NaN rows), --skip-drop-na with --fill-mean, or clean data.")
+        raise ValueError(
+            "Feature matrix contains NaN. Use default drop (NaN rows), --skip-drop-na with --fill-mean, or clean data."
+        )
     X = sub.to_numpy(dtype=float)
     idx = np.arange(len(df))
     return df.reset_index(drop=True), idx, X
@@ -198,7 +200,9 @@ def tune_kmeans(
             best_score = score
             best_k = k
     if best_k is None:
-        raise ValueError("K-means tuning failed: no valid k in range (check sample size).")
+        raise ValueError(
+            "K-means tuning failed: no valid k in range (check sample size)."
+        )
     return best_k, best_score, rows
 
 
@@ -220,7 +224,14 @@ def tune_hierarchical(
             try:
                 labels = run_hierarchical(X, k, linkage)
             except Exception as e:
-                rows.append({"n_clusters": k, "linkage": linkage, "silhouette": None, "error": str(e)})
+                rows.append(
+                    {
+                        "n_clusters": k,
+                        "linkage": linkage,
+                        "silhouette": None,
+                        "error": str(e),
+                    }
+                )
                 continue
             score = _silhouette_or_nan(X, labels)
             rows.append({"n_clusters": k, "linkage": linkage, "silhouette": score})
@@ -296,18 +307,27 @@ def run_pipeline(args: argparse.Namespace) -> pd.DataFrame:
             best_k, best_s, grid = tune_kmeans(
                 Xs, args.k_min, args.k_max, args.random_state, args.n_init
             )
-            tuning_report = {"method": METHOD_KMEANS, "best_n_clusters": best_k, "best_silhouette": best_s, "grid": grid}
+            tuning_report = {
+                "method": METHOD_KMEANS,
+                "best_n_clusters": best_k,
+                "best_silhouette": best_s,
+                "grid": grid,
+            }
             labels, centroids = run_kmeans(Xs, best_k, args.random_state, args.n_init)
         else:
             if args.n_clusters is None:
                 raise ValueError("K-means requires --n-clusters or --tune")
-            labels, centroids = run_kmeans(Xs, args.n_clusters, args.random_state, args.n_init)
+            labels, centroids = run_kmeans(
+                Xs, args.n_clusters, args.random_state, args.n_init
+            )
 
     elif method == METHOD_HIERARCHICAL:
         linkage = args.linkage
         if args.tune:
             links = args.tune_linkages or [args.linkage]
-            best_k, best_link, best_s, grid = tune_hierarchical(Xs, args.k_min, args.k_max, links)
+            best_k, best_link, best_s, grid = tune_hierarchical(
+                Xs, args.k_min, args.k_max, links
+            )
             tuning_report = {
                 "method": METHOD_HIERARCHICAL,
                 "best_n_clusters": best_k,
@@ -319,14 +339,18 @@ def run_pipeline(args: argparse.Namespace) -> pd.DataFrame:
             linkage = best_link
         else:
             if args.n_clusters is None:
-                raise ValueError("Hierarchical clustering requires --n-clusters or --tune")
+                raise ValueError(
+                    "Hierarchical clustering requires --n-clusters or --tune"
+                )
             labels = run_hierarchical(Xs, args.n_clusters, linkage)
 
     elif method == METHOD_DBSCAN:
         if args.tune:
             eps_list = args.tune_eps or [args.eps]
             ms_list = args.tune_min_samples or [args.min_samples]
-            best_eps, best_ms, best_s, grid = tune_dbscan(Xs, eps_list, ms_list, args.max_noise_ratio)
+            best_eps, best_ms, best_s, grid = tune_dbscan(
+                Xs, eps_list, ms_list, args.max_noise_ratio
+            )
             tuning_report = {
                 "method": METHOD_DBSCAN,
                 "best_eps": best_eps,
@@ -337,7 +361,9 @@ def run_pipeline(args: argparse.Namespace) -> pd.DataFrame:
             labels = run_dbscan(Xs, best_eps, best_ms)
         else:
             if args.eps is None or args.min_samples is None:
-                raise ValueError("DBSCAN requires --eps and --min-samples, or --tune with grids")
+                raise ValueError(
+                    "DBSCAN requires --eps and --min-samples, or --tune with grids"
+                )
             labels = run_dbscan(Xs, float(args.eps), int(args.min_samples))
 
     else:
@@ -365,7 +391,9 @@ def run_pipeline(args: argparse.Namespace) -> pd.DataFrame:
 
 
 def build_argparser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Clustering with optional hyperparameter tuning.")
+    p = argparse.ArgumentParser(
+        description="Clustering with optional hyperparameter tuning."
+    )
     p.add_argument("--input-file", required=True, help="Input CSV path")
     p.add_argument("--id-col", required=True, help="Row id column name")
     p.add_argument(
@@ -385,11 +413,17 @@ def build_argparser() -> argparse.ArgumentParser:
         default="standard",
         help="Feature scaling: standard | minmax | none (default: standard)",
     )
-    p.add_argument("--output-json", required=True, help="Output JSON: cluster 1..K -> ids; DBSCAN noise under \"noise\"")
+    p.add_argument(
+        "--output-json",
+        required=True,
+        help='Output JSON: cluster 1..K -> ids; DBSCAN noise under "noise"',
+    )
     p.add_argument("--random-state", type=int, default=42, help="KMeans random seed")
     p.add_argument("--n-init", type=int, default=10, help="KMeans n_init")
 
-    p.add_argument("--n-clusters", type=int, default=None, help="K for kmeans / hierarchical")
+    p.add_argument(
+        "--n-clusters", type=int, default=None, help="K for kmeans / hierarchical"
+    )
     p.add_argument(
         "--linkage",
         default="ward",
@@ -406,7 +440,9 @@ def build_argparser() -> argparse.ArgumentParser:
         dest="drop_na_rows",
         help="Do not drop rows with NaN (then use --fill-mean or ensure no NaN)",
     )
-    p.add_argument("--fill-mean", action="store_true", help="Impute feature NaN with column mean")
+    p.add_argument(
+        "--fill-mean", action="store_true", help="Impute feature NaN with column mean"
+    )
     p.set_defaults(drop_na_rows=True)
     p.add_argument(
         "--centroids-file",
@@ -420,8 +456,18 @@ def build_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="Grid search: maximize silhouette (DBSCAN: on non-noise points, with noise cap)",
     )
-    tune.add_argument("--k-min", type=int, default=2, help="Min clusters for kmeans / hierarchical tune")
-    tune.add_argument("--k-max", type=int, default=10, help="Max clusters for kmeans / hierarchical tune")
+    tune.add_argument(
+        "--k-min",
+        type=int,
+        default=2,
+        help="Min clusters for kmeans / hierarchical tune",
+    )
+    tune.add_argument(
+        "--k-max",
+        type=int,
+        default=10,
+        help="Max clusters for kmeans / hierarchical tune",
+    )
     tune.add_argument(
         "--tune-linkages",
         nargs="+",
@@ -460,7 +506,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # 解析 DBSCAN 调优网格
     args.tune_eps = _parse_csv_nums(args.tune_eps) if args.tune_eps else None
-    args.tune_min_samples = _parse_csv_ints(args.tune_min_samples) if args.tune_min_samples else None
+    args.tune_min_samples = (
+        _parse_csv_ints(args.tune_min_samples) if args.tune_min_samples else None
+    )
 
     if args.tune and args.method == METHOD_DBSCAN:
         if not args.tune_eps or not args.tune_min_samples:

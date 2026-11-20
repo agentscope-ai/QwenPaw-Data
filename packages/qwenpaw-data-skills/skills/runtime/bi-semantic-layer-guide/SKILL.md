@@ -1,66 +1,27 @@
 ---
 name: bi-semantic-layer-guide
-description: 语义层工具使用规范。在发现语义层工具可用、需要查询指标定义/维度信息、验证业务口径、处理指标歧义时，必须优先调用此技能。无语义层工具时不调用。
+description: 通过当前 Context Manager 图工具查询业务语义。需要指标定义、维度绑定、业务口径或消歧时参考；保留 OSS 指南名称以兼容已有分析流程。
 ---
-# bi-semantic-layer-guide
+# 业务语义查询指南
 
-## 概述
+先加载 `cm-skills`，使用原生图读取，不把 App 的旧兼容工具作为默认入口。
 
-语义层是统一管理业务语义元数据的服务，包括指标定义、维度定义、指标维度绑定和数据集映射。
+- 已知术语：`search_graph_fulltext(text, node_types, domain_id)`。
+- 只有业务描述：`search_graph_vector(text, node_types, domain_id)`。
+- 查完整结构和授权范围：`get_graph_schema()`。
+- 按 key 补齐指标口径、维度绑定及物理映射：`query_graph(cypher, params, limit)`，先加载对应 backend 方言。
+- 真实业务数据及枚举探针：`execute_read(datasource_id, sql, max_rows, timeout_ms)`。
 
----
+## 指标匹配
 
-## 可用工具
+精确名称优先于同义词，名称相同但跨域时限定已确认 domain_id；排名和 lexical_matches 不代表口径正确。完整口径沿 Metric → MetricCaliber → Dataset 查询，核对 expr、time_window、additivity、is_default、单位和过滤条件，不能仅取搜索片段。
 
-语义层暴露三类工具：
+**no_match 必须拦截**：空候选/缺少口径表示定义缺失，不是值为 0 或无数据。换成有依据的精确查询仍未命中时向用户说明缺口，禁止猜测同名指标或用相似定义冒充。
 
-- **全局**：`list_domains()`
-- **指标查询**：`list_metrics(domain)`、`search_metrics(query, domain)`、`get_metric(name, domain)`、`get_north_star_metrics(domain)`
-- **维度查询**：`list_dimensions(domain)`、`get_dimension(name, domain)`、`list_dimensions_of_metric(name, domain)`、`get_dimension_hierarchy(name, domain)`、`get_dimension_values(name, domain)`
-- **数据集查询**：`list_datasets(domain)`、`get_dataset_columns(name, domain)`、`get_dataset(name, domain)`
+## 指标属性与维度
 
-具体参数和返回格式参见工具自身描述。
+保留返回的 is_north_star、is_display、is_display_distribution、priority 等语义属性；缺失则标空，不自行补默认业务事实。经共同 Dataset 查询可用 Dimension，再沿 MAPS_TO_FIELD 核对字段表达式、value_example 和 total_value_marker。示例不是全量枚举，需要时在同一 datasource_id 上只读 DISTINCT 探测。
 
----
+若图保留贡献/展示标记，只使用明确允许贡献拆解的维度。合法绑定不证明两个维度统计总体等价；层级以实际 schema 和关系事实为准。
 
-## 查询策略
-
-### 指标匹配
-
-在语义层中查找指标，可选策略：
-
-- 语义检索（`search_metrics`），语义层会自动匹配同义词
-- 查看具体业务域的北极星指标列表（`get_north_star_metrics`），从中选择最相关的
-- 若以上均未命中，列出该域全部指标（`list_metrics`），逐一判断和分析条目的相关性。
-
-**`no_match` 必须拦截，不得当作空结果**：语义层返回 `no_match`（或空候选集）表示
-该指标在语义层中**不存在**，与"指标存在但当前无数据"是两件不同的事。
-
-- 禁止把 `no_match` 当作 0、空表或"该指标无数据"继续往下分析
-- 禁止绕过语义层自行猜测指标口径、自行拼 SQL 计算一个同名指标
-- 先按上述三条策略换用检索方式重试；仍为 `no_match` 时，明确向用户说明该指标未在
-  语义层定义，并请其确认口径或改用已定义的近似指标
-- 报告中不得出现以 `no_match` 指标为依据的结论
-
-### 指标属性确认
-
-通过 `get_metric` 获取指标属性，重点属性：
-
-- **是否是北极星指标**（`is_north_star`）：用于角色分配
-- **是否展示指标**（`is_display`）：该指标是否应出现在展示面板中
-- **是否展示分布**（`is_display_distribution`）：展示指标时是否同时展示分布图
-- **维度绑定**（`dimensions`）：指标可拆解的维度列表，含 `is_display_dimension`、`is_contribution_dimension` 标记。
-
-### 维度信息获取
-
-通过 `list_dimensions_of_metric` 获取指标可拆解的维度列表（`is_contribution_dimension=true` 的维度才可用于贡献度拆解），通过 `get_dimension_hierarchy` 获取维度间的父子层级关系。
-
----
-
-## 消歧规则
-
-搜索指标时可能遇到歧义，按以下规则处理：
-
-- **匹配到多个指标**：优先选北极星指标（`is_north_star=true`）。若仍有多个候选，结合指标类型和标签综合判断，必要时向用户确认。
-- **精确名称 vs 同义词**：若同时出现精确名称匹配和同义词匹配，精确名称优先。例如搜索"DAU"，若同时命中指标名为"DAU"的指标和同义词含"DAU"的"访问用户数"，取前者。
-- **同名指标跨业务域**：若同一指标名出现在多个业务域中，用当前分析任务的业务域限定范围。
+管理员同样只读当前身份个人图，不传 owner/workspace 参数扩权。SQL 引用的 Dataset、DatasetField、Table、Column 必须与已确认来源一致；truncated 表示未取全，错误不当作空结果。

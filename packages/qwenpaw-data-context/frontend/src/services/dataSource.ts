@@ -1,65 +1,84 @@
+import type {
+  DataSourceConnectionTestRequest,
+  DataSourceConnectionTestResult,
+  DataSourceCreateRequest,
+  DataSourceQueryParams,
+  DataSourceResponse,
+  DataSourceTypeInfo,
+  DataSourceUpdateRequest,
+} from '@/types/dataSource';
+import type { SemanticConfigDeleteResponse, SemanticConfigPage } from '@/types/semanticConfig';
+import { assertSemanticConfigPage, pickSemanticFields } from '@/utils/semanticConfigContract';
 import { request } from '@/utils/request';
-import type { DataSourceConnectionTestResult, DataSourceItem, DataSourceQueryParams } from '@/types/dataSource';
 import { semanticConfigApi } from './api';
 
-// 查询数据源列表
-export const queryDataSourceList = (params?: DataSourceQueryParams) => {
-  return request.get(semanticConfigApi('/datasource'), { params });
+const DATA_SOURCE_API = semanticConfigApi('/datasource');
+const DATA_SOURCE_TYPES_API = '/api/datasource-types';
+const DATA_SOURCE_WRITE_FIELDS = [
+  'datasource_name',
+  'datasource_type',
+  'config',
+  'description',
+] as const;
+
+export const queryDataSourceList = async (
+  params: DataSourceQueryParams = {},
+): Promise<SemanticConfigPage<DataSourceResponse>> => {
+  const response = await request.get<unknown>(DATA_SOURCE_API, {
+    params: { ...params, page: params.page ?? 1, size: params.size ?? 20 },
+  });
+  return assertSemanticConfigPage<DataSourceResponse>(response);
 };
 
-export interface DataSourceFieldSpec {
-  name: string;
-  type: string;
-  required: boolean;
-  default?: unknown;
-  secret?: boolean;
-}
-
-export interface DataSourceTypeInfo {
-  type: string;
-  label: string;
-  fields: DataSourceFieldSpec[];
-}
-
-// 支持的数据源类型与连接表单字段（后端 pydantic 模型单点导出）
-export const fetchDataSourceTypes = (): Promise<{ items: DataSourceTypeInfo[] }> => {
-  return request.get(semanticConfigApi('/datasource/types'));
+export const queryDataSourceTypeCatalog = async (): Promise<DataSourceTypeInfo[]> => {
+  const response = await request.get<unknown>(DATA_SOURCE_TYPES_API);
+  if (!Array.isArray(response)) {
+    throw new Error('Invalid data-source type catalog response');
+  }
+  return response as DataSourceTypeInfo[];
 };
 
-// Credential-free datasource identities for ordinary query pages/dropdowns.
-export const queryDataSourceMetadata = (params?: DataSourceQueryParams) => {
-  return request.get('/api/v1/cm/datasources', { params });
+export const getDataSource = (datasourceId: string): Promise<DataSourceResponse> => {
+  return request.get(`${DATA_SOURCE_API}/${datasourceId}`);
 };
 
-// 新增数据源
-export const createDataSource = (data: Partial<DataSourceItem>) => {
-  const payload = { ...data };
-  delete payload.datasource_id;
-  return request.post(semanticConfigApi('/datasource'), payload);
+export const createDataSource = (data: DataSourceCreateRequest): Promise<DataSourceResponse> => {
+  return request.post(DATA_SOURCE_API, pickSemanticFields(data, DATA_SOURCE_WRITE_FIELDS));
 };
 
-// 编辑数据源
-export const updateDataSource = (datasourceId: string, data: Partial<DataSourceItem>) => {
-  const payload = { ...data };
-  delete payload.datasource_id;
-  return request.put(semanticConfigApi(`/datasource/${datasourceId}`), payload);
+export const updateDataSource = (
+  datasourceId: string,
+  data: DataSourceUpdateRequest,
+): Promise<DataSourceResponse> => {
+  return request.put(
+    `${DATA_SOURCE_API}/${datasourceId}`,
+    pickSemanticFields(data, DATA_SOURCE_WRITE_FIELDS),
+  );
 };
 
-// 测试未保存的数据源连接
 export const testDataSourceConnection = (
-  data: Pick<Partial<DataSourceItem>, 'datasource_type' | 'config'>
+  data: DataSourceConnectionTestRequest,
 ): Promise<DataSourceConnectionTestResult> => {
-  return request.post(semanticConfigApi('/datasource/test-connection'), data);
+  return request.post(
+    semanticConfigApi('/datasource/test-connection'),
+    pickSemanticFields(data, ['datasource_type', 'config'] as const),
+  );
 };
 
-// 测试已保存的数据源连接
-export const testSavedDataSourceConnection = (
-  datasourceId: string
+export const testSavedDataSourceConnection = async (
+  datasourceId: string,
 ): Promise<DataSourceConnectionTestResult> => {
-  return request.post(semanticConfigApi(`/datasource/${datasourceId}/test-connection`));
+  const dataSource = await getDataSource(datasourceId);
+  return testDataSourceConnection({
+    datasource_type: dataSource.datasource_type,
+    config: dataSource.config,
+  });
 };
 
-// 删除数据源
-export const deleteDataSource = (datasourceId: string) => {
-  return request.delete(semanticConfigApi(`/datasource/${datasourceId}`));
+export const deleteDataSource = (datasourceId: string): Promise<SemanticConfigDeleteResponse> => {
+  return request.delete(`${DATA_SOURCE_API}/${datasourceId}`);
+};
+
+export const setActiveDataSource = (datasourceId: string) => {
+  return request.put('/api/datasources/active', { datasource_id: datasourceId });
 };

@@ -26,17 +26,20 @@ const InputInstructionsCard: React.FC = () => {
       <ul style={{ paddingLeft: 16, margin: 0, color: '#666' }}>
         <li style={{ marginBottom: 8 }}>
           <Text type="secondary">
-            <Text strong>{t('fields.metricName')}:</Text>{t('metricAdd.metricNameInstruction')}
+            <Text strong>{t('fields.metricName')}:</Text>
+            {t('metricAdd.metricNameInstruction')}
           </Text>
         </li>
         <li style={{ marginBottom: 8 }}>
           <Text type="secondary">
-            <Text strong>{t('metricAdd.domain')}:</Text>{t('metricAdd.domainInstruction')}
+            <Text strong>{t('metricAdd.domain')}:</Text>
+            {t('metricAdd.domainInstruction')}
           </Text>
         </li>
         <li>
           <Text type="secondary">
-            <Text strong>{t('fields.synonyms')}:</Text>{t('metricAdd.synonymsInstruction')}
+            <Text strong>{t('fields.synonyms')}:</Text>
+            {t('metricAdd.synonymsInstruction')}
           </Text>
         </li>
       </ul>

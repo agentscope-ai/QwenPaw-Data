@@ -40,12 +40,7 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
     >
       <Row gutter={[12, 12]}>
         <Col xs={24} sm={24} md={12} lg={12}>
-          <Button
-            block
-            icon={<PlusOutlined />}
-            onClick={onAddRow}
-            style={{ height: 48 }}
-          >
+          <Button block icon={<PlusOutlined />} onClick={onAddRow} style={{ height: 48 }}>
             <div>{t('metricAdd.addRow')}</div>
           </Button>
         </Col>
@@ -58,11 +53,7 @@ const QuickActionsCard: React.FC<QuickActionsCardProps> = ({
             cancelText={t('common.cancel')}
             okButtonProps={{ danger: true }}
           >
-            <Button
-              block
-              icon={<DeleteOutlined />}
-              style={{ height: 48 }}
-            >
+            <Button block icon={<DeleteOutlined />} style={{ height: 48 }}>
               <div>{t('metricAdd.clearTable')}</div>
             </Button>
           </Popconfirm>

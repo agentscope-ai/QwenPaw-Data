@@ -1,18 +1,6 @@
 import { Tooltip } from '@agentscope-ai/design';
-import {
-  cloneElement,
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
-import type {
-  MouseEventHandler,
-  MutableRefObject,
-  ReactElement,
-  ReactNode,
-  Ref,
-} from 'react';
+import { cloneElement, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import type { MouseEventHandler, MutableRefObject, ReactElement, ReactNode, Ref } from 'react';
 
 interface MeasurableChildProps {
   'data-overflow-tooltip'?: 'disabled' | 'enabled';
@@ -34,16 +22,15 @@ function assignRef(ref: Ref<HTMLElement> | undefined, node: HTMLElement | null) 
 }
 
 function hasOverflow(element: HTMLElement): boolean {
-  return element.scrollWidth > element.clientWidth + 1
-    || element.scrollHeight > element.clientHeight + 1;
+  return (
+    element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1
+  );
 }
 
-export default function OverflowTooltip({
-  children,
-  title,
-}: OverflowTooltipProps) {
+export default function OverflowTooltip({ children, title }: OverflowTooltipProps) {
   const triggerRef = useRef<HTMLElement | null>(null);
   const [overflowing, setOverflowing] = useState(false);
+  const multiline = typeof title === 'string' && Array.from(title.trim()).length > 24;
 
   const measure = useCallback(() => {
     const element = triggerRef.current;
@@ -52,15 +39,21 @@ export default function OverflowTooltip({
     setOverflowing((current) => (current === next ? current : next));
   }, []);
 
-  const setTriggerRef = useCallback((node: HTMLElement | null) => {
-    triggerRef.current = node;
-    assignRef(children.props.ref, node);
-  }, [children.props.ref]);
+  const setTriggerRef = useCallback(
+    (node: HTMLElement | null) => {
+      triggerRef.current = node;
+      assignRef(children.props.ref, node);
+    },
+    [children.props.ref],
+  );
 
-  const handleMouseEnter: MouseEventHandler<HTMLElement> = useCallback((event) => {
-    measure();
-    children.props.onMouseEnter?.(event);
-  }, [children.props, measure]);
+  const handleMouseEnter: MouseEventHandler<HTMLElement> = useCallback(
+    (event) => {
+      measure();
+      children.props.onMouseEnter?.(event);
+    },
+    [children.props, measure],
+  );
 
   useLayoutEffect(() => {
     measure();
@@ -73,7 +66,15 @@ export default function OverflowTooltip({
   }, [measure, title]);
 
   return (
-    <Tooltip title={overflowing ? title : null}>
+    <Tooltip
+      title={overflowing ? title : null}
+      classNames={{
+        root: multiline
+          ? 'qwenpaw-data-overflow-tooltip qwenpaw-data-overflow-tooltip-multiline'
+          : 'qwenpaw-data-overflow-tooltip',
+        body: multiline ? 'qwenpaw-data-popup-multiline' : 'qwenpaw-data-popup-pill',
+      }}
+    >
       {cloneElement(children, {
         'data-overflow-tooltip': overflowing ? 'enabled' : 'disabled',
         ref: setTriggerRef,

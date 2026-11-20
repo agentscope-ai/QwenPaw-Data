@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SettlementDetector: find semantic-layer knowledge worth settling."""
+"""SettlementDetector：识别对话中可沉淀的语义层知识。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from qwenpaw_data.host.core.algo.biztrace.llm import StructuredLLM
+from agentscope.message import SystemMsg, UserMsg
+from agentscope.model import ChatModelBase
+from qwenpaw_data.tracing.core.names import Step
 
-from .calls import StructuredCallError, structured_call
+from .llm import DEFAULT_ATTEMPTS, DEFAULT_TIMEOUT, StructuredCallError, structured_call
 from .models import DetectionResult
 
 logger = logging.getLogger(__name__)
@@ -22,12 +24,12 @@ def _load_prompt() -> str:
 
 
 class SettlementDetector:
-    """Extract candidate settlement items from recent conversation turns."""
+    """从对话中识别可沉淀的语义层知识。"""
 
     def __init__(
-        self, llm: StructuredLLM, *, system_prompt: str | None = None
+        self, model: ChatModelBase, *, system_prompt: str | None = None
     ) -> None:
-        self._llm = llm
+        self._model = model
         self._system_prompt = system_prompt or _load_prompt()
 
     async def detect(
@@ -36,18 +38,27 @@ class SettlementDetector:
         pool_summary: list[dict[str, Any]],
         *,
         domain_names: list[str] | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        attempts: int = DEFAULT_ATTEMPTS,
     ) -> DetectionResult | None:
-        """Run detection; None means the LLM call failed."""
+        """执行检测。返回 None 表示 LLM 调用失败。"""
         user_content = self._build_user_message(
-            recent_turns, pool_summary,
+            recent_turns,
+            pool_summary,
             domain_names=domain_names,
         )
+        messages = [
+            SystemMsg(name="system", content=self._system_prompt),
+            UserMsg(name="user", content=user_content),
+        ]
         try:
             return await structured_call(
-                self._llm,
-                system=self._system_prompt,
-                user=user_content,
-                schema=DetectionResult,
+                self._model,
+                messages,
+                DetectionResult,
+                timeout=timeout,
+                attempts=attempts,
+                source_step=Step.SETTLEMENT_DETECT,
             )
         except StructuredCallError:
             logger.warning("detection failed, returning None", exc_info=True)
@@ -80,7 +91,9 @@ class SettlementDetector:
         if pool_summary:
             parts.append("## 本会话已提取过的项（语义相同则勿再提取）")
             for item in pool_summary:
-                parts.append(f"- id={item['id']} type={item['type']} fields={item['fields']}")
+                parts.append(
+                    f"- id={item['id']} type={item['type']} fields={item['fields']}"
+                )
             parts.append("")
 
         return "\n".join(parts)

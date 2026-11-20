@@ -3,20 +3,49 @@ import {
   killSemanticWeavingTask,
   querySemanticWeavingTasks,
 } from '@/services/semanticWeaving';
-import type { SemanticWeavingTask } from '@/types/semanticWeaving';
-import { WEAVE_MODE_OPTIONS, TASK_STATUS_COLOR_MAP } from '@/constants';
+import type { SemanticWeavingTask, SemanticWeavingTaskQueryParams } from '@/types/semanticWeaving';
+import { TASK_STATUS_COLOR_MAP } from '@/constants';
 import type { ActionType, ProColumns } from '@/design';
 import { ProTable } from '@/design';
-import { Button, Drawer, Form, Input, message, Modal, Select, Space, Tooltip, Typography } from '@/design';
+import {
+  Button,
+  Drawer,
+  Form,
+  Input,
+  message,
+  Modal,
+  Select,
+  Space,
+  Tooltip,
+  Typography,
+} from '@/design';
 import React, { useRef, useState } from 'react';
 import { useDataSourceFilterOptions } from '@/hooks/useFilterOptions';
-import { normalizeListResponse, extractTotal } from '@/utils/listResponse';
-import { formatDatasourceLabel, formatDateTime, isFormValidationError } from '@/utils';
+import { formatDateTime, isFormValidationError } from '@/utils';
 import { useTranslation } from 'react-i18next';
+import { readUrlSearchValues } from '@/utils/urlSearch';
+import { useSearchParams } from 'react-router-dom';
+import {
+  SEMANTIC_WEAVING_DEFAULT_PAGE_SIZE,
+  SEMANTIC_WEAVING_POLL_INTERVAL_MS,
+  SEMANTIC_WEAVING_PROTOCOL_ERROR_COLOR,
+  buildSemanticWeavingSubmitParams,
+  buildSemanticWeavingTaskQuery,
+  canKillSemanticWeavingTask,
+  getSemanticWeavingStatusView,
+  getSemanticWeavingSubmitFeedback,
+} from './model';
 
 const { Text } = Typography;
 const SemanticWeavingPage: React.FC = () => {
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const [initialSearchValues] = useState(() =>
+    readUrlSearchValues<SemanticWeavingTaskQueryParams>(searchParams, {
+      datasource_name: {},
+      task_name: {},
+    }),
+  );
   const [submitForm] = Form.useForm();
   const [submitLoading, setSubmitLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -40,12 +69,15 @@ const SemanticWeavingPage: React.FC = () => {
     try {
       const values = await submitForm.validateFields();
       setSubmitLoading(true);
-      await confirmSemanticWeaving({
-        datasource_id: values.datasource_id,
-        task_name: values.task_name.trim(),
-        weave_mode: values.weave_mode,
+      const task = await confirmSemanticWeaving(buildSemanticWeavingSubmitParams(values));
+      const feedback = getSemanticWeavingSubmitFeedback(task.status);
+      const feedbackText = t(feedback.translationKey, {
+        message: task.error_msg || t('common.failed'),
+        status: task.status,
       });
-      message.success(t('semanticWeaving.submitSuccess'));
+      if (feedback.kind === 'error') message.error(feedbackText);
+      else if (feedback.kind === 'warning') message.warning(feedbackText);
+      else message.success(feedbackText);
       submitForm.resetFields();
       setDrawerOpen(false);
       actionRef.current?.reload();
@@ -82,19 +114,35 @@ const SemanticWeavingPage: React.FC = () => {
     {
       title: t('fields.dataSource'),
       dataIndex: 'datasource_name',
-      width: 140,
+      width: 220,
+      fixed: 'left',
       valueType: 'text',
       fieldProps: {
         allowClear: false,
         placeholder: t('fields.dataSource'),
       },
       render: (_, record) => {
-        if (!record.datasource_name) return '-';
-        const text = formatDatasourceLabel(record.datasource_name, record.datasource_id);
+        const datasourceName = record.datasource_name?.trim() || '-';
+        const datasourceId = record.datasource_id?.trim();
         return (
-          <Tooltip title={text}>
-            <Text ellipsis style={{ maxWidth: '100%' }}>{text}</Text>
-          </Tooltip>
+          <Space direction="vertical" size={0} style={{ width: '100%', lineHeight: 1.4 }}>
+            <Tooltip title={datasourceName}>
+              <Text ellipsis style={{ display: 'block', maxWidth: 190 }}>
+                {datasourceName}
+              </Text>
+            </Tooltip>
+            {datasourceId ? (
+              <Tooltip title={datasourceId}>
+                <Text
+                  type="secondary"
+                  ellipsis
+                  style={{ display: 'block', maxWidth: 190, fontSize: 12 }}
+                >
+                  {datasourceId}
+                </Text>
+              </Tooltip>
+            ) : null}
+          </Space>
         );
       },
     },
@@ -109,19 +157,6 @@ const SemanticWeavingPage: React.FC = () => {
     },
 
     {
-      title: t('fields.weaveMode'),
-      dataIndex: 'weave_mode',
-      width: 100,
-      hideInTable: true,
-      hideInSearch: true,
-      valueType: 'select',
-      formItemProps: { rules: [{ required: true, message: t('validation.selectWeaveMode') }] },
-      fieldProps: {
-        options: WEAVE_MODE_OPTIONS,
-        placeholder: t('validation.selectWeaveMode'),
-      },
-    },
-    {
       title: t('fields.taskId'),
       dataIndex: 'task_id',
       width: 240,
@@ -132,22 +167,33 @@ const SemanticWeavingPage: React.FC = () => {
       title: t('fields.taskStatus'),
       dataIndex: 'status',
       width: 140,
-       hideInSearch: true,
-      render: (_, record) => (
-        <span>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: TASK_STATUS_COLOR_MAP[record.status] || '#999',
-              marginRight: 8,
-            }}
-          />
-          {t(`semanticWeaving.status.${record.status}`, { defaultValue: record.status })}
-        </span>
-      ),
+      hideInSearch: true,
+      render: (_, record) => {
+        const statusView = getSemanticWeavingStatusView(record.status);
+        const color =
+          statusView.kind === 'known'
+            ? TASK_STATUS_COLOR_MAP[statusView.status]
+            : SEMANTIC_WEAVING_PROTOCOL_ERROR_COLOR;
+        const label =
+          statusView.kind === 'known'
+            ? t(statusView.translationKey)
+            : t(statusView.translationKey, { status: statusView.rawStatus });
+        return (
+          <span>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: color,
+                marginRight: 8,
+              }}
+            />
+            {label}
+          </span>
+        );
+      },
     },
     {
       title: t('fields.time'),
@@ -165,7 +211,7 @@ const SemanticWeavingPage: React.FC = () => {
       align: 'center',
       render: (_, record) => (
         <Space size="small">
-          {(record.status === 'RUNNING' || record.status === 'QUEUED') ? (
+          {canKillSemanticWeavingTask(record.status) ? (
             <Button danger size="small" onClick={() => handleKillTask(record.task_id)}>
               {t('semanticWeaving.kill')}
             </Button>
@@ -187,7 +233,7 @@ const SemanticWeavingPage: React.FC = () => {
         onClose={handleCloseDrawer}
         destroyOnHidden
         width={640}
-        footer={(
+        footer={
           <div style={{ textAlign: 'right' }}>
             <Space>
               <Button onClick={handleCloseDrawer}>{t('common.cancel')}</Button>
@@ -196,7 +242,7 @@ const SemanticWeavingPage: React.FC = () => {
               </Button>
             </Space>
           </div>
-        )}
+        }
       >
         <Form form={submitForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
@@ -219,52 +265,40 @@ const SemanticWeavingPage: React.FC = () => {
           >
             <Input placeholder={t('validation.inputTaskName')} allowClear />
           </Form.Item>
-          <Form.Item
-            label={t('fields.weaveMode')}
-            name="weave_mode"
-            rules={[{ required: true, message: t('validation.selectWeaveMode') }]}
-          >
-            <Select placeholder={t('validation.selectWeaveMode')} options={WEAVE_MODE_OPTIONS} />
-          </Form.Item>
         </Form>
       </Drawer>
 
-
       {/* 下半部分 - 任务列表 */}
-        <ProTable<SemanticWeavingTask>
-          rowKey="task_id"
-          actionRef={actionRef}
-          columns={columns}
-          request={async (params) => {
-            // ProTable 会把搜索表单的值合并进 params，需从中取出（排除分页字段）
-            const { current, pageSize, ...searchValues } = params;
-            try {
-              const res = await querySemanticWeavingTasks({
-                page: current,
-                size: pageSize,
-                ...searchValues,
-              });
-              const list = normalizeListResponse<SemanticWeavingTask>(res);
-              const total = extractTotal(res) || list.length;
-              return { data: list, success: true, total };
-            } catch {
-              return { data: [], success: false, total: 0 };
-            }
-          }}
-          search={{
-            labelWidth: 'auto',
-          }}
-           toolBarRender={() => [
-           <Button type="primary" onClick={handleOpenDrawer}>
-                {t('semanticWeaving.start')}
-              </Button>
-          ]}
-          pagination={{
-            defaultPageSize: 10,
-            showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50'],
-          }}
-        />
+      <ProTable<SemanticWeavingTask>
+        rowKey="task_id"
+        actionRef={actionRef}
+        columns={columns}
+        form={{ initialValues: initialSearchValues }}
+        request={async (params) => {
+          // ProTable 会把搜索表单的值合并进 params，需从中取出（排除分页字段）
+          try {
+            const res = await querySemanticWeavingTasks(buildSemanticWeavingTaskQuery(params));
+            return { data: res.records, success: true, total: res.total };
+          } catch {
+            return { data: [], success: false, total: 0 };
+          }
+        }}
+        search={{
+          labelWidth: 'auto',
+        }}
+        polling={SEMANTIC_WEAVING_POLL_INTERVAL_MS}
+        scroll={{ x: 1160 }}
+        toolBarRender={() => [
+          <Button key="start" type="primary" onClick={handleOpenDrawer}>
+            {t('semanticWeaving.start')}
+          </Button>,
+        ]}
+        pagination={{
+          defaultPageSize: SEMANTIC_WEAVING_DEFAULT_PAGE_SIZE,
+          showSizeChanger: true,
+          pageSizeOptions: ['20', '50', '100'],
+        }}
+      />
     </Space>
   );
 };

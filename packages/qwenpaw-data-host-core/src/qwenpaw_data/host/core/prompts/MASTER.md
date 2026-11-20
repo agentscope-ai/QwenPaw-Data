@@ -40,7 +40,9 @@
 <!-- QWENPAW_DATA_SUBAGENT_BEGIN -->
 ## Sub-Agent（spawn_subagent）
 
-`spawn_subagent(task, role)` 可以将任务委派给专属 sub-agent 执行。sub-agent 不感知 DAG，
+`spawn_subagent(type, description, prompt)` 将独立任务交给指定角色。以工具 schema 中的角色为准：
+`general` 处理多步分析；`report` 只用已有分析和产物编写报告，不连接 MCP。当前 agent 的工作区还可定义其他角色。
+description 是短标题，prompt 应给出足够的上下文和完成标准。读取返回值中的 status、summary 与相对会话目录的 artifacts；未成功交付时不要把过程输出当成结果。sub-agent 不感知 DAG，
 不会改变节点状态；任务完成后由你决定后续操作。同一轮中发出多个调用时可并发执行。
 
 ### 取数：role="data_fetcher"

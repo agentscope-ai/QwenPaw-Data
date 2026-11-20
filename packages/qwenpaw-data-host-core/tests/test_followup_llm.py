@@ -16,8 +16,17 @@ from qwenpaw_data.host.core.algo.followup.llm import (
     FollowUpLLMError,
     for_structured_calls,
 )
+from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.domain.model_usage import ModelUsageContext, ModelUsageSource
 from qwenpaw_data.host.core.domain.preference import ActiveModel
 from qwenpaw_data.host.core.providers.factory import build_model
+
+_USAGE = ModelUsageContext(
+    source=ModelUsageSource.FOLLOWUP,
+    identity=Identity(user_id="u1", tenant_id="t1", workspace_id="w1"),
+    session_id="ses-1",
+    chat_id="chat-1",
+)
 
 QUESTION: dict[str, Any] = {
     "text": "按渠道类型拆解一下 GAAP用户数",
@@ -70,7 +79,11 @@ def _active(**overrides: object) -> ActiveModel:
 
 @pytest.mark.parametrize("provider", ["dashscope", "openai"])
 def test_a_host_built_model_is_retuned_for_generation(provider: str) -> None:
-    model = for_structured_calls(build_model(_active(provider_id=provider)))
+    model = for_structured_calls(
+        # ``context_size`` is pinned: the openai parametrisation reuses a
+        # dashscope model id, which the openai builtin registry cannot size.
+        build_model(_active(provider_id=provider, context_size=131_072), usage=_USAGE)
+    )
 
     assert model.stream is False
     assert model.parameters.thinking_enable is False
@@ -111,9 +124,7 @@ async def test_questions_sent_as_text_are_decoded() -> None:
 async def test_text_that_only_looks_like_a_list_is_left_alone() -> None:
     model = _FakeModel({"questions": "没有可推荐的追问"})
 
-    assert await _llm(model).complete("推荐追问") == {
-        "questions": "没有可推荐的追问"
-    }
+    assert await _llm(model).complete("推荐追问") == {"questions": "没有可推荐的追问"}
 
 
 async def test_an_answer_that_is_not_an_object_is_rejected() -> None:

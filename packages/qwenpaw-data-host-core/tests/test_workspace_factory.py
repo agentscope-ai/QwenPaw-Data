@@ -1,4 +1,4 @@
-"""Workspace 工厂与 CLI workspace_type 解析的回归测试。"""
+"""Service workspace assembly, protected Docker tools and MCP projection."""
 
 from __future__ import annotations
 
@@ -8,20 +8,32 @@ import inspect
 import json
 import os
 import shlex
-from urllib.parse import urlparse
+from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import Bash, ToolChunk
+from agentscope.workspace import LocalWorkspace
 
-from qwenpaw_data.host.core.paths import Paths
-from qwenpaw_data.host.core.utils.workspace import (
-    ManagedDockerBash,
-    _container_mcp_specs,
-    _rewrite_loopback_url,
-    create_docker_workspace,
-    create_local_workspace,
+from qwenpaw_data.host.core.paths import UserAgentPaths
+from qwenpaw_data.host.core.repositories.mcp import McpRepository
+from qwenpaw_data.host.core.domain.mcp import Mcp
+from qwenpaw_data.host.core.integrations.cm.mcp import (
+    project_workspace_mcp_client,
+    rewrite_loopback_url_for_docker,
 )
+from qwenpaw_data.host.core.settings import clear_settings
+from qwenpaw_data.host.core.workspace import (
+    QwenPawDataWorkspaceManager,
+    stable_workspace_id,
+)
+from qwenpaw_data.host.core.workspace.docker_workspace import (
+    ManagedDockerBash,
+    QwenPawDataDockerWorkspace,
+)
+from . import test_mcp_gateway_sync
+
+mcp_http = test_mcp_gateway_sync.mcp_http
 
 
 class RecordingBash:
@@ -68,66 +80,88 @@ async def _collect_chunks(chunks):
     return [chunk async for chunk in chunks]
 
 
-@pytest.fixture()
+def _managed(delegate, **kwargs):
+    return ManagedDockerBash(delegate, cleanup_failure_handler=AsyncMock(), **kwargs)
+
+
+@pytest.fixture
 def paths(tmp_path):
-    return Paths(tmp_path, "sess-test")
+    return UserAgentPaths(tmp_path, "tenant", "workspace", "user", "default", "session")
 
 
-def test_docker_workspace_mounts_skills_and_analysis_stack(paths, monkeypatch):
-    monkeypatch.delenv("QWENPAW_DATA_DOCKER_BASE_IMAGE", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DOCKER_EXTRA_PIP", raising=False)
-    ws = create_docker_workspace(paths)
-    # DockerWorkspace.__init__ 不连接 daemon，纯构造可断言
-    assert ws.base_image == "python:3.11-slim"
-    assert "pandas" in ws.extra_pip
-    assert "matplotlib" in ws.extra_pip
-    # 技能目录与 local 工厂一致，非空
-    assert ws.skill_paths, "skill_paths should be discovered, not empty"
-    local = create_local_workspace(paths)
-    assert list(ws.skill_paths) == list(local.skill_paths)
+@pytest.fixture
+async def workspace_factory(paths, monkeypatch):
+    # Exercise the real manager construction and skill seeding, not the daemon.
+    monkeypatch.setattr(QwenPawDataDockerWorkspace, "initialize", AsyncMock())
+    manager = QwenPawDataWorkspaceManager()
+    created = []
+
+    async def make(backend):
+        monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_BACKEND", backend)
+        clear_settings()
+        workspace = await manager._create_workspace(paths, stable_workspace_id(paths))
+        created.append(workspace)
+        return workspace
+
+    try:
+        yield make
+    finally:
+        for workspace in created:
+            await workspace.close()
 
 
-async def test_local_workspace_uses_native_shell(paths):
+async def test_docker_workspace_seeds_skills_and_analysis_stack(
+    paths, workspace_factory, monkeypatch
+):
+    for key in (
+        "QWENPAW_DATA_DOCKER_BASE_IMAGE",
+        "QWENPAW_DATA_DOCKER_EXTRA_PIP",
+        "QWENPAW_DATA_WORKSPACE_DOCKER_BASE_IMAGE",
+        "QWENPAW_DATA_WORKSPACE_DOCKER_EXTRA_PIP",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    docker = await workspace_factory("docker")
+    assert docker.base_image == "python:3.11-slim"
+    assert {"pandas", "matplotlib"} <= set(docker.extra_pip)
+    assert (paths.skills / "skill-hub-guide" / "SKILL.md").is_file()
+    local = await workspace_factory("local")
+    skills = await local.list_skills(agent_id=paths.agent_id)
+    assert "skill-hub-guide" in {skill.name for skill in skills}
+    assert all(str(paths.skills) in str(skill.dir) for skill in skills)
+
+
+async def test_local_workspace_uses_native_shell(workspace_factory):
     from agentscope.tool import PowerShell
 
-    tools = await create_local_workspace(paths).list_tools()
-
-    if os.name == "nt":
-        assert isinstance(tools[0], PowerShell)
-    else:
-        from qwenpaw_data.host.core.tools.workspace import WorkspaceBash
-
-        assert isinstance(tools[0], WorkspaceBash)
+    tools = await (await workspace_factory("local")).list_tools()
+    assert isinstance(tools[0], PowerShell if os.name == "nt" else Bash)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows-only regression")
-async def test_native_windows_shell_enforces_timeout(paths):
-    tools = await create_local_workspace(paths).list_tools()
-    shell = tools[0]
-
-    stream = shell(command="Start-Sleep -Seconds 30", timeout=500)
+async def test_native_windows_shell_enforces_timeout(workspace_factory):
+    tools = await (await workspace_factory("local")).list_tools()
+    stream = tools[0](command="Start-Sleep -Seconds 30", timeout=500)
     if inspect.iscoroutine(stream):
-        # AgentScope's PowerShell tool is a coroutine yielding the stream.
         stream = await stream
     chunks = [chunk async for chunk in stream]
-
     assert chunks[-1].state == ToolResultState.ERROR
     assert "timed out" in chunks[-1].content[0].text.lower()
 
 
-def test_docker_workspace_env_overrides(paths, monkeypatch):
-    monkeypatch.setenv("QWENPAW_DATA_DOCKER_BASE_IMAGE", "python:3.12-slim")
-    monkeypatch.setenv("QWENPAW_DATA_DOCKER_EXTRA_PIP", "scikit-learn, pandas ,")
-    ws = create_docker_workspace(paths)
-    assert ws.base_image == "python:3.12-slim"
-    assert "scikit-learn" in ws.extra_pip
-    # 去重：内置栈已有 pandas，不重复追加
-    assert ws.extra_pip.count("pandas") == 1
+async def test_docker_workspace_env_overrides(workspace_factory, monkeypatch):
+    monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_DOCKER_BASE_IMAGE", "python:3.12-slim")
+    monkeypatch.setenv(
+        "QWENPAW_DATA_WORKSPACE_DOCKER_EXTRA_PIP", "scikit-learn, pandas ,"
+    )
+    workspace = await workspace_factory("docker")
+    assert workspace.base_image == "python:3.12-slim"
+    assert "scikit-learn" in workspace.extra_pip
+    assert workspace.extra_pip.count("pandas") == 1
 
 
 async def test_managed_docker_bash_reaps_timed_out_process_group():
     delegate = RecordingBash()
-    bash = ManagedDockerBash(delegate, grace_seconds=0.01)
+    bash = _managed(delegate, grace_seconds=0.01)
 
     chunks = await _collect_chunks(
         bash.call(command="sleep 60", timeout=100),
@@ -149,7 +183,7 @@ async def test_managed_docker_bash_reaps_timed_out_process_group():
 
 async def test_managed_docker_bash_reaps_cancelled_process_group():
     delegate = RecordingBash(cancel_first=True)
-    bash = ManagedDockerBash(delegate, grace_seconds=0.01)
+    bash = _managed(delegate, grace_seconds=0.01)
     task = asyncio.create_task(
         _collect_chunks(bash.call(command="sleep 60")),
     )
@@ -165,7 +199,7 @@ async def test_managed_docker_bash_reaps_cancelled_process_group():
 
 
 async def test_managed_docker_bash_reports_silent_success() -> None:
-    bash = ManagedDockerBash(ResultBash(""))
+    bash = _managed(ResultBash(""))
 
     chunks = await _collect_chunks(bash.call(command="true"))
 
@@ -177,7 +211,7 @@ async def test_managed_docker_bash_reports_silent_success() -> None:
 
 
 async def test_managed_docker_bash_preserves_nonempty_output() -> None:
-    bash = ManagedDockerBash(ResultBash("created report.html"))
+    bash = _managed(ResultBash("created report.html"))
 
     chunks = await _collect_chunks(bash.call(command="python report.py"))
 
@@ -186,7 +220,7 @@ async def test_managed_docker_bash_preserves_nonempty_output() -> None:
 
 
 async def test_managed_docker_bash_preserves_errors() -> None:
-    bash = ManagedDockerBash(ResultBash("failed", ToolResultState.ERROR))
+    bash = _managed(ResultBash("failed", ToolResultState.ERROR))
 
     chunks = await _collect_chunks(bash.call(command="false"))
 
@@ -195,8 +229,7 @@ async def test_managed_docker_bash_preserves_errors() -> None:
 
 
 async def test_docker_workspace_wraps_bash_via_public_list_tools(
-    paths,
-    monkeypatch,
+    workspace_factory, monkeypatch
 ):
     from agentscope.workspace import DockerWorkspace
 
@@ -204,12 +237,11 @@ async def test_docker_workspace_wraps_bash_via_public_list_tools(
         return [Bash()]
 
     monkeypatch.setattr(DockerWorkspace, "list_tools", fake_list_tools)
-    workspace = create_docker_workspace(paths)
-
+    workspace = await workspace_factory("docker")
     tools = await workspace.list_tools()
-
     assert len(tools) == 1
     assert isinstance(tools[0], ManagedDockerBash)
+    assert tools[0]._cleanup_failure_handler == workspace.close
 
 
 def test_resolve_workspace_type_precedence(monkeypatch):
@@ -254,97 +286,84 @@ def test_resolve_workspace_type_invalid(monkeypatch):
         ("http://192.168.1.5:8765/mcp", "http://192.168.1.5:8765/mcp"),
     ],
 )
-def test_rewrite_loopback_url(url, expected):
-    assert _rewrite_loopback_url(url, "host.docker.internal") == expected
+def test_rewrite_loopback_url_for_docker(url, expected):
+    assert rewrite_loopback_url_for_docker(url, "host.docker.internal") == expected
 
 
-async def test_docker_initialize_uses_public_hook_and_restores_host_mcp(
-    paths,
-    monkeypatch,
-):
-    from agentscope.workspace import DockerWorkspace
-
-    mcp_path = paths.mcp_config_file
-    mcp_path.parent.mkdir(parents=True, exist_ok=True)
-    host_specs = [
-        {
-            "name": "databridge",
-            "is_stateful": False,
-            "mcp_config": {
-                "type": "http_mcp",
-                "url": "http://127.0.0.1:8765/mcp/v1/cm",
-                "headers": {},
-                "timeout": 10,
-            },
-        },
-    ]
-    mcp_path.write_text(json.dumps(host_specs), encoding="utf-8")
-    observed: list[dict] = []
+def test_docker_projection_keeps_host_inventory_unchanged(paths, monkeypatch):
+    monkeypatch.setenv("QWENPAW_DATA_WORKSPACE_BACKEND", "docker")
+    monkeypatch.setenv("QWENPAW_DATA_CM_BASE_URL", "http://127.0.0.1:8765")
     monkeypatch.setenv("QWENPAW_DATA_CLIENT_API_TOKEN", "runtime-client-secret")
-    monkeypatch.setenv("QWENPAW_DATA_API_TOKEN", "fallback-secret")
+    clear_settings()
+    repo = McpRepository(paths.mcp_manifest)
+    source = repo.require("context-manager").to_client()
+    before = paths.mcp_manifest.read_bytes()
+    projected = project_workspace_mcp_client(source)
+    assert projected.mcp_config.url == "http://host.docker.internal:8765/mcp/v1/cm"
+    assert source.mcp_config.url == "http://127.0.0.1:8765/mcp/v1/cm"
+    assert projected.mcp_config.headers == source.mcp_config.headers
+    assert paths.mcp_manifest.read_bytes() == before
+    assert b"runtime-client-secret" not in before
 
-    async def fake_initialize(self):
-        observed.extend(json.loads(mcp_path.read_text(encoding="utf-8")))
 
-    monkeypatch.setattr(DockerWorkspace, "initialize", fake_initialize)
-    workspace = create_docker_workspace(paths)
-
-    assert "_restore_or_seed_mcps" not in type(workspace).__dict__
-    await workspace.initialize()
-
-    parsed_url = urlparse(observed[0]["mcp_config"]["url"])
-    assert (parsed_url.scheme, parsed_url.hostname, parsed_url.port) == (
-        "http",
-        "host.docker.internal",
-        8765,
+async def test_mcp_sync_does_not_leak_cm_token_to_remote_endpoint(paths, mcp_http):
+    repo = McpRepository(paths.mcp_manifest)
+    repo.create(
+        Mcp.from_record(
+            {
+                "name": "remote",
+                "source": "custom",
+                "enabled": True,
+                "is_stateful": False,
+                "mcp_config": {
+                    "type": "http_mcp",
+                    "url": "https://mcp.example.com/mcp/v1/cm",
+                    "headers": {"X-Existing": "preserved"},
+                },
+            }
+        )
     )
-    assert observed[0]["mcp_config"]["headers"] == {
-        "Authorization": "Bearer runtime-client-secret",
-    }
-    assert json.loads(mcp_path.read_text(encoding="utf-8")) == host_specs
-    # Session-scoped gateway clients need defaults as well as the legacy file.
-    assert [client.name for client in workspace.default_mcps] == ["databridge"]
-    default = workspace.default_mcps[0].model_dump(mode="json")
-    assert default["mcp_config"] == observed[0]["mcp_config"]
-
-
-def test_container_mcp_specs_does_not_leak_token_to_remote_endpoint(
-    monkeypatch,
-):
-    monkeypatch.setenv("QWENPAW_DATA_CLIENT_API_TOKEN", "do-not-leak")
-    remote_specs = [
-        {
-            "name": "remote",
-            "mcp_config": {
-                "type": "http_mcp",
-                "url": "https://mcp.example.com/mcp/v1/cm",
-                "headers": {"X-Existing": "preserved"},
-            },
-        },
-    ]
-
-    prepared = _container_mcp_specs(remote_specs, "host.docker.internal")
-
-    assert prepared[0]["mcp_config"]["headers"] == {
-        "X-Existing": "preserved",
-    }
-    assert remote_specs[0]["mcp_config"]["headers"] == {
-        "X-Existing": "preserved",
-    }
-
-
-@pytest.mark.asyncio
-async def test_scoped_mcp_declarations_override_workspace_defaults(paths):
-    from agentscope.mcp import MCPClient
-    shared = MCPClient(name="shared", is_stateful=False, mcp_config={"type": "http_mcp", "url": "http://127.0.0.1:8000/mcp"}).model_dump(mode="json")
-    private = {**shared, "name": "private"}
-    paths.workspace.mkdir(parents=True, exist_ok=True)
-    paths.mcp_config_file.write_text(json.dumps({"version": 2, "mcps": {"": {"": [shared], "private-session": [private], "disabled-session": []}}}))
-    workspace = create_local_workspace(paths)
+    workspace = LocalWorkspace(workdir=str(paths.workspace))
+    scope = {"agent_id": paths.agent_id, "session_id": paths.session_id}
     try:
         await workspace.initialize()
-        assert [c.name for c in await workspace.list_mcps(session_id="new-session")] == ["shared"]
-        assert [c.name for c in await workspace.list_mcps(session_id="private-session")] == ["private"]
-        assert await workspace.list_mcps(session_id="disabled-session") == []
+        await repo.sync(
+            workspace,
+            **scope,
+            request_id="chat",
+            mcp_headers={},
+            access_token="do-not-leak",
+        )
+        clients = {client.name: client for client in await workspace.list_mcps(**scope)}
+        remote = clients["remote"]
+        assert remote.mcp_config.headers == {"X-Existing": "preserved"}
+        assert "do-not-leak" not in str(remote.model_dump(mode="json"))
+        assert "do-not-leak" not in str(remote._runtime_headers)
+        assert (
+            clients["context-manager"]._runtime_headers["Authorization"]
+            == "Bearer do-not-leak"
+        )
+        assert "do-not-leak" not in paths.mcp_manifest.read_text()
+        assert "do-not-leak" not in (paths.workspace / ".mcp").read_text()
+    finally:
+        await workspace.close()
+
+
+async def test_mcp_sync_scopes_changes_to_the_target_session(paths, mcp_http):
+    repo = McpRepository(paths.mcp_manifest)
+    workspace = LocalWorkspace(workdir=str(paths.workspace))
+    first = {"agent_id": paths.agent_id, "session_id": "first"}
+    second = {"agent_id": paths.agent_id, "session_id": "second"}
+    try:
+        await workspace.initialize()
+        await repo.sync(workspace, **first, request_id="chat-1", mcp_headers={})
+        repo.disable("context-manager")
+        await repo.sync(workspace, **second, request_id="chat-2", mcp_headers={})
+        assert await workspace.list_mcps(**second) == []
+        assert [c.name for c in await workspace.list_mcps(**first)] == [
+            "context-manager"
+        ]
+        await repo.sync(workspace, **first, request_id="chat-3", mcp_headers={})
+        assert await workspace.list_mcps(**first) == []
     finally:
         await workspace.close()

@@ -1,0 +1,318 @@
+// Component-owned styles.
+
+@keyframes clarificationSlideFromRight {
+  from {
+    opacity: 0.45;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes clarificationSlideFromLeft {
+  from {
+    opacity: 0.45;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes clarificationBorderPulse {
+  0%,
+  100% {
+    border-color: rgb(22 119 255 / 42%);
+    box-shadow: var(--console-card-shadow);
+  }
+
+  50% {
+    border-color: #1677ff;
+    box-shadow:
+      0 0 0 2px rgb(22 119 255 / 24%),
+      var(--console-card-shadow);
+  }
+}
+
+.clarificationDock {
+  position: absolute;
+  // The runtime's scroll-to-bottom control uses z-index: 10.
+  z-index: 11;
+  display: flex;
+  bottom: calc(var(--runtime-input-height) + 8px);
+  left: 50%;
+  width: min(700px, calc(100% - 72px));
+  max-height: min(560px, calc(100% - var(--runtime-input-height) - 56px));
+  padding: 24px;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--console-surface);
+  border: 1px solid rgb(22 119 255 / 42%);
+  border-radius: 12px;
+  box-shadow: var(--console-card-shadow);
+  transform: translateX(-50%);
+  transition:
+    bottom 160ms ease,
+    max-height 160ms ease;
+  animation: clarificationBorderPulse 2.8s ease-in-out infinite;
+}
+
+.clarificationEmbedded {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+
+  .clarificationClose {
+    top: 0;
+    right: 0;
+  }
+
+  .clarificationFooter {
+    margin-top: 8px;
+    transform: none;
+  }
+}
+
+.clarificationHeader,
+.clarificationFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.clarificationHeader {
+  flex: none;
+  margin-bottom: 10px;
+  padding-right: 18px;
+
+  strong {
+    color: var(--console-text);
+    font-size: var(--text-body);
+  }
+}
+
+.clarificationHeading,
+.clarificationHeaderActions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.clarificationHeading {
+  flex: 1;
+}
+
+.clarificationHeaderActions {
+  flex: none;
+}
+
+.clarificationStatus {
+  flex: none;
+  color: var(--console-primary);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.clarificationClose {
+  position: absolute !important;
+  z-index: 1;
+  top: 16px;
+  right: 16px;
+  display: inline-flex !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  padding: 0 !important;
+  align-items: center;
+  justify-content: center;
+  color: var(--console-text-secondary) !important;
+  font-size: 16px;
+
+  :global(.anticon) {
+    font-size: 16px;
+  }
+
+  &:hover {
+    color: var(--console-text) !important;
+    background: var(--console-fill) !important;
+  }
+}
+
+.clarificationCarousel {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  margin-block: -8px;
+  padding: 8px 16px 16px;
+  overflow-y: auto;
+  scroll-padding-block: 8px;
+  overflow-x: hidden;
+}
+
+.clarificationQuestion {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px 10px;
+  flex-direction: column;
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-default);
+  box-shadow: none;
+
+  p {
+    margin: 2px 0 8px;
+    color: var(--console-text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.clarificationQuestionSlideNext {
+  animation: clarificationSlideFromRight 220ms ease-out;
+}
+
+.clarificationQuestionSlidePrevious {
+  animation: clarificationSlideFromLeft 220ms ease-out;
+}
+
+.clarificationQuestionTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+
+  > span {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  strong {
+    color: var(--console-text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  em {
+    color: var(--console-error);
+    font-size: var(--text-small);
+    font-style: normal;
+    font-weight: 700;
+  }
+
+  > small {
+    flex: none;
+    color: var(--console-muted);
+    font-size: var(--text-micro);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.clarificationQuestionTitle + .clarificationOptionGroup {
+  margin-top: 10px;
+}
+
+.clarificationOptionGroup {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+}
+
+.clarificationOptionCard {
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 9px 11px;
+  align-items: flex-start;
+  color: var(--console-text);
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-default);
+  transition: 160ms ease;
+
+  &:hover {
+    background: var(--console-fill);
+    border-color: var(--console-line);
+  }
+
+  > span:last-child {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: baseline;
+    justify-content: flex-start;
+    flex-flow: row wrap;
+    padding-inline-start: 8px;
+    gap: 4px;
+    line-height: 20px;
+
+    > span {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    small {
+      color: var(--console-text-secondary);
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 17px;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+.clarificationOptionSelected {
+  color: var(--console-primary-active);
+  background: var(--console-primary-soft);
+  border-color: var(--console-primary);
+
+  &:hover {
+    background: var(--console-primary-soft);
+    border-color: var(--console-primary);
+  }
+}
+
+.clarificationCustomAnswer {
+  display: grid;
+  margin-top: 8px;
+  gap: 4px;
+
+  > span {
+    color: var(--console-error);
+    font-size: var(--text-micro);
+  }
+}
+
+.clarificationFooter {
+  flex: none;
+  margin-top: 0;
+  transform: translateY(8px);
+}
+
+.clarificationError {
+  color: var(--console-error);
+  font-size: var(--text-micro);
+}
+
+.clarificationFooterActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.clarificationSubmit {
+  min-width: 104px;
+}

@@ -1,0 +1,173 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 0 20px;
+}
+
+.loadingContainer {
+  display: flex;
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgb(255 255 255 / 58%);
+  border: 1px solid var(--context-color-border);
+  border-radius: var(--context-radius-lg);
+}
+
+.card {
+  border-radius: var(--context-radius-lg);
+}
+
+.card :global(.ant-card-head) {
+  min-height: 48px;
+  padding-inline: 18px;
+}
+
+.card :global(.ant-card-body) {
+  padding: 16px 18px 18px;
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 20px;
+  row-gap: 12px;
+}
+
+.profileItem {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profileLabel {
+  color: var(--context-color-text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.profileValue,
+.profileValueStrong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--context-color-text);
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileValueStrong {
+  font-weight: 600;
+}
+
+.profileValue :global(.ant-tag) {
+  margin-inline-end: 0;
+}
+
+.workspacesTitle {
+  margin: 0 0 10px;
+  color: var(--context-color-text);
+}
+
+.workspaceRow {
+  display: flex;
+  max-width: 100%;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.workspaceCard {
+  display: inline-flex;
+  width: max-content;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 14px;
+  background: rgb(255 255 255 / 68%);
+  border: 1px solid var(--context-color-border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.workspaceCardCurrent {
+  background: var(--context-color-primary-bg);
+  border-color: var(--qwenpaw-data-color-primary-border);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .loadingContainer,
+:global(:root[data-qwenpaw-data-theme='dark']) .card {
+  background: var(--qwenpaw-data-color-route-surface);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .workspaceCard {
+  background: var(--qwenpaw-data-color-inset-surface);
+  border-color: var(--qwenpaw-data-color-border);
+}
+
+:global(:root[data-qwenpaw-data-theme='dark']) .workspaceCardCurrent {
+  background: var(--qwenpaw-data-color-fill-secondary);
+  border-color: var(--qwenpaw-data-color-primary-border);
+}
+
+.workspaceCard strong {
+  color: var(--context-color-text);
+  font-size: 13px;
+}
+
+.workspaceCard :global(.ant-tag) {
+  margin: 0;
+  padding-block: 1px;
+}
+
+.passwordForm {
+  width: 100%;
+  max-width: 680px;
+}
+
+.passwordForm :global(.ant-form-item) {
+  margin-bottom: 14px;
+}
+
+.passwordForm :global(.ant-form-item-label) {
+  padding-inline-end: 16px;
+}
+
+.passwordStrengthRow {
+  margin: -4px 0 14px 112px;
+}
+
+.passwordAction {
+  margin-bottom: 0 !important;
+}
+
+@media (max-width: 1440px) {
+  .profileGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1120px) {
+  .profileGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .passwordForm :global(.ant-form-item) {
+    display: block;
+  }
+
+  .passwordForm :global(.ant-form-item-label) {
+    padding-bottom: 6px;
+  }
+
+  .passwordStrengthRow {
+    margin-left: 0;
+  }
+}

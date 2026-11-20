@@ -1,25 +1,26 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 
 from agentscope.message import ToolCallBlock
 
-from qwenpaw_data.host.core.agent.qwenpaw_data_agent import QwenPawDataAgent
+from qwenpaw_data.host.core.mcp_cm import inject_datasource_metadata
 
 
-def _make_agent(
+def _injector(
     *,
     datasource_id: str | None = "mysql-abc123",
     prefixes: set[str] | None = None,
-) -> QwenPawDataAgent:
-    agent = QwenPawDataAgent.__new__(QwenPawDataAgent)
-    agent._request_context = (
-        {"datasource_id": datasource_id}
-        if datasource_id is not None
-        else {}
+):
+    request_context = (
+        {"datasource_id": datasource_id} if datasource_id is not None else {}
     )
-    agent._cm_mcp_tool_prefixes = prefixes or {"mcp__context-manager__"}
-    return agent
+    return partial(
+        inject_datasource_metadata,
+        request_context=request_context,
+        cm_mcp_tool_prefixes=prefixes or {"mcp__context-manager__"},
+    )
 
 
 def _tool_call(name: str, input_text: str = "{}") -> ToolCallBlock:
@@ -27,7 +28,7 @@ def _tool_call(name: str, input_text: str = "{}") -> ToolCallBlock:
 
 
 def test_inject_replaces_metadata_for_cm_tool() -> None:
-    agent = _make_agent()
+    inject = _injector()
     tool_call = _tool_call(
         "mcp__context-manager__execute_sql",
         json.dumps(
@@ -38,7 +39,7 @@ def test_inject_replaces_metadata_for_cm_tool() -> None:
         ),
     )
 
-    agent._inject_datasource_metadata(tool_call)
+    inject(tool_call)
 
     payload = json.loads(tool_call.input)
     assert payload["metadata"] == {"datasource_id": "mysql-abc123"}
@@ -46,31 +47,31 @@ def test_inject_replaces_metadata_for_cm_tool() -> None:
 
 
 def test_inject_skips_non_cm_tool() -> None:
-    agent = _make_agent()
+    inject = _injector()
     tool_call = _tool_call("mcp__other__execute_sql", '{"query": "select 1"}')
 
-    agent._inject_datasource_metadata(tool_call)
+    inject(tool_call)
 
     assert json.loads(tool_call.input) == {"query": "select 1"}
 
 
 def test_inject_skips_when_no_datasource_id() -> None:
-    agent = _make_agent(datasource_id=None)
+    inject = _injector(datasource_id=None)
     tool_call = _tool_call(
         "mcp__context-manager__execute_sql",
         '{"query": "select 1"}',
     )
 
-    agent._inject_datasource_metadata(tool_call)
+    inject(tool_call)
 
     assert json.loads(tool_call.input) == {"query": "select 1"}
 
 
 def test_inject_creates_input_when_missing() -> None:
-    agent = _make_agent()
+    inject = _injector()
     tool_call = _tool_call("mcp__context-manager__execute_sql", "")
 
-    agent._inject_datasource_metadata(tool_call)
+    inject(tool_call)
 
     assert json.loads(tool_call.input) == {
         "metadata": {"datasource_id": "mysql-abc123"},
@@ -78,10 +79,10 @@ def test_inject_creates_input_when_missing() -> None:
 
 
 def test_inject_handles_malformed_input() -> None:
-    agent = _make_agent()
+    inject = _injector()
     tool_call = _tool_call("mcp__context-manager__execute_sql", "not json")
 
-    agent._inject_datasource_metadata(tool_call)
+    inject(tool_call)
 
     assert json.loads(tool_call.input) == {
         "metadata": {"datasource_id": "mysql-abc123"},
@@ -89,13 +90,19 @@ def test_inject_handles_malformed_input() -> None:
 
 
 def test_dataset_scope_is_trusted_and_cannot_be_widened_by_model():
-    agent = _make_agent()
-    agent._request_context["dataset_names"] = ["econ_observations"]
-    call = _tool_call("mcp__context-manager__execute_sql", json.dumps({
-        "sql": "SELECT * FROM wrong", "dataset_names": ["wrong"],
-        "metadata": {"dataset_names": ["wrong"]},
-    }))
-    agent._inject_datasource_metadata(call)
+    inject = _injector()
+    inject.keywords["request_context"]["dataset_names"] = ["econ_observations"]
+    call = _tool_call(
+        "mcp__context-manager__execute_sql",
+        json.dumps(
+            {
+                "sql": "SELECT * FROM wrong",
+                "dataset_names": ["wrong"],
+                "metadata": {"dataset_names": ["wrong"]},
+            }
+        ),
+    )
+    inject(call)
     data = json.loads(call.input)
     assert data["dataset_names"] == ["econ_observations"]
     assert data["metadata"]["dataset_names"] == ["econ_observations"]

@@ -7,7 +7,10 @@ from qwenpaw_data.host.core.api.models.stream_objects import (
     parse_stream_object,
 )
 
-_BASE = {"sequence_number": 3, "session_id": "s1", "chat_id": "c1"}
+_BASE = {
+    "sequence_number": 3, "session_id": "s1", "chat_id": "c1",
+    "created_at": "2026-01-01T00:00:00Z",
+}
 
 
 def test_parse_response_event() -> None:
@@ -109,20 +112,26 @@ def test_parse_biz_event_segment_artifact_followup() -> None:
     assert followup.followup.questions == ["next?"]
 
 
-def test_parse_task_status_event() -> None:
-    obj = parse_stream_object(
-        {
-            **_BASE,
-            "object": "task_status",
-            "event_type": "graph_updated",
-            "graph_snapshot": {"nodes": []},
-        },
-    )
-    assert obj.object == "task_status"
-    assert obj.event_type == "graph_updated"
+def test_retired_dag_task_status_event_rejected() -> None:
+    # The current task-plan API no longer emits legacy DAG snapshots over SSE.
+    with pytest.raises(ValueError, match="task_status"):
+        parse_stream_object(
+            {
+                **_BASE, "object": "task_status", "event_type": "graph_updated",
+                "graph_snapshot": {"nodes": []},
+            },
+        )
+
+
+@pytest.mark.parametrize("kind", ["tool.result.start", "tool.result.end"])
+def test_tool_result_events_round_trip(kind: str) -> None:
+    payload = {**_BASE, "object": kind, "tool_name": "execute_sql", "call_id": "call-1"}
+    obj = parse_stream_object(payload)
     dumped = dump_stream_object(obj)
-    assert dumped["graph_snapshot"] == {"nodes": []}
-    assert "status" not in dumped
+    assert dumped["object"] == kind
+    assert dumped["call_id"] == "call-1"
+    assert dumped["tool_name"] == "execute_sql"
+    assert "created_at" in dumped
 
 
 def test_unknown_object_rejected() -> None:

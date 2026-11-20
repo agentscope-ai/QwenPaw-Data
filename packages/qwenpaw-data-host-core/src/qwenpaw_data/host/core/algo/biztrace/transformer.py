@@ -16,9 +16,13 @@ from typing import TYPE_CHECKING, Any
 
 from qwenpaw_data.host.core.algo.biztrace.llm import for_structured_calls
 from qwenpaw_data.host.core.algo.biztrace.pipeline import BizTracePipeline, build_pipeline
-from qwenpaw_data.host.core.model import build_model_from_env
+from qwenpaw_data.host.core.algo.biztrace.settings import PIPELINE_FLUSH_TIMEOUT_SECONDS
+from qwenpaw_data.host.core.algo.evaluation.grader import SegmentGrader
+from qwenpaw_data.host.core.domain.model_usage import ModelUsageSource
 from qwenpaw_data.host.core.providers.factory import build_model
+from qwenpaw_data.host.core.tracing.adapters import tracer_start
 from qwenpaw_data.host.core.utils.workspace import list_session_files
+from qwenpaw_data.tracing.core.names import Step, Tag
 
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
@@ -64,6 +68,13 @@ class BizTraceTransformer:
                 segment_callback=self.envelope.send_segment,
                 lister=self._list_files,
                 chat_model=self._chat_model(),
+                confidence_grader=SegmentGrader(
+                    self.run_context.user_runtime_config,
+                    usage=self.run_context.model_usage(ModelUsageSource.EVALUATION),
+                ),
+                tracer=tracer_start(
+                    self.run_context, Step.BIZTRACE, tags=[Tag.BIZTRACE]
+                ),
             )
         except Exception:
             logger.exception("BizTrace failed to start for chat %s", self.chat_id)
@@ -101,21 +112,19 @@ class BizTraceTransformer:
         """The model every step runs on, or None to stay on the rule-based path.
 
         ``light`` is the small model the user picked for background work; the
-        default model stands in when none is configured. Without either, a
-        fresh env-configured model is built — never the agent's own instance,
-        which retuning would corrupt.
+        agent's own model stands in when none is configured, so captions and
+        summaries keep coming either way.
         """
 
         config = self.run_context.user_runtime_config
-        active = None
-        if config is not None:
-            active = getattr(config, "light", None) or getattr(
-                config, "default", None
-            )
+        active = config.light or config.default
         try:
-            if active is not None:
-                return for_structured_calls(build_model(active))
-            return for_structured_calls(build_model_from_env())
+            return for_structured_calls(
+                build_model(
+                    active,
+                    usage=self.run_context.model_usage(ModelUsageSource.BIZTRACE),
+                )
+            )
         except Exception:
             logger.exception(
                 "BizTrace has no usable model for chat %s; using rule-based cards",
@@ -132,7 +141,17 @@ class BizTraceTransformer:
         if pipeline is None:
             return
         try:
-            await pipeline.aclose()
+            # Hard cap so a hung worker cannot leak this task;
+            # a cancelled aclose still ends the biztrace span via its finally.
+            await asyncio.wait_for(
+                pipeline.aclose(), timeout=PIPELINE_FLUSH_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            logger.error(
+                "BizTrace flush timed out after %ss for chat %s",
+                PIPELINE_FLUSH_TIMEOUT_SECONDS,
+                self.chat_id,
+            )
         except Exception:
             logger.exception("BizTrace failed to flush chat %s", self.chat_id)
 

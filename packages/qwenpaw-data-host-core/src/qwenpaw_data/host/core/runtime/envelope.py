@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
 
 from agentscope.event import EventBase, EventType
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from qwenpaw_data.host.core.repositories.followup import FollowUpRepository
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
 from qwenpaw_data.host.core.utils.ids import create_id
 
@@ -18,9 +21,17 @@ _IGNORED_EVENTS = frozenset(
     {
         EventType.REPLY_START.value,
         EventType.REPLY_END.value,
-        EventType.MODEL_CALL_START.value,
-        # Permission confirmations are resolved inside QwenPawDataAgent but
-        # still surface on its reply stream; they are not wire events.
+        # Deprecated. The stop reason is ReplyEnd.finished_reason.
+        EventType.EXCEED_MAX_ITERS.value,
+    }
+)
+
+# Human-in-the-loop events never reach the wire: AgentExecutor answers
+# agentscope's own permission prompts (fail-closed), and confirm results /
+# interrupts are agent inputs. Host tool approval reaches the client as the
+# plugin_call metadata written by ToolConfirmation instead.
+_HITL_EVENTS = frozenset(
+    {
         EventType.REQUIRE_USER_CONFIRM.value,
         EventType.USER_CONFIRM_RESULT.value,
         EventType.USER_INTERRUPT.value,
@@ -44,11 +55,20 @@ class Envelope:
     send_biz_event / send_segment / send_followup。
     """
 
-    def __init__(self, stream: OutputStream) -> None:
+    def __init__(
+        self,
+        stream: OutputStream,
+        *,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
         self.stream = stream
+        self._session_factory = session_factory
         self._msg_seq = 0
         self._usage: dict[str, Any] | None = None
+        # Set once the terminal response is emitted; the lock orders it
+        # against send_followup, which may run late from its own task.
         self._terminal = False
+        self._terminal_lock = asyncio.Lock()
 
         # Open text blocks: block_id -> {msg_id, seq, text}
         self._text_blocks: dict[str, dict[str, Any]] = {}
@@ -70,33 +90,43 @@ class Envelope:
         await self.stream.response_created()
         await self.stream.response_in_progress()
 
-    async def complete(self) -> None:
+    async def finalize(self) -> None:
         await self._finalize_open_messages()
-        self._terminal = True
-        if self._usage is not None:
-            await self.stream.response("completed", usage=self._usage)
-        else:
-            await self.stream.response_completed()
+
+    async def emit_completed(self) -> None:
+        async with self._terminal_lock:
+            self._terminal = True
+            if self._usage is not None:
+                await self.stream.response("completed", usage=self._usage)
+            else:
+                await self.stream.response_completed()
+
+    async def emit_failed(self, *, error: dict[str, Any]) -> None:
+        async with self._terminal_lock:
+            self._terminal = True
+            await self.stream.response_failed(error=error)
+
+    async def emit_cancelled(self) -> None:
+        async with self._terminal_lock:
+            self._terminal = True
+            await self.stream.response_cancelled()
+
+    async def complete(self) -> None:
+        await self.finalize()
+        await self.emit_completed()
 
     async def fail(self, *, error: dict[str, Any]) -> None:
-        await self._finalize_open_messages()
-        self._terminal = True
-        await self.stream.response_failed(error=error)
+        await self.finalize()
+        await self.emit_failed(error=error)
 
     async def cancel(self) -> None:
-        await self._finalize_open_messages()
-        self._terminal = True
-        await self.stream.response_cancelled()
+        await self.finalize()
+        await self.emit_cancelled()
 
     # ---- algorithm-side send surface ----
 
     async def send_biz_event(self, biz_event: dict[str, Any]) -> None:
-        """Persist and broadcast one biz_event; re-sends overwrite by event_id."""
-        # Algorithm workers run concurrently with the chat main flow:
-        # failures are logged, never raised back into the worker. A flush
-        # that outlives the turn must not land behind the terminal frame.
-        if self._terminal:
-            return
+        """把一条 biz_event 写入本 chat 的 OutputStream；同 event_id 重发时覆盖。"""
         try:
             await self.stream.biz_event(**biz_event)
         except Exception:
@@ -106,9 +136,7 @@ class Envelope:
             )
 
     async def send_segment(self, segment: dict[str, Any]) -> None:
-        """Persist and broadcast one segment; each segment is sent once."""
-        if self._terminal:
-            return
+        """把一个 segment 写入本 chat 的 OutputStream，一段发一次。"""
         try:
             await self.stream.segment(**segment)
         except Exception:
@@ -118,16 +146,31 @@ class Envelope:
             )
 
     async def send_followup(self, questions: list[str]) -> None:
-        """Persist and broadcast follow-up questions before completion."""
-        if self._terminal:
-            return
-        try:
-            await self.stream.followup_generated(questions=questions)
-        except Exception:
-            logger.exception(
-                "envelope: failed to send followup for chat %s",
-                self.stream.chat_id,
+        """把推荐追问写入本 chat 的 OutputStream。"""
+        # A recommendation that outran the turn (after the terminal response)
+        # is persisted only: it must never stream behind the terminal frame.
+        async with self._terminal_lock:
+            try:
+                if self._terminal:
+                    await self._persist_late_followup(questions)
+                else:
+                    await self.stream.followup_generated(questions=questions)
+            except Exception:
+                logger.exception(
+                    "envelope: failed to send followup for chat %s",
+                    self.stream.chat_id,
+                )
+
+    async def _persist_late_followup(self, questions: list[str]) -> None:
+        async with self._session_factory() as db:
+            await FollowUpRepository(db, self.stream.identity).upsert(
+                chat_id=self.stream.chat_id, questions=questions
             )
+            await db.commit()
+        logger.info(
+            "envelope: chat %s already ended; follow-ups persisted only",
+            self.stream.chat_id,
+        )
 
     async def translate_event(self, event: EventBase) -> None:
         evt_type = event.type
@@ -136,6 +179,17 @@ class Envelope:
 
         if evt_type in _IGNORED_EVENTS:
             return
+        if evt_type in _HITL_EVENTS:
+            logger.debug(
+                "envelope: chat %s skips agent event %s (not a wire event)",
+                self.stream.chat_id,
+                evt_type,
+            )
+            return
+        if evt_type == EventType.MODEL_CALL_START.value:
+            await self.stream.model_call(model_name=event.model_name)
+            return
+
         if evt_type == EventType.HINT_BLOCK.value:
             await self._on_hint_block(event)
             return
@@ -259,9 +313,7 @@ class Envelope:
                 "name": state["name"],
                 "arguments": arguments,
             }
-            await self.stream.data_end(
-                msg_id=state["msg_id"], index=0, data=data
-            )
+            await self.stream.data_end(msg_id=state["msg_id"], index=0, data=data)
             await self.stream.message_complete(
                 msg_id=state["msg_id"],
                 sequence=state["seq"],
@@ -282,6 +334,9 @@ class Envelope:
 
         if evt_type == EventType.TOOL_RESULT_START.value:
             call_id = event.tool_call_id
+            await self.stream.tool_result_start(
+                tool_name=event.tool_call_name, call_id=call_id
+            )
             state = self._tool_calls.get(call_id)
             if state is None:
                 state = {
@@ -350,9 +405,7 @@ class Envelope:
             tool_state = getattr(event, "state", None)
             if hasattr(tool_state, "value"):
                 tool_state = tool_state.value
-            data = self._tool_result_payload(
-                call_id, state, tool_state=tool_state
-            )
+            data = self._tool_result_payload(call_id, state, tool_state=tool_state)
             out_msg_id = state.get("output_msg_id")
             out_seq = state.get("output_seq")
             if out_msg_id is None or out_seq is None:
@@ -365,9 +418,7 @@ class Envelope:
                     role="tool",
                     source_id=call_id,
                 )
-            await self.stream.data_end(
-                msg_id=out_msg_id, index=0, data=data
-            )
+            await self.stream.data_end(msg_id=out_msg_id, index=0, data=data)
             await self.stream.message_complete(
                 msg_id=out_msg_id,
                 sequence=out_seq,
@@ -385,6 +436,10 @@ class Envelope:
             )
             state["output_msg_id"] = None
             state["output_seq"] = None
+            await self.stream.tool_result_end(
+                tool_name=str(state.get("name") or ""),
+                call_id=call_id,
+            )
             return
 
         if evt_type == EventType.DATA_BLOCK_START.value:
@@ -409,15 +464,12 @@ class Envelope:
                 "input_tokens": getattr(event, "input_tokens", 0) or 0,
                 "output_tokens": getattr(event, "output_tokens", 0) or 0,
             }
-            return
-
-        if evt_type == EventType.EXCEED_MAX_ITERS.value:
-            await self._on_exceed_max_iters(
-                getattr(event, "name", "agent") or "agent"
+            await self.stream.model_call_end(
+                input_tokens=int(self._usage["input_tokens"]),
+                output_tokens=int(self._usage["output_tokens"]),
             )
             return
 
-        logger.error("envelope: unsupported agent event %r", event)
         raise ValueError(f"unsupported agent event: {evt_type}")
 
     async def _on_text_start(self, block_id: str) -> None:
@@ -447,17 +499,13 @@ class Envelope:
             state = self._text_blocks[block_id]
         state["text"] += delta
         if delta:
-            await self.stream.text_delta(
-                msg_id=state["msg_id"], index=0, text=delta
-            )
+            await self.stream.text_delta(msg_id=state["msg_id"], index=0, text=delta)
 
     async def _on_text_end(self, block_id: str) -> None:
         state = self._text_blocks.get(block_id)
         if state is None:
             return
-        await self.stream.text_end(
-            msg_id=state["msg_id"], index=0, text=state["text"]
-        )
+        await self.stream.text_end(msg_id=state["msg_id"], index=0, text=state["text"])
         await self.stream.message_complete(
             msg_id=state["msg_id"],
             sequence=state["seq"],
@@ -578,9 +626,7 @@ class Envelope:
         if block_id in blocks_dict:
             existing = blocks_dict[block_id]
             if b64:
-                existing["source"]["data"] = (
-                    existing["source"].get("data", "") + b64
-                )
+                existing["source"]["data"] = existing["source"].get("data", "") + b64
             return
         source: dict[str, Any] = {}
         if url:
@@ -691,37 +737,6 @@ class Envelope:
             metadata=metadata,
         )
 
-    async def _on_exceed_max_iters(self, agent_name: str) -> None:
-        await self._finalize_open_text_and_data()
-        msg_id = create_id("msg")
-        seq = self._next_seq()
-        text = (
-            f"[Warning] Agent '{agent_name}' has reached "
-            f"the maximum number of iterations."
-        )
-        await self.stream.message_start(
-            msg_id=msg_id,
-            sequence=seq,
-            type="message",
-            role="assistant",
-        )
-        await self.stream.text_end(msg_id=msg_id, index=0, text=text)
-        await self.stream.message_complete(
-            msg_id=msg_id,
-            sequence=seq,
-            type="message",
-            role="assistant",
-            content=[
-                {
-                    "object": "content",
-                    "type": "text",
-                    "delta": False,
-                    "index": 0,
-                    "text": text,
-                }
-            ],
-        )
-
     async def _finalize_open_messages(self) -> None:
         for call_id, state in list(self._tool_calls.items()):
             if state.get("output_msg_id") is not None:
@@ -746,19 +761,14 @@ class Envelope:
                 )
                 state["output_msg_id"] = None
                 state["output_seq"] = None
-            elif (
-                state.get("msg_id") is not None
-                and "argument_fragments" in state
-            ):
+            elif state.get("msg_id") is not None and "argument_fragments" in state:
                 arguments = "".join(state.get("argument_fragments") or [])
                 data = {
                     "call_id": call_id,
                     "name": state["name"],
                     "arguments": arguments,
                 }
-                await self.stream.data_end(
-                    msg_id=state["msg_id"], index=0, data=data
-                )
+                await self.stream.data_end(msg_id=state["msg_id"], index=0, data=data)
                 await self.stream.message_complete(
                     msg_id=state["msg_id"],
                     sequence=state["seq"],

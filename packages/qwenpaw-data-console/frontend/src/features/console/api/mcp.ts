@@ -1,27 +1,46 @@
 import { request } from '@/services/request';
 
-export type McpConfigType = 'stdio_mcp' | 'http_mcp';
+export type McpSource = 'builtin' | 'custom';
 
-export interface McpConfig {
-  type: McpConfigType;
-  command?: string;
-  args?: string[] | null;
-  env?: Record<string, string> | null;
-  cwd?: string | null;
-  url?: string;
+export interface HttpMcpConfig {
+  type: 'http_mcp';
+  url: string;
   headers?: Record<string, string> | null;
   timeout?: number | null;
 }
 
-export interface McpClient {
+export interface StdioMcpConfig {
+  type: 'stdio_mcp';
+  command: string;
+  args?: string[] | null;
+  env?: Record<string, string> | null;
+  cwd?: string | null;
+}
+
+export type McpConfig = HttpMcpConfig | StdioMcpConfig;
+
+export interface McpItem {
   name: string;
-  display_name: string;
-  description: string;
   enabled: boolean;
-  builtin: boolean;
+  source: string;
+  description: string;
   is_stateful: boolean;
   mcp_config: McpConfig;
   enable_tools: string[] | null;
+  disable_tools: string[] | null;
+  execution_timeout: number | null;
+}
+
+export interface McpWriteBody {
+  name: string;
+  description: string;
+  enabled: boolean;
+  source: McpSource;
+  is_stateful: boolean;
+  mcp_config: McpConfig;
+  enable_tools: string[] | null;
+  disable_tools: string[] | null;
+  execution_timeout: number | null;
 }
 
 export interface McpTool {
@@ -31,67 +50,55 @@ export interface McpTool {
   input_schema: Record<string, unknown>;
 }
 
-export interface McpClientWrite {
-  name: string;
-  display_name?: string;
-  description?: string;
-  enabled?: boolean;
-  is_stateful?: boolean;
-  mcp_config: McpConfig;
-  enable_tools?: string[] | null;
-}
-
 function mcpPath(name: string): string {
   return encodeURIComponent(name);
 }
 
-export const mcpHubApi = {
+export const mcpApi = {
   list() {
-    return request<{ clients: McpClient[] }>('/mcp');
+    return request<{ mcps: McpItem[] }>('/mcp');
   },
 
-  create(body: McpClientWrite) {
-    return request<{ client: McpClient }>('/mcp', {
+  get(name: string) {
+    return request<McpItem>(`/mcp/${mcpPath(name)}`);
+  },
+
+  create(body: McpWriteBody) {
+    return request<McpItem>('/mcp', {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
-  update(name: string, body: McpClientWrite) {
-    return request<{ client: McpClient }>(`/mcp/${mcpPath(name)}`, {
+  update(name: string, body: McpWriteBody) {
+    return request<McpItem>(`/mcp/${mcpPath(name)}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
   },
 
-  remove(name: string) {
+  delete(name: string) {
     return request<{ deleted: string }>(`/mcp/${mcpPath(name)}`, {
       method: 'DELETE',
     });
   },
 
-  setEnabled(name: string, enabled: boolean) {
-    const action = enabled ? 'enable' : 'disable';
-    return request<{ client: McpClient }>(`/mcp/${mcpPath(name)}/${action}`, {
-      method: 'POST',
-    });
+  enable(name: string) {
+    return request<McpItem>(`/mcp/${mcpPath(name)}/enable`, { method: 'POST' });
   },
 
-  importConfig(config: unknown) {
-    return request<{ clients: McpClient[] }>('/mcp/import', {
-      method: 'POST',
-      body: JSON.stringify({ config }),
-    });
+  disable(name: string) {
+    return request<McpItem>(`/mcp/${mcpPath(name)}/disable`, { method: 'POST' });
   },
 
   listTools(name: string) {
     return request<{ tools: McpTool[] }>(`/mcp/${mcpPath(name)}/tools`);
   },
 
-  setTools(name: string, enableTools: string[] | null) {
-    return request<{ client: McpClient }>(`/mcp/${mcpPath(name)}/tools`, {
+  setTools(name: string, enable_tools: string[] | null, disable_tools: string[] | null) {
+    return request<McpItem>(`/mcp/${mcpPath(name)}/tools`, {
       method: 'PUT',
-      body: JSON.stringify({ enable_tools: enableTools }),
+      body: JSON.stringify({ enable_tools, disable_tools }),
     });
   },
 };

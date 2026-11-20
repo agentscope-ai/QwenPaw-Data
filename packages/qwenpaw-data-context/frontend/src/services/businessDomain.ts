@@ -1,23 +1,48 @@
-import { BusinessDomainQueryParams, BusinessDomainItem } from '@/types/businessDomain';
+import type {
+  BusinessDomainCreateRequest,
+  BusinessDomainQueryParams,
+  BusinessDomainResponse,
+  BusinessDomainUpdateRequest,
+} from '@/types/businessDomain';
+import type { SemanticConfigDeleteResponse, SemanticConfigPage } from '@/types/semanticConfig';
+import { assertSemanticConfigPage, pickSemanticFields } from '@/utils/semanticConfigContract';
 import { request } from '@/utils/request';
 import { semanticConfigApi } from './api';
 
-// 查询业务域列表（分页）
-export const queryBusinessDomainList = (params: BusinessDomainQueryParams) => {
-  return request.get(semanticConfigApi('/biz-domain'), { params });
+const BUSINESS_DOMAIN_API = semanticConfigApi('/biz-domain');
+
+export const queryBusinessDomainList = async (
+  params: BusinessDomainQueryParams = {},
+): Promise<SemanticConfigPage<BusinessDomainResponse>> => {
+  const response = await request.get<unknown>(BUSINESS_DOMAIN_API, {
+    params: {
+      ...pickSemanticFields(params, ['domain_name'] as const),
+      page: params.page ?? 1,
+      size: params.size ?? 20,
+    },
+  });
+  return assertSemanticConfigPage<BusinessDomainResponse>(response);
 };
 
-// 新增业务域
-export const createBusinessDomain = (data: Partial<BusinessDomainItem>) => {
-  return request.post(semanticConfigApi('/biz-domain'), data);
+export const createBusinessDomain = (
+  data: BusinessDomainCreateRequest,
+): Promise<BusinessDomainResponse> => {
+  return request.post(
+    BUSINESS_DOMAIN_API,
+    pickSemanticFields(data, ['domain_name', 'description'] as const),
+  );
 };
 
-// 编辑业务域
-export const updateBusinessDomain = (id: number, data: Partial<BusinessDomainItem>) => {
-  return request.put(semanticConfigApi(`/biz-domain/${id}`), data);
+export const updateBusinessDomain = (
+  id: number,
+  data: BusinessDomainUpdateRequest,
+): Promise<BusinessDomainResponse> => {
+  return request.put(
+    `${BUSINESS_DOMAIN_API}/${id}`,
+    pickSemanticFields(data, ['domain_name', 'description'] as const),
+  );
 };
 
-// 删除业务域
-export const deleteBusinessDomain = (id: string | number) => {
-  return request.delete(semanticConfigApi(`/biz-domain/${id}`));
+export const deleteBusinessDomain = (id: number): Promise<SemanticConfigDeleteResponse> => {
+  return request.delete(`${BUSINESS_DOMAIN_API}/${id}`);
 };

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Settlement data models."""
+"""Settlement 数据模型。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class CardType(str, Enum):
-    """The four kinds of knowledge a card can settle."""
+    """可沉淀项的 4 种类型。"""
 
     metric_caliber = "metric_caliber"
     dimension_def = "dimension_def"
@@ -29,7 +29,7 @@ class CardType(str, Enum):
 
 
 class DismissedFilterResult(BaseModel):
-    """LLM dedupe result against previously dismissed cards."""
+    """LLM dismissed 去重结果。"""
 
     dismissed_indices: list[int] = Field(default_factory=list)
 
@@ -76,7 +76,7 @@ _FIELDS_BY_TYPE: dict[CardType, type[BaseModel]] = {
 
 
 class DetectedItem(BaseModel):
-    """One item the LLM proposed; fields are validated per type."""
+    """LLM 识别出的单个可沉淀项；fields 按 type 做必填校验。"""
 
     type: CardType
     fields: dict[str, str] = Field(default_factory=dict)
@@ -91,11 +91,7 @@ class DetectedItem(BaseModel):
 
 
 class DetectionResult(BaseModel):
-    """Full output of one detection call.
-
-    Items missing required fields are dropped at validation time instead of
-    failing the whole call.
-    """
+    """LLM 检测调用的完整输出。字段不全的 item 在校验时丢弃，不导致整次失败。"""
 
     items: list[DetectedItem] = Field(default_factory=list)
 

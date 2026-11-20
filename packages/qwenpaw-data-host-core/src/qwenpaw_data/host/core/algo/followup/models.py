@@ -73,9 +73,6 @@ class SignalSnapshot(BaseModel):
     entity_aliases: tuple[tuple[str, str], ...] = ()
     artifacts_summary: str = ""
     previous_followups: tuple[str, ...] = ()
-    intent_coverage: str = ""
-    intent_gaps: tuple[str, ...] = ()
-    intent_next_step: str = ""
     has_golden_query: bool = False
 
     def entity_names(self) -> frozenset[str]:
@@ -88,9 +85,7 @@ class SignalSnapshot(BaseModel):
         if self.business_entities:
             return frozenset(self.business_entities)
         return frozenset(
-            entity.name
-            for group in (self.metrics, self.dimensions)
-            for entity in group
+            entity.name for group in (self.metrics, self.dimensions) for entity in group
         )
 
     def alias_map(self) -> dict[str, str]:

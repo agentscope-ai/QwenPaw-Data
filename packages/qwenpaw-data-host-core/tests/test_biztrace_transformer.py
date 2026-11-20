@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -12,14 +13,14 @@ import pytest
 
 from qwenpaw_data.host.core.algo.biztrace import transformer as transformer_module
 from qwenpaw_data.host.core.algo.biztrace.transformer import BizTraceTransformer
-from qwenpaw_data.host.core.api.models.trace import (
-    BizEventSchema,
-    SegmentArtifactSchema,
-    SegmentSchema,
-)
+from qwenpaw_data.host.core.api.models.trace import SegmentArtifactSchema
+from qwenpaw_data.host.core.db.engine import get_session_factory
 from qwenpaw_data.host.core.domain.identity import Identity
 from qwenpaw_data.host.core.domain.preference import ActiveModel, UserRuntimeConfig
+from qwenpaw_data.host.core.repositories.biz_event import BizEventRepository
+from qwenpaw_data.host.core.repositories.segment import SegmentRepository
 from qwenpaw_data.host.core.runtime.context import RunContext
+from qwenpaw_data.host.core.settings import get_settings
 
 # Captured before the fixture below stubs the method out, so the model tests can
 # still drive the real resolution.
@@ -32,6 +33,9 @@ class FakeEnvelope:
     def __init__(self) -> None:
         self.biz_events: list[dict[str, Any]] = []
         self.segments: list[dict[str, Any]] = []
+        # The grader holds this but never enters it: scoring is off in
+        # these tests (no model, no delimiting).
+        self.session_factory = lambda: None
 
     async def send_biz_event(self, biz_event: dict[str, Any]) -> None:
         self.biz_events.append(biz_event)
@@ -67,19 +71,36 @@ def _run_context(
     light: ActiveModel | None = None,
     default: ActiveModel | None = None,
 ) -> RunContext:
-    from qwenpaw_data.host.core.paths import Paths
+    from qwenpaw_data.host.core.paths import UserAgentPaths
 
+    runtime = get_settings().runtime
     return RunContext(
         session_id="ses-1",
         chat_id="chat-1",
         workspace=object(),
-        paths=Paths(home=tmp_path, session_id="ses-1"),
+        paths=UserAgentPaths(
+            home=tmp_path,
+            tenant_id="t1",
+            workspace_id="w1",
+            user_id="u1",
+            agent_id="a1",
+            session_id="ses-1",
+        ),
         user_runtime_config=UserRuntimeConfig(
             default=default or _active(model_id="qwen-plus", name="Qwen Plus"),
             light=light,
+            react_max_iters=20,
+            llm_retry_enabled=True,
+            llm_max_retries=3,
+            context_trigger_ratio=runtime.context_trigger_ratio,
+            context_reserve_ratio=runtime.context_reserve_ratio,
+            tool_result_limit=runtime.tool_result_limit,
+            tool_timeout_enabled=runtime.tool_timeout_enabled,
+            tool_timeout_seconds=runtime.tool_timeout_seconds,
         ),
         request_context={"datasource_id": "ds-1"},
-        identity=Identity(user_id="u1"),
+        identity=Identity(user_id="u1", tenant_id="t1", workspace_id="w1"),
+        session_factory=get_session_factory(),
     )
 
 
@@ -120,9 +141,9 @@ def _recording_build_model(
 ) -> None:
     real = transformer_module.build_model
 
-    def record(model: ActiveModel) -> Any:
+    def record(model: ActiveModel, **kwargs: Any) -> Any:
         seen.append(model)
-        return real(model)
+        return real(model, **kwargs)
 
     monkeypatch.setattr(transformer_module, "build_model", record)
 
@@ -156,7 +177,7 @@ def test_the_agents_own_model_stands_in_without_a_light_one(
 def test_an_unusable_model_leaves_the_turn_rule_based(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def explode(_model: ActiveModel) -> Any:
+    def explode(_model: ActiveModel, **_kwargs: Any) -> Any:
         raise ValueError("api_key is required")
 
     monkeypatch.setattr(transformer_module, "build_model", explode)
@@ -176,7 +197,7 @@ async def test_a_driven_turn_sends_its_cards(tmp_path: Path) -> None:
     assert envelope.biz_events[0]["presentation"]["card_type"] == "text"
 
 
-async def test_the_payload_matches_what_the_stream_accepts(
+async def test_the_payload_matches_what_the_repository_accepts(
     tmp_path: Path,
 ) -> None:
     """A stray key would only fail at ``stream.biz_event(**payload)``."""
@@ -185,23 +206,21 @@ async def test_the_payload_matches_what_the_stream_accepts(
 
     await _drive(transformer, _text_block("blk-1", "结论"))
 
-    accepted = set(BizEventSchema.model_fields)
-    assert set(envelope.biz_events[0]) <= accepted - {"chat_id"}
+    accepted = set(inspect.signature(BizEventRepository.upsert).parameters)
+    assert set(envelope.biz_events[0]) <= accepted - {"self", "chat_id"}
 
 
-def test_the_segment_projection_matches_the_stream_schema() -> None:
+def test_the_segment_projection_matches_its_repository() -> None:
     from qwenpaw_data.host.core.algo.biztrace.models import (
         FrontendArtifact,
         FrontendSegment,
     )
 
-    accepted = set(SegmentSchema.model_fields)
-    assert set(FrontendSegment.model_fields) <= accepted - {"chat_id"}
+    accepted = set(inspect.signature(SegmentRepository.upsert).parameters)
+    assert set(FrontendSegment.model_fields) <= accepted - {"self", "chat_id"}
     # The host's segment schema forbids unknown keys, so an artifact crosses
     # over as name / description / relative_path and nothing else.
-    assert set(FrontendArtifact.model_fields) <= set(
-        SegmentArtifactSchema.model_fields
-    )
+    assert set(FrontendArtifact.model_fields) <= set(SegmentArtifactSchema.model_fields)
 
 
 async def test_the_eof_sentinel_starts_the_flush_before_join(

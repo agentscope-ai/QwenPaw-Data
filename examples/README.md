@@ -14,7 +14,7 @@ least 10 USD.
 
 | Asset | Purpose |
 | --- | --- |
-| `demo_semantic_config.xlsx` | DataBridge semantic configuration for the datasource, domain, dataset, columns, dimensions, metric, and metric formula |
+| `demo_semantic_config.xlsx` | Semantic domain, dataset, columns, dimensions, metric and formula; import binds to an explicitly registered datasource |
 | `demo_kg_doc.docx` | Knowledge Graph document containing the valid-user definition and business events associated with the spike |
 | `init_demo.sh` / `init_demo.ps1` / `init_demo.py` | Repeatable SQLite and PostgreSQL initialization, verification, and DataBridge registration |
 | `smoke_test.py` | Deterministic real-CLI/DataBridge/SQL test using a local model stub |
@@ -50,10 +50,20 @@ uv run python examples/smoke_test.py
 uv run python .\examples\smoke_test.py
 ```
 
-The smoke test starts an isolated DataBridge API and an OpenAI-compatible local
-stub, registers the real PostgreSQL datasource, runs a real `qwenpaw-data run`, and
-checks that the SQL result contains the expected 2026-03-10 average of `45.89`.
-It makes no external model request and does not need a real API key.
+The smoke test starts isolated Host and DataBridge APIs with temporary shared
+SQLite state. Host initializes its Auth/SQL tables before DataBridge starts.
+An OpenAI-compatible local stub requests native MCP `execute_read` against real
+PostgreSQL. The CLI response must contain the expected aggregates, including
+the 2026-03-10 average of `45.89`, and Host must persist a completed SQL chat.
+The fixture explicitly uses a local workspace; Docker isolation is tested
+separately. It does not reuse your runtime database or dotenv configuration.
+
+`uv run python examples/semantic_smoke_test.py` additionally verifies datasource
+management, explicit-datasource workbook import, partial edits, batch deletion,
+graph weaving and reference-protected deletion. It uses a local deterministic
+embedding fixture with real Neo4j, not a real semantic-quality model. Both
+scripts stop their own processes and remove their temporary runtime state;
+they seed the supplied PostgreSQL demo table, so use dedicated demo databases.
 
 ## Full interactive demo
 
@@ -93,9 +103,9 @@ This one command:
 
 1. creates and verifies `examples/demo/data/qwenpaw-data-demo.sqlite`;
 2. starts PostgreSQL with Docker Compose and loads all 475 `dws_gaap_di` rows;
-3. imports `demo_semantic_config.xlsx` into DataBridge; and
-4. attaches the local PostgreSQL credentials to datasource
-   `postgresql-demo-gaap`.
+3. creates or reuses the PostgreSQL datasource `Demo PG - GAAP use case`; and
+4. imports `demo_semantic_config.xlsx`, binding it to the server-generated
+   datasource ID printed by the initializer.
 
 The PostgreSQL service listens on `127.0.0.1:55432` by default:
 
@@ -118,31 +128,80 @@ Open the DataBridge UI:
 3. Wait until the document status is `ready`.
 
 The Excel configuration is already imported by `--register`; do not import it
-again manually. KG extraction and semantic embeddings use the model settings in
-the root `.env`. For a SQL-only test, you can skip this graph-building step and
+again manually. Configure Provider credentials in Host and select the Context
+LLM and embedding models before graph publication or KG extraction. For a
+SQL-only test, you can skip this graph-building step and
 run the deterministic smoke test instead.
+
+#### Existing SQLite datasource: build the table-and-column graph
+
+Use this path if the sample is **already registered** in a writable, local
+DataBridge and SQL works, but the agent cannot find its tables in the graph.
+It discovers the physical schema; it does not import the semantic workbook,
+extract KG documents, or call a model. Do not rerun the PostgreSQL demo seeder.
+
+1. **Prepare the correct Neo4j database.** For a fixed local instance, run
+   `uv run python scripts/common/initialize_local_graph.py` from the repository
+   root with `GRAPH_BACKEND=neo4j` and the same `NEO4J_URI`, `NEO4J_DATABASE`,
+   `NEO4J_USER`, and `NEO4J_PASSWORD` as the running DataBridge. Supply credentials
+   from your local configuration. Check the Bolt port explicitly: the default
+   is `7687`, which can be a different instance. This command ensures indexes
+   and constraints; it does **not** populate the graph. For a provisioned,
+   registered Workspace, use its [provisioning workflow](../packages/qwenpaw-data-context/src/context_manager/store/README.md#workspace-开通与存量初始化) instead.
+2. **Discover the SQLite schema.** On the DataBridge HTTP origin used by your
+   Portal (not the Bolt port), call
+   `POST /api/semantic-config/datasources/{datasource_id}/explore` with your
+   normal local authentication. When a local API token is configured, send
+   `X-QwenPaw-Data-API-Token` to that loopback origin only. An `accepted`
+   response means queued, not finished. Poll
+   `GET /api/semantic-config/datasources/{datasource_id}/explore-scope` until
+   `last_status` is `ok`; inspect `last_counts` and `last_error` before continuing.
+3. **Make the result visible to chat.** Call `POST /api/v1/mg/userspace/sync`
+   with the same identity. This pulls the workspace's published metadata into
+   the graph the agent reads (the default local identity in no-login mode).
+   Confirm `conflict_count: 0` and `GET /api/v1/mg/userspace/sync-status` →
+   `needs_sync: false`. If conflicts are reported, review them before resolving.
+4. **Verify through the agent's read path.** Use DataBridge MCP
+   `get_graph_schema`, then `query_graph` with the query below. Bind `$ds` to
+   the registered datasource ID, not its display name:
+
+   ```cypher
+   MATCH (s:DataSource)-[r:HAS]->(t:Table)-[e:HAS]->(c:Column)
+   WHERE s.datasource_id = $ds
+   RETURN t.name AS table_name, c.name AS field, c.data_type AS data_type
+   ORDER BY table_name, field
+   ```
+
+   For the bundled SQLite sample, expect seven fields on **`main.dws_gaap_di`**:
+   `ds`, `gaap_val`, `product`, `region`, `user_id`, `user_type`, and
+   `ytd_gaap`. Query by datasource first: filtering on the unqualified table
+   name would hide a successful import. To also publish metrics, dimensions,
+   and their definitions, use the semantic workbook and weave workflow above,
+   bound to the intended datasource.
 
 ### 4. Run the analysis
 
-Verify that the fixed demo datasource is visible:
+Find the generated ID for `Demo PG - GAAP use case`:
 
 ```bash
 qwenpaw-data datasource list
 ```
 
-Then run:
+Then replace `DEMO_DATASOURCE_ID` and `HOST_ORIGIN` with that ID and your running
+Host origin (for example, `http://127.0.0.1:8088`):
 
 ```bash
 # macOS / Linux
 qwenpaw-data run \
+  --host-url HOST_ORIGIN \
   --no-stream \
-  --datasource-id postgresql-demo-gaap \
+  --datasource-id DEMO_DATASOURCE_ID \
   "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
 
 ```powershell
 # Windows PowerShell
-qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
+qwenpaw-data run --host-url HOST_ORIGIN --no-stream --datasource-id DEMO_DATASOURCE_ID "Analyze the average GAAP value of valid users for product X during March 2026; show the trend over time and explain any spikes with relevant KG events"
 ```
 
 The expected peak is 2026-03-10, with an average GAAP value of approximately
@@ -209,8 +268,8 @@ contract.
   macOS/Linux or `.\examples\init_demo.ps1 -SqliteOnly` on Windows.
 - **Registration cannot reach DataBridge:** start the platform lifecycle script
   and confirm `http://127.0.0.1:8765/api/health` responds.
-- **KG ingestion fails:** verify `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
-  `LLM_MODEL`, and the embedding configuration in `.env`.
+- **KG ingestion fails:** verify Host Provider credentials and the Context LLM
+  and embedding selections, including the workspace embedding-space contract.
 - **PostgreSQL reports that `dws_gaap_di` is missing:** rerun the platform demo
   initializer and check `docker compose -f examples/docker-compose.yml ps`.
 - **The analysis returns no March data:** include the explicit March 2026 date

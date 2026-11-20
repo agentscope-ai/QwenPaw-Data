@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
 """Materialize execute_sql CSV into the session artifact directory."""
+
 from __future__ import annotations
 
 import json
 import logging
-import time
-from pathlib import Path, PurePath
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolResponse
 
-from qwenpaw_data.host.core.cm_sql_artifact import (
+from qwenpaw_data.host.core.integrations.cm import (
     SqlArtifactError,
-    SqlArtifactLogContext,
     is_execute_sql_tool,
     materialize_execute_sql_result,
 )
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
+    from qwenpaw_data.host.core.runtime.context import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -40,18 +40,10 @@ _MATERIALIZATION_ERROR = json.dumps(
 
 
 class SqlArtifactMiddleware(MiddlewareBase):
-    """Copy CM execute_sql CSV into the session artifacts before model context."""
+    """Copy CM execute_sql CSV into artifact_dir before the result hits context."""
 
-    def __init__(
-        self,
-        *,
-        host_artifact_dir: Path,
-        model_artifact_dir: PurePath,
-        session_id: str | None = None,
-    ) -> None:
-        self._host_artifact_dir = host_artifact_dir
-        self._model_artifact_dir = model_artifact_dir
-        self._session_id = session_id
+    def __init__(self, *, run_context: RunContext) -> None:
+        self._run_context = run_context
 
     async def on_acting(  # type: ignore[override]
         self,
@@ -60,27 +52,17 @@ class SqlArtifactMiddleware(MiddlewareBase):
         next_handler: Callable[..., AsyncGenerator],
     ) -> AsyncGenerator[Any, None]:
         name = getattr(input_kwargs["tool_call"], "name", "")
-        prefixes = agent._cm_mcp_tool_prefixes
-        context = getattr(agent, "_request_context", {}) or {}
-        token = context.get("access_token")
-        log_context = SqlArtifactLogContext(
-            session_id=self._session_id,
-            backend=context.get("datasource_id"),
-        )
+        token = getattr(agent, "_request_context", {}).get("access_token")
         async for chunk in next_handler(**input_kwargs):
-            yield await self._rewrite(name, chunk, prefixes, token, log_context)
+            yield await self._rewrite(name, chunk, token)
 
     async def _rewrite(
         self,
         name: str,
         chunk: Any,
-        prefixes: set[str],
         token: str | None,
-        log_context: SqlArtifactLogContext,
     ) -> Any:
-        if not isinstance(chunk, ToolResponse) or not is_execute_sql_tool(
-            name, prefixes
-        ):
+        if not isinstance(chunk, ToolResponse) or not is_execute_sql_tool(name):
             return chunk
         if not chunk.content:
             return chunk
@@ -88,27 +70,29 @@ class SqlArtifactMiddleware(MiddlewareBase):
         text = getattr(first, "text", None)
         if not isinstance(text, str):
             return chunk
-        started = time.monotonic()
         try:
             rewritten = await materialize_execute_sql_result(
                 text,
-                artifact_dir=self._host_artifact_dir,
-                model_artifact_dir=self._model_artifact_dir,
+                artifact_dir=self._run_context.paths.artifact_dir,
                 access_token=token,
-                log_context=log_context,
             )
         except SqlArtifactError as exc:
             logger.error(
-                "execute_sql artifact failed: phase=%s duration_ms=%d "
-                "error_type=%s context=%s",
-                exc.phase,
-                int((time.monotonic() - started) * 1000),
+                "execute_sql artifact failed: error_type=%s",
                 type(exc.__cause__ or exc).__name__,
-                log_context,
             )
             chunk.content = [TextBlock(type="text", text=_MATERIALIZATION_ERROR)]
             chunk.state = ToolResultState.ERROR
             return chunk
         if rewritten != text:
-            first.text = rewritten
+            payload = json.loads(rewritten)
+            paths = self._run_context.paths
+            relative = (
+                Path(payload["file_path"]).relative_to(paths.artifact_dir).as_posix()
+            )
+            payload["file_path"] = str(
+                PurePosixPath(paths.agent_artifact_dir(self._run_context.workspace))
+                / relative
+            )
+            first.text = json.dumps(payload, ensure_ascii=False)
         return chunk

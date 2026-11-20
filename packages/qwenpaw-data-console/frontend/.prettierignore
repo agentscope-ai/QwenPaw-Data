@@ -1,0 +1,15 @@
+# prettier 会自动遵守同目录的 .gitignore（node_modules / dist 已在其中），
+# 这里只补它没覆盖的。
+
+# npm 自己维护的锁文件
+package-lock.json
+
+# 给 node_modules 打的补丁（内容是 diff，不是源码）
+patches
+
+# 二进制资源
+public
+
+# 文档暂不纳入：仓库里是大量中文长文档，重排噪音大、收益低。
+# 想纳入就删掉这行，重跑 `npm run format` 看 diff 能不能接受。
+*.md

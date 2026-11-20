@@ -12,26 +12,38 @@
 
 **QwenPaw-Data 是一个面向企业数据分析的智能体数据系统。**
 
+用[独立浏览器控制台](#独立浏览器控制台)就能提问、查看分析步骤、打开生成的报告。不需要安装 QwenPaw App，也不需要注册账号。
+
 企业数据分析正在成为自主智能体的重要方向。它运行在开放、模糊且持续变化的环境中：业务概念需要锚定到正确的数据实体，分析过程需要在模糊反馈下保持可复现，长链路工作流需要在真实企业数据上执行，并保留分析产物、来源记录和人类中途干预的空间。
 
 QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织系统能力。它将分散在数仓、看板、业务文档、交互日志和历史任务中的异构企业资产整理为可治理、可演进的分析上下文，并将自然语言请求转化为端到端工作流，覆盖数据理解、数据获取、数据分析、报告生成和辅助决策。
 
 完整的系统级说明可参考 [技术报告](https://arxiv.org/pdf/2607.11019)。
 
-## 版本与 QwenPaw App 预告
+## 版本与独立界面预览
 
+OSS 本机版不设用户账号，无需登录。会话、沉淀项和定时任务仍归本机身份所有。
+本机初始化和启动见下文；共享服务栈的开发流程另见[脚本说明](scripts/README.md)。
+
+- **QwenPaw-Data 0.4.0 预览：** DataBridge 升级至 CM 1.0，支持经审核的自定义技能更新和多智能体协作。详见[版本亮点](./CHANGELOG.md#040-版本亮点)。
 - **已发布：QwenPaw-Data 0.3.x。** 独立部署的 Engine 提供分析会话、执行事件及产物的
   HTTP / 可重放 SSE 接口。详见
   [0.3.0 发布说明](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
   和 [0.3.1 修复](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.1)。
-- **即将推出：QwenPaw Data App 0.3.0。** 在 QwenPaw 的 Data 工作台和渠道会话中，
-  串联数据源选择、问题澄清、可追踪分析、报告预览与后续追问。更新正在
-  [QwenPaw #7637](https://github.com/agentscope-ai/QwenPaw/pull/7637) 中评审，发布日期待定。
-  详见 [发布预告、配置入口与版本说明](docs/QWENPAW_APP_ZH.md)。
+- **可选：QwenPaw Data App 集成。** 如果希望从 QwenPaw 工作区或渠道会话进入控制台，而不是单独运行，请参阅 [App 预览与配置说明](docs/QWENPAW_APP_ZH.md)。
 
-[![QwenPaw Data App 预览：会话工作区中的分析步骤、结论与产物](assets/qwenpaw-app/session-workspace.png)](docs/QWENPAW_APP_ZH.md)
+**独立控制台。** 在这次 GAAP SQLite 示例会话中，智能体列出了 `main.dws_gaap_di` 的 7 个字段。在同一个会话里可以下载 CSV 产物，也可以回看之前的对话轮次。
 
-*QwenPaw Data App 预览界面，使用 GAAP 演示数据。点击进入发布预告，查看报告、澄清、轨迹及产物截图。*
+[![GAAP 分析会话：字段清单、可下载的 CSV 和对话轮次](assets/standalone/gaap-session.webp)](assets/standalone/gaap-session.webp)
+
+<details>
+<summary>在 DataBridge 图谱中心查看同一份样例</summary>
+
+元数据图展示了 SQLite 数据源、数据表和 7 个字段之间的关系：从数据源连到表，再从表连到字段，共 9 个节点、8 条边。
+
+[![以 main.dws_gaap_di 为中心的 DataBridge 元数据图](assets/standalone/gaap-metadata-graph.webp)](assets/standalone/gaap-metadata-graph.webp)
+
+</details>
 
 ## 核心思路
 
@@ -47,7 +59,7 @@ QwenPaw-Data 通过三个协同子系统实现这一拆解：
 | --- | --- | --- |
 | **DataBridge** | 事实锚定 | 元数据、业务知识、历史轨迹、指标定义、数据血缘和任务相关证据。 |
 | **Skill-Hub** | 方法编排 | 路由、规划、流程和原子分析技能，以及相关参考资料、脚本和质量要求。 |
-| **Host** | 执行控制 | DAG 规划、子智能体调度、工具调用、默认在容器工作区中执行、产物登记、反思和恢复。 |
+| **Host** | 执行控制 | 任务规划、智能体编排、工具调用、可配置的工作区执行、产物登记、反思和恢复。 |
 
 三个子系统共同提供四类数据分析能力：可信事实锚定、标准化分析方法、可控制的长链路执行，以及可自演进的数据资产。
 
@@ -93,13 +105,13 @@ QwenPaw-Data 面向数据团队日常处理的严肃分析任务，包括：
 
 ## 接入方式
 
-QwenPaw-Data 可通过 CLI 或无界面的 Engine 服务独立运行，DataBridge 提供管理界面。
-QwenPaw App 增加平台工作区和渠道入口；面向 QPD 0.3 的集成当前处于预览阶段。
+交互式分析可直接使用独立控制台；自动化和平台集成可使用 CLI 或 Host API。
 
 | 模式 | 用途 | 典型用户 | 运行形态 |
 | --- | --- | --- | --- |
+| **[独立控制台](#独立浏览器控制台)** | 提问、查看分析过程、打开会话报告和文件 | 分析师 | 本机浏览器界面，连接 Host，也可在同一地址提供 DataBridge 管理界面。 |
 | **DataBridge UI** | 管理图记忆、语义配置及相关 DataBridge 资产 | 分析师、平台运营 | 本地管理界面，后端对接 DataBridge API。 |
-| **CLI** | 平台集成、二次开发和本地自动化 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 提供意图理解、任务规划和工作流执行等能力。 |
+| **CLI** | 平台集成与本地管理 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 管理数据源、语义配置和诊断；智能体执行由 Host 和 Console 承担。 |
 | **Headless Engine** | 将分析能力接入宿主或前端 | 应用开发者 | [HTTP + 可重放 SSE 服务](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra)。 |
 | **QwenPaw App — QPD 0.3 预览** | 从 QwenPaw 工作区和渠道发起数据分析 | QwenPaw 用户 | 内嵌 Data Console 与渠道桥接；详见 [发布预告与使用入口](docs/QWENPAW_APP_ZH.md)。 |
 
@@ -110,7 +122,7 @@ QwenPaw-Data 采用 Python + uv 工作区的单仓库结构。
 当前仓库主要包含：
 
 - **DataBridge**：管理元数据、业务知识、历史轨迹、图记忆及其管理界面。
-- **Host Core / CLI**：共享 Host 编排能力与 CLI 执行入口。
+- **Host Core / CLI**：Host 编排能力与 CLI 管理、诊断入口。
 - **数据分析技能**：可复用的分析技能及配套资源。
 
 ```text
@@ -122,6 +134,17 @@ assets/                    # 品牌与文档资源
 ```
 
 ## 快速开始：从 clone 到第一个数据任务
+
+### 独立浏览器控制台
+
+先启动 [Host](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra)（此例为 `127.0.0.1:8766`）和 DataBridge（`127.0.0.1:8765`）。在启动控制台的终端设置 `QWENPAW_DATA_API_TOKEN`，值与 Host 的服务令牌一致，然后运行：
+
+```sh
+pip install qwenpaw-data-console
+qwenpaw-data-console --host-url http://127.0.0.1:8766 --bridge-url http://127.0.0.1:8765
+```
+
+打开[控制台](http://127.0.0.1:8767/console)发起分析，或打开 [DataBridge](http://127.0.0.1:8767/databridge/) 管理数据源和语义配置。安装包自带两个界面，不需要 Node.js，也不会代为启动后端服务。只连接 Host 时可省略 `--bridge-url`。从源码运行则需先执行一次 `python scripts/build_console.py` 构建界面。独立的 DataBridge 令牌和品牌配置见[控制台说明](packages/qwenpaw-data-console/README.md)。
 
 ### 通过 PyPI 安装
 
@@ -235,6 +258,8 @@ Get-Command qwenpaw-data
 
 ### 4. 在终端 A 启动本地服务
 
+如需使用控制台，请在启动前为 DataBridge、Host 和控制台设置相同的 `QWENPAW_DATA_API_TOKEN`。这是服务之间的凭据，不是浏览器登录密码。
+
 ```bash
 # macOS / Linux
 python3 scripts/start_local.py
@@ -244,7 +269,13 @@ python3 scripts/start_local.py
 .\scripts\start_local.ps1
 ```
 
-该命令会启动本地 Neo4j、DataBridge API 和管理界面，并持续占用当前终端。如果 DataBridge UI 端口 `3000` 或 API 端口 `8765` 已被占用，它会安全失败，不会终止无关进程。
+该命令启动本地 Neo4j、DataBridge API 和 DataBridge 管理界面，不会启动用于对话的 Host 或独立控制台。如需对话，请在另一终端激活仓库的 Python 环境，启动 Host：
+
+```sh
+python -m uvicorn --factory qwenpaw_data.host.core.api.app:create_app --host 127.0.0.1 --port 8766 --workers 1
+```
+
+保持后端运行，再开一个终端，用同一个服务令牌[启动控制台](#独立浏览器控制台)。
 
 默认地址：
 
@@ -268,9 +299,7 @@ examples/init_demo.sh --register
 .\examples\init_demo.ps1 -Register
 ```
 
-命令可重复运行，会生成 475 行合成数据并创建固定数据源
-`postgresql-demo-gaap`。它不会自动上传知识图谱文档，因为该步骤会调用
-`.env` 中配置的模型。
+命令可重复运行，会生成 475 行合成数据，创建或复用名为 `Demo PG - GAAP use case` 的数据源，并打印服务端分配的 ID。它不会自动上传知识图谱文档。
 
 ### 6. 构建 demo 图谱
 
@@ -297,24 +326,18 @@ qwenpaw-data datasource list
 ```
 
 命令应解析到初始化程序发布的 launcher，`datasource list` 应包含
-`postgresql-demo-gaap`。CLI
+`Demo PG - GAAP use case`。CLI
 会自动加载仓库根目录 `.env`；只有需要使用其他 dotenv 文件时才设置
 `QWENPAW_DATA_ENV_FILE`。
 
 ### 8. 执行真实数据任务
 
-建议第一次使用非流式模式，便于查看完整执行摘要：
+启动[独立浏览器控制台](#独立浏览器控制台)，配置模型并选择
+`Demo PG - GAAP use case`，提交：
 
-```bash
-qwenpaw-data run \
-  --no-stream \
-  --datasource-id postgresql-demo-gaap \
-  "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
-```
+> 分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值。
 
-```powershell
-qwenpaw-data run --no-stream --datasource-id postgresql-demo-gaap "分析 2026 年 3 月 product X 有效用户的平均 GAAP 值，展示时间趋势，并结合相关 KG 事件解释异常峰值"
-```
+也可通过 CLI 的 `run`、`chat`、`plan`、`execute` 连接同一个 Host（`--host-url` 或 `QWENPAW_DATA_HOST_URL`）。模型、工具和会话由 Host 管理；不再支持的是旧的进程内嵌入入口。
 
 预期峰值出现在 2026-03-10，有效用户平均 GAAP 值约为 `45.89`。默认产物
 目录在 macOS/Linux 上是
@@ -359,31 +382,25 @@ DataBridge-only `.sh` 脚本仅作为 macOS/Linux 便捷入口。
 
 ## 工作区隔离
 
-智能体工具在工作区内执行，后端按次选择（`--workspace` 参数或
-`QWENPAW_DATA_WORKSPACE` 环境变量，默认 `docker`）：
+Host 服务在启动时通过 `QWENPAW_DATA_WORKSPACE_BACKEND` 选择工作区后端。
+默认值为 `docker`，需要运行中的 Docker daemon；初始化失败会停止启动，不会
+自动回退到本地执行。已停用的 CLI `--workspace` 参数不能配置当前服务。
 
 | 后端 | 隔离级别 | 依赖 | 适用场景 |
 |------|---------|------|---------|
-| `docker`（默认） | 容器级工作区隔离：全部工具在每会话独立容器内执行，仅挂载任务工作区 | 运行中的 Docker daemon | 正常任务执行 |
-| `local` | 文件工具限定路径，但 shell 仍以宿主机用户权限执行 | 显式指定 `--workspace local` | 仅限可信开发或紧急排障 |
+| `docker`（默认） | 容器工作区执行 | 运行中的 Docker daemon | 需要与宿主机分离的任务 |
+| `local`（显式启用） | shell 使用宿主机用户权限，不是沙箱 | 可信部署及输入；设置 `QWENPAW_DATA_WORKSPACE_BACKEND=local` | 仅限可信开发 |
 
 ```bash
 # 先自检环境（Docker daemon、Neo4j、DataBridge API）
 qwenpaw-data doctor
 
-# Docker 是默认 workspace
-qwenpaw-data run --datasource-id postgresql-demo-gaap "..."
-
-# 显式使用不安全的宿主机执行
-qwenpaw-data run --workspace local "..."
+# 在启动 Host 前设置到其进程环境中
+export QWENPAW_DATA_WORKSPACE_BACKEND=docker
 ```
 
-权限策略默认值为 `auto`（可通过 `--permission-mode` 或
-`QWENPAW_DATA_PERMISSION_MODE` 覆盖）。Docker 后端使用 `bypass`，因为每次运行的
-容器本身就是执行边界。交互式本地 CLI 使用 `accept_edits`：任务工作区内的
-文件编辑被允许，更高风险调用需要终端确认。无人值守本地执行使用
-`dont_ask`，会拒绝原本需要确认的调用。子智能体无法独立请求确认，因此
-此类调用默认拒绝。
+工具确认策略在 Console 中配置。确认提示不是执行沙箱，也不会降低本地 shell
+命令所拥有的宿主机权限。
 
 `docker` 后端说明：
 
@@ -410,14 +427,10 @@ QwenPaw-Data 面向**本地优先、单用户部署**设计。将任何服务暴
   `QWENPAW_DATA_API_TOKEN` 或带 scope 的 `QWENPAW_DATA_API_KEYS`，使 DataBridge REST
   与 HTTP MCP 强制 Bearer token 认证，并用 `QWENPAW_DATA_CORS_ORIGINS` 限制
   精确可信来源。
-- **执行**：Host 默认在每次运行独立的 **Docker** 工作区中执行智能体工具。
-  显式 `--workspace local` 本地执行入口会在你的机器上以当前用户权限执行
-  shell 命令，**不是沙箱**。文件/搜索工具仍限制在任务工作区内，超时或
-  取消命令在本地和 Docker 工作区中都会整组终止。本地 PowerShell/Bash 在
-  权限批准后仍能执行任意宿主机用户操作。权限策略是工作区感知的：Docker
-  在容器边界内默认 `bypass`；交互式本地运行使用 `accept_edits` 并带
-  终端确认；无人值守本地运行使用 `dont_ask` 并默认拒绝确认类调用。这
-  并不意味着 Docker 后端是加固沙箱；其资源和网络限制仍如上文所述。
+- **执行**：Host 服务默认使用 **Docker** 工作区，Docker 不可用时不会回退到本地。
+  显式设置 `QWENPAW_DATA_WORKSPACE_BACKEND=local` 后，本地 shell 工具即使经过
+  确认仍具有宿主机用户权限；路径检查与确认提示都不是沙箱。Docker 的资源和
+  网络限制仍如上文所述。
 - **授权**：API key 可分别授予 `query`、`write`、`manage`、
   `credentials:manage`；旧 `QWENPAW_DATA_API_TOKEN` 作为全权限兼容键保留。
   使用 scoped key 的客户端应设置 `QWENPAW_DATA_CLIENT_API_TOKEN`；所有 API 路由
@@ -448,6 +461,7 @@ printf %s 'your-long-random-token' | shasum -a 256
 
 - [资源治理](./docs/RESOURCE_GOVERNANCE.md)
 - [兼容性策略](./docs/COMPATIBILITY.md)
+- [架构决策：internal 基线与 OSS 薄适配层](./docs/adr/0001-internal-baseline-and-oss-adapters.md)
 - [发布流程与公开历史边界](./docs/RELEASING.md)
 - [安全策略](./SECURITY.md)
 - [支持渠道与版本策略](./SUPPORT.md)

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ApiModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class ErrorBodySchema(ApiModel):
@@ -19,6 +19,12 @@ class ErrorBodySchema(ApiModel):
 class AttachmentRefSchema(ApiModel):
     attachment_id: str
     filename: str
+
+
+class UserSchema(ApiModel):
+    user_id: str
+    username: str
+    display_name: str | None = None
 
 
 class DatasourceOptionSchema(ApiModel):
@@ -33,3 +39,6 @@ class DatasetOptionSchema(ApiModel):
     id: str
     name: str
     description: str = ""
+
+
+SCHEMA_VERSION = 5

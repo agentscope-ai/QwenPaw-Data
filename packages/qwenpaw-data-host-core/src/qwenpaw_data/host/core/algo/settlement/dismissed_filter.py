@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DismissedFilter: drop items semantically equal to cards the user dismissed."""
+"""DismissedFilter：LLM 判断待推荐项是否与已拒绝卡片语义等价。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from qwenpaw_data.host.core.algo.biztrace.llm import StructuredLLM
+from agentscope.message import SystemMsg, UserMsg
+from agentscope.model import ChatModelBase
+from qwenpaw_data.tracing.core.names import Step
 
-from .calls import StructuredCallError, structured_call
+from .llm import DEFAULT_ATTEMPTS, DEFAULT_TIMEOUT, StructuredCallError, structured_call
 from .models import DetectedItem, DismissedFilterResult
 
 logger = logging.getLogger(__name__)
@@ -22,33 +24,39 @@ def _load_prompt() -> str:
 
 
 class DismissedFilter:
-    """LLM-judged dedupe of candidate items against dismissed cards."""
+    """判断待推荐项是否与已拒绝卡片语义等价，过滤掉等价项。"""
 
     def __init__(
-        self, llm: StructuredLLM, *, system_prompt: str | None = None
+        self, model: ChatModelBase, *, system_prompt: str | None = None
     ) -> None:
-        self._llm = llm
+        self._model = model
         self._system_prompt = system_prompt or _load_prompt()
 
     async def filter(
         self,
         items: list[DetectedItem],
         dismissed_cards: list[dict[str, Any]],
+        *,
+        timeout: float = DEFAULT_TIMEOUT,
+        attempts: int = DEFAULT_ATTEMPTS,
     ) -> list[DetectedItem]:
-        """Return the subset not equivalent to a dismissed card.
-
-        When the LLM fails, the whole batch is dropped: uncertain → skip.
-        """
+        """返回去除已拒绝等价项后的子集。LLM 失败时整批不推（不确定不推）。"""
         if not dismissed_cards:
             return items
 
         user_content = self._build_user_message(items, dismissed_cards)
+        messages = [
+            SystemMsg(name="system", content=self._system_prompt),
+            UserMsg(name="user", content=user_content),
+        ]
         try:
             result = await structured_call(
-                self._llm,
-                system=self._system_prompt,
-                user=user_content,
-                schema=DismissedFilterResult,
+                self._model,
+                messages,
+                DismissedFilterResult,
+                timeout=timeout,
+                attempts=attempts,
+                source_step=Step.SETTLEMENT_DISMISSED_FILTER,
             )
             removed = set(result.dismissed_indices)
             kept = [item for i, item in enumerate(items) if i not in removed]

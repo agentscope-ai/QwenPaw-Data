@@ -32,20 +32,21 @@ export interface ApiError {
 
 /** Unified error codes */
 export type ApiErrorCode =
-  | "VALIDATION_ERROR"
-  | "INVALID_KEY_FORMAT"
-  | "WRITE_BLOCKED"
-  | "NOT_FOUND"
-  | "CONFLICT_DETECTED"
-  | "DEPENDENCY_EXISTS"
-  | "INTERNAL_ERROR";
+  | 'VALIDATION_ERROR'
+  | 'INVALID_KEY_FORMAT'
+  | 'WRITE_BLOCKED'
+  | 'NOT_FOUND'
+  | 'CONFLICT_DETECTED'
+  | 'DEPENDENCY_EXISTS'
+  | 'INTERNAL_ERROR';
 
 // ------------------------------------------------------------
 // 2. Common Graph Models (Section 7)
 // ------------------------------------------------------------
 
 /** Zone enum — which graph layer a node belongs to */
-export type Zone = "metadata" | "trace" | "knowledge" | "_shared" | "cross";
+export type ExplorerZone = 'metadata' | 'knowledge' | 'user';
+export type Zone = ExplorerZone | '_shared' | 'cross';
 
 /** Universal graph node model.
  *  Supports two API formats:
@@ -54,13 +55,14 @@ export type Zone = "metadata" | "trace" | "knowledge" | "_shared" | "cross";
 export interface ApiGraphNode {
   // Documented API fields
   key?: string;
-  label: string;         // Documented: node type (e.g. "Metric"); Actual: display name (e.g. "阿里巴巴")
+  label: string; // Documented: node type (e.g. "Metric"); Actual: display name (e.g. "阿里巴巴")
   zone?: Zone;
   display_name?: string;
   properties?: Record<string, unknown>;
   // Actual API fields (Explorer endpoints use alternative names)
-  id?: string;            // Alias for key
-  group?: string;         // Alias for label (node type)
+  id?: string; // Alias for key
+  group?: string; // Alias for label (node type)
+  props?: Record<string, unknown>; // Alias for properties (Explorer API)
 }
 
 /** Universal graph edge model.
@@ -75,16 +77,19 @@ export interface ApiGraphEdge {
   properties?: Record<string, unknown>;
   is_cross_graph?: boolean;
   // Actual API fields (Explorer endpoints use alternative names)
-  from?: string;         // Alias for source_key
-  to?: string;           // Alias for target_key
-  type?: string;         // Alias for rel_type
-  props?: Record<string, unknown>;  // Alias for properties
+  from?: string; // Alias for source_key
+  to?: string; // Alias for target_key
+  type?: string; // Alias for rel_type
+  props?: Record<string, unknown>; // Alias for properties
 }
 
-/** Graph data — nodes + edges bundle */
 export interface GraphData {
   nodes: ApiGraphNode[];
   edges: ApiGraphEdge[];
+  raw?: {
+    warnings?: string[];
+    [key: string]: unknown;
+  };
 }
 
 // ------------------------------------------------------------
@@ -96,8 +101,10 @@ export interface CypherRequest {
   cypher: string;
   params?: Record<string, unknown>;
   limit?: number;
-  response_format?: "auto" | "graph" | "table";
+  response_format?: 'auto' | 'graph' | 'table';
   datasource_id?: string;
+  /** Narrowing hint: pin the injected owner scope to the global MG. */
+  scope?: 'auto' | 'global_mg';
 }
 
 /** Cypher query summary info */
@@ -107,14 +114,12 @@ export interface CypherSummary {
   edge_count: number;
   labels_hit: string[];
   elapsed_ms: number;
-  truncated: boolean;
 }
 
 /** POST /api/v1/admin/cypher — response data */
 export interface CypherResponse {
   rows: Record<string, unknown>[];
   count: number;
-  truncated: boolean;
   columns: string[];
   graph: GraphData | null;
   summary: CypherSummary;
@@ -250,7 +255,7 @@ export interface DatasetListParams {
 /** MG edge item (from nodes/{key}/edges) */
 export interface MgEdgeItem {
   rel_type: string;
-  direction: "in" | "out" | "both";
+  direction: 'in' | 'out' | 'both';
   source_key: string;
   target_key: string;
   target_label: string;
@@ -260,7 +265,7 @@ export interface MgEdgeItem {
 
 /** GET /api/v1/admin/mg/nodes/{key}/edges — query params */
 export interface MgNodeEdgesParams {
-  direction?: "in" | "out" | "both";
+  direction?: 'in' | 'out' | 'both';
   rel_type?: string;
   page?: number;
   page_size?: number;
@@ -272,164 +277,11 @@ export interface MgNodeEdgesResponse {
 }
 
 // ------------------------------------------------------------
-// 5. TG (Trace Graph) Module Types
-// ------------------------------------------------------------
-
-/** Task status enum */
-export type TaskStatus =
-  | "success"
-  | "failed"
-  | "running"
-  | "archived"
-  | "invalidated";
-
-/** Task list item */
-export interface TaskListItem {
-  key: string;
-  goal: string;
-  status: TaskStatus;
-  task_signature: string;
-  created_at: string;
-  step_count: number;
-  claim_count: number;
-}
-
-/** GET /api/v1/admin/tg/tasks — query params */
-export interface TaskListParams {
-  status?: TaskStatus;
-  date_from?: string;
-  date_to?: string;
-  q?: string;
-  page?: number;
-  page_size?: number;
-}
-
-/** PATCH /api/v1/admin/tg/tasks/{key}/status — body */
-export interface TaskStatusUpdatePayload {
-  status: "archived" | "invalidated";
-  reason?: string;
-}
-
-/** POST /api/v1/admin/tg/tasks/batch-archive — body */
-export interface TaskBatchArchivePayload {
-  task_keys: string[];
-  reason?: string;
-}
-
-/** POST /api/v1/admin/tg/tasks/batch-delete — body */
-export interface TaskBatchDeletePayload {
-  task_keys: string[];
-}
-
-/** Claim subject type enum */
-export type ClaimSubjectType =
-  | "metric_mapping"
-  | "join_path"
-  | "caliber_rule"
-  | "time_parsing"
-  | "general";
-
-/** Claim list item */
-export interface ClaimListItem {
-  key: string;
-  text: string;
-  confidence: number;
-  subject_type: ClaimSubjectType;
-  predicate: string;
-  object: string;
-  task_key: string;
-  valid_at: string;
-  valid_to: string | null;
-}
-
-/** GET /api/v1/admin/tg/claims — query params */
-export interface ClaimListParams {
-  subject_type?: ClaimSubjectType;
-  q?: string;
-  valid?: boolean;
-  task_key?: string;
-  page?: number;
-  page_size?: number;
-}
-
-/** PATCH /api/v1/admin/tg/claims/{key} — body */
-export interface ClaimUpdatePayload {
-  text?: string;
-  confidence?: number;
-  subject_type?: ClaimSubjectType;
-  predicate?: string;
-  object?: string;
-}
-
-/** POST /api/v1/admin/tg/claims/{key}/invalidate — body */
-export interface ClaimInvalidatePayload {
-  reason: string;
-}
-
-/** Strategy card polarity */
-export type StrategyPolarity = "positive" | "negative";
-
-/** Strategy card memory tier */
-export type MemoryTier = "hot" | "warm" | "cold";
-
-/** Strategy card list item */
-export interface StrategyCard {
-  key: string;
-  task_signature: string;
-  polarity: StrategyPolarity;
-  memory_tier: MemoryTier;
-  hit_count: number;
-  success_rate: number;
-  strategy_semantics: string;
-  example_query: string;
-  valid_at: string;
-  last_hit_at: string;
-}
-
-/** GET /api/v1/admin/tg/strategies — query params */
-export interface StrategyListParams {
-  polarity?: StrategyPolarity;
-  memory_tier?: MemoryTier;
-  page?: number;
-  page_size?: number;
-}
-
-/** PATCH /api/v1/admin/tg/strategies/{key} — body */
-export interface StrategyUpdatePayload {
-  strategy_semantics?: string;
-  memory_tier?: MemoryTier;
-  source_trust?: number;
-  polarity?: StrategyPolarity;
-  example_query?: string;
-}
-
-/** POST /api/v1/admin/tg/strategies/{key}/invalidate — body */
-export interface StrategyInvalidatePayload {
-  reason: string;
-}
-
-/** Tag list item */
-export interface TagListItem {
-  key: string;
-  name: string;
-  category: string;
-  tagged_task_count: number;
-}
-
-/** GET /api/v1/admin/tg/tags — query params */
-export interface TagListParams {
-  category?: string;
-  q?: string;
-  page?: number;
-  page_size?: number;
-}
-
-// ------------------------------------------------------------
 // 6. KG (Knowledge Graph) Module Types
 // ------------------------------------------------------------
 
 /** Entity lifecycle state */
-export type LifecycleState = "active" | "deprecated" | "merged";
+export type LifecycleState = 'active' | 'deprecated' | 'merged';
 
 /** Entity list item */
 export interface EntityListItem {
@@ -452,7 +304,7 @@ export interface EntityListParams {
 /** Entity neighbor info */
 export interface EntityNeighbor {
   rel_type: string;
-  direction: "in" | "out";
+  direction: 'in' | 'out';
   other_key: string;
   other_label: string;
   other_name: string;
@@ -544,14 +396,14 @@ export interface EdgeAdjacentDeletePayload {
   anchor_key: string;
   other_key: string;
   rel_type: string;
-  direction: "in" | "out";
+  direction: 'in' | 'out';
 }
 
 /** DELETE /api/v1/admin/kg/edges/by-type — body */
 export interface EdgeByTypeDeletePayload {
   anchor_key: string;
   rel_type: string;
-  direction_scope: "in" | "out" | "both";
+  direction_scope: 'in' | 'out' | 'both';
 }
 
 /** POST /api/v1/admin/kg/entities/batch-delete — body */
@@ -569,56 +421,70 @@ export interface RelTypeInfo {
 // ------------------------------------------------------------
 
 /** Zone mode for global graph query */
-export type ZoneMode = "all" | "metadata" | "trace" | "knowledge";
+export type ZoneMode = 'all' | 'metadata' | 'knowledge';
+
+/** Optional target owner used by administrator read-only drilldown. */
+export interface TargetOwnerParams {
+  owner_id?: string;
+}
 
 /** POST /api/v1/admin/explorer/global-graph — body */
-export interface GlobalGraphParams {
+export interface GlobalGraphParams extends TargetOwnerParams {
   max_edges?: number;
   max_nodes?: number;
+  datasource_id?: string;
   domain_roots_only?: boolean;
   skeleton?: boolean;
   zone_mode?: ZoneMode;
-  task_roots?: boolean;
-  max_task_roots?: number;
-  datasource_id?: string;
 }
 
 /** POST /api/v1/admin/explorer/domain-graph — body */
-export interface DomainGraphParams {
+export interface DomainGraphParams extends TargetOwnerParams {
   domain: string;
   datasource_id: string;
 }
 
 /** POST /api/v1/admin/explorer/expand-node — body */
-export interface ExpandNodeParams {
+export interface ExpandNodeParams extends TargetOwnerParams {
   key: string;
   limit?: number;
-  zone?: Zone | null;
+  zone?: ExplorerZone | null;
   label?: string | null;
 }
 
 /** POST /api/v1/admin/explorer/expand-layer — body */
-export interface ExpandLayerParams {
+export interface ExpandLayerParams extends TargetOwnerParams {
   key: string;
-  direction: "in" | "out";
+  direction: 'in' | 'out';
   limit?: number;
 }
 
 /** POST /api/v1/admin/explorer/search-nodes — body */
-export interface SearchNodesParams {
+export interface SearchNodesParams extends TargetOwnerParams {
   query: string;
   limit?: number;
 }
 
 /** Match mode for subgraph search */
-export type MatchMode = "exact" | "fuzzy";
+export type MatchMode = 'exact' | 'fuzzy';
 
 /** POST /api/v1/admin/explorer/search-subgraph — body */
-export interface SearchSubgraphParams {
+export interface SearchSubgraphParams extends TargetOwnerParams {
   query: string;
-  scope?: Zone[];
+  scope?: ExplorerZone[];
   match_mode?: MatchMode;
   hops?: number;
+  limit?: number;
+}
+
+/** GET /api/v1/admin/explorer/schema — query */
+export type SchemaParams = TargetOwnerParams;
+
+/** GET /api/v1/admin/explorer/nodes/{key} — query */
+export type NodeDetailParams = TargetOwnerParams;
+
+/** GET /api/v1/admin/explorer/nodes/{key}/cross-graph — query */
+export interface CrossGraphParams extends TargetOwnerParams {
   limit?: number;
 }
 
@@ -663,7 +529,7 @@ export interface NodeDetail {
 /** Cross-graph neighbor item */
 export interface CrossGraphNeighbor {
   rel_type: string;
-  direction: "in" | "out";
+  direction: 'in' | 'out';
   other_key: string;
   other_label: string;
   other_name: string;
@@ -671,10 +537,15 @@ export interface CrossGraphNeighbor {
 }
 
 /** POST /api/v1/admin/explorer/edge-detail — body */
-export interface EdgeDetailParams {
+export interface EdgeDetailParams extends TargetOwnerParams {
   source_key: string;
   target_key: string;
   rel_type: string;
+}
+
+/** Convenience global-graph list request. */
+export interface ListNodesParams extends TargetOwnerParams {
+  limit?: number;
 }
 
 /** POST /api/v1/admin/explorer/edge-detail — response data */

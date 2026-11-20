@@ -12,7 +12,6 @@ from semantic_config.models.datasource_config import (
     DatasourceType,
     MYSQL_COMPATIBLE_TYPES,
     MysqlConfig,
-    TYPE_LABELS,
     validate_config,
 )
 from semantic_config.services.connection_tester import (
@@ -39,16 +38,24 @@ def test_mysql_compatible_types_share_config_model() -> None:
 
 
 def test_every_type_has_label_and_model() -> None:
+    from context_manager.compatibility.datasource_types import (
+        legacy_datasource_type_catalog,
+    )
+
+    labels = {item["type"]: item["label"] for item in legacy_datasource_type_catalog()}
     for member in DatasourceType:
         assert member in CONFIG_MODEL_BY_TYPE, member
-        assert member in TYPE_LABELS, member
+        assert labels.get(member.value), member
 
 
 def test_file_types_validate_path_only() -> None:
     assert validate_config("duckdb", {"path": "/tmp/a.duckdb"}) == {
         "path": "/tmp/a.duckdb"
     }
-    assert validate_config("sqlite", {"path": "/tmp/a.db"}) == {"path": "/tmp/a.db"}
+    assert validate_config("sqlite", {"path": "/tmp/a.db"}) == {
+        "path": "/tmp/a.db",
+        "read_only": True,
+    }
     with pytest.raises(BadRequestError):
         validate_config("duckdb", {"path": "/tmp/a.duckdb", "host": "nope"})
 
@@ -61,7 +68,6 @@ async def test_duckdb_connection_test(tmp_path) -> None:
 
     result = await run_connection_test("duckdb", {"path": str(db_path)})
     assert result.success, result.message
-    assert "analytics.duckdb" in result.message
 
     missing = await run_connection_test("duckdb", {"path": str(tmp_path / "nope.db")})
     assert not missing.success
@@ -78,27 +84,28 @@ async def test_sqlite_connection_test(tmp_path) -> None:
     assert result.success, result.message
 
 
-async def test_types_endpoint() -> None:
-    from semantic_config.routers.datasource_router import list_datasource_types
+def test_types_endpoint() -> None:
+    from context_manager.compatibility.datasource_types import (
+        legacy_datasource_type_catalog,
+    )
 
-    body = await list_datasource_types()
-    items = {item["type"]: item for item in body["items"]}
+    items = {item["type"]: item for item in legacy_datasource_type_catalog()}
     assert set(items) == {t.value for t in DatasourceType}
 
     mysql = items["mysql"]
     assert mysql["label"] == "MySQL"
-    field_by_name = {f["name"]: f for f in mysql["fields"]}
+    field_by_name = mysql["form_schema"]["properties"]
     assert field_by_name["port"]["default"] == 3306
     assert field_by_name["port"]["type"] == "integer"
-    assert field_by_name["password"]["secret"] is True
-    assert field_by_name["host"]["required"] is True
+    assert field_by_name["password"]["writeOnly"] is True
+    assert "host" in mysql["form_schema"]["required"]
 
     duckdb_info = items["duckdb"]
-    assert [f["name"] for f in duckdb_info["fields"]] == ["path"]
+    assert list(duckdb_info["form_schema"]["properties"]) == ["path"]
 
     starrocks = items["starrocks"]
     assert starrocks["label"] == "StarRocks"
-    assert {f["name"] for f in starrocks["fields"]} == set(field_by_name)
+    assert set(starrocks["form_schema"]["properties"]) == set(field_by_name)
 
 
 # ---------------------------------------------------------------------------

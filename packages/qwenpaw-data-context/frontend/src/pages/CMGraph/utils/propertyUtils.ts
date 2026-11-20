@@ -1,10 +1,10 @@
-import type { TFunction } from "i18next";
-import { copyToClipboard } from "./clipboard";
+import type { TFunction } from 'i18next';
+import { copyToClipboard } from './clipboard';
 
 export function formatPropertyValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) return `[${value.join(", ")}]`;
-  if (typeof value === "object") return JSON.stringify(value);
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return `[${value.join(', ')}]`;
+  if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
 
@@ -15,12 +15,9 @@ export function copyProperty(key: string, value: unknown, t: TFunction): void {
 }
 
 /** 复制全部属性（多行） */
-export function copyAllProperties(
-  properties: Record<string, unknown>,
-  t: TFunction,
-): void {
+export function copyAllProperties(properties: Record<string, unknown>, t: TFunction): void {
   const text = Object.entries(properties)
     .map(([k, v]) => `${k}: ${formatPropertyValue(v)}`)
-    .join("\n");
+    .join('\n');
   copyToClipboard(text, t);
 }

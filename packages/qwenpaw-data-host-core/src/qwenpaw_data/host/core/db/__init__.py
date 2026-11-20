@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 from qwenpaw_data.host.core.db.engine import (
-    DB_URL_ENV,
-    create_engine_and_factory,
+    TEST_TENANT_ID,
+    TEST_USER_ID,
+    TEST_WORKSPACE_ID,
     init_db,
-    resolve_db_url,
+    reset_engine,
 )
-from qwenpaw_data.host.core.db.tables import Base
 
 __all__ = [
-    "Base",
-    "DB_URL_ENV",
-    "create_engine_and_factory",
+    "TEST_TENANT_ID",
+    "TEST_USER_ID",
+    "TEST_WORKSPACE_ID",
     "init_db",
-    "resolve_db_url",
+    "reset_engine",
 ]

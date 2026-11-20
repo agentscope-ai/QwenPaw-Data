@@ -3,14 +3,21 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing
 from typing import cast
 
 from qwenpaw_data.host.core.api.models.stream_objects import StreamObject
 
 
 class EventHub:
-    """In-process async fan-out. Replay is done by the ChatEventStore before live."""
+    """In-process async fan-out. Replay is done by ChatEventRepository before live.
+
+    A consumer that replays persisted events and then follows live ones must
+    :meth:`attach` *before* the replay read and drain with :meth:`iterate`
+    afterwards: events published in between are buffered on the queue instead
+    of lost, and the overlap is deduplicated by ``sequence_number``.
+    """
 
     def __init__(self) -> None:
         self._close_signal = object()
@@ -28,11 +35,7 @@ class EventHub:
             await q.put(self._close_signal)
 
     def attach(self, chat_id: str) -> asyncio.Queue[StreamObject | object]:
-        """Register a subscriber queue synchronously.
-
-        Use before replaying history so events published meanwhile are
-        buffered instead of lost; consume with :meth:`iterate`.
-        """
+        """Register a subscriber queue synchronously; consume it with :meth:`iterate`."""
         q: asyncio.Queue[StreamObject | object] = asyncio.Queue()
         self._subs[chat_id].add(q)
         return q
@@ -42,8 +45,11 @@ class EventHub:
         chat_id: str,
         q: asyncio.Queue[StreamObject | object],
     ) -> None:
-        self._subs[chat_id].discard(q)
-        if not self._subs[chat_id]:
+        subs = self._subs.get(chat_id)
+        if subs is None:
+            return
+        subs.discard(q)
+        if not subs:
             del self._subs[chat_id]
 
     async def iterate(
@@ -52,7 +58,7 @@ class EventHub:
         q: asyncio.Queue[StreamObject | object],
         *,
         heartbeat_interval: float | None = None,
-    ) -> AsyncIterator[StreamObject | None]:
+    ) -> AsyncGenerator[StreamObject | None, None]:
         """Drain an attached queue; ``None`` is an optional transport heartbeat."""
         try:
             while True:
@@ -77,14 +83,17 @@ class EventHub:
         *,
         heartbeat_interval: float | None = None,
     ) -> AsyncIterator[StreamObject | None]:
-        """Yield live events; ``None`` is an optional transport heartbeat."""
+        """Yield live events; ``None`` is an optional transport heartbeat.
+
+        Subscribes on the first iteration. Replaying consumers use
+        :meth:`attach` + :meth:`iterate` instead.
+        """
         q = self.attach(chat_id)
-        async for item in self.iterate(
-            chat_id,
-            q,
-            heartbeat_interval=heartbeat_interval,
-        ):
-            yield item
+        async with aclosing(
+            self.iterate(chat_id, q, heartbeat_interval=heartbeat_interval)
+        ) as items:
+            async for item in items:
+                yield item
 
 
 _HUB: EventHub | None = None

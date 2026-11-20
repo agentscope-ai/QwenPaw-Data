@@ -154,9 +154,7 @@ async def test_a_slow_model_falls_back_to_rules_inside_the_budget() -> None:
 async def test_too_few_model_survivors_fall_back_to_rules() -> None:
     """A single LLM question cannot clear MIN_QUESTIONS; templates take over."""
 
-    llm = FakeLLM(
-        {"questions": [_question("页面上的 GAAP用户数分布如何", "adjacent")]}
-    )
+    llm = FakeLLM({"questions": [_question("页面上的 GAAP用户数分布如何", "adjacent")]})
 
     picked = await _service(llm).recommend(_snapshot())
 

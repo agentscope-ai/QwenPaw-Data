@@ -1,78 +1,105 @@
 # -*- coding: utf-8 -*-
-"""Settlement card routes over the live service app."""
-
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-import httpx  # noqa: E402
+from qwenpaw_data.host.core.api.app import create_app
+from qwenpaw_data.host.core.db.engine import (
+    TEST_TENANT_ID,
+    TEST_USER_ID,
+    TEST_WORKSPACE_ID,
+    get_session_factory,
+    init_db,
+    reset_engine,
+)
+from qwenpaw_data.host.core.domain.session import Session
+from qwenpaw_data.host.core.domain.identity import Identity
+from qwenpaw_data.host.core.repositories import SessionRepository, SettlementRepository
+from qwenpaw_data.host.core.stream.hub import reset_hub
 
-from qwenpaw_data.host.core.api.app import create_app  # noqa: E402
-
-METRIC_FIELDS = {
-    "metric_name": "GMV",
-    "caliber": "原口径",
-    "domain": "交易",
-    "table": "dws_trade.orders",
-    "formula_sql": "SELECT SUM(amount)",
-}
-DIMENSION_FIELDS = {
-    "dimension_name": "渠道",
-    "bind_column": "channel",
-    "value_samples": "online",
-    "domain": "交易",
-    "table": "dws_trade.orders",
-}
+TEST_IDENTITY = Identity(
+    user_id=TEST_USER_ID,
+    tenant_id=TEST_TENANT_ID,
+    workspace_id=TEST_WORKSPACE_ID,
+)
 
 
-@asynccontextmanager
-async def settlement_client(tmp_path: Path, monkeypatch):
-    monkeypatch.delenv("QWENPAW_DATA_API_TOKEN", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_DB_URL", raising=False)
-    monkeypatch.delenv("QWENPAW_DATA_STORE", raising=False)
-    app = create_app(home=tmp_path, model=object())
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-        ) as http:
-            state = app.state.service
-            created = await http.post("/api/v1/sessions", json={"title": "结算"})
-            assert created.status_code == 200, created.text
-            session_id = created.json()["session"]["id"]
-            card1 = await state.settlement.add(
-                user_id="local",
-                session_id=session_id,
+@pytest.fixture
+def settlement_app(tmp_path: Path):
+    asyncio.run(reset_engine())
+    reset_hub()
+
+    async def seed() -> tuple[str, str, str, str, str]:
+        await init_db()
+        async with get_session_factory()() as db:
+            sessions = SessionRepository(db, TEST_IDENTITY)
+            session = Session.create(
+                identity=TEST_IDENTITY,
+                agent_id="default",
+                title="settlement",
+            )
+            other = Session.create(
+                identity=TEST_IDENTITY,
+                agent_id="default",
+                title="settlement-other",
+            )
+            await sessions.add(session)
+            await sessions.add(other)
+            repo = SettlementRepository(db, TEST_IDENTITY)
+            card1 = await repo.add(
+                session_id=session.id,
                 source_chat_id="chat_1",
                 type="metric_caliber",
-                fields=dict(METRIC_FIELDS),
+                fields={
+                    "metric_name": "GMV",
+                    "caliber": "原口径",
+                    "domain": "交易",
+                    "table": "dws_trade.orders",
+                    "formula_sql": "SELECT SUM(amount)",
+                },
             )
-            card2 = await state.settlement.add(
-                user_id="local",
-                session_id=session_id,
+            card2 = await repo.add(
+                session_id=session.id,
                 source_chat_id="chat_1",
                 type="dimension_def",
-                fields=dict(DIMENSION_FIELDS),
+                fields={
+                    "dimension_name": "渠道",
+                    "bind_column": "channel",
+                    "value_samples": "online",
+                    "domain": "交易",
+                    "table": "dws_trade.orders",
+                },
             )
-            yield http, session_id, card1["id"], card2["id"]
+            card3 = await repo.add(
+                session_id=other.id,
+                source_chat_id="chat_2",
+                type="column_meaning",
+                fields={
+                    "column_name": "channel",
+                    "meaning": "投放渠道",
+                    "table": "dws_trade.orders",
+                    "domain": "交易",
+                },
+            )
+            await db.commit()
+            return session.id, other.id, card1["id"], card2["id"], card3["id"]
+
+    session_id, other_session_id, card1_id, card2_id, card3_id = asyncio.run(seed())
+    app = create_app()
+    yield app, session_id, other_session_id, card1_id, card2_id, card3_id
 
 
-async def test_list_pending_marks_queried_then_confirm_dismiss(
-    tmp_path, monkeypatch
+def test_list_pending_marks_queried_and_confirm_dismiss_still_work(
+    settlement_app,
 ) -> None:
-    async with settlement_client(tmp_path, monkeypatch) as (
-        http,
-        session_id,
-        card1_id,
-        card2_id,
-    ):
-        listed = await http.get(
-            f"/api/v1/sessions/{session_id}/settlement/cards",
+    app, session_id, _other_session_id, card1_id, card2_id, _card3_id = settlement_app
+    with TestClient(app) as client:
+        listed = client.get(
+            f"/api/sessions/{session_id}/settlement/cards",
             params={"status": "pending"},
         )
         assert listed.status_code == 200, listed.text
@@ -81,68 +108,100 @@ async def test_list_pending_marks_queried_then_confirm_dismiss(
         assert {c["id"] for c in body["cards"]} == {card1_id, card2_id}
         assert {c["status"] for c in body["cards"]} == {"queried"}
 
-        # Poll path keeps returning queried cards until confirm/dismiss.
-        again = await http.get(
-            f"/api/v1/sessions/{session_id}/settlement/cards",
+        # Push path keeps returning queried cards until confirm/dismiss.
+        again = client.get(
+            f"/api/sessions/{session_id}/settlement/cards",
             params={"status": "pending"},
         )
-        assert again.json()["count"] == 2
-        assert {c["status"] for c in again.json()["cards"]} == {"queried"}
+        assert again.status_code == 200, again.text
+        again_body = again.json()
+        assert again_body["count"] == 2
+        assert {c["id"] for c in again_body["cards"]} == {card1_id, card2_id}
+        assert {c["status"] for c in again_body["cards"]} == {"queried"}
 
-        confirmed = await http.post(
-            f"/api/v1/sessions/{session_id}/settlement/cards/{card1_id}/confirm",
-            json={"fields": {**METRIC_FIELDS, "caliber": "支付金额"}},
+        confirmed = client.post(
+            f"/api/sessions/{session_id}/settlement/cards/{card1_id}/confirm",
+            json={
+                "fields": {
+                    "metric_name": "GMV",
+                    "caliber": "支付金额",
+                    "domain": "交易",
+                    "table": "dws_trade.orders",
+                    "formula_sql": "SELECT SUM(pay_amount)",
+                }
+            },
         )
         assert confirmed.status_code == 200, confirmed.text
         assert confirmed.json()["card"]["status"] == "confirmed"
-        assert confirmed.json()["card"]["fields"]["caliber"] == "支付金额"
+        assert confirmed.json()["card"]["fields"] == {
+            "metric_name": "GMV",
+            "caliber": "支付金额",
+            "domain": "交易",
+            "table": "dws_trade.orders",
+            "formula_sql": "SELECT SUM(pay_amount)",
+        }
 
-        dismissed = await http.post(
-            f"/api/v1/sessions/{session_id}/settlement/cards/{card2_id}/dismiss"
+        dismissed = client.post(
+            f"/api/sessions/{session_id}/settlement/cards/{card2_id}/dismiss"
         )
         assert dismissed.status_code == 200, dismissed.text
         assert dismissed.json()["card"]["status"] == "dismissed"
 
-        after = await http.get(
-            f"/api/v1/sessions/{session_id}/settlement/cards",
+        after = client.get(
+            f"/api/sessions/{session_id}/settlement/cards",
             params={"status": "pending"},
         )
+        assert after.status_code == 200, after.text
         assert after.json()["count"] == 0
 
-        all_cards = await http.get(
-            f"/api/v1/sessions/{session_id}/settlement/cards"
-        )
-        assert all_cards.json()["count"] == 2
 
-
-async def test_unknown_session_is_not_found(tmp_path, monkeypatch) -> None:
-    async with settlement_client(tmp_path, monkeypatch) as (http, *_):
-        response = await http.get("/api/v1/sessions/ses_missing/settlement/cards")
+def test_unknown_session_is_not_found(settlement_app) -> None:
+    app, _session_id, _other_session_id, _card1_id, _card2_id, _card3_id = (
+        settlement_app
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/sessions/ses_missing/settlement/cards")
         assert response.status_code == 404, response.text
 
 
-async def test_card_errors_mapped(tmp_path, monkeypatch) -> None:
-    async with settlement_client(tmp_path, monkeypatch) as (
-        http,
-        session_id,
-        card1_id,
-        _card2_id,
-    ):
-        missing = await http.post(
-            f"/api/v1/sessions/{session_id}/settlement/cards/card_missing/confirm",
+def test_card_errors_mapped(settlement_app) -> None:
+    app, session_id, _other_session_id, card1_id, _card2_id, _card3_id = settlement_app
+    with TestClient(app) as client:
+        missing = client.post(
+            f"/api/sessions/{session_id}/settlement/cards/card_missing/confirm",
             json={},
         )
         assert missing.status_code == 404, missing.text
         assert missing.json()["code"] == "NOT_FOUND"
 
-        confirmed = await http.post(
-            f"/api/v1/sessions/{session_id}/settlement/cards/{card1_id}/confirm",
+        client.post(
+            f"/api/sessions/{session_id}/settlement/cards/{card1_id}/confirm",
             json={},
         )
-        assert confirmed.status_code == 200, confirmed.text
-
-        again = await http.post(
-            f"/api/v1/sessions/{session_id}/settlement/cards/{card1_id}/dismiss"
+        again = client.post(
+            f"/api/sessions/{session_id}/settlement/cards/{card1_id}/dismiss"
         )
         assert again.status_code == 400, again.text
         assert again.json()["code"] == "VALIDATION"
+
+
+def test_workspace_list_returns_all_sessions_without_marking_queried(
+    settlement_app,
+) -> None:
+    app, session_id, other_session_id, card1_id, card2_id, card3_id = settlement_app
+    with TestClient(app) as client:
+        listed = client.get("/api/settlement/cards")
+        assert listed.status_code == 200, listed.text
+        body = listed.json()
+        assert body["count"] == 3
+        assert {c["id"] for c in body["cards"]} == {card1_id, card2_id, card3_id}
+        assert {c["session_id"] for c in body["cards"]} == {
+            session_id,
+            other_session_id,
+        }
+        assert {c["status"] for c in body["cards"]} == {"pending"}
+
+        pending = client.get("/api/settlement/cards", params={"status": "pending"})
+        assert pending.status_code == 200, pending.text
+        assert pending.json()["count"] == 3
+        assert {c["status"] for c in pending.json()["cards"]} == {"pending"}

@@ -108,7 +108,9 @@ def write_result(stats: dict[str, list], save_file: Path):
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="分布分析：均值、方差、标准差；可选等宽分箱")
+    p = argparse.ArgumentParser(
+        description="分布分析：均值、方差、标准差；可选等宽分箱"
+    )
     p.add_argument("--input_file", required=True, help="输入 CSV 路径")
     p.add_argument("--value_col", required=True, help="数值列名")
     p.add_argument("--dimension_col", required=True, help="区间维度列名")
@@ -133,6 +135,7 @@ def main() -> None:
     except Exception as e:
         print(f"数据分布分析失败: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

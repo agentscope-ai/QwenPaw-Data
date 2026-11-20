@@ -1,27 +1,24 @@
-import { useEffect, useState } from "react";
-import { Input, Button, message, Tooltip } from "@/design";
-import {
-  CopyOutlined,
-  RightOutlined,
-  EditOutlined,
-  SaveOutlined,
-  CloseOutlined,
-} from "@/design";
-import { useTranslation } from "react-i18next";
+import { useEffect, useState } from 'react';
+import { Input, Button, message, Tooltip } from '@/design';
+import { CopyOutlined, RightOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@/design';
+import { useTranslation } from 'react-i18next';
 
-import { explorerApi, kgApi } from "@/services/cmgraph";
-import type { GraphEdge } from "../types";
-import styles from "../index.module.less";
-import { formatPropertyValue, copyProperty, copyAllProperties } from "../utils/propertyUtils";
+import { explorerApi, kgApi } from '@/services/cmgraph';
+import type { GraphEdge } from '../types';
+import styles from '../index.module.less';
+import { formatPropertyValue, copyProperty, copyAllProperties } from '../utils/propertyUtils';
+import { filterEditableGraphFields, filterGraphProperties } from '@/utils/propertySafety';
 
 interface RelationshipPropertiesPanelProps {
   edge: GraphEdge;
+  targetOwnerId?: string;
   onClose: () => void;
   onEdgeUpdate?: (edgeId: string, properties: Record<string, unknown>) => void;
 }
 
 export default function RelationshipPropertiesPanel({
   edge,
+  targetOwnerId,
   onClose,
   onEdgeUpdate,
 }: RelationshipPropertiesPanelProps) {
@@ -29,7 +26,7 @@ export default function RelationshipPropertiesPanel({
 
   // Local copy of properties so we can reflect edits immediately
   const [localProps, setLocalProps] = useState<Record<string, unknown>>(
-    edge.properties ?? {},
+    filterGraphProperties(edge.properties),
   );
 
   // Edge detail (editable_fields) fetched from API
@@ -50,16 +47,17 @@ export default function RelationshipPropertiesPanel({
         source_key: edge.source,
         target_key: edge.target,
         rel_type: edge.type,
+        ...(targetOwnerId ? { owner_id: targetOwnerId } : {}),
       })
       .then((detail) => {
         if (cancelled) return;
-        setEditableFields(detail.editable_fields ?? []);
-        setLocalProps(detail.properties ?? edge.properties ?? {});
+        setEditableFields(filterEditableGraphFields(detail.editable_fields));
+        setLocalProps(filterGraphProperties(detail.properties ?? edge.properties));
       })
       .catch((err) => {
         if (cancelled) return;
         // Detail fetch failed — just use what we have from the graph edge
-        console.warn("Failed to fetch edge detail:", err);
+        console.warn('Failed to fetch edge detail:', err);
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
@@ -67,11 +65,11 @@ export default function RelationshipPropertiesPanel({
     return () => {
       cancelled = true;
     };
-  }, [edge.source, edge.target, edge.type, edge.properties]);
+  }, [edge.properties, edge.source, edge.target, edge.type, targetOwnerId]);
 
   // Reset local state when edge changes
   useEffect(() => {
-    setLocalProps(edge.properties ?? {});
+    setLocalProps(filterGraphProperties(edge.properties));
     setEditing(false);
     setEditValues({});
   }, [edge.id, edge.properties]);
@@ -84,7 +82,7 @@ export default function RelationshipPropertiesPanel({
   const handleStartEdit = () => {
     const initial: Record<string, string> = {};
     for (const field of editableFields) {
-      initial[field] = formatPropertyValue(properties[field] ?? "");
+      initial[field] = formatPropertyValue(properties[field] ?? '');
     }
     setEditValues(initial);
     setEditing(true);
@@ -121,10 +119,10 @@ export default function RelationshipPropertiesPanel({
       setEditing(false);
       setEditValues({});
       onEdgeUpdate?.(edge.id, merged);
-      message.success(t("kgBrowser.edgeEditSuccess"));
+      message.success(t('kgBrowser.edgeEditSuccess'));
     } catch (err) {
-      console.error("Failed to update edge properties:", err);
-      message.error(t("kgBrowser.edgeEditFailed"));
+      console.error('Failed to update edge properties:', err);
+      message.error(t('kgBrowser.edgeEditFailed'));
     } finally {
       setSaving(false);
     }
@@ -134,43 +132,32 @@ export default function RelationshipPropertiesPanel({
     <div className={styles.nodePropertiesPanel}>
       {/* Header */}
       <div className={styles.propertiesPanelHeader}>
-        <span className={styles.overviewTitle}>
-          {t("kgBrowser.relationshipProperties")}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {!editing && hasEditable && !detailLoading && (
-            <Tooltip title={t("kgBrowser.edit")}>
-              <EditOutlined
-                style={{ fontSize: 13, cursor: "pointer" }}
-                onClick={handleStartEdit}
-              />
+        <span className={styles.overviewTitle}>{t('kgBrowser.relationshipProperties')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!editing && hasEditable && !detailLoading && onEdgeUpdate && (
+            <Tooltip title={t('kgBrowser.edit')}>
+              <EditOutlined style={{ fontSize: 13, cursor: 'pointer' }} onClick={handleStartEdit} />
             </Tooltip>
           )}
           <CopyOutlined
             className={styles.copyBtn}
             onClick={() => copyAllProperties(properties, t)}
-            title={t("kgBrowser.copyProperty")}
+            title={t('kgBrowser.copyProperty')}
           />
-          <RightOutlined
-            style={{ fontSize: 12, cursor: "pointer" }}
-            onClick={onClose}
-          />
+          <RightOutlined style={{ fontSize: 12, cursor: 'pointer' }} onClick={onClose} />
         </div>
       </div>
 
       {/* Relationship type tag */}
-      <div
-        className={styles.nodeTypeTag}
-        style={{ background: "#4a4a4a", color: "#fff" }}
-      >
+      <div className={styles.nodeTypeTag} style={{ background: '#4a4a4a', color: '#fff' }}>
         {edge.type}
       </div>
 
       {/* Properties list */}
       <div className={styles.propertiesPanelContent}>
         {entries.length === 0 ? (
-          <div style={{ color: "var(--colorTextSecondary, #999)", fontSize: 13 }}>
-            {t("kgBrowser.noProperties")}
+          <div style={{ color: 'var(--colorTextSecondary, #999)', fontSize: 13 }}>
+            {t('kgBrowser.noProperties')}
           </div>
         ) : (
           entries.map(([key, value]) => {
@@ -180,17 +167,15 @@ export default function RelationshipPropertiesPanel({
             return (
               <div key={key} className={styles.propertyRow}>
                 <span className={styles.propertyKey}>
-                  {key.startsWith("element") || key === "id"
-                    ? `<${key}>`
-                    : key}
+                  {key.startsWith('element') || key === 'id' ? `<${key}>` : key}
                 </span>
                 {isEditingThis ? (
                   <div className={styles.propertyEditValue}>
-                    {typeof value === "string" && value.length > 50 ? (
+                    {typeof value === 'string' && value.length > 50 ? (
                       <Input.TextArea
                         size="small"
                         autoSize={{ minRows: 2, maxRows: 6 }}
-                        value={editValues[key] ?? ""}
+                        value={editValues[key] ?? ''}
                         onChange={(e) =>
                           setEditValues((prev) => ({
                             ...prev,
@@ -201,7 +186,7 @@ export default function RelationshipPropertiesPanel({
                     ) : (
                       <Input
                         size="small"
-                        value={editValues[key] ?? ""}
+                        value={editValues[key] ?? ''}
                         onChange={(e) =>
                           setEditValues((prev) => ({
                             ...prev,
@@ -214,9 +199,9 @@ export default function RelationshipPropertiesPanel({
                 ) : (
                   <span className={styles.propertyValue}>
                     <span>{formatPropertyValue(value)}</span>
-                    {isEditable && !editing && (
+                    {isEditable && !editing && onEdgeUpdate && (
                       <EditOutlined
-                        style={{ fontSize: 11, cursor: "pointer", marginLeft: 4 }}
+                        style={{ fontSize: 11, cursor: 'pointer', marginLeft: 4 }}
                         onClick={handleStartEdit}
                       />
                     )}
@@ -233,7 +218,7 @@ export default function RelationshipPropertiesPanel({
       </div>
 
       {/* Footer: Save / Cancel buttons in edit mode */}
-      {editing && (
+      {editing && onEdgeUpdate && (
         <div className={styles.propertiesPanelFooter}>
           <Button
             size="small"
@@ -241,7 +226,7 @@ export default function RelationshipPropertiesPanel({
             onClick={handleCancelEdit}
             disabled={saving}
           >
-            {t("kgBrowser.cancel")}
+            {t('kgBrowser.cancel')}
           </Button>
           <Button
             type="primary"
@@ -250,7 +235,7 @@ export default function RelationshipPropertiesPanel({
             onClick={handleSave}
             loading={saving}
           >
-            {t("kgBrowser.save")}
+            {t('kgBrowser.save')}
           </Button>
         </div>
       )}

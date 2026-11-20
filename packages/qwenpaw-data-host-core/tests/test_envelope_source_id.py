@@ -18,8 +18,7 @@ def _event(evt_type: str, **kwargs: Any) -> MagicMock:
     return ev
 
 
-@pytest.mark.asyncio
-async def test_text_one_block_one_message_with_source_id() -> None:
+def _stream() -> MagicMock:
     stream = MagicMock()
     stream.message_start = AsyncMock()
     stream.message_complete = AsyncMock()
@@ -31,8 +30,17 @@ async def test_text_one_block_one_message_with_source_id() -> None:
     stream.append = AsyncMock()
     stream.data_delta = AsyncMock()
     stream.data_end = AsyncMock()
+    stream.model_call = AsyncMock()
+    stream.model_call_end = AsyncMock()
+    stream.tool_result_start = AsyncMock()
+    stream.tool_result_end = AsyncMock()
+    return stream
 
-    env = Envelope(stream)
+
+@pytest.mark.asyncio
+async def test_text_one_block_one_message_with_source_id() -> None:
+    stream = _stream()
+    env = Envelope(stream, session_factory=MagicMock())
     await env.begin()
     await env.translate_event(
         _event(EventType.TEXT_BLOCK_START.value, block_id="blk_a")
@@ -40,18 +48,14 @@ async def test_text_one_block_one_message_with_source_id() -> None:
     await env.translate_event(
         _event(EventType.TEXT_BLOCK_DELTA.value, block_id="blk_a", delta="hi")
     )
-    await env.translate_event(
-        _event(EventType.TEXT_BLOCK_END.value, block_id="blk_a")
-    )
+    await env.translate_event(_event(EventType.TEXT_BLOCK_END.value, block_id="blk_a"))
     await env.translate_event(
         _event(EventType.TEXT_BLOCK_START.value, block_id="blk_b")
     )
     await env.translate_event(
         _event(EventType.TEXT_BLOCK_DELTA.value, block_id="blk_b", delta="yo")
     )
-    await env.translate_event(
-        _event(EventType.TEXT_BLOCK_END.value, block_id="blk_b")
-    )
+    await env.translate_event(_event(EventType.TEXT_BLOCK_END.value, block_id="blk_b"))
 
     assert stream.message_start.await_count == 2
     assert stream.message_complete.await_count == 2
@@ -63,19 +67,8 @@ async def test_text_one_block_one_message_with_source_id() -> None:
 
 @pytest.mark.asyncio
 async def test_tool_call_and_output_share_source_id() -> None:
-    stream = MagicMock()
-    stream.message_start = AsyncMock()
-    stream.message_complete = AsyncMock()
-    stream.text_delta = AsyncMock()
-    stream.text_end = AsyncMock()
-    stream.response_created = AsyncMock()
-    stream.response_in_progress = AsyncMock()
-    stream.response_completed = AsyncMock()
-    stream.append = AsyncMock()
-    stream.data_delta = AsyncMock()
-    stream.data_end = AsyncMock()
-
-    env = Envelope(stream)
+    stream = _stream()
+    env = Envelope(stream, session_factory=MagicMock())
     await env.translate_event(
         _event(
             EventType.TOOL_CALL_START.value,

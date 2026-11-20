@@ -1,144 +1,257 @@
+"""业务域仓储（表 ``domain``，SPEC 00 §5.1）。
+
+12 实体重构后业务域不再直连数据源：本模块不读写 ``datasource_id``、不 JOIN
+``datasource``。域涉及的数据源由只读派生列 ``datasource_scope`` 表达，其写入
+统一在 :mod:`semantic_config.services.domain_scope`。
+"""
+
 from __future__ import annotations
 
-import aiosqlite
+from sqlalchemy import func, select
+from sqlalchemy import insert as sa_insert
+from sqlalchemy import update as sa_update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from semantic_config.db import now_iso
+from semantic_config.tables import (
+    dataset,
+    dimension_dict,
+    domain,
+    metric_dict,
+    verified_query,
+)
 
-# 列表/详情统一 JOIN datasource 派生展示名（datasource_name 可为 null）
-# 注：b.datasource_id 存数据源对外编码（TEXT），关联 datasource.datasource_id（非内部主键 id）。
-_RESPONSE_SELECT = """
-    SELECT b.id AS domain_id, b.datasource_id,
-           s.datasource_name,
-           b.domain_name, b.display_name, b.description, b.aliases
-    FROM biz_domain b
-    LEFT JOIN datasource s ON s.datasource_id = b.datasource_id AND s.is_deleted = 0
-"""
+
+def _response_select():
+    return select(
+        domain.c.id.label("domain_id"),
+        domain.c.domain_name,
+        domain.c.description,
+        domain.c.datasource_scope,
+    ).select_from(domain)
 
 
 async def insert(
-    db: aiosqlite.Connection,
-    datasource_id: str | None,
+    db: AsyncSession,
     domain_name: str | None,
-    display_name: str | None,
     description: str | None,
-    aliases: str | None,
+    *,
+    import_id: str | None = None,
+    tenant_id: str,
+    workspace_id: str,
+    created_by: str,
 ) -> int:
     ts = now_iso()
-    sql = """
-        INSERT INTO biz_domain
-            (datasource_id, domain_name, display_name, description, aliases, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-    """
-    async with db.execute(sql, (datasource_id, domain_name, display_name, description, aliases, ts, ts)) as cur:
-        row = await cur.fetchone()
-    return int(row["id"])
+    res = await db.execute(
+        sa_insert(domain).values(
+            domain_name=domain_name,
+            description=description,
+            # 新建的域尚无数据集，范围为空；由 dataset 写操作重算填充。
+            datasource_scope="",
+            import_id=import_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            created_by=created_by,
+            updated_by=created_by,
+            created_at=ts,
+            updated_at=ts,
+        )
+    )
+    return int(res.inserted_primary_key[0])
 
 
 async def update(
-    db: aiosqlite.Connection,
+    db: AsyncSession,
     domain_id: int,
     domain_name: str | None,
-    display_name: str | None,
     description: str | None,
-    aliases: str | None,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    updated_by: str,
 ) -> int:
-    sql = """
-        UPDATE biz_domain SET
-            domain_name = COALESCE(?, domain_name), display_name = COALESCE(?, display_name),
-            description = COALESCE(?, description), aliases = COALESCE(?, aliases), updated_at = ?
-        WHERE id = ? AND is_deleted = 0
-    """
-    cur = await db.execute(sql, (domain_name, display_name, description, aliases, now_iso(), domain_id))
-    return cur.rowcount
+    res = await db.execute(
+        sa_update(domain)
+        .where(
+            domain.c.id == domain_id,
+            domain.c.tenant_id == tenant_id,
+            domain.c.workspace_id == workspace_id,
+            domain.c.is_deleted == 0,
+        )
+        .values(
+            domain_name=domain_name,
+            description=description,
+            updated_by=updated_by,
+            updated_at=now_iso(),
+        )
+    )
+    return res.rowcount
 
 
-async def find_by_id(db: aiosqlite.Connection, domain_id: int) -> aiosqlite.Row | None:
-    sql = "SELECT * FROM biz_domain WHERE id = ? AND is_deleted = 0"
-    async with db.execute(sql, (domain_id,)) as cur:
-        return await cur.fetchone()
+async def find_by_id(
+    db: AsyncSession, domain_id: int, tenant_id: str, workspace_id: str
+):
+    res = await db.execute(
+        select(domain).where(
+            domain.c.id == domain_id,
+            domain.c.tenant_id == tenant_id,
+            domain.c.workspace_id == workspace_id,
+            domain.c.is_deleted == 0,
+        )
+    )
+    return res.mappings().first()
 
 
-async def find_response_by_id(db: aiosqlite.Connection, domain_id: int) -> aiosqlite.Row | None:
-    sql = _RESPONSE_SELECT + " WHERE b.is_deleted = 0 AND b.id = ?"
-    async with db.execute(sql, (domain_id,)) as cur:
-        return await cur.fetchone()
+async def find_response_by_id(
+    db: AsyncSession, domain_id: int, tenant_id: str, workspace_id: str
+):
+    stmt = _response_select().where(
+        domain.c.is_deleted == 0,
+        domain.c.id == domain_id,
+        domain.c.tenant_id == tenant_id,
+        domain.c.workspace_id == workspace_id,
+    )
+    res = await db.execute(stmt)
+    return res.mappings().first()
 
 
-async def exists_by_ds_and_name(db: aiosqlite.Connection, datasource_id: str, domain_name: str) -> bool:
-    sql = ("SELECT COUNT(1) AS c FROM biz_domain "
-           "WHERE datasource_id = ? AND domain_name = ? AND is_deleted = 0")
-    async with db.execute(sql, (datasource_id, domain_name)) as cur:
-        row = await cur.fetchone()
-    return row["c"] > 0
-
-
-async def exists_by_ds_and_name_excluding(
-    db: aiosqlite.Connection, datasource_id: str, domain_name: str, domain_id: int
+async def exists_by_name(
+    db: AsyncSession,
+    domain_name: str,
+    tenant_id: str,
+    workspace_id: str,
 ) -> bool:
-    sql = ("SELECT COUNT(1) AS c FROM biz_domain "
-           "WHERE datasource_id = ? AND domain_name = ? AND id <> ? AND is_deleted = 0")
-    async with db.execute(sql, (datasource_id, domain_name, domain_id)) as cur:
-        row = await cur.fetchone()
-    return row["c"] > 0
+    """唯一性：``(tenant, ws, domain_name)``——已去掉 datasource 维度。"""
+    res = await db.execute(
+        select(domain.c.id).where(
+            domain.c.domain_name == domain_name,
+            domain.c.tenant_id == tenant_id,
+            domain.c.workspace_id == workspace_id,
+            domain.c.is_deleted == 0,
+        )
+    )
+    return res.first() is not None
 
 
-def _build_where(datasource_id: str | None, domain_name: str | None, params: list) -> str:
-    where = ["b.is_deleted = 0"]
-    if datasource_id is not None:
-        where.append("b.datasource_id = ?")
-        params.append(datasource_id)
+async def exists_by_name_excluding(
+    db: AsyncSession,
+    domain_name: str,
+    domain_id: int,
+    tenant_id: str,
+    workspace_id: str,
+) -> bool:
+    res = await db.execute(
+        select(domain.c.id).where(
+            domain.c.domain_name == domain_name,
+            domain.c.id != domain_id,
+            domain.c.tenant_id == tenant_id,
+            domain.c.workspace_id == workspace_id,
+            domain.c.is_deleted == 0,
+        )
+    )
+    return res.first() is not None
+
+
+def _conds(domain_name: str | None, tenant_id: str, workspace_id: str) -> list:
+    conds = [
+        domain.c.is_deleted == 0,
+        domain.c.tenant_id == tenant_id,
+        domain.c.workspace_id == workspace_id,
+    ]
     if domain_name:
-        where.append("b.domain_name LIKE ?")
-        params.append(f"%{domain_name}%")
-    return " AND ".join(where)
+        conds.append(domain.c.domain_name.like(f"%{domain_name}%"))
+    return conds
 
 
-async def count(db: aiosqlite.Connection, datasource_id: str | None, domain_name: str | None) -> int:
-    params: list = []
-    where = _build_where(datasource_id, domain_name, params)
-    async with db.execute(f"SELECT COUNT(1) AS c FROM biz_domain b WHERE {where}", params) as cur:
-        row = await cur.fetchone()
-    return int(row["c"])
+async def count(
+    db: AsyncSession,
+    domain_name: str | None,
+    tenant_id: str,
+    workspace_id: str,
+) -> int:
+    res = await db.execute(
+        select(func.count())
+        .select_from(domain)
+        .where(*_conds(domain_name, tenant_id, workspace_id))
+    )
+    return int(res.scalar_one())
 
 
 async def find_page(
-    db: aiosqlite.Connection,
-    datasource_id: str | None,
+    db: AsyncSession,
     domain_name: str | None,
     limit: int,
     off: int,
-) -> list[aiosqlite.Row]:
-    params: list = []
-    where = _build_where(datasource_id, domain_name, params)
-    sql = _RESPONSE_SELECT + f" WHERE {where} ORDER BY b.id DESC LIMIT ? OFFSET ?"
-    params.extend([limit, off])
-    async with db.execute(sql, params) as cur:
-        return await cur.fetchall()
+    tenant_id: str,
+    workspace_id: str,
+):
+    stmt = (
+        _response_select()
+        .where(*_conds(domain_name, tenant_id, workspace_id))
+        .order_by(domain.c.id.desc())
+        .limit(limit)
+        .offset(off)
+    )
+    res = await db.execute(stmt)
+    return res.mappings().all()
 
 
-async def soft_delete(db: aiosqlite.Connection, domain_id: int) -> int:
-    sql = "UPDATE biz_domain SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0"
-    cur = await db.execute(sql, (now_iso(), domain_id))
-    return cur.rowcount
+async def soft_delete(
+    db: AsyncSession,
+    domain_id: int,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    updated_by: str,
+) -> int:
+    res = await db.execute(
+        sa_update(domain)
+        .where(
+            domain.c.id == domain_id,
+            domain.c.tenant_id == tenant_id,
+            domain.c.workspace_id == workspace_id,
+            domain.c.is_deleted == 0,
+        )
+        .values(is_deleted=1, updated_by=updated_by, updated_at=now_iso())
+    )
+    return res.rowcount
 
 
-# ---- 引用计数（删除校验用）：域下数据集/维度/指标 ----
-async def _count(db: aiosqlite.Connection, table: str, domain_id: int) -> int:
-    async with db.execute(
-        f"SELECT COUNT(1) AS c FROM {table} WHERE domain_id = ? AND is_deleted = 0", (domain_id,)
-    ) as cur:
-        row = await cur.fetchone()
-    return int(row["c"])
+async def _count(
+    db: AsyncSession, table, domain_id: int, tenant_id: str, workspace_id: str
+) -> int:
+    res = await db.execute(
+        select(func.count())
+        .select_from(table)
+        .where(
+            table.c.domain_id == domain_id,
+            table.c.tenant_id == tenant_id,
+            table.c.workspace_id == workspace_id,
+            table.c.is_deleted == 0,
+        )
+    )
+    return int(res.scalar_one())
 
 
-async def count_datasets(db: aiosqlite.Connection, domain_id: int) -> int:
-    return await _count(db, "dataset_meta", domain_id)
+async def count_datasets(
+    db: AsyncSession, domain_id: int, tenant_id: str, workspace_id: str
+) -> int:
+    return await _count(db, dataset, domain_id, tenant_id, workspace_id)
 
 
-async def count_dimensions(db: aiosqlite.Connection, domain_id: int) -> int:
-    return await _count(db, "dimension", domain_id)
+async def count_dimensions(
+    db: AsyncSession, domain_id: int, tenant_id: str, workspace_id: str
+) -> int:
+    return await _count(db, dimension_dict, domain_id, tenant_id, workspace_id)
 
 
-async def count_metrics(db: aiosqlite.Connection, domain_id: int) -> int:
-    return await _count(db, "metric_lib", domain_id)
+async def count_metrics(
+    db: AsyncSession, domain_id: int, tenant_id: str, workspace_id: str
+) -> int:
+    return await _count(db, metric_dict, domain_id, tenant_id, workspace_id)
+
+
+async def count_verified_queries(
+    db: AsyncSession, domain_id: int, tenant_id: str, workspace_id: str
+) -> int:
+    return await _count(db, verified_query, domain_id, tenant_id, workspace_id)

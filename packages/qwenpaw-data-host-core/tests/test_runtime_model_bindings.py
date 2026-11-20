@@ -1,84 +1,84 @@
-"""Run admission can change a model without changing conversation memory."""
+"""Turn-local model settings preserve persisted conversation state, not secrets."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
 
-from qwenpaw_data.host.core.domain.identity import Identity
-from qwenpaw_data.host.core.domain.preference import UserRuntimeConfig
-from qwenpaw_data.host.core.providers.registry import ActiveModel
+from agentscope.message import UserMsg, TextBlock
+
+from qwenpaw_data.host.core.api.models.runtime_models import RuntimeModels
+from qwenpaw_data.host.core.domain.preference import UserPreferences
+from qwenpaw_data.host.core.repositories import ChatRepository, SessionRepository
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
-from qwenpaw_data.host.core.runtime import chat_runtime
+
+from . import test_chat_runtime_finish
+
+workspace_chat = test_chat_runtime_finish.workspace_chat
 
 
-async def test_later_turn_uses_new_snapshot_and_keeps_session_agent(monkeypatch):
-    monkeypatch.setattr(chat_runtime, "_followup_enabled", lambda: False)
-    monkeypatch.setattr(chat_runtime, "_biztrace_enabled", lambda: False)
-    monkeypatch.setattr(chat_runtime, "OutputStream", Mock())
-    monkeypatch.setattr(
-        chat_runtime, "Envelope", lambda _: SimpleNamespace(begin=AsyncMock())
-    )
-    monkeypatch.setattr(
-        "qwenpaw_data.host.core.providers.factory.build_model", lambda model: model
-    )
-    identity = Identity.anonymous()
-    chat = SimpleNamespace(
-        id="run",
-        session_id="session",
-        status="running",
-        datasource_id="ds",
-        identity=identity,
-        user_input="test",
-        artifact_comments=[],
-        attachments=[],
-        dataset_names=[],
-    )
-    client = SimpleNamespace(set_runtime_headers=AsyncMock())
-    memory = object()
-    agent = SimpleNamespace(
-        model=None,
-        memory=memory,
-        toolkit=SimpleNamespace(_qwenpaw_context_clients=[client]),
-    )
-    host = SimpleNamespace(
-        model=None,
-        _agent=agent,
-        get_agent=AsyncMock(return_value=agent),
-        workspace=None,
-        paths=None,
-    )
+async def test_later_turn_uses_new_snapshot_and_keeps_session_state(
+    workspace_chat, monkeypatch,
+):
+    case = workspace_chat
     contexts = []
-    for name in ("first", "second"):
-        model = ActiveModel(
-            provider_id="openai",
-            model_id=name,
-            api_key="private",
-            base_url="https://example.invalid/v1",
-            chat_model="OpenAIChatModel",
-            name=name,
+
+    async def build(*, run_context, envelope, state):
+        contexts.append(run_context)
+        if len(contexts) == 1:
+            state.context = [UserMsg(name="user", content=[TextBlock(text="remember this")])]
+        else:
+            assert state.context[0].content[0].text == "remember this"
+        return SimpleNamespace(name="test", state=state)
+
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.runtime.chat_runtime.get_agent_builder",
+        lambda _: SimpleNamespace(build=build),
+    )
+    headers = []
+
+    async def sync(self, workspace, **kwargs):
+        headers.append(kwargs["context_model_header"])
+
+    monkeypatch.setattr(
+        "qwenpaw_data.host.core.runtime.chat_runtime.McpRepository.sync", sync
+    )
+    prefs = UserPreferences(
+        user_id=case.identity.user_id, react_max_iters=17,
+        tool_confirmation_level="high", tool_timeout_seconds=23,
+    )
+    for index, name in enumerate(("first", "second")):
+        binding = RuntimeModels.model_validate({
+            "analysis": {
+                "provider_id": "openai", "model_id": name,
+                "api_key": "turn-private-key", "base_url": "https://example.invalid/v1",
+            },
+            "inherit_analysis": ["lightweight", "databridge"],
+        })
+        config = binding.runtime_config(prefs)
+        assert config.react_max_iters == 17
+        assert config.tool_confirmation_level == "high"
+        assert config.tool_timeout_seconds == 23
+        assert prefs.default_model_id is None
+        assert prefs.providers == {}
+        if index:
+            async with case.factory() as db:
+                session = await SessionRepository(db, case.identity).get(case.session.id)
+                chat = session.open_chat(text="next", datasource_id=None, has_active_chat=False)
+                await SessionRepository(db, case.identity).save(session)
+                await ChatRepository(db, case.identity).add(chat)
+                await db.commit()
+            runtime = ChatRuntime(case.factory, chat.id)
+            monkeypatch.setattr(runtime, "_log_chat_start", lambda *args: None)
+        else:
+            runtime, chat = case.runtime, case.chat
+        await runtime.run(
+            identity=case.identity, runtime_config=config,
+            context_model_header=binding.resolved_context_header(config),
         )
-        config = UserRuntimeConfig(default=model, light=model)
-        runtime = ChatRuntime(
-            chats=SimpleNamespace(get=AsyncMock(return_value=chat)),
-            events=None,
-            hosts=SimpleNamespace(get=lambda **_: host),
-        )
-        runtime._executor = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
-        runtime._deliver_biztrace = AsyncMock()
-        runtime._deliver_followup = AsyncMock()
-        runtime._finish = AsyncMock()
-        runtime._schedule_settlement = Mock()
-        await runtime._run(
-            "run", identity=identity, runtime_config=config, context_model_header=name
-        )
-        assert runtime._finish.call_args.args[2] == "completed"
-        assert agent.model.model_id == name
-        assert runtime._executor.start.call_args.args[0] is agent
-        assert agent.memory is memory
-        assert runtime._run_context.user_runtime_config is config
-        contexts.append(runtime._run_context)
+        async with case.factory() as db:
+            saved = await ChatRepository(db, case.identity).get(chat.id)
+            assert saved.status == "completed", saved.error
+            assert "turn-private-key" not in str(saved.agent_state)
+        assert contexts[-1].user_runtime_config is config
+        assert contexts[-1].user_runtime_config.default.model_id == name
     assert contexts[0].user_runtime_config.default.model_id == "first"
-    assert contexts[1].user_runtime_config.default.model_id == "second"
-    assert [call.args[0] for call in client.set_runtime_headers.call_args_list] == [
-        {"x-qwenpaw-model-binding": "first"},
-        {"x-qwenpaw-model-binding": "second"},
-    ]
+    assert headers[0] != headers[1]
+    case.executor.start.assert_awaited()

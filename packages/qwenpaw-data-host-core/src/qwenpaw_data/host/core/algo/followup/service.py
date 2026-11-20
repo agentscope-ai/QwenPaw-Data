@@ -51,9 +51,7 @@ class FollowUpService:
                 timeout=self.timeout_sec,
             )
         except TimeoutError:
-            logger.warning(
-                "Follow-up model channel timed out; falling back to rules"
-            )
+            logger.warning("Follow-up model channel timed out; falling back to rules")
 
         if llm_candidates:
             # Prompt already sized/ordered the batch; only safety gates apply.
@@ -63,8 +61,7 @@ class FollowUpService:
             if picked:
                 return picked
             logger.warning(
-                "Follow-up model candidates were all filtered; "
-                "falling back to rules"
+                "Follow-up model candidates were all filtered; falling back to rules"
             )
 
         return ranking.select(

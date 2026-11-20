@@ -62,6 +62,7 @@ import pandas as pd
 # 维度预处理
 # ============================================================
 
+
 def _prepare_dimension(
     df: pd.DataFrame,
     dimensions: List[str],
@@ -112,6 +113,7 @@ def _prepare_dimension(
 # ============================================================
 # 量值指标归因
 # ============================================================
+
 
 def calculate_quantity_standard(
     df: pd.DataFrame,
@@ -171,15 +173,23 @@ def calculate_quantity_separate(
     )
 
     max_directional_change = max(positive_sum, negative_sum)
-    separation_needed = max_directional_change > abs(total_inc) * 0.3 if total_inc != 0 else False
+    separation_needed = (
+        max_directional_change > abs(total_inc) * 0.3 if total_inc != 0 else False
+    )
 
-    result = df[[target_dimension, history_col, current_col, "增量", "正向贡献率", "负向贡献率"]]
+    result = df[
+        [target_dimension, history_col, current_col, "增量", "正向贡献率", "负向贡献率"]
+    ]
     result = result.sort_values(by=["增量"], key=abs, ascending=False)
 
     result["增量"] = result["增量"].apply(lambda x: f"{x:.0f}")
     result["总增量"] = round(total_inc)
-    result["正向贡献率"] = result["正向贡献率"].apply(lambda x: f"{x:.2f}%" if x != 0 else "-")
-    result["负向贡献率"] = result["负向贡献率"].apply(lambda x: f"{x:.2f}%" if x != 0 else "-")
+    result["正向贡献率"] = result["正向贡献率"].apply(
+        lambda x: f"{x:.2f}%" if x != 0 else "-"
+    )
+    result["负向贡献率"] = result["负向贡献率"].apply(
+        lambda x: f"{x:.2f}%" if x != 0 else "-"
+    )
     result["分离建议"] = "是" if separation_needed else "否"
 
     return result
@@ -188,6 +198,7 @@ def calculate_quantity_separate(
 # ============================================================
 # 率值/加权平均指标归因
 # ============================================================
+
 
 def calculate_ratio_cross_term(
     df: pd.DataFrame,
@@ -215,13 +226,21 @@ def calculate_ratio_cross_term(
 
     df["结构效应"] = (df["权重_当期"] - df["权重_往期"]) * df[history_col]
     df["水平效应"] = df["权重_当期"] * (df[current_col] - df[history_col])
-    df["交互效应"] = (df["权重_当期"] - df["权重_往期"]) * (df[current_col] - df[history_col])
+    df["交互效应"] = (df["权重_当期"] - df["权重_往期"]) * (
+        df[current_col] - df[history_col]
+    )
     df["总贡献"] = df["结构效应"] + df["水平效应"] + df["交互效应"]
 
     cols = [
-        target_dimension, history_col, current_col,
-        "权重_往期", "权重_当期",
-        "结构效应", "水平效应", "交互效应", "总贡献"
+        target_dimension,
+        history_col,
+        current_col,
+        "权重_往期",
+        "权重_当期",
+        "结构效应",
+        "水平效应",
+        "交互效应",
+        "总贡献",
     ]
     result = df[cols].sort_values(by=["总贡献"], key=abs, ascending=False).head(10)
 
@@ -268,9 +287,14 @@ def calculate_ratio_average(
     df["总贡献"] = df["结构效应"] + df["水平效应"]
 
     cols = [
-        target_dimension, history_col, current_col,
-        "权重_往期", "权重_当期",
-        "结构效应", "水平效应", "总贡献"
+        target_dimension,
+        history_col,
+        current_col,
+        "权重_往期",
+        "权重_当期",
+        "结构效应",
+        "水平效应",
+        "总贡献",
     ]
     result = df[cols].sort_values(by=["总贡献"], key=abs, ascending=False).head(10)
 
@@ -288,6 +312,7 @@ def calculate_ratio_average(
 # ============================================================
 # 统一入口
 # ============================================================
+
 
 def calculate_contribution(
     df: pd.DataFrame,
@@ -318,14 +343,39 @@ def calculate_contribution(
     """
     # 构建 ratio_cols
     ratio_cols = None
-    has_ratio = any(x is not None for x in [numerator_history, numerator_current, denominator_history, denominator_current])
+    has_ratio = any(
+        x is not None
+        for x in [
+            numerator_history,
+            numerator_current,
+            denominator_history,
+            denominator_current,
+        ]
+    )
     if has_ratio:
-        if not all(x is not None for x in [numerator_history, numerator_current, denominator_history, denominator_current]):
-            raise ValueError("率值/加权平均指标需同时指定 numerator_history、numerator_current、denominator_history、denominator_current")
-        ratio_cols = (numerator_history, numerator_current, denominator_history, denominator_current)
+        if not all(
+            x is not None
+            for x in [
+                numerator_history,
+                numerator_current,
+                denominator_history,
+                denominator_current,
+            ]
+        ):
+            raise ValueError(
+                "率值/加权平均指标需同时指定 numerator_history、numerator_current、denominator_history、denominator_current"
+            )
+        ratio_cols = (
+            numerator_history,
+            numerator_current,
+            denominator_history,
+            denominator_current,
+        )
 
     # 维度预处理
-    df, dim_col = _prepare_dimension(df, target_dimensions, history_col, current_col, ratio_cols)
+    df, dim_col = _prepare_dimension(
+        df, target_dimensions, history_col, current_col, ratio_cols
+    )
 
     method_map = {
         "quantity-standard": calculate_quantity_standard,
@@ -338,7 +388,9 @@ def calculate_contribution(
         raise ValueError(f"不支持的归因方法: {method}。可选: {list(method_map.keys())}")
 
     if method.startswith("ratio-") and not ratio_cols:
-        raise ValueError(f"方法 {method} 需要指定分子分母列（--numerator-history/--numerator-current/--denominator-history/--denominator-current）")
+        raise ValueError(
+            f"方法 {method} 需要指定分子分母列（--numerator-history/--numerator-current/--denominator-history/--denominator-current）"
+        )
 
     if not method.startswith("ratio-") and ratio_cols:
         raise ValueError(f"方法 {method} 不需要分子分母列参数")
@@ -353,25 +405,51 @@ def calculate_contribution(
 # 命令行入口
 # ============================================================
 
+
 def main():
     """命令行入口"""
-    parser = argparse.ArgumentParser(description="归因计算工具 - 支持4种归因方法，支持多维度交叉")
+    parser = argparse.ArgumentParser(
+        description="归因计算工具 - 支持4种归因方法，支持多维度交叉"
+    )
     parser.add_argument("--input-file", required=True, help="输入数据文件路径 (CSV)")
-    parser.add_argument("--dimension", required=True, nargs="+", help="维度列名，支持多个")
+    parser.add_argument(
+        "--dimension", required=True, nargs="+", help="维度列名，支持多个"
+    )
     parser.add_argument("--history-col", required=True, help="往期值列名")
     parser.add_argument("--current-col", required=True, help="当期值列名")
     parser.add_argument(
         "--method",
-        choices=["quantity-standard", "quantity-separate", "ratio-cross-term", "ratio-average"],
+        choices=[
+            "quantity-standard",
+            "quantity-separate",
+            "ratio-cross-term",
+            "ratio-average",
+        ],
         default="quantity-standard",
-        help="归因方法 (默认: quantity-standard)"
+        help="归因方法 (默认: quantity-standard)",
     )
 
     # 率值/加权平均指标的分子分母列
-    parser.add_argument("--numerator-history", default=None, help="分子往期列名（率值/加权平均指标时必填）")
-    parser.add_argument("--numerator-current", default=None, help="分子当期列名（率值/加权平均指标时必填）")
-    parser.add_argument("--denominator-history", default=None, help="分母往期列名（率值/加权平均指标时必填）")
-    parser.add_argument("--denominator-current", default=None, help="分母当期列名（率值/加权平均指标时必填）")
+    parser.add_argument(
+        "--numerator-history",
+        default=None,
+        help="分子往期列名（率值/加权平均指标时必填）",
+    )
+    parser.add_argument(
+        "--numerator-current",
+        default=None,
+        help="分子当期列名（率值/加权平均指标时必填）",
+    )
+    parser.add_argument(
+        "--denominator-history",
+        default=None,
+        help="分母往期列名（率值/加权平均指标时必填）",
+    )
+    parser.add_argument(
+        "--denominator-current",
+        default=None,
+        help="分母当期列名（率值/加权平均指标时必填）",
+    )
 
     parser.add_argument("--output-file", default="", help="输出文件路径 (可选)")
 

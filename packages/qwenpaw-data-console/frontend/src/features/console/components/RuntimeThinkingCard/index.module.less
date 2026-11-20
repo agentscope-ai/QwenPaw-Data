@@ -1,0 +1,81 @@
+// Component-owned styles.
+
+.runtimeThinkingCard {
+  overflow: hidden;
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-large);
+  box-shadow: none;
+
+  > button {
+    display: grid;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    padding: 7px 12px;
+    color: var(--console-text);
+    text-align: left;
+    background: var(--console-surface);
+    border: 0;
+    cursor: pointer;
+    grid-template-columns: 16px 22px max-content minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+
+.runtimeThinkingCardOpen > button,
+.runtimeThinkingCardRunning > button {
+  background: var(--runtime-surface-important);
+}
+
+.runtimeThinkingIcon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--console-primary);
+  font-size: var(--icon-small);
+}
+
+.runtimeThinkingTitle {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.runtimeThinkingStatus {
+  overflow: hidden;
+  color: var(--console-muted);
+  font-size: var(--text-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtimeThinkingDetails {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 180ms ease,
+    opacity 160ms ease;
+
+  > div {
+    min-height: 0;
+    padding: 0 14px;
+    overflow: hidden;
+    color: var(--console-muted);
+    font-size: var(--text-micro);
+    line-height: 1.7;
+    white-space: pre-wrap;
+  }
+}
+
+.runtimeThinkingDetailsOpen {
+  grid-template-rows: 1fr;
+  opacity: 1;
+
+  > div {
+    padding-top: 12px;
+    padding-bottom: 14px;
+  }
+}

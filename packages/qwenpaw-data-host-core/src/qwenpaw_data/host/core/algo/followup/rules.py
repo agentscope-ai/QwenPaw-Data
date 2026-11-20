@@ -49,13 +49,7 @@ def generate_rule_candidates(snapshot: SignalSnapshot) -> list[Candidate]:
         1 for node in snapshot.completed_nodes if node.endswith(_DONE_SUFFIX)
     )
 
-    retrieval_insufficient = snapshot.intent_coverage == "insufficient"
-
-    if (
-        metric
-        and snapshot.unused_dimensions
-        and not retrieval_insufficient
-    ):
+    if metric and snapshot.unused_dimensions:
         dimension = snapshot.unused_dimensions[0]
         candidates.append(
             _candidate(
@@ -65,11 +59,7 @@ def generate_rule_candidates(snapshot: SignalSnapshot) -> list[Candidate]:
             )
         )
 
-    if (
-        metric
-        and _COMPARISON_SKILL not in snapshot.skills_used
-        and not retrieval_insufficient
-    ):
+    if metric and _COMPARISON_SKILL not in snapshot.skills_used:
         candidates.append(
             _candidate(
                 f"{window}{metric}环比和同比表现如何？",
@@ -81,12 +71,7 @@ def generate_rule_candidates(snapshot: SignalSnapshot) -> list[Candidate]:
     fluctuated = any(
         word in snapshot.final_answer_summary for word in _FLUCTUATION_WORDS
     )
-    if (
-        metric
-        and fluctuated
-        and not _attribution_done(snapshot)
-        and not retrieval_insufficient
-    ):
+    if metric and fluctuated and not _attribution_done(snapshot):
         candidates.append(
             _candidate(
                 f"{window}{metric}的波动主要由什么驱动？",
@@ -147,9 +132,7 @@ def _candidate(
 
 
 def _attribution_done(snapshot: SignalSnapshot) -> bool:
-    if any(
-        "attribution" in skill or "归因" in skill for skill in snapshot.skills_used
-    ):
+    if any("attribution" in skill or "归因" in skill for skill in snapshot.skills_used):
         return True
     return any(
         "归因" in node or "attribution" in node for node in snapshot.completed_nodes

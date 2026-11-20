@@ -1,0 +1,7 @@
+.workspaceOption {
+  display: flex;
+  min-width: 180px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}

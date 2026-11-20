@@ -167,7 +167,11 @@ run "${uv_cmd}" pip install \
   --editable "${repo_root}/packages/qwenpaw-data-context" \
   --editable "${repo_root}/packages/qwenpaw-data-host-core" \
   --editable "${repo_root}/packages/qwenpaw-data-cli" \
-  --editable "${repo_root}/packages/qwenpaw-data-skills"
+  --editable "${repo_root}/packages/qwenpaw-data-skills" \
+  --editable "${repo_root}/packages/qwenpaw-data-console" \
+  --editable "${repo_root}/packages/qwenpaw-data-auth" \
+  --editable "${repo_root}/packages/qwenpaw-data-tracing"
+run "${uv_cmd}" pip check --python "${workspace_python}"
 
 workspace_qwenpaw_data="${repo_root}/.venv/bin/qwenpaw-data"
 if [[ ! -x "${workspace_qwenpaw_data}" ]]; then

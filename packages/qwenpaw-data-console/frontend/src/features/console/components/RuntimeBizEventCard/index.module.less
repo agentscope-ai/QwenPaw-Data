@@ -1,0 +1,93 @@
+// Component-owned styles.
+
+.runtimeBizEventCard {
+  overflow: hidden;
+  background: var(--console-surface);
+  border: 1px solid var(--console-line);
+  border-radius: var(--radius-large);
+  box-shadow: none;
+
+  > button {
+    display: grid;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    padding: 7px 12px;
+    color: var(--console-text);
+    text-align: left;
+    background: var(--console-surface);
+    border: 0;
+    cursor: pointer;
+    grid-template-columns: 22px minmax(0, 1fr) auto 16px;
+    gap: 8px;
+
+    > :last-child {
+      grid-column: 4;
+    }
+  }
+}
+
+.runtimeBizEventCardOpen > button {
+  background: var(--runtime-surface-important);
+}
+
+.runtimeBizEventIcon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--console-primary);
+  font-size: var(--icon-small);
+}
+
+.runtimeBizEventCardError .runtimeBizEventIcon {
+  color: var(--console-error);
+}
+
+.runtimeBizEventHeading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+
+  strong {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.runtimeBizEventDetails {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.runtimeBizEventDetailsOpen {
+  grid-template-rows: 1fr;
+}
+
+.runtimeBizEventDetailsInner {
+  min-height: 0;
+  padding: 0 14px;
+  overflow: hidden;
+
+  > :global(.data-runtime-markdown) {
+    padding: 12px 0 14px;
+  }
+}
+
+.runtimeBizReply {
+  min-width: 0;
+  padding: 12px 14px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.replyTiming {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
