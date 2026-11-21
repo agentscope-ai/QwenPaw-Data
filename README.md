@@ -20,19 +20,16 @@ QwenPaw-Data organizes its system design around three core dimensions: **facts**
 
 For a complete system-level overview, see the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
-## Releases and standalone UI preview
+## QwenPaw-Data 0.4.0
+
+**0.4.0 is available on PyPI.** This release adds DataBridge CM 1.0, reviewed updates to custom skills, and multi-agent collaboration. Read the release notes in [English](./CHANGELOG.md#040-release-highlights) or [中文](./CHANGELOG.md#040-版本亮点). The [GitHub release](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.4.0) includes all seven packages and their checksums.
 
 The OSS local installation runs without a login or user accounts. Sessions,
 settlement items and scheduled jobs belong to the local identity. Use the
 initialization/start commands below; for shared-stack development, see
 [scripts/README.md](scripts/README.md).
 
-- **QwenPaw-Data 0.4.0 preview:** DataBridge (CM 1.0), reviewable updates to custom skills, and multi-agent collaboration. [Release highlights (Chinese)](./CHANGELOG.md#040-版本亮点).
-- **Available: QwenPaw-Data 0.3.x.** The independently deployable engine provides
-  HTTP/replayable-SSE APIs for analysis sessions, execution events, and artifacts.
-  See the [0.3.0 release](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
-  and [0.3.1 fixes](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.1).
-- **Optional: QwenPaw Data App integration.** To use the Console inside QwenPaw's workspace and channels instead of running it standalone, see the [App preview and setup](docs/QWENPAW_APP.md).
+To use the Console inside QwenPaw's workspace or channels, see the [optional App integration](docs/QWENPAW_APP.md).
 
 **Standalone Console.** In this GAAP SQLite session, the agent lists the seven columns of `main.dws_gaap_di`. The same conversation shows the CSV artifact and earlier turns.
 
@@ -113,7 +110,7 @@ For interactive analysis, start with the standalone Console. For automation or i
 | --- | --- | --- | --- |
 | **[Standalone Console](#browser-console)** | Ask questions, inspect the steps, and open session reports and files | Analysts | Local browser UI backed by Host; can also serve the DataBridge management UI. |
 | **DataBridge UI** | Manage graph memory, semantic config, and related DataBridge assets | Analysts and platform operators | Local management UI backed by the DataBridge API. |
-| **CLI** | Platform integration and local administration | Developers and platform teams | Datasource management, semantic configuration, and diagnostics via `qwenpaw-data-cli`; agent execution lives in Host and Console. |
+| **CLI** | Platform integration and local administration | Developers and platform teams | Install `qwenpaw-data-cli`; run `qwenpaw-data` to manage data sources, configure semantics, run diagnostics, or start a session on Host. |
 | **Headless Engine** | Integrate analysis into a host or frontend | Application developers | [HTTP + replayable SSE service](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra). |
 | **QwenPaw App — QPD 0.3 preview** | Analyze data from the QwenPaw workspace and channels | QwenPaw users | Embedded Data Console and channel bridge; see [integration status and setup](docs/QWENPAW_APP.md). |
 

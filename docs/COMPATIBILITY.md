@@ -6,27 +6,27 @@ releases are intended to remain API compatible within the same minor line.
 
 ## Release compatibility
 
-The coordinated `0.3.4` release includes all five Python distributions. Install
-matching patch versions for an integration tested as a set:
+The [0.4.0 release](../CHANGELOG.md#040-release-highlights) includes seven Python
+distributions. Use matching versions for the components you install:
 
 | Package | Coordinated version | Notes |
 | --- | --- | --- |
-| `qwenpaw-data-cli` | 0.3.4 | Requires Host 0.3.4 or newer within 0.3.x |
-| `qwenpaw-data-host-core[service]` | 0.3.4 | Requires Skills 0.3.4 or newer within 0.3.x |
-| `qwenpaw-data-context` | 0.3.4 | Use `[duckdb]` when connecting DuckDB datasets |
-| `qwenpaw-data-skills` | 0.3.4 | Packaged analytical methods |
-| `qwenpaw-data-console` | 0.3.4 | Bundles both UIs; consumers do not need Node.js |
+| `qwenpaw-data-cli` | 0.4.0 | Installs the `qwenpaw-data` command; depends on Host Core |
+| `qwenpaw-data-host-core[service]` | 0.4.0 | Host HTTP/SSE service; depends on Skills, Auth, and Tracing |
+| `qwenpaw-data-context` | 0.4.0 | DataBridge; use `[duckdb]` when connecting DuckDB datasets |
+| `qwenpaw-data-skills` | 0.4.0 | Built-in analytical skills |
+| `qwenpaw-data-console` | 0.4.0 | Bundles the standalone Console and DataBridge UI; no Node.js required |
+| `qwenpaw-data-auth` | 0.4.0 | Shared identity and authorization for Host and DataBridge |
+| `qwenpaw-data-tracing` | 0.4.0 | Shared tracing for Host and DataBridge |
 
-Dataset-scoped SQL and persisted SQL result references require the 0.3.4 Host
-and DataBridge together. Scope enforcement remains opt-in; tools must still
+Dataset-scoped SQL and persisted SQL result references were introduced in 0.3.4;
+upgrade Host and DataBridge together. Scope enforcement remains opt-in; tools must still
 validate columns, periods, regions and economic definitions. These runtime
 checks do not guarantee a model will choose the right tool or produce correct
 analysis without domain validation.
 
 The optional Console can also be released independently with a
-`console-vX.Y.Z` tag. Console 0.3.3 remains the previously validated pairing for
-Host and DataBridge 0.3.3; coordinated `vX.Y.Z` releases align and publish all
-five distributions.
+`console-vX.Y.Z` tag. A coordinated `vX.Y.Z` tag publishes the full package set.
 
 ## Validated environments
 

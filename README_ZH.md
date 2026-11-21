@@ -20,17 +20,14 @@ QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织�
 
 完整的系统级说明可参考 [技术报告](https://arxiv.org/pdf/2607.11019)。
 
-## 版本与独立界面预览
+## QwenPaw-Data 0.4.0
+
+**0.4.0 已正式发布到 PyPI。** 本版将 DataBridge 升级至 CM 1.0，支持经审核的自定义技能更新和多智能体协作。详见[中文发布说明](./CHANGELOG.md#040-版本亮点)或[英文发布说明](./CHANGELOG.md#040-release-highlights)。[GitHub Release](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.4.0) 提供全部 7 个包及其校验和。
 
 OSS 本机版不设用户账号，无需登录。会话、沉淀项和定时任务仍归本机身份所有。
 本机初始化和启动见下文；共享服务栈的开发流程另见[脚本说明](scripts/README.md)。
 
-- **QwenPaw-Data 0.4.0 预览：** DataBridge 升级至 CM 1.0，支持经审核的自定义技能更新和多智能体协作。详见[版本亮点](./CHANGELOG.md#040-版本亮点)。
-- **已发布：QwenPaw-Data 0.3.x。** 独立部署的 Engine 提供分析会话、执行事件及产物的
-  HTTP / 可重放 SSE 接口。详见
-  [0.3.0 发布说明](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.0)
-  和 [0.3.1 修复](https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.3.1)。
-- **可选：QwenPaw Data App 集成。** 如果希望从 QwenPaw 工作区或渠道会话进入控制台，而不是单独运行，请参阅 [App 预览与配置说明](docs/QWENPAW_APP_ZH.md)。
+如果希望从 QwenPaw 工作区或渠道会话进入控制台，请参阅[可选的 App 集成说明](docs/QWENPAW_APP_ZH.md)。
 
 **独立控制台。** 在这次 GAAP SQLite 示例会话中，智能体列出了 `main.dws_gaap_di` 的 7 个字段。在同一个会话里可以下载 CSV 产物，也可以回看之前的对话轮次。
 
@@ -111,7 +108,7 @@ QwenPaw-Data 面向数据团队日常处理的严肃分析任务，包括：
 | --- | --- | --- | --- |
 | **[独立控制台](#独立浏览器控制台)** | 提问、查看分析过程、打开会话报告和文件 | 分析师 | 本机浏览器界面，连接 Host，也可在同一地址提供 DataBridge 管理界面。 |
 | **DataBridge UI** | 管理图记忆、语义配置及相关 DataBridge 资产 | 分析师、平台运营 | 本地管理界面，后端对接 DataBridge API。 |
-| **CLI** | 平台集成与本地管理 | 开发者、平台团队 | 通过 `qwenpaw-data-cli` 管理数据源、语义配置和诊断；智能体执行由 Host 和 Console 承担。 |
+| **CLI** | 平台集成与本地管理 | 开发者、平台团队 | 安装 `qwenpaw-data-cli`，运行 `qwenpaw-data` 管理数据源、配置语义、诊断环境，或连接 Host 发起会话。 |
 | **Headless Engine** | 将分析能力接入宿主或前端 | 应用开发者 | [HTTP + 可重放 SSE 服务](packages/qwenpaw-data-host-core/README.md#headless-service-optional-service-extra)。 |
 | **QwenPaw App — QPD 0.3 预览** | 从 QwenPaw 工作区和渠道发起数据分析 | QwenPaw 用户 | 内嵌 Data Console 与渠道桥接；详见 [发布预告与使用入口](docs/QWENPAW_APP_ZH.md)。 |
 
