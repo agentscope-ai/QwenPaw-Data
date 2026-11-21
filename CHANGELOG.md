@@ -6,6 +6,21 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-20
+
+[English](#040-release-highlights) · [中文](#040-版本亮点)
+
+### 0.4.0 release highlights
+
+- **DataBridge CM 1.0:** Connect tables and columns to metric definitions and business knowledge. The agent can look up how a metric is defined before it queries the data.
+- **Custom skill updates:** Turn a reusable analysis method into a proposal you can review before applying it to a custom skill. Built-in skills still update with the package.
+- **Multi-agent analysis:** The main agent can delegate work such as data retrieval or report writing. Follow each subtask’s progress, results, and trace in the same session.
+- **Standalone local Console:** Manage models, sessions, artifacts, and scheduled jobs without a user account. Confirmed findings can be saved to local DataBridge for future analyses.
+
+**Upgrading:** Replace calls to the retired `execute_sql` tool with the appropriate native SQL tool (`execute_read` for read-only queries). Python integrations should call the Host API; the old in-process entry point is no longer supported.
+
+[Start the standalone Console](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.4.0/README.md#browser-console).
+
 ### 0.4.0 版本亮点
 
 - **DataBridge 升级至 CM 1.0**：把表、字段、指标口径和业务知识关联起来，分析时可以先查图谱确认口径，再执行 SQL 取数。
@@ -14,6 +29,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **开源本机模式**：无需登录即可在 Portal 管理模型、会话、分析产物和定时任务；确认后的分析结论可写回本机 DataBridge。
 
 **升级提示：** 使用旧 `execute_sql` 工具的集成需切换到对应的原生 SQL 工具（只读查询用 `execute_read`）；Python 集成请通过 Host API 调用，不再支持旧的进程内嵌入入口。
+
+[启动独立浏览器控制台](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.4.0/README_ZH.md#独立浏览器控制台)。
+
+**PyPI packages / 发布包 (0.4.0):** `qwenpaw-data-cli`, `qwenpaw-data-host-core`, `qwenpaw-data-context`, `qwenpaw-data-skills`, `qwenpaw-data-console`, `qwenpaw-data-auth`, `qwenpaw-data-tracing`. [Release PR #126](https://github.com/agentscope-ai/QwenPaw-Data/pull/126).
 
 ## [0.3.4] - 2026-11-05
 
@@ -322,7 +341,9 @@ contracts remain on the separate vNext branch.
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.4.0
+[0.3.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.0...v0.3.1
