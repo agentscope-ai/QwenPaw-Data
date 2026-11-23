@@ -6,6 +6,34 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-23
+
+### Added
+
+- Add versioned Host application contracts for deployment-installed extensions,
+  including lifecycle hooks, tool contributions, Skills/MCP discovery, and
+  namespaced presentation and session summary payloads.
+- Package an embeddable Console with hash routing, relative assets, host identity
+  configuration, and separate Host and DataBridge API prefixes.
+- Add authenticated Console identity discovery, opt-in gateway extension routes,
+  and Agent-scoped Skills/MCP configuration.
+
+### Fixed
+
+- Preserve binary font and image assets during embed URL rewriting.
+- Revalidate domain clarification answers when consumed through the native
+  durable command lifecycle, including cancellation and timeout handling.
+
+### Changed
+
+- Release all seven Python packages together at 0.4.1. Domain applications can
+  consume the installed platform packages without copying platform source or
+  maintaining a Console fork. Domain frontends and reports remain downstream.
+
+**升级说明：** Host 应用扩展与官方 Console 嵌入构建从 0.4.1 开始提供；
+下游应用请同步升级 Host 和 Console，并使用正式发行的 wheel。
+本次发布不执行历史数据库自动迁移，也不包含领域地图或报告实现。
+
 ## [0.4.0] - 2026-11-20
 
 [English](#040-release-highlights) · [中文](#040-版本亮点)
@@ -341,7 +369,8 @@ contracts remain on the separate vNext branch.
 
 - Initial local-first open-source baseline.
 
-[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/agentscope-ai/QwenPaw-Data/releases/tag/v0.4.0
 [0.3.4]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/agentscope-ai/QwenPaw-Data/compare/v0.3.2...v0.3.3

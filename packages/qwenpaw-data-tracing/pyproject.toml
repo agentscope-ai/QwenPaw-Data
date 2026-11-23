@@ -1,6 +1,6 @@
 [project]
 name = "qwenpaw-data-tracing"
-version = "0.4.0"
+version = "0.4.1"
 description = "Shared OpenTelemetry-on-Langfuse tracing for QwenPaw-Data."
 readme = { text = "OpenTelemetry tracing, context propagation, and optional Langfuse export for QwenPaw-Data. Export is disabled unless explicitly configured.", content-type = "text/plain" }
 license = "Apache-2.0"
