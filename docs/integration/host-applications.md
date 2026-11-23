@@ -1,6 +1,6 @@
 # Host application and Console consumer contracts (candidate v1)
 
-Available in local Host-core/Console `0.4.1.dev0` candidates. Not part of published 0.4.0. Consumers must pin the reviewed wheel and verify its hash.
+These contracts are unreleased and are not part of the published 0.4.0 packages. Workspace package versions remain aligned with the current release baseline; a coordinated release will assign the next version. Until then, consumers must build from the reviewed source revision and pin the resulting wheel by hash rather than relying on the version number alone.
 
 ## Trusted installation boundary
 

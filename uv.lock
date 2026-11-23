@@ -4282,7 +4282,7 @@ requires-dist = [
 
 [[package]]
 name = "qwenpaw-data-console"
-version = "0.4.1.dev0"
+version = "0.4.0"
 source = { editable = "packages/qwenpaw-data-console" }
 dependencies = [
     { name = "fastapi" },
@@ -4411,7 +4411,7 @@ provides-extras = ["bigquery", "duckdb", "hologres", "postgres"]
 
 [[package]]
 name = "qwenpaw-data-host-core"
-version = "0.4.1.dev0"
+version = "0.4.0"
 source = { editable = "packages/qwenpaw-data-host-core" }
 dependencies = [
     { name = "agentscope" },
