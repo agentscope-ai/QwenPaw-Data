@@ -41,7 +41,6 @@ def test_required_bundle_assets_exist(relative):
 def test_public_namespace_and_canonical_app_compatible_assets(monkeypatch):
     monkeypatch.syspath_prepend(str(PACKAGE / "src"))
     bundle = importlib.import_module("qwenpaw_data.skills")
-    assert bundle.__version__ == "0.4.0"
     assert bundle.bundle_root() == SKILLS
     assert bundle.get_skill_path("cm-skills") == SKILLS / "domains/cm-skills"
     assert len(bundle.iter_skill_paths()) >= 30
@@ -50,7 +49,7 @@ def test_public_namespace_and_canonical_app_compatible_assets(monkeypatch):
     with pytest.raises(KeyError):
         bundle.get_skill_path("nonexistent-skill")
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.4.0"
+    assert bundle.__version__ == project["project"]["version"]
     assert project["project"]["name"] == "qwenpaw-data-skills"
     assert project["project"]["license"] == "Apache-2.0"
     includes = project["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
