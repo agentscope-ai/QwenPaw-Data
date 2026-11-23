@@ -59,9 +59,20 @@ uv run pytest packages/qwenpaw-data-console/tests
 npm test --prefix packages/qwenpaw-data-console/frontend
 ```
 
+`scripts/build_console.py` emits three browser applications: `static/chat`
+(server mode), `static/databridge`, and `static/chat-embed`. The embed bundle
+uses a relative asset base and hash routing so a host can serve it from a deep
+static path, for example QwenPaw's PawApp gateway
+(`/api/frontend_plugin/<app>/files/...`). It takes its API base at runtime from
+`window.QWENPAW_DATA_CONSOLE.api_base_url` and falls back to the build-time
+`VITE_API_BASE_URL`; a host that injects that global must do so before the
+module bundle loads. The embed build is a supported export of this package, so
+downstream hosts should consume it from the wheel instead of rebuilding the UI
+from another checkout.
+
 `npm ci` uses each application's lockfile. The build excludes private
 environment configuration. Both wheel and sdist carry the built assets;
-wheel builds fail if either UI is absent. Rebuilding a release sdist does
+wheel builds fail if any of the three UIs is absent. Rebuilding a release sdist does
 not require Node.js. Editable source installs require the asset build once.
 
 The pinned Chat SDK's `@ant-design/x` dependency declares an Ant Design 6

@@ -51,12 +51,18 @@ def create_app(
     bridge_token=None,
     bridge_frontend=None,
     bridge_transport=None,
+    application_routes=(),
+    document_routes=(),
+    frontend_routes=(),
 ):
     """Serve packaged UIs and forward local APIs without exposing service tokens.
 
     Host and DataBridge keep their own lifecycles. Optional transports and asset
     roots support embedding, frontend development, and contract tests.
     """
+    # These are trusted deployment declarations, never browser input.
+    extra_routes = tuple((re.compile(pattern), frozenset(methods)) for pattern, methods in application_routes)
+    documents = tuple(re.compile(pattern) for pattern in document_routes)
     config = config or ConsoleConfig()
     browser_config = config.browser_config(databridge=bool(bridge_url))
     frontend = Path(frontend or FRONTEND).resolve()
@@ -145,6 +151,7 @@ def create_app(
                 request.method == "GET"
                 and (
                     request.url.path.endswith("/files/access")
+                    or any(pattern.fullmatch(request.url.path) for pattern in documents)
                     or re.fullmatch(
                         r"/(?:databridge/api|cm-api)/v1/docs/[^/]+/download", request.url.path
                     )
@@ -224,7 +231,7 @@ def create_app(
             ) from None
         headers = {
             k: response.headers[k]
-            for k in ("content-type", "content-disposition", "retry-after")
+            for k in ("content-type", "content-disposition", "retry-after", "content-security-policy")
             if k in response.headers
         }
         if "application/json" in response.headers.get("content-type", ""):
@@ -250,7 +257,7 @@ def create_app(
                 local_urls(payload), status_code=response.status_code, headers=headers
             )
         if "text/html" in headers.get("content-type", ""):
-            headers["Content-Security-Policy"] = "sandbox allow-scripts allow-downloads"
+            headers["Content-Security-Policy"] = (response.headers.get("content-security-policy", "") + "; sandbox allow-scripts allow-downloads").lstrip("; ")
         return StreamingResponse(
             response.aiter_bytes(),
             status_code=response.status_code,
@@ -322,6 +329,8 @@ def create_app(
         if not safe_host_path(path, request.scope.get("raw_path", b"")):
             raise HTTPException(404, "Unsupported portal route")
         methods = feature_methods(path)
+        if methods is None:
+            methods = next((verbs for pattern, verbs in extra_routes if pattern.fullmatch(path)), None)
         if methods is not None:
             if request.method not in methods:
                 raise HTTPException(405, "Unsupported portal method")
@@ -355,11 +364,11 @@ def create_app(
             ) from None
         headers = {
             k: response.headers[k]
-            for k in ("content-type", "content-disposition", "retry-after")
+            for k in ("content-type", "content-disposition", "retry-after", "content-security-policy")
             if k in response.headers
         }
         if "text/html" in response.headers.get("content-type", ""):
-            headers["Content-Security-Policy"] = "sandbox allow-scripts allow-downloads"
+            headers["Content-Security-Policy"] = (response.headers.get("content-security-policy", "") + "; sandbox allow-scripts allow-downloads").lstrip("; ")
         return StreamingResponse(
             response.aiter_bytes(),
             status_code=response.status_code,
@@ -383,7 +392,7 @@ def create_app(
         except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
-        if path == "" or path == "console" or path.startswith("console/"):
+        if path == "" or path == "console" or path.startswith("console/") or path in frontend_routes:
             return FileResponse(frontend / "index.html")
         if bridge_url and not Path(path).suffix and not path.startswith("assets/"):
             return FileResponse(frontend / "index.html")

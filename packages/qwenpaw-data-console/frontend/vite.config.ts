@@ -1,7 +1,72 @@
 import path from 'node:path';
-import { cpSync } from 'node:fs';
+import { cpSync, readdirSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type ProxyOptions, type UserConfig } from 'vite';
+import { defineConfig, type Plugin, type ProxyOptions, type UserConfig } from 'vite';
+
+function publicAssetPaths(root: string): string[] {
+  const paths: string[] = [];
+  const walk = (directory: string, prefix: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path.join(directory, entry.name), relative);
+      else if (entry.isFile()) paths.push(relative);
+    }
+  };
+  walk(root, '');
+  return paths;
+}
+
+/**
+ * Makes the chat bundle mountable under a deep static path (for example the
+ * PawApp gateway's /api/frontend_plugin/<app>/files/...). Public assets and the
+ * runtime config endpoint are only known to be absolute after the Context
+ * library and the packaged UI are bundled, so rewrite them post-bundle.
+ */
+function embedAssetsPlugin(): Plugin {
+  return {
+    name: 'qwenpaw-console-embed-assets',
+    apply: 'build',
+    enforce: 'post',
+    transformIndexHtml(html) {
+      return html.replace(/\s*<script src="\/console-config\.js"><\/script>/, '');
+    },
+    generateBundle(_options, bundle) {
+      // The Context public assets are copied after bundling, so include their
+      // names here as well; both roots are served from the same output root.
+      const assets = [
+        ...new Set([
+          ...publicAssetPaths(path.resolve(__dirname, 'public')),
+          ...publicAssetPaths(
+            path.resolve(__dirname, '../../qwenpaw-data-context/frontend/public'),
+          ),
+        ]),
+      ];
+      const rewrite = (text: string) => {
+        let updated = text;
+        for (const asset of assets) {
+          updated = updated
+            .split(`"/${asset}`).join(`"./${asset}`)
+            .split(`'/${asset}`).join(`'./${asset}`)
+            .split('`/' + asset).join('`./' + asset)
+            .split(`url(/${asset}`).join(`url(./${asset}`);
+        }
+        return updated
+          .split("'/snow-leopard-loading'").join("'./snow-leopard-loading'")
+          .split('`/snow-leopard-loading').join('`./snow-leopard-loading');
+      };
+      for (const file of Object.values(bundle)) {
+        if (file.type === 'chunk') {
+          file.code = rewrite(file.code);
+        } else if (typeof file.source === 'string') {
+          file.source = rewrite(file.source);
+        } else if (file.source && /\.(?:css|html?|svg|json|m?js|map)$/.test(file.fileName)) {
+          // Rollup also emits binary fonts/images. Preserve their bytes.
+          file.source = rewrite(new TextDecoder().decode(file.source));
+        }
+      }
+    },
+  };
+}
 
 const gateway: ProxyOptions = {
   target: 'http://127.0.0.1:18768', changeOrigin: true,
@@ -17,7 +82,8 @@ const gateway: ProxyOptions = {
   },
 };
 
-export default defineConfig((): UserConfig => {
+export default defineConfig(({ mode }): UserConfig => {
+  const embed = mode === 'embed';
   const repoRoot = path.resolve(__dirname, '../../..');
   let outputDirectory = path.resolve(__dirname, 'dist');
   const directServices = process.env.QWENPAW_DATA_DIRECT_SERVICES === '1';
@@ -35,6 +101,10 @@ export default defineConfig((): UserConfig => {
 
   return {
     envDir: false,
+    base: embed ? './' : '/',
+    define: {
+      __QWENPAW_CONSOLE_EMBED__: JSON.stringify(embed),
+    },
     plugins: [react(), {
       name: 'context-public-assets',
       configResolved(config) { outputDirectory = path.resolve(config.root, config.build.outDir); },
@@ -42,7 +112,7 @@ export default defineConfig((): UserConfig => {
         cpSync(path.resolve(repoRoot, 'packages/qwenpaw-data-context/frontend/public'), outputDirectory,
           { recursive: true, force: false });
       },
-    }],
+    }, ...(embed ? [embedAssetsPlugin()] : [])],
     resolve: {
       alias: {
         '@qwenpaw-data/cm': path.resolve(__dirname, '../../qwenpaw-data-context/frontend/dist-embedded/index.js'),
@@ -75,7 +145,7 @@ export default defineConfig((): UserConfig => {
       },
     },
     build: {
-      outDir: 'dist',
+      outDir: embed ? 'dist-embed' : 'dist',
       sourcemap: false,
       minify: 'terser',
       rollupOptions: {

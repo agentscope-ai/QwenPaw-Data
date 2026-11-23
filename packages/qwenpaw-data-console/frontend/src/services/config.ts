@@ -12,11 +12,14 @@ function stringValue(value: string | boolean | undefined): string {
   return typeof value === 'string' ? value : '';
 }
 
+/** Host-injected runtime config wins over the build-time env (embed builds). */
 function getEnvApiBaseUrl(): string {
-  return stringValue(getEnv()?.VITE_API_BASE_URL);
+  return getRuntimeConfig().api_base_url || stringValue(getEnv()?.VITE_API_BASE_URL);
 }
 
 function getEnvAuthApiBaseUrl(): string {
+  const configured = getRuntimeConfig().auth?.api_base_url;
+  if (configured !== undefined) return configured;
   const env = getEnv();
   if (env?.DEV === true) return '';
   return stringValue(env?.VITE_AUTH_API_URL) || stringValue(env?.VITE_AUTH_URL);
@@ -61,6 +64,8 @@ export function getAuthApiUrl(path: string): string {
 }
 
 export function getAuthLoginUrl(redirectUrl: string): string {
+  const configured = getRuntimeConfig().auth?.login_url;
+  if (configured) return configured;
   const env = getEnv();
   const base = (
     stringValue(env?.VITE_AUTH_FRONTEND_URL) ||
@@ -69,4 +74,10 @@ export function getAuthLoginUrl(redirectUrl: string): string {
     frontendOriginFallback()
   ).replace(/\/$/, '');
   return `${base}/login?redirect=${encodeURIComponent(redirectUrl)}`;
+}
+
+/** Context service endpoints do not inherit the Engine prefix. */
+export function getContextApiUrl(path: string): string {
+  const base = (getRuntimeConfig().databridge?.api_base_url ?? '').replace(/\/$/, '');
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }

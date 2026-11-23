@@ -45,6 +45,7 @@ class AgentExecutor:
         self._clarification = ClarificationWithExecutor(
             run_context.session_factory, run_context.chat_id
         )
+        run_context.clarification = self._clarification
         self._tool_confirmation = ToolConfirmation(
             run_context.session_factory,
             run_context.chat_id,
@@ -134,6 +135,12 @@ class AgentExecutor:
         self,
         required: RequireExternalExecutionEvent,
     ) -> ExternalExecutionResultEvent:
+        from qwenpaw_data.host.core.applications import application_for
+        application = application_for(self._run_context.paths.agent_id)
+        if application is not None:
+            result = await application.handle_external(self._run_context, required)
+            if result is not None:
+                return result
         tool_call = required.tool_calls[0]
         result = await self._clarification.wait_for_answer(
             tool_call.id, tool_input=tool_call.input

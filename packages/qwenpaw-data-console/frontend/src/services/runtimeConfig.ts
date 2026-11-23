@@ -7,6 +7,9 @@ export interface ConsoleRuntimeConfig {
   logo_url: string;
   avatar_url: string;
   sample_questions: string[];
+  api_base_url?: string;
+  auth?: { mode: 'native' | 'host'; api_base_url: string; login_url?: string };
+  databridge?: { base_path?: string; api_base_url?: string; open_in_console?: boolean } | null;
   capabilities: {
     skillsHub: boolean;
     mcpHub: boolean;
@@ -25,6 +28,7 @@ const defaults: ConsoleRuntimeConfig = {
   welcome_title: '开始新的数据分析',
   welcome_description: '选择数据源并描述你希望验证的业务问题。',
   workspace_name: '本地数据空间',
+  // The embed build rewrites these root-absolute defaults to ./ at bundle time.
   logo_url: '/qwenpaw-data-brand.png',
   avatar_url: '/mascot-blue-transparent.png',
   sample_questions: [],

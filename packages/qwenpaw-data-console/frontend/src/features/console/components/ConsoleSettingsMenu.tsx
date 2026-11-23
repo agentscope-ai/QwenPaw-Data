@@ -1,3 +1,4 @@
+import { getRuntimeConfig } from '@/services/runtimeConfig';
 import { capabilities } from '@/services/capabilities';
 import {
   ApiOutlined,
@@ -35,7 +36,8 @@ export default function ConsoleSettingsMenu({
           ],
           onClick: ({ key }: { key: string }) => {
             if (key === 'data-bridge') {
-              window.open(getContextFrontendUrl(), '_blank', 'noopener,noreferrer');
+              if (getRuntimeConfig().databridge?.open_in_console) navigate('/data-source');
+              else window.open(getContextFrontendUrl(), '_blank', 'noopener,noreferrer');
             }
             if (key === 'agent-configuration') {
               navigate(buildAgentConfigurationPath());

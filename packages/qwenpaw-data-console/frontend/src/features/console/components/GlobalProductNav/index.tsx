@@ -31,6 +31,8 @@ import {
   switchHostWorkspace,
 } from '@/services/auth';
 import { useNavigate } from 'react-router-dom';
+import { getRuntimeConfig } from '@/services/runtimeConfig';
+import { getContextFrontendUrl } from '@/services/config';
 import type { ConsoleSession } from '../../api/types';
 import sharedStyles from '../../index.module.less';
 import { mergeStyleModules } from '../../styleModules';
@@ -101,11 +103,12 @@ export default function GlobalProductNav({
   const { colorMode, toggleColorMode } = useQwenPawDataColorMode();
   const currentUser = getHostCurrentUser();
   const auth = useSyncExternalStore(subscribeHostAuth, getHostAuthContext, getHostAuthContext);
-  const accountActions = auth.ready && auth.loginEnabled === true;
+  const config = getRuntimeConfig();
+  const accountActions = config.auth?.mode !== 'host' && auth.ready && auth.loginEnabled === true;
   const workspaces = currentUser?.workspaces ?? [];
   const activeWorkspaceId = currentUser?.active_workspace_id ?? '';
   const username = currentUser?.display_name || currentUser?.username || t('nav.currentUser');
-  const activeWorkspaceName = accountActions
+  const activeWorkspaceName = auth.ready && auth.loginEnabled === true
     ? currentUser?.active_workspace_name ||
       workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.name ||
       t('nav.enterpriseDataSpace')
@@ -328,7 +331,7 @@ export default function GlobalProductNav({
 
         <div className={styles.navDivider} />
         <div className={styles.navSectionLabel}>{t('nav.workspace')}</div>
-        <button
+        {config.capabilities.skillsHub && <button
           className={`${styles.navItem} ${skillsHubActive ? styles.navItemActive : ''}`}
           type="button"
           aria-current={skillsHubActive ? 'page' : undefined}
@@ -339,7 +342,7 @@ export default function GlobalProductNav({
         >
           <ThunderboltOutlined />
           <span>{t('nav.skillsHub')}</span>
-        </button>
+        </button>}
 
         <div className={styles.navDivider} />
         <div className={styles.navSectionLabel}>{t('nav.resultCenter')}</div>
@@ -379,7 +382,7 @@ export default function GlobalProductNav({
 
       <div className={styles.navFooter}>
         <QwenPawDataSiderAccountCard
-          hideUsername={!accountActions}
+          hideUsername={!auth.ready || !auth.loginEnabled}
           username={username}
           workspaceName={activeWorkspaceName}
           usernameIcon={<UserOutlined />}
@@ -456,19 +459,24 @@ export default function GlobalProductNav({
             },
             {
               key: 'semantic-center',
-              node: (
+              node: config.capabilities.contextConsole ? (
                 <Tooltip title={t('settings.dataBridge')} placement="top">
                   <Button
                     type="text"
                     icon={<DatabaseOutlined />}
                     aria-label={t('settings.dataBridge')}
-                    href="/data-source"
+                    href={getContextFrontendUrl('/data-source')}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => onClose?.()}
+                    onClick={(event) => {
+                      if (config.databridge?.open_in_console) {
+                        event.preventDefault(); navigate('/data-source');
+                      }
+                      onClose?.();
+                    }}
                   />
                 </Tooltip>
-              ),
+              ) : null,
             },
           ]}
         />

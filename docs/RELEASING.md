@@ -43,7 +43,7 @@ package hygiene check enforces this. Both wheel and sdist must retain the notice
 ### Console-only releases
 
 A `console-vX.Y.Z` tag selects only `qwenpaw-data-console`. The same workflow
-validates that package's version, builds its two prebuilt UIs and wheel/sdist,
+validates that package's version, builds its three prebuilt UIs and wheel/sdist,
 and publishes only through `pypi-console`. Other package versions and PyPI
 releases remain unchanged. Use this path for the initial Console 0.3.3 release;
 the existing coordinated `v0.3.3` tag must not be moved or reused.
@@ -61,7 +61,7 @@ The release tag determines the publication scope; manual dispatch accepts the
 same tag. A Console-only distribution check rejects artifacts for other
 packages. Existing `vX.Y.Z` releases retain the coordinated all-package path.
 
-Console release wheels and sdists must contain both prebuilt UIs. The build
+Console release wheels and sdists must contain all three prebuilt UIs. The build
 hook rejects missing assets; CI installs the wheels and verifies the packaged
 portal without using frontend source directories. Configure the new
 `pypi-console` environment and its Trusted Publisher before its first release.

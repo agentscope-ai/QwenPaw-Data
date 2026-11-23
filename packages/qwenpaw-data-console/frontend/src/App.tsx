@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { lazy, Suspense, useLayoutEffect, useMemo, type ReactNode } from 'react';
 import {
   createBrowserRouter,
+  createHashRouter,
   createRoutesFromElements,
   RouterProvider,
   Navigate,
@@ -47,13 +48,13 @@ function AppLoading({ label }: { label: string }) {
         {prefersReducedMotion ? (
           <img
             className={styles.appLoadingMascot}
-            src={`/snow-leopard-loading${darkAssetSuffix}.png`}
+            src={`${import.meta.env.BASE_URL}snow-leopard-loading${darkAssetSuffix}.png`}
             alt=""
           />
         ) : (
           <video
             className={styles.appLoadingMascot}
-            src={`/snow-leopard-loading${darkAssetSuffix}.mp4`}
+            src={`${import.meta.env.BASE_URL}snow-leopard-loading${darkAssetSuffix}.mp4`}
             autoPlay
             loop
             muted
@@ -93,7 +94,10 @@ const platformChildren = contextMain.children!.filter(
   (route) => authPlane(route.path ?? '') === 'platform',
 );
 const wrapContext = (element: ReactNode) => <EmbeddedContext>{element}</EmbeddedContext>;
-const router = createBrowserRouter([
+// The embed build is served from a deep static path where only the document
+// itself is stable, so keep every route in the fragment.
+const createRouter = __QWENPAW_CONSOLE_EMBED__ ? createHashRouter : createBrowserRouter;
+const router = createRouter([
   {
     element: <UnifiedEntry />,
     children: [

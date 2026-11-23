@@ -49,8 +49,9 @@ _SPEC_KEYS = (
 class McpRepository:
     """Agent MCP inventory: ``{agent}/workspace/mcp.json``."""
 
-    def __init__(self, manifest_path: Path) -> None:
+    def __init__(self, manifest_path: Path, *, agent_id: str | None = None) -> None:
         self.manifest_path = Path(manifest_path)
+        self.agent_id = agent_id
 
     def list(self) -> list[Mcp]:
         return list(self._items().values())
@@ -117,12 +118,17 @@ class McpRepository:
         datasource_id: str | None = None,
         dataset_names: list[str] | None = None,
         context_model_header: str | None = None,
+        required_names: tuple[str, ...] | None = None,
     ) -> LocalCMClient | None:
         scope = {"agent_id": agent_id, "session_id": session_id}
         hosted_cm = None
         wanted = {}
         local_cm = use_host_cm(workspace)
-        for mcp in self.list():
+        inventory = self.list()
+        for name in required_names or ():
+            if not any(m.name == name and m.enabled for m in inventory):
+                raise McpConnectFailed(f"Required MCP is disabled or missing: {name}")
+        for mcp in inventory:
             if not mcp.enabled:
                 continue
             spec = mcp.to_client()
@@ -181,7 +187,7 @@ class McpRepository:
                 event = await _log_mcp(
                     request_id, client, session_id, stream=stream, error=exc
                 )
-                if is_cm_mcp_client(client):
+                if is_cm_mcp_client(client) or client.name in (required_names or ()):
                     raise McpConnectFailed(event["error"]) from exc
             else:
                 await _log_mcp(
@@ -192,6 +198,26 @@ class McpRepository:
                     tool_count=len(tools),
                 )
         return hosted_cm
+
+    async def invoke(self, name: str, tool_name: str, arguments: dict):
+        """Use the configured native inventory for application HTTP actions too."""
+        record = self.require(name)
+        if not record.enabled:
+            raise McpConnectFailed(f"MCP is disabled: {name}")
+        client = record.to_client()
+        if client.mcp_config.type == "http_mcp":
+            headers = httpx.Headers(client.mcp_config.headers)
+            headers.update(get_settings().mcp.registration_headers.get(name, {}))
+            client.mcp_config.headers = dict(headers)
+        if client.mcp_config.type == "stdio_mcp" and not get_settings().mcp.allow_custom_stdio:
+            raise ValueError("STDIO MCP is not allowed in this deployment")
+        try:
+            if client.is_stateful:
+                await client.connect()
+            return await invoke_mcp_tool(client, tool_name, arguments)
+        finally:
+            if client.is_stateful and client.is_connected:
+                await client.close()
 
     async def list_tools(
         self,
@@ -245,7 +271,9 @@ class McpRepository:
         for name, record in load_builtin_mcp_records().items():
             if name in records:
                 continue
-            records[name] = dict(record)
+            from qwenpaw_data.host.core.applications import application_for
+            defaults = getattr(application_for(self.agent_id), "mcp_defaults", {}) if self.agent_id else {}
+            records[name] = {**record, **defaults.get(name, {})}
             added = True
         if added:
             write_mcp_manifest(self.manifest_path, records)
@@ -344,3 +372,10 @@ def _fingerprint(client: MCPClient) -> dict[str, Any]:
             },
         }
     return {key: data.get(key) for key in _SPEC_KEYS}
+
+
+async def invoke_mcp_tool(client, name: str, arguments: dict):
+    tools = {tool.name for tool in await client.list_raw_tools()}
+    if name not in tools:
+        raise ValueError(f"MCP tool is disabled or unavailable: {name}")
+    return await (await client.get_tool(name)).call(**arguments)

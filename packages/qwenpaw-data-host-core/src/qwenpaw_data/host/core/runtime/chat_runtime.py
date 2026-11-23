@@ -33,6 +33,7 @@ from qwenpaw_data.host.core.repositories import (
 )
 from qwenpaw_data.host.core.repositories.agent_state import AgentStateStore
 from qwenpaw_data.host.core.runtime.builder import get_agent_builder
+from qwenpaw_data.host.core.applications import application_for
 from qwenpaw_data.host.core.runtime.context import RunContext
 from qwenpaw_data.host.core.runtime.envelope import Envelope
 from qwenpaw_data.host.core.runtime.executor import AgentExecutor
@@ -67,6 +68,17 @@ class ChatRuntime:
         self._agent: QwenPawDataAgent | None = None
         self._run_context: RunContext | None = None
         self._access_token: str | None = None
+
+    @property
+    def application_state(self):
+        return self._run_context.application_state if self._run_context else None
+
+    async def answer_clarification(self, *, clarification_id, result):
+        if self._executor is None:
+            from qwenpaw_data.host.core.domain.clarification import ClarificationNotFound
+            raise ClarificationNotFound()
+        self._executor._clarification.require_pending(clarification_id, "ask_user_question")
+        await self._executor._clarification.answer(clarification_id=clarification_id, result=result)
 
     @property
     def agent(self) -> QwenPawDataAgent:
@@ -132,6 +144,12 @@ class ChatRuntime:
         # 关闭agent执行器
         if self._executor is not None:
             await self._executor.stop()
+
+        if self._run_context is not None:
+            from qwenpaw_data.host.core.applications import application_for
+            application = application_for(self._run_context.paths.agent_id)
+            if application is not None:
+                await application.close_run(self._run_context)
 
         # 其它
         self._finished.set()
@@ -242,6 +260,7 @@ class ChatRuntime:
                     access_token,
                     datasource_id=datasource_id,
                 )
+                application = application_for(session.agent_id)
                 host_cm = await self._setup_mcp(
                     workspace,
                     paths=paths,
@@ -273,6 +292,8 @@ class ChatRuntime:
                     },
                 )
                 self._run_context = run_context
+                if application is not None:
+                    await application.prepare_run(run_context, envelope)
                 self._executor = AgentExecutor(run_context)
                 self._log_chat_start(chat, run_context)
                 state.tasks_context = chat.plan
@@ -287,9 +308,12 @@ class ChatRuntime:
                 if self._cancel_requested:
                     outcome, failure = "canceled", None
                 else:
+                    turn = TurnInput.from_chat(chat)
+                    if application is not None:
+                        turn = await application.prepare_turn(run_context, turn)
                     await self._executor.start(
                         agent,
-                        TurnInput.from_chat(chat),
+                        turn,
                         envelope,
                         after_event_callback=self._after_event_callback,
                     )
@@ -327,7 +351,7 @@ class ChatRuntime:
         dataset_names: list[str] | None,
         context_model_header: str | None = None,
     ) -> LocalCMClient | None:
-        return await McpRepository(paths.mcp_manifest).sync(
+        return await McpRepository(paths.mcp_manifest, agent_id=paths.agent_id).sync(
             workspace,
             agent_id=paths.agent_id,
             session_id=session_id,
@@ -338,6 +362,7 @@ class ChatRuntime:
             datasource_id=datasource_id,
             dataset_names=dataset_names,
             context_model_header=context_model_header,
+            required_names=getattr(application_for(paths.agent_id), "required_mcps", None),
         )
 
     async def _after_event_callback(self, event: Any) -> None:

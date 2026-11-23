@@ -10,7 +10,7 @@ import {
   logout as tenantLogout,
   platformLogout,
 } from '@/auth';
-import { getContextBasePath } from '@/services/consoleConfig';
+import { getContextBasePath, getHostAuthConfig } from '@/services/consoleConfig';
 
 export type SessionPlane = 'tenant' | 'platform';
 
@@ -35,6 +35,8 @@ export function getSessionPlaneForPath(pathname: string): SessionPlane {
 
 /** Same-origin login redirect keeping the current URL as the return target. */
 export function buildLocalLoginUrl(plane: SessionPlane = 'tenant'): string {
+  const configured = getHostAuthConfig()?.login_url;
+  if (configured) return configured;
   const redirect = encodeURIComponent(window.location.href);
   // Router basename (e.g. /databridge in the packaged console) prefixes app routes.
   const basePath = getContextBasePath().replace(/\/$/, '');
@@ -188,7 +190,9 @@ export const useAuthStore = create<AuthStoreState>()(
       ...initialState,
 
       initialize: async () => {
-        const pathname = window.location.pathname;
+        const pathname = window.location.hash.startsWith('#/')
+          ? window.location.hash.slice(1).split('?')[0]
+          : window.location.pathname;
         const onPublicPath = isPublicPath(pathname);
         const sessionPlane = getSessionPlaneForPath(pathname);
         set(

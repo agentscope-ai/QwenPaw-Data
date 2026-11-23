@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+from qwenpaw_data.host.core.applications import application_for
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,8 +98,16 @@ async def list_sessions(
         if http:
             raise http from exc
         raise
+    summaries = {}
+    for agent_id in {s.agent_id for s, _ in items}:
+        application = application_for(agent_id)
+        if application and hasattr(application, "session_summaries"):
+            summaries.update(await application.session_summaries(db, identity,
+                [s for s, _ in items if s.agent_id == agent_id]))
     return {
-        "items": [session_to_schema(s, has_active_chat=a) for s, a in items],
+        "items": [{**session_to_schema(s, has_active_chat=a).model_dump(),
+                   "extensions": {s.agent_id: summaries[s.id]} if s.id in summaries else {}}
+                  for s, a in items],
         "total": total,
     }
 
@@ -157,6 +166,9 @@ async def patch_session(
                 active.set_enable_clarification(body.enable_clarification)
                 await chat_repo.save(active)
         await session_repo.save(session)
+        application = application_for(session.agent_id)
+        if application and hasattr(application, "session_patched"):
+            await application.session_patched(db, identity, session, body)
         return {
             "session": session_to_schema(
                 session, has_active_chat=await session_repo.has_active_chat(session.id)

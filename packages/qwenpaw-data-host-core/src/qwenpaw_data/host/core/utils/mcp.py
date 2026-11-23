@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from copy import copy
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,11 @@ def load_builtin_mcp_records() -> dict[str, dict[str, Any]]:
     records = read_mcp_manifest(_BUILTIN_MCP_PATH)
     if not records:
         raise FileNotFoundError(f"builtin MCP preset is empty: {_BUILTIN_MCP_PATH}")
+    for provider in entry_points(group="qwenpaw_data.mcp_presets"):
+        for name, record in provider.load()().items():
+            if name in records:
+                raise ValueError(f"Duplicate MCP preset: {name}")
+            records[name] = record
     return records
 
 

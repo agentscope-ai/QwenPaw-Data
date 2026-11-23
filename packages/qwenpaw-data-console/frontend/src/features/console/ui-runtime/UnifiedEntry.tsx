@@ -9,6 +9,7 @@ import {
   ContextProvider,
 } from '@qwenpaw-data/cm';
 import { adoptUnifiedIdentity } from '../../../services/auth';
+import { getRuntimeConfig } from '../../../services/runtimeConfig';
 import { useAppI18n } from '../../../i18n';
 
 export function UnifiedEntry() {
@@ -68,6 +69,14 @@ export function UnifiedEntry() {
       window.removeEventListener('focus', refresh);
     };
   }, [plane, readyPlane]);
+  const { capabilities, auth } = getRuntimeConfig();
+  const path = location.pathname;
+  if ((path.startsWith('/console/settings/channels') && !capabilities.channels) ||
+      (path.startsWith('/console/settings/mcp') && !capabilities.mcpHub) ||
+      (path.startsWith('/console/skills') && !capabilities.skillsHub) ||
+      (!path.startsWith('/console') && path !== '/' && !capabilities.contextConsole) ||
+      (auth?.mode === 'host' && (plane !== 'tenant' || path.startsWith('/user-center'))))
+    return <Navigate replace to="/console" />;
   if (readyPlane !== plane || state.loading) return <div role="status">正在初始化身份…</div>;
   if (state.initializationError) return <div role="alert">无法确认身份与权限，请刷新后重试。</div>;
   if (
