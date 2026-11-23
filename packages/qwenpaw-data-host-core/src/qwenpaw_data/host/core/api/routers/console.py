@@ -18,7 +18,9 @@ from fastapi import (
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from qwenpaw_data.host.core.api.deps import get_db, get_identity
+from qwenpaw_data.host.core.api.deps import get_db, get_identity, get_principal
+from qwenpaw_data_auth import Principal
+from qwenpaw_data_auth.permissions import PERMISSION_MATRIX
 from qwenpaw_data.host.core.api.auth_middleware import auth_enabled
 from qwenpaw_data.host.core.api.errors import map_domain_error
 from qwenpaw_data.host.core.settings.mcp import McpSettings
@@ -58,6 +60,25 @@ from qwenpaw_data.host.core.utils.auth import (
 from qwenpaw_data.host.core.utils.session import access_session
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+
+@router.get("/identity")
+async def console_identity(principal: Principal = Depends(get_principal)) -> dict:
+    """Expose resolved identity for hosts that own browser login and workspace UI."""
+    return {
+        "user_id": principal.user_id,
+        "username": principal.user_id,
+        "tenant_id": principal.tenant_id,
+        "role": principal.role,
+        "active_workspace_role": principal.role,
+        "workspace_ids": principal.workspace_ids,
+        "workspaces": [{"id": value, "name": value} for value in principal.workspace_ids],
+        "active_workspace_id": principal.active_workspace_id,
+        "active_workspace_name": principal.active_workspace_id,
+        "capabilities": sorted(key for key, allowed in
+            PERMISSION_MATRIX.get(principal.role, {}).items() if allowed),
+        "must_change_password": False,
+    }
 
 
 def _session_paths(session: Session) -> UserAgentPaths:

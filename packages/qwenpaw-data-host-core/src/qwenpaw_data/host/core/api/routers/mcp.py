@@ -45,8 +45,8 @@ def _paths(identity: Identity, agent_id: str = _DEFAULT_AGENT_ID) -> UserAgentPa
     )
 
 
-def _repo(identity: Identity) -> McpRepository:
-    return McpRepository(_paths(identity).mcp_manifest)
+def _repo(identity: Identity, agent_id: str = _DEFAULT_AGENT_ID) -> McpRepository:
+    return McpRepository(_paths(identity, agent_id).mcp_manifest, agent_id=agent_id)
 
 
 def _schema(mcp: Mcp) -> dict[str, Any]:
@@ -91,9 +91,10 @@ def _tool_schema(tool: Any, mcp: Mcp) -> dict[str, Any]:
 @router.get("")
 async def list_mcps(
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        items = _repo(identity).list()
+        items = _repo(identity, agent_id).list()
     except Exception as exc:
         _raise(exc)
     return {"mcps": [_schema(item) for item in items]}
@@ -103,9 +104,10 @@ async def list_mcps(
 async def create_mcp(
     body: McpWriteRequest,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        mcp = _repo(identity).create(_from_write(body, source="custom"))
+        mcp = _repo(identity, agent_id).create(_from_write(body, source="custom"))
     except Exception as exc:
         _raise(exc)
     return _schema(mcp)
@@ -115,9 +117,10 @@ async def create_mcp(
 async def list_mcp_tools(
     name: str,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        mcp, tools = await _repo(identity).list_tools(
+        mcp, tools = await _repo(identity, agent_id).list_tools(
             name,
             access_token=get_access_token(),
         )
@@ -131,9 +134,10 @@ async def update_mcp_tools(
     name: str,
     body: McpToolsUpdateRequest,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        mcp = _repo(identity).set_tools(name, body.enable_tools, body.disable_tools)
+        mcp = _repo(identity, agent_id).set_tools(name, body.enable_tools, body.disable_tools)
     except Exception as exc:
         _raise(exc)
     return _schema(mcp)
@@ -143,9 +147,10 @@ async def update_mcp_tools(
 async def enable_mcp(
     name: str,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        mcp = _repo(identity).enable(name)
+        mcp = _repo(identity, agent_id).enable(name)
     except Exception as exc:
         _raise(exc)
     return _schema(mcp)
@@ -155,9 +160,10 @@ async def enable_mcp(
 async def disable_mcp(
     name: str,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        mcp = _repo(identity).disable(name)
+        mcp = _repo(identity, agent_id).disable(name)
     except Exception as exc:
         _raise(exc)
     return _schema(mcp)
@@ -167,9 +173,10 @@ async def disable_mcp(
 async def get_mcp(
     name: str,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        mcp = _repo(identity).require(name)
+        mcp = _repo(identity, agent_id).require(name)
     except Exception as exc:
         _raise(exc)
     return _schema(mcp)
@@ -180,11 +187,12 @@ async def update_mcp(
     name: str,
     body: McpWriteRequest,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
         if body.name != name:
             raise ValueError("MCP name cannot be changed")
-        mcp = _repo(identity).update(_from_write(body, source=body.source))
+        mcp = _repo(identity, agent_id).update(_from_write(body, source=body.source))
     except Exception as exc:
         _raise(exc)
     return _schema(mcp)
@@ -194,9 +202,10 @@ async def update_mcp(
 async def delete_mcp(
     name: str,
     identity: Identity = Depends(get_identity),
+    agent_id: str = _DEFAULT_AGENT_ID,
 ) -> dict[str, Any]:
     try:
-        _repo(identity).delete(name)
+        _repo(identity, agent_id).delete(name)
     except Exception as exc:
         _raise(exc)
     return {"deleted": name}

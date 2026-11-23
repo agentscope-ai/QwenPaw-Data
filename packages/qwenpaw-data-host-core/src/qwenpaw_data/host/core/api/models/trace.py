@@ -86,7 +86,18 @@ class MessageSchema(ApiModel):
     metadata: dict[str, Any] | None = None
 
 
+class PresentationExtensionSchema(ApiModel):
+    """Opaque application payload; the namespace owner validates its data."""
+
+    version: int = Field(ge=1)
+    data: dict[str, Any]
+
+
 class PresentationSchema(ApiModel):
+    # Preserve opaque historical/plugin fields when replaying persisted events.
+    # New integrations should publish versioned entries under extensions.
+    model_config = ConfigDict(extra="allow")
+    extensions: dict[str, PresentationExtensionSchema] = Field(default_factory=dict)
     card_type: Literal["user", "thinking", "text", "hint", "tool"]
     caption: str
     body: str = ""

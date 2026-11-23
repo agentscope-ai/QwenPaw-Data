@@ -62,6 +62,9 @@ async def lifespan(app: FastAPI):
         cleanup.callback(reset_hub)
         reset_hub()
         await init_db()
+        from qwenpaw_data.host.core.applications import applications
+        for application in applications().values():
+            await application.startup(app, cleanup)
         recovery = ChatRecovery(get_session_factory())
         cleanup.push_async_callback(recovery.shutdown)
         await recovery.start()
@@ -99,6 +102,9 @@ def create_app() -> FastAPI:
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.include_router(api_router)
     app.include_router(legacy_api_router)
+    from qwenpaw_data.host.core.applications import applications
+    for application in applications().values():
+        application.register(app)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

@@ -1,3 +1,4 @@
+import AgentSettingsScope from '@/features/console/components/AgentSettingsScope';
 import { CloudServerOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Button, Input, Select } from '@agentscope-ai/design';
 import {
@@ -16,7 +17,7 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  mcpApi,
+  createMcpApi,
   type McpConfig,
   type McpItem,
   type McpTool,
@@ -317,6 +318,11 @@ function formValuesFromConfig(config: McpConfig): Partial<McpFormValues> {
 }
 
 export default function McpSettingsPage() {
+  return <AgentSettingsScope>{agentId => <McpSettingsContent key={agentId} agentId={agentId} />}</AgentSettingsScope>;
+}
+
+function McpSettingsContent({ agentId }: { agentId: string }) {
+  const mcpApi = useMemo(() => createMcpApi(agentId), [agentId]);
   const { t } = useAppI18n();
   const [form] = Form.useForm<McpFormValues>();
   const transport = Form.useWatch('type', form);
@@ -342,7 +348,7 @@ export default function McpSettingsPage() {
     const { mcps } = await mcpApi.list();
     setItems(mcps);
     setLoadError(null);
-  }, []);
+  }, [mcpApi]);
 
   const refreshItems = useCallback(async () => {
     if (refreshInFlight.current) return;
@@ -690,7 +696,7 @@ export default function McpSettingsPage() {
 
   return (
     <div className={styles.content}>
-      <ConsoleRouteHeader title={t('mcp.title')} description={t('mcp.description')} />
+      <ConsoleRouteHeader title={t('mcp.title')} description={agentId === 'default' ? t('mcp.description') : `Agent: ${agentId}`} />
       <main className={styles.main}>
         <div className={styles.toolbar}>
           <Select

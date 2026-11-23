@@ -30,6 +30,8 @@ class RunContext:
     session_factory: async_sessionmaker[AsyncSession]
     disabled_skills: frozenset[str] = frozenset()
     request_context: dict[str, Any] = field(default_factory=dict)
+    application_state: Any = field(default=None, repr=False)
+    clarification: Any = field(default=None, repr=False)
     host_cm: MCPClient | None = field(default=None, repr=False)
 
     async def list_mcps(self) -> list[MCPClient]:

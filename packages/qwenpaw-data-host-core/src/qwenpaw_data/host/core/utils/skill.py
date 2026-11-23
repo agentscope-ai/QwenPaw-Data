@@ -6,7 +6,8 @@ from __future__ import annotations
 import re
 import shutil
 from functools import lru_cache
-from importlib.metadata import PackageNotFoundError, distribution
+from importlib.metadata import PackageNotFoundError, distribution, entry_points
+import hashlib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -179,6 +180,14 @@ def builtin_skills_version() -> str:
     version = path.read_text(encoding="utf-8").strip()
     if not version:
         raise ValueError(f"empty builtin skill pack version: {path}")
+    for pack in entry_points(group="qwenpaw_data.skill_packs"):
+        root = Path(pack.load()())
+        digest = hashlib.sha256()
+        for file in sorted(root.rglob("*")):
+            if file.is_file():
+                digest.update(file.relative_to(root).as_posix().encode())
+                digest.update(file.read_bytes())
+        version += f":{pack.name}:{digest.hexdigest()}"
     return version
 
 
@@ -190,29 +199,31 @@ def discover_builtin_skills() -> tuple[BuiltinSkill, ...]:
         raise FileNotFoundError("qwenpaw-data-skills package skills directory not found")
 
     found: dict[str, BuiltinSkill] = {}
-    for skill_md in sorted(skills_root.rglob("SKILL.md")):
-        if not skill_md.is_file():
-            continue
-        src_dir = skill_md.parent
-        relative = src_dir.relative_to(skills_root)
-        group = relative.parts[0] if relative.parts else ""
-        # Runtime policy is implemented by Host. Legacy runtime guides remain
-        # packaged for compatibility, but are not agent-selectable data skills.
-        if group == "runtime":
-            continue
-        meta = read_skill_frontmatter(skill_md)
-        name = require_safe_name(str(meta.get("name") or "").strip())
-        if name in found:
-            raise RuntimeError(
-                f"CONFLICT: duplicate builtin skill name {name!r} "
-                f"({found[name].src_dir} vs {src_dir})"
+    roots = [skills_root, *(Path(pack.load()()) for pack in entry_points(group="qwenpaw_data.skill_packs"))]
+    for skills_root in roots:
+        for skill_md in sorted(skills_root.rglob("SKILL.md")):
+            if not skill_md.is_file():
+                continue
+            src_dir = skill_md.parent
+            relative = src_dir.relative_to(skills_root)
+            group = relative.parts[0] if relative.parts else ""
+            # Runtime policy is implemented by Host. Legacy runtime guides remain
+            # packaged for compatibility, but are not agent-selectable data skills.
+            if group == "runtime":
+                continue
+            meta = read_skill_frontmatter(skill_md)
+            name = require_safe_name(str(meta.get("name") or "").strip())
+            if name in found:
+                raise RuntimeError(
+                    f"CONFLICT: duplicate builtin skill name {name!r} "
+                    f"({found[name].src_dir} vs {src_dir})"
+                )
+            found[name] = BuiltinSkill(
+                name=name,
+                src_dir=src_dir,
+                group=group,
+                description=str(meta.get("description") or ""),
             )
-        found[name] = BuiltinSkill(
-            name=name,
-            src_dir=src_dir,
-            group=group,
-            description=str(meta.get("description") or ""),
-        )
     if not found:
         raise FileNotFoundError(f"no SKILL.md found under {skills_root}")
     return tuple(found[key] for key in sorted(found))

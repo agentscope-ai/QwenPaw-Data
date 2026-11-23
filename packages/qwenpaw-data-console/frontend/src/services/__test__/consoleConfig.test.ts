@@ -60,3 +60,20 @@ test('the same frontend accepts domain config without a rebuild', () => {
     Reflect.deleteProperty(globalThis, 'window');
   }
 });
+
+import { getAuthApiUrl, getAuthLoginUrl, getContextApiUrl } from '../config.js';
+
+test('host embed independently resolves Engine, Context and identity prefixes', () => {
+  Object.assign(globalThis, { window: { QWENPAW_DATA_CONSOLE: {
+    api_base_url: '/host/plugin/engine',
+    auth: { mode: 'host', api_base_url: '/host/plugin/identity', login_url: '/sign-in' },
+    databridge: { api_base_url: '/host/plugin/context' },
+  } } });
+  try {
+    assert.equal(getApiUrl('/sessions'), '/host/plugin/engine/api/v1/sessions');
+    assert.equal(getContextApiUrl('/api/system/model-config/'), '/host/plugin/context/api/system/model-config/');
+    assert.equal(getAuthApiUrl('/me'), '/host/plugin/identity/api/auth/me');
+    assert.equal(getAuthApiUrl('/refresh'), '/host/plugin/identity/api/auth/refresh');
+    assert.equal(getAuthLoginUrl('/console'), '/sign-in');
+  } finally { Reflect.deleteProperty(globalThis, 'window'); }
+});

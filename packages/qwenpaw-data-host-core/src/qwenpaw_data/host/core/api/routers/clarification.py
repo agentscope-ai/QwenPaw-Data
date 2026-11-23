@@ -68,6 +68,14 @@ async def answer_clarification_core(
     chat = await chat_repo.get(chat_id, session_id=session_id)
     if not chat.is_active():
         raise ClarificationNotFound()
+    from qwenpaw_data.host.core.runtime.registry import get_runtime_registry
+    runtime = get_runtime_registry().get(chat.id)
+    if runtime is not None:
+        await db.commit()
+        await runtime.answer_clarification(clarification_id=body.clarification_id,
+            result=body.result.model_dump(mode="json"))
+        bundle = await SnapshotRepository(db, identity).bundle_chat(chat)
+        return {"chat": chat_bundle_to_schema(bundle)}
     await ChatCommandRepository(db).add(
         ChatCommand.for_clarification(
             chat,

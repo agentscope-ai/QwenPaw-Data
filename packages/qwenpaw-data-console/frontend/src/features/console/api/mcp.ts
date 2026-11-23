@@ -54,51 +54,57 @@ function mcpPath(name: string): string {
   return encodeURIComponent(name);
 }
 
-export const mcpApi = {
+export function createMcpApi(agentId = 'default') {
+  const scopedRequest: typeof request = (path, options) =>
+    request(`${path}?agent_id=${encodeURIComponent(agentId)}`, options);
+  return {
   list() {
-    return request<{ mcps: McpItem[] }>('/mcp');
+    return scopedRequest<{ mcps: McpItem[] }>('/mcp');
   },
 
   get(name: string) {
-    return request<McpItem>(`/mcp/${mcpPath(name)}`);
+    return scopedRequest<McpItem>(`/mcp/${mcpPath(name)}`);
   },
 
   create(body: McpWriteBody) {
-    return request<McpItem>('/mcp', {
+    return scopedRequest<McpItem>('/mcp', {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
   update(name: string, body: McpWriteBody) {
-    return request<McpItem>(`/mcp/${mcpPath(name)}`, {
+    return scopedRequest<McpItem>(`/mcp/${mcpPath(name)}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
   },
 
   delete(name: string) {
-    return request<{ deleted: string }>(`/mcp/${mcpPath(name)}`, {
+    return scopedRequest<{ deleted: string }>(`/mcp/${mcpPath(name)}`, {
       method: 'DELETE',
     });
   },
 
   enable(name: string) {
-    return request<McpItem>(`/mcp/${mcpPath(name)}/enable`, { method: 'POST' });
+    return scopedRequest<McpItem>(`/mcp/${mcpPath(name)}/enable`, { method: 'POST' });
   },
 
   disable(name: string) {
-    return request<McpItem>(`/mcp/${mcpPath(name)}/disable`, { method: 'POST' });
+    return scopedRequest<McpItem>(`/mcp/${mcpPath(name)}/disable`, { method: 'POST' });
   },
 
   listTools(name: string) {
-    return request<{ tools: McpTool[] }>(`/mcp/${mcpPath(name)}/tools`);
+    return scopedRequest<{ tools: McpTool[] }>(`/mcp/${mcpPath(name)}/tools`);
   },
 
   setTools(name: string, enable_tools: string[] | null, disable_tools: string[] | null) {
-    return request<McpItem>(`/mcp/${mcpPath(name)}/tools`, {
+    return scopedRequest<McpItem>(`/mcp/${mcpPath(name)}/tools`, {
       method: 'PUT',
       body: JSON.stringify({ enable_tools, disable_tools }),
     });
   },
 };
+}
+
+export const mcpApi = createMcpApi();

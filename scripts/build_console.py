@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Build both Console UIs once for a Python wheel; end users need no Node.js."""
+"""Build the Console UIs for a Python wheel; end users need no Node.js.
+
+Three browser applications are produced: the server-mode chat UI, the
+DataBridge UI, and the embed-mode chat UI (relative asset base, hash routing)
+for hosts that mount the bundle under a deep static path.
+"""
 
 import argparse
 import os
@@ -27,6 +32,7 @@ def main():
     for name, frontend, mode in (
         ("databridge", ROOT / "packages/qwenpaw-data-context/frontend", "console"),
         ("chat", PACKAGE / "frontend", "production"),
+        ("chat-embed", PACKAGE / "frontend", "embed"),
     ):
         if not args.skip_install:
             subprocess.run(
@@ -44,7 +50,8 @@ def main():
         target = STATIC / name
         if target.exists():
             shutil.rmtree(target)
-        shutil.copytree(frontend / "dist", target)
+        output = frontend / ("dist-embed" if mode == "embed" else "dist")
+        shutil.copytree(output, target)
         for document in ("LICENSE", "NOTICE"):
             shutil.copyfile(ROOT / document, target / document)
     print(f"Console assets ready for packaging: {STATIC}")

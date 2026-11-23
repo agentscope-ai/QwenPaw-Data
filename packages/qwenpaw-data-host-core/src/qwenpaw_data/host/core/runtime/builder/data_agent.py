@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from agentscope.agent._config import ContextConfig, ReActConfig
 from agentscope.model import ChatModelBase
+from agentscope.middleware import MiddlewareBase
+from qwenpaw_data.host.core.applications import application_for
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
@@ -48,6 +50,24 @@ from qwenpaw_data.host.core.settings import get_settings
 from qwenpaw_data.host.core.utils.mcp import bind_mcp_tool_timeout
 
 
+class RequiredSkillsMiddleware(MiddlewareBase):
+    """Eagerly load a profile's required skills from the native versioned store."""
+    def __init__(self, context):
+        self.context = context
+
+    async def on_system_prompt(self, agent, current_prompt):
+        application = application_for(self.context.paths.agent_id)
+        names = getattr(application, "required_skills", ())
+        store = SkillStoreRepo(self.context.paths.skills)
+        documents = []
+        for name in names:
+            if name in self.context.disabled_skills:
+                raise ValueError(f"Required skill is disabled: {name}")
+            documents.extend(item.content for item in store.read_files(name)
+                             if item.relative_path.endswith(".md"))
+        return current_prompt + "\n\n" + "\n\n".join(documents)
+
+
 def _middlewares(run_context: RunContext, envelope: Envelope) -> list:
     items = [
         BindParentCallIdMiddleware(),
@@ -88,6 +108,7 @@ def _middlewares(run_context: RunContext, envelope: Envelope) -> list:
                 envelope=envelope,
             ),
             PlanPromptMiddleware(),
+            RequiredSkillsMiddleware(run_context),
         ]
     )
     return items
@@ -109,12 +130,17 @@ class DataAgentBuilder:
             config.tool_timeout_seconds if config.tool_timeout_enabled else None
         )
         workspace_tools = await workspace.list_tools()
+        application = application_for(agent_id)
+        extra_tools = application.tools(run_context) if application else []
+        if {t.name for t in workspace_tools} & {t.name for t in extra_tools}:
+            raise ValueError("Application tool name collision")
         ui_tools = build_ui_tools(run_context)
         if {tool.name for tool in workspace_tools} & {tool.name for tool in ui_tools}:
             raise ValueError("UI tool name collision")
         mcps = [
             bind_mcp_tool_timeout(client, tool_timeout)
             for client in await run_context.list_mcps()
+            if client.name not in getattr(application, "wrapped_mcps", ())
         ]
         enabled_skills = [skill for skill in skills if skill.name not in disabled]
         delegation_tools = []
@@ -132,6 +158,7 @@ class DataAgentBuilder:
         return Toolkit(
             tools=[
                 *workspace_tools,
+                *extra_tools,
                 *ui_tools,
                 *build_plan_tools(),
                 AskUserQuestionTool(),

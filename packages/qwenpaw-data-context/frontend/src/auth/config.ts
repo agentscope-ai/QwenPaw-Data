@@ -1,5 +1,5 @@
 /** Central URL discovery for every frontend. */
-import { getConsoleConfig } from '@/services/consoleConfig';
+import { getConsoleConfig, getHostAuthConfig } from '@/services/consoleConfig';
 import { isEmbedded } from '../embedded/context';
 
 function runtimeValue(name: string): string {
@@ -21,6 +21,8 @@ function trimTrailingSlash(value: string): string {
 }
 
 export function getAuthApiUrl(): string {
+  const configured = getHostAuthConfig()?.api_base_url;
+  if (configured !== undefined) return trimTrailingSlash(configured);
   if (isEmbedded()) return '';
   return trimTrailingSlash(runtimeValue('VITE_AUTH_API_URL') || runtimeValue('VITE_AUTH_URL'));
 }
@@ -144,6 +146,8 @@ export function getConfiguredRedirectPaths(): string[] {
 }
 
 export function buildLoginUrl(redirectUrl?: string): string {
+  const configured = getHostAuthConfig()?.login_url;
+  if (configured) return configured;
   const base = getAuthFrontendUrl();
   const redirect = redirectUrl || (typeof window !== 'undefined' ? window.location.href : '/');
   return `${base}/login?redirect=${encodeURIComponent(redirect)}`;

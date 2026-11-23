@@ -1,3 +1,4 @@
+import AgentSettingsScope from '@/features/console/components/AgentSettingsScope';
 import {
   CloudUploadOutlined,
   CopyOutlined,
@@ -102,6 +103,10 @@ function formatRevisionTime(value: string, language: 'zh' | 'en'): string {
 }
 
 export default function SkillsHubPage() {
+  return <AgentSettingsScope>{agentId => <SkillsHubContent key={agentId} agentId={agentId} />}</AgentSettingsScope>;
+}
+
+function SkillsHubContent({ agentId }: { agentId: string }) {
   const { t, language } = useAppI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewAbortRef = useRef<AbortController | null>(null);
@@ -137,10 +142,10 @@ export default function SkillsHubPage() {
   const [reverting, setReverting] = useState(false);
 
   const fetchSkills = useCallback(async () => {
-    const agentResponse = await skillHubApi.listAgent();
+    const agentResponse = await skillHubApi.listAgent(agentId);
     setAgentSkills(agentResponse.skills);
     setLoadError(null);
-  }, []);
+  }, [agentId]);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -214,7 +219,7 @@ export default function SkillsHubPage() {
       }
       setUploading(true);
       try {
-        const { imported } = await skillHubApi.importAgent(file);
+        const { imported } = await skillHubApi.importAgent(file, agentId);
         await fetchSkills();
         message.success(t('skills.imported', { count: imported.length }));
       } catch (error) {
@@ -224,7 +229,7 @@ export default function SkillsHubPage() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    [fetchSkills, t],
+    [agentId, fetchSkills, t],
   );
 
   const closePreview = useCallback(() => {
@@ -273,7 +278,7 @@ export default function SkillsHubPage() {
     setPreviewMode('rendered');
 
     void skillHubApi
-      .getAgent(name, 'default', controller.signal)
+      .getAgent(name, agentId, controller.signal)
       .then((skill) => {
         if (!controller.signal.aborted) setPreviewDetail(skill);
       })
@@ -283,7 +288,7 @@ export default function SkillsHubPage() {
       .finally(() => {
         if (!controller.signal.aborted) setPreviewLoading(false);
       });
-  }, []);
+  }, [agentId]);
 
   const openCreate = useCallback(() => {
     closePreview();
@@ -307,7 +312,7 @@ export default function SkillsHubPage() {
       setEditorError(null);
       setEditorLoading(true);
       void skillHubApi
-        .getAgent(name, 'default', controller.signal)
+        .getAgent(name, agentId, controller.signal)
         .then((skill) => {
           if (controller.signal.aborted) return;
           setEditorName(skill.name);
@@ -321,7 +326,7 @@ export default function SkillsHubPage() {
           if (!controller.signal.aborted) setEditorLoading(false);
         });
     },
-    [closePreview],
+    [agentId, closePreview],
   );
 
   const loadHistory = useCallback((name: string) => {
@@ -334,7 +339,7 @@ export default function SkillsHubPage() {
     setHistoryError(null);
     setHistoryLoading(true);
     void skillHubApi
-      .listRevisions(name, 'default', controller.signal)
+      .listRevisions(name, agentId, controller.signal)
       .then((response) => {
         if (!controller.signal.aborted) setRevisions(response.revisions);
       })
@@ -344,7 +349,7 @@ export default function SkillsHubPage() {
       .finally(() => {
         if (!controller.signal.aborted) setHistoryLoading(false);
       });
-  }, []);
+  }, [agentId]);
 
   const openHistory = useCallback(
     (name: string) => {
@@ -366,7 +371,7 @@ export default function SkillsHubPage() {
       setRevisionDetail(null);
       setRevisionLoading(true);
       void skillHubApi
-        .getRevision(historyName, revisionNo, 'default', controller.signal)
+        .getRevision(historyName, revisionNo, agentId, controller.signal)
         .then((detail) => {
           if (!controller.signal.aborted) setRevisionDetail(detail);
         })
@@ -379,7 +384,7 @@ export default function SkillsHubPage() {
           if (!controller.signal.aborted) setRevisionLoading(false);
         });
     },
-    [historyName, t],
+    [agentId, historyName, t],
   );
 
   const revertRevision = useCallback(
@@ -389,7 +394,7 @@ export default function SkillsHubPage() {
       const targetName = historyName;
       setReverting(true);
       try {
-        await skillHubApi.revertRevision(targetName, revisionNo);
+        await skillHubApi.revertRevision(targetName, revisionNo, agentId);
         if (historyGenerationRef.current === historyGeneration) {
           message.success(t('skills.reverted', { revision: revisionNo }));
           loadHistory(targetName);
@@ -405,7 +410,7 @@ export default function SkillsHubPage() {
         }
       }
     },
-    [fetchSkills, historyName, loadHistory, t],
+    [agentId, fetchSkills, historyName, loadHistory, t],
   );
 
   const changeEditorName = useCallback(
@@ -436,7 +441,7 @@ export default function SkillsHubPage() {
     setEditorSaving(true);
     try {
       if (editorTarget.mode === 'create') {
-        await skillHubApi.createAgent(name, content);
+        await skillHubApi.createAgent(name, content, agentId);
         message.success(t('skills.created', { name }));
       } else {
         const currentName = editorTarget.name;
@@ -445,7 +450,7 @@ export default function SkillsHubPage() {
           message.warning(t('skills.renameForbidden'));
           return;
         }
-        await skillHubApi.saveAgent(currentName, content, editorBaseContent);
+        await skillHubApi.saveAgent(currentName, content, editorBaseContent, agentId);
         message.success(t('skills.saved', { name }));
       }
       closeEditor();
@@ -459,7 +464,7 @@ export default function SkillsHubPage() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorBaseContent, editorContent, editorName, editorTarget, fetchSkills, t]);
+  }, [agentId, closeEditor, editorBaseContent, editorContent, editorName, editorTarget, fetchSkills, t]);
 
   const copyPreviewSource = useCallback(async () => {
     if (!previewDetail?.content) return;
@@ -541,7 +546,7 @@ export default function SkillsHubPage() {
               onChange={(enabled) =>
                 void runAction(
                   actionKey,
-                  () => skillHubApi.setAgentEnabled(skill.name, enabled),
+                  () => skillHubApi.setAgentEnabled(skill.name, enabled, agentId),
                   enabled
                     ? t('skills.enableSuccess', { name: skill.name })
                     : t('skills.disableSuccess', { name: skill.name }),
@@ -592,7 +597,7 @@ export default function SkillsHubPage() {
                 onConfirm={() =>
                   runAction(
                     actionKey,
-                    () => skillHubApi.uninstallAgent(skill.name),
+                    () => skillHubApi.uninstallAgent(skill.name, agentId),
                     t('skills.uninstalled', { name: skill.name }),
                   )
                 }
@@ -610,7 +615,7 @@ export default function SkillsHubPage() {
 
   return (
     <div className={styles.content}>
-      <ConsoleRouteHeader title={t('skills.title')} description={t('skills.description')} />
+      <ConsoleRouteHeader title={t('skills.title')} description={agentId === 'default' ? t('skills.description') : `Agent: ${agentId}`} />
 
       <main className={styles.main}>
         <section className={styles.toolbar} aria-label={t('skills.filterActions')}>

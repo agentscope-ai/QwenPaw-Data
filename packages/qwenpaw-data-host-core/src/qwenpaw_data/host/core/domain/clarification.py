@@ -45,6 +45,12 @@ class ClarificationNotFound(LookupError):
         super().__init__(message)
 
 
+class ClarificationConflict(RuntimeError):
+    def __init__(self, message, *, reason="CLARIFICATION_ALREADY_RESOLVED"):
+        self.reason = reason
+        super().__init__(f"CONFLICT: {message}")
+
+
 class ClarificationWithFrontend:
     """Host ↔ Frontend: Clarification interaction metadata."""
 
@@ -68,6 +74,39 @@ class ClarificationWithExecutor:
     ) -> None:
         self._session_factory = session_factory
         self._chat_id = chat_id
+        self.call_id = None
+        self.tool_name = None
+        self.is_pending = False
+        self.submitted = False
+        self.validator = None
+        self.lock = asyncio.Lock()
+
+    def require_pending(self, call_id, tool_name=None):
+        if (not self.is_pending or self.submitted or self.call_id != call_id
+                or (tool_name and self.tool_name != tool_name)):
+            raise ClarificationConflict("The question has been answered or is no longer pending")
+
+    async def answer(self, *, clarification_id, result):
+        from qwenpaw_data.host.core.domain.chat_command import ChatCommand
+        from qwenpaw_data.host.core.repositories import ChatRepository
+        async with self.lock:
+            self.require_pending(clarification_id)
+            if self.validator:
+                self.validator(result)
+            validated = result
+            async with self._session_factory() as db:
+                row = await db.get(ChatRow, self._chat_id)
+                if row is None or row.status != "running":
+                    raise ClarificationNotFound()
+                chat = ChatRepository._from_row(row)
+                await ChatCommandRepository(db).add(ChatCommand.for_clarification(
+                    chat, clarification_id=clarification_id, result=validated))
+                self.submitted = True
+                try:
+                    await db.commit()
+                except BaseException:
+                    self.submitted = False
+                    raise
 
     @staticmethod
     def is_timeout(tool_result: ToolResultBlock) -> bool:
@@ -98,24 +137,43 @@ class ClarificationWithExecutor:
             return
         metadata.update(ClarificationWithFrontend.tool_call_metadata())
 
-    async def wait_for_answer(
-        self, call_id: str, *, tool_input: Any = None
-    ) -> ToolResultBlock:
+    async def wait_for_answer(self, call_id: str, *, tool_input: Any = None,
+                              tool_name: str = ASK_USER_QUESTION,
+                              validator=None, on_ready=None) -> ToolResultBlock:
+        """One native lifecycle for text questions and validated application choices."""
         if not call_id.strip():
             raise ValueError("call_id is required")
-        interval = get_settings().stream.sse_poll_seconds
-        while True:
-            async with self._session_factory() as db:
-                payload = await ChatCommandRepository(db).take_clarification(
-                    self._chat_id, call_id
-                )
-                if payload is not None:
-                    await db.commit()
-                    return self._to_tool_result_block(call_id=call_id, result=payload)
-                row = await db.get(ChatRow, self._chat_id)
-                if row is not None and not row.enable_clarification:
-                    return self._to_tool_result_block(
-                        call_id=call_id,
-                        result=automatic_clarification_result(tool_input),
-                    )
-            await asyncio.sleep(interval)
+        if self.is_pending:
+            raise ClarificationConflict("Another question is pending")
+        self.call_id, self.tool_name = call_id, tool_name
+        self.validator, self.submitted, self.is_pending = validator, False, True
+        try:
+            if on_ready:
+                await on_ready()
+            async with asyncio.timeout(get_settings().clarification.hint_ttl_seconds):
+                while True:
+                    async with self._session_factory() as db:
+                        payload = await ChatCommandRepository(db).take_clarification(self._chat_id, call_id)
+                        if payload is not None:
+                            # Domain validation is authoritative even if a command
+                            # arrived through another generic command producer.
+                            if validator:
+                                payload = validator(payload)
+                            await db.commit()
+                            return ToolResultBlock(id=call_id, name=tool_name,
+                                output=[TextBlock(text=json.dumps(payload, ensure_ascii=False))],
+                                state=ToolResultState.SUCCESS)
+                        row = await db.get(ChatRow, self._chat_id)
+                        if row is not None and row.status != "running":
+                            raise asyncio.CancelledError("The run has ended")
+                        if row is not None and not row.enable_clarification:
+                            if tool_name != ASK_USER_QUESTION:
+                                raise asyncio.CancelledError("This operation requires an interactive user decision")
+                            return self._to_tool_result_block(call_id=call_id,
+                                result=automatic_clarification_result(tool_input))
+                    await asyncio.sleep(get_settings().stream.sse_poll_seconds)
+        except TimeoutError:
+            raise asyncio.CancelledError("Timed out waiting for an answer")
+        finally:
+            self.is_pending = False
+            self.validator = None

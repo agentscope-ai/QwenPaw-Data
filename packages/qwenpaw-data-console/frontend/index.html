@@ -14,18 +14,18 @@
         // Keep the default light theme when storage is unavailable.
       }
     </script>
-    <link rel="icon" type="image/png" href="/mascot-blue-transparent.png" />
+    <link rel="icon" type="image/png" href="%BASE_URL%mascot-blue-transparent.png" />
     <link
       rel="preload"
       as="video"
-      href="/snow-leopard-loading.mp4"
+      href="%BASE_URL%snow-leopard-loading.mp4"
       type="video/mp4"
       media="(prefers-reduced-motion: no-preference)"
     />
     <link
       rel="preload"
       as="image"
-      href="/snow-leopard-loading.png"
+      href="%BASE_URL%snow-leopard-loading.png"
       media="(prefers-reduced-motion: reduce)"
     />
     <style>
@@ -116,11 +116,11 @@
 
         if (prefersReducedMotion) {
           media = document.createElement('img');
-          media.src = '/snow-leopard-loading' + darkAssetSuffix + '.png';
+          media.src = '%BASE_URL%snow-leopard-loading' + darkAssetSuffix + '.png';
           media.alt = '';
         } else {
           media = document.createElement('video');
-          media.src = '/snow-leopard-loading' + darkAssetSuffix + '.mp4';
+          media.src = '%BASE_URL%snow-leopard-loading' + darkAssetSuffix + '.mp4';
           media.autoplay = true;
           media.loop = true;
           media.muted = true;

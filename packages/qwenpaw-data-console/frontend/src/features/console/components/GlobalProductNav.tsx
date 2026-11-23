@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { getRuntimeConfig } from '@/services/runtimeConfig';
 import { capabilities } from '@/services/capabilities';
 import {
@@ -59,6 +60,7 @@ export default function GlobalProductNav({
   onOpenCronJobs,
   onClose,
 }: GlobalProductNavProps) {
+  const navigate = useNavigate();
   const [searchText, setSearchText] = useState('');
   const normalizedSearch = searchText.trim().toLocaleLowerCase();
   const currentSessionId = currentSession?.id ?? null;
@@ -196,6 +198,11 @@ export default function GlobalProductNav({
           className={styles.navItem}
           hidden={!capabilities.contextConsole}
           href={getContextFrontendUrl()}
+          onClick={event => {
+            if (getRuntimeConfig().databridge?.open_in_console) {
+              event.preventDefault(); navigate('/data-source'); onClose?.();
+            }
+          }}
           target="_blank"
           rel="noopener noreferrer"
         >

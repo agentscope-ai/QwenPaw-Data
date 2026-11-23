@@ -12,6 +12,7 @@ import {
   buildMcpConfigurationPath,
   buildUsagePath,
 } from '@/shared/navigation/sessionNavigation';
+import { getRuntimeConfig } from '@/services/runtimeConfig';
 import { useAppI18n } from '@/i18n';
 import sharedStyles from '../../index.module.less';
 import { mergeStyleModules } from '../../styleModules';
@@ -35,6 +36,7 @@ export default function ConsoleSettingsMenu({
   onAction,
 }: ConsoleSettingsMenuProps) {
   const navigate = useNavigate();
+  const { capabilities } = getRuntimeConfig();
   const { t } = useAppI18n();
 
   return (
@@ -64,7 +66,8 @@ export default function ConsoleSettingsMenu({
               label: t('settings.mcpConfiguration'),
             },
             { key: 'usage', icon: <BarChartOutlined />, label: t('settings.usage') },
-          ],
+          ].filter((item) => (item.key !== 'channel-configuration' || capabilities.channels) &&
+            (item.key !== 'mcp-configuration' || capabilities.mcpHub)),
           onClick: ({ key }: { key: string }) => {
             if (key === 'agent-configuration') {
               navigate(buildAgentConfigurationPath());

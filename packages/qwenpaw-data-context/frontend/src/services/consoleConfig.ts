@@ -8,7 +8,7 @@ interface ContextConsoleConfig {
 
 declare global {
   interface Window {
-    QWENPAW_DATA_CONSOLE?: { console_protocol?: number; databridge?: ContextConsoleConfig | null };
+    QWENPAW_DATA_CONSOLE?: { console_protocol?: number; databridge?: ContextConsoleConfig | null; auth?: { mode: 'native' | 'host'; api_base_url: string; login_url?: string } };
   }
 }
 
@@ -22,4 +22,8 @@ export function isConsolePortal(): boolean {
 
 export function getContextBasePath(): string {
   return getConsoleConfig()?.base_path || import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
+}
+
+export function getHostAuthConfig() {
+  return typeof window === 'undefined' ? undefined : window.QWENPAW_DATA_CONSOLE?.auth;
 }

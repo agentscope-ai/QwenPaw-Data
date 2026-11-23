@@ -1,3 +1,5 @@
+import { getContextApiUrl } from './config.js';
+import { getRuntimeConfig } from './runtimeConfig.js';
 import { portalHeaders } from './auth.js';
 
 // CM 侧 GET /api/system/model-config/ 返回体中的关键字段
@@ -18,7 +20,8 @@ const PROBE_TIMEOUT_MS = 5_000;
 // 探测 CM 当前用户是否完成了 LLM + Embedding 配置；任意失败一律 fail-open。
 export async function fetchCMModelConfigStatus(): Promise<CMModelConfigStatus> {
   if (typeof window === 'undefined') return { determined: false, configured: false };
-  const url = MODEL_CONFIG_PATH;
+  const url = getRuntimeConfig().databridge?.api_base_url !== undefined
+    ? getContextApiUrl('/api/system/model-config/') : MODEL_CONFIG_PATH;
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
