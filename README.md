@@ -22,7 +22,6 @@ For a complete system-level overview, see the [Technical Report](https://arxiv.o
 
 ## News
 
-- **[2026-11]** 🎉 QwenPaw-Data ranks first in the general-purpose track of [DataAgentBench](https://ucbepic.github.io/DataAgentBench/), scoring 90.30% with Claude Opus 5.5 (top among closed-source models), 85.62% with Qwen4-Max, and 82.01% with Qwen3.8-Max (top among open-source models).
 - **[2026-11]** 🎉 Through automatic skill evolution, QwenPaw-Data reaches 76.82% on [KramaBench](https://arxiv.org/abs/2506.06541), surpassing human experts (76.75%).
 - **[2026-07]** 🎉 QwenPaw-Data ranks first on [KramaBench](https://arxiv.org/abs/2506.06541) (68.32%) and [DAComp-DA](https://arxiv.org/abs/2512.04324) (62.38%). See the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
