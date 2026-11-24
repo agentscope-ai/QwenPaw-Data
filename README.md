@@ -18,6 +18,8 @@ Enterprise data analysis is becoming a distinct frontier for autonomous agents. 
 
 QwenPaw-Data organizes its system design around three core dimensions: **facts**, **methodology**, and **execution**. It consolidates heterogeneous enterprise assets from warehouses, dashboards, business documents, interaction logs, and historical tasks into governed and evolvable analytical context, then turns natural-language requests into end-to-end workflows spanning data understanding, retrieval, analysis, report generation, and decision support.
 
+QwenPaw-Data ranks first on [DataAgentBench](https://ucbepic.github.io/DataAgentBench/) (general-purpose track, 90.30%), [KramaBench](https://arxiv.org/abs/2506.06541) (68.32%), and [DAComp-DA](https://arxiv.org/abs/2512.04324) (62.38%).
+
 For a complete system-level overview, see the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
 ## QwenPaw-Data 0.4.0
@@ -51,16 +53,18 @@ The design principle of QwenPaw-Data is to decompose enterprise data analysis ac
 - **What facts to use**: the agent needs governed evidence for business concepts, metrics, dimensions, tables, lineage, and historical context.
 - **How to analyze**: the agent needs reusable analytical methodology instead of ad-hoc reasoning for every request.
 - **How to run**: the agent needs a controllable runtime for long-horizon, artifact-centric workflows.
+- **How to improve**: the agent needs to judge its own results and turn user feedback into lasting improvements.
 
-QwenPaw-Data implements this decomposition through three collaborative subsystems:
+QwenPaw-Data implements this decomposition through four collaborative subsystems:
 
 | Subsystem | Role | What it manages |
 | --- | --- | --- |
-| **DataBridge** | Evidence grounding | Metadata, business knowledge, trace history, metric definitions, data lineage, and task-specific evidence. |
+| **DataBridge** | Evidence grounding | Metadata, business knowledge, user context, metric definitions, data lineage, and task-specific evidence. |
 | **Skill-Hub** | Method orchestration | Routing, planning, workflow, and atomic analytical skills, together with references, scripts, and quality expectations. |
-| **Host** | Execution control | Task planning, agent orchestration, tool invocation, configurable workspace execution, artifact registry, reflection, and recovery. |
+| **Host** | Execution control | Task planning and state, agent orchestration, tool invocation, human-in-the-loop control, configurable workspace execution, artifact registry, and recovery. |
+| **User Attention Loop** | Quality judgment and feedback | Self-Judge for in-session and post-session result review; Feedback Loop for capturing user and task signals, distilling them, and delivering graded updates to DataBridge and Skill-Hub. |
 
-Together, the three subsystems provide four data-centric capabilities: trustworthy fact grounding, codified analytical methodology, controllable long-horizon execution, and self-evolving data assets.
+Together, the four subsystems provide four data-centric capabilities: trustworthy fact grounding, codified analytical methodology, controllable long-horizon execution, and self-evolving data assets.
 
 ## Architecture Overview
 
@@ -68,11 +72,13 @@ Together, the three subsystems provide four data-centric capabilities: trustwort
   <img src="assets/architecture.png" alt="QwenPaw-Data architecture overview" width="900" />
 </p>
 
-DataBridge turns scattered enterprise sources into a governed semantic substrate. Its metadata graph describes databases, tables, columns, metrics, dimensions, and lineage; its knowledge graph captures business entities, definitions, rules, and organizational context; and its trace graph records task traces, tool usage, intermediate artifacts, user feedback, and reusable experience.
+DataBridge turns scattered enterprise sources into a governed semantic substrate. Its metadata graph describes databases, tables, columns, metrics, dimensions, and lineage; its knowledge graph captures business entities, definitions, rules, and organizational context; and its user graph captures user roles, preferences, frequently used metrics, and confirmed interpretations.
 
 Skill-Hub sits above this substrate as the method subsystem. It organizes reusable skills from coarse-grained task routing and planning down to workflow-level procedures and atomic analytical operations such as anomaly detection, dimensional drill-down, attribution, visualization, and evidence summarization.
 
 Host makes the facts and methods executable. It reads skill specifications, references, and scripts, materializes them into a DAG execution graph, schedules independent branches in parallel, exposes tools for SQL, Python, file operations, and report construction, and records intermediate and final artifacts.
+
+User Attention Loop closes the loop. Self-Judge reviews the trajectories and artifacts produced by Host, both within the session and independently afterwards, against methodology rubrics from Skill-Hub and semantic constraints from DataBridge. Feedback Loop turns user confirmations, corrections, and task signals into graded updates: semantic updates flow back to DataBridge, method updates flow back to Skill-Hub, and a benchmark store with an evaluation suite measures each change.
 
 ## End-to-End Walkthrough
 
@@ -90,7 +96,7 @@ The following walkthrough introduces the system through a typical example: **"an
 
 **Report generation.** Host uses report-generation skills to organize findings, charts, methods, and source links into a decision-ready report. DataBridge supplies provenance and references so each headline conclusion remains connected to the metric definition, retrieved data, and analysis path that produced it.
 
-**Self-evolution.** The task does not end when the report is delivered. Execution traces, user feedback, new analysis demands, and confirmed metric definitions become update signals for DataBridge and Skill-Hub, turning a completed task into reusable experience for the next similar analysis.
+**Self-evolution.** The task does not end when the report is delivered. User Attention Loop takes over: Self-Judge reviews the result, and Feedback Loop turns execution traces, user feedback, new analysis demands, and confirmed metric definitions into update signals for DataBridge and Skill-Hub, turning a completed task into reusable experience for the next similar analysis.
 
 ## What QwenPaw-Data Can Support
 
