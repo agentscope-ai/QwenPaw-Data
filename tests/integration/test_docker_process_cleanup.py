@@ -58,6 +58,8 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
         failure = await _collect_chunks(bash.call("exit 7"))
         assert failure[-1].state == ToolResultState.ERROR
         assert "Command failed: exit 7" in failure[-1].content[0].text
+        # The Docker exec timeout includes container-side process startup.
+        timeout_ms = 3000
         marker = f"qwenpaw-data-timeout-{uuid.uuid4().hex}"
 
         chunks = await _collect_chunks(
@@ -65,15 +67,16 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
                 command=shlex.join(
                     ["python", "-c", "import time; time.sleep(60)", marker],
                 ),
-                timeout=200,
+                timeout=timeout_ms,
             ),
         )
 
         assert chunks[-1].state == ToolResultState.ERROR
-        assert "Command timed out after 200ms" in chunks[-1].content[0].text
+        assert f"Command timed out after {timeout_ms}ms" in chunks[-1].content[0].text
         await _assert_process_absent(delegate, marker)
 
         cancel_marker = f"qwenpaw-data-cancel-{uuid.uuid4().hex}"
+        ready_file = f"/tmp/{cancel_marker}.ready"
         command = asyncio.create_task(
             _collect_chunks(
                 bash.call(
@@ -81,17 +84,24 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
                         [
                             "python",
                             "-c",
-                            "import time; time.sleep(60)",
-                            cancel_marker,
+                            "from pathlib import Path\n"
+                            "import sys, time\n"
+                            "Path(sys.argv[1]).touch()\n"
+                            "time.sleep(60)",
+                            ready_file,
                         ],
                     ),
                 ),
             ),
         )
-        await asyncio.sleep(0.2)
-        command.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await command
+        try:
+            async with asyncio.timeout(15):
+                while not await delegate.file_exists(ready_file):
+                    await asyncio.sleep(0.05)
+        finally:
+            command.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await command
         await _assert_process_absent(delegate, cancel_marker)
 
         # The group leader exits on TERM while its child ignores TERM. Cleanup
@@ -105,8 +115,11 @@ async def test_timeout_and_cancellation_remove_processes_from_container() -> Non
                 stubborn_marker,
             ]
         )
-        chunks = await _collect_chunks(bash.call(f"{stubborn} & wait", timeout=500))
+        chunks = await _collect_chunks(
+            bash.call(f"{stubborn} & wait", timeout=timeout_ms)
+        )
         assert chunks[-1].state == ToolResultState.ERROR
+        assert f"Command timed out after {timeout_ms}ms" in chunks[-1].content[0].text
         await _assert_process_absent(delegate, stubborn_marker)
         assert (await container.show())["State"]["Running"]
     finally:
