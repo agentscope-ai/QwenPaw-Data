@@ -6,18 +6,22 @@ releases are intended to remain API compatible within the same minor line.
 
 ## Release compatibility
 
-The [0.4.0 release](../CHANGELOG.md#040-release-highlights) includes seven Python
+The [0.4.1 release](../CHANGELOG.md#041---2026-11-23) includes seven Python
 distributions. Use matching versions for the components you install:
 
 | Package | Coordinated version | Notes |
 | --- | --- | --- |
-| `qwenpaw-data-cli` | 0.4.0 | Installs the `qwenpaw-data` command; depends on Host Core |
-| `qwenpaw-data-host-core[service]` | 0.4.0 | Host HTTP/SSE service; depends on Skills, Auth, and Tracing |
-| `qwenpaw-data-context` | 0.4.0 | DataBridge; use `[duckdb]` when connecting DuckDB datasets |
-| `qwenpaw-data-skills` | 0.4.0 | Built-in analytical skills |
-| `qwenpaw-data-console` | 0.4.0 | Bundles the standalone Console and DataBridge UI; no Node.js required |
-| `qwenpaw-data-auth` | 0.4.0 | Shared identity and authorization for Host and DataBridge |
-| `qwenpaw-data-tracing` | 0.4.0 | Shared tracing for Host and DataBridge |
+| `qwenpaw-data-cli` | 0.4.1 | Installs the `qwenpaw-data` command; depends on Host Core |
+| `qwenpaw-data-host-core[service]` | 0.4.1 | Host HTTP/SSE service; depends on Skills, Auth, and Tracing |
+| `qwenpaw-data-context` | 0.4.1 | DataBridge; use `[duckdb]` when connecting DuckDB datasets |
+| `qwenpaw-data-skills` | 0.4.1 | Built-in analytical skills |
+| `qwenpaw-data-console` | 0.4.1 | Bundles standalone Console, DataBridge, and embeddable Console UIs; no Node.js required |
+| `qwenpaw-data-auth` | 0.4.1 | Shared identity and authorization for Host and DataBridge |
+| `qwenpaw-data-tracing` | 0.4.1 | Shared tracing for Host and DataBridge |
+
+Host application contracts and the packaged `chat-embed` UI require 0.4.1 or newer;
+they are not included in published 0.4.0 wheels. Install matching Host and Console
+versions when adopting these integration APIs.
 
 Dataset-scoped SQL and persisted SQL result references were introduced in 0.3.4;
 upgrade Host and DataBridge together. Scope enforcement remains opt-in; tools must still

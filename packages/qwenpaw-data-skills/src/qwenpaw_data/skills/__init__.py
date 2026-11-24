@@ -3,7 +3,7 @@
 from importlib.resources import files
 from pathlib import Path
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __all__ = ["bundle_root", "iter_skill_paths", "get_skill_path"]
 
 

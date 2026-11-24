@@ -1,6 +1,6 @@
 # Host application and Console consumer contracts (candidate v1)
 
-These contracts are unreleased and are not part of the published 0.4.0 packages. Workspace package versions remain aligned with the current release baseline; a coordinated release will assign the next version. Until then, consumers must build from the reviewed source revision and pin the resulting wheel by hash rather than relying on the version number alone.
+These contracts target the coordinated 0.4.1 release and are not part of the published 0.4.0 packages. Consumers should install matching Host-core and Console versions from the verified release wheels. Before publication, build from the reviewed source revision and pin the resulting wheel by hash.
 
 ## Trusted installation boundary
 
