@@ -22,7 +22,8 @@ QwenPaw-Data 围绕**事实**、**方法**与**执行**三个核心维度组织�
 
 ## 新闻
 
-- **[2026-11]** 🎉 QwenPaw-Data 在 [DataAgentBench](https://ucbepic.github.io/DataAgentBench/) 通用赛道位列第一，准确率 90.30%（Claude Opus 5.5）。
+- **[2026-11]** 🎉 QwenPaw-Data 在 [DataAgentBench](https://ucbepic.github.io/DataAgentBench/) 通用赛道位列第一：基于 Claude Opus 5.5 取得 90.30%（闭源模型第一），基于 Qwen4-Max 取得 85.62%，基于 Qwen3.8-Max 取得 82.01%（开源模型第一）。
+- **[2026-11]** 🎉 经过 Skill Evolution，QwenPaw-Data 在 [KramaBench](https://arxiv.org/abs/2506.06541) 上的准确率提升至 76.82%，突破人类专家水平（76.75%）。
 - **[2026-07]** 🎉 QwenPaw-Data 在 [KramaBench](https://arxiv.org/abs/2506.06541)（68.32%）和 [DAComp-DA](https://arxiv.org/abs/2512.04324)（62.38%）上位列第一，详见[技术报告](https://arxiv.org/pdf/2607.11019)。
 
 ## QwenPaw-Data 0.4.0
