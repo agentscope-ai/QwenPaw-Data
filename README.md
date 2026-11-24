@@ -18,7 +18,7 @@ Enterprise data analysis is becoming a distinct frontier for autonomous agents. 
 
 QwenPaw-Data organizes its system design around three core dimensions: **facts**, **methodology**, and **execution**. It consolidates heterogeneous enterprise assets from warehouses, dashboards, business documents, interaction logs, and historical tasks into governed and evolvable analytical context, then turns natural-language requests into end-to-end workflows spanning data understanding, retrieval, analysis, report generation, and decision support.
 
-QwenPaw-Data ranks first on [DataAgentBench](https://ucbepic.github.io/DataAgentBench/) (general-purpose track, 90.30%), [KramaBench](https://arxiv.org/abs/2506.06541) (68.32%), and [DAComp-DA](https://arxiv.org/abs/2512.04324) (62.38%).
+🎉 QwenPaw-Data ranks first on [DataAgentBench](https://ucbepic.github.io/DataAgentBench/) (general-purpose track, 90.30%), [KramaBench](https://arxiv.org/abs/2506.06541) (68.32%), and [DAComp-DA](https://arxiv.org/abs/2512.04324) (62.38%).
 
 For a complete system-level overview, see the [Technical Report](https://arxiv.org/pdf/2607.11019).
 
